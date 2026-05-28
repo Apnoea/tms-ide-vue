@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 20">
+  <!-- Контент рисуется динамически в svgInjector.buildTextContent
+       (текст хранится в tms.text). Этот файл — только превью в палитре. -->
+  <text x="4" y="14" font-size="14" font-family="sans-serif" fill="#000">Текст</text>
+</svg>

@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* JointJS Paper по умолчанию inline-block и не растягивается на parent.
+   Делаем block + 100% размер, чтобы заполнял контейнер CanvasPane. */
+.joint-paper {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.joint-paper-background,
+.joint-paper-grid,
+.joint-paper > svg {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* JointJS ставит цвет фона paper-background div'а inline через paper.options.background.
+   Чтобы переключение dark mode работало без пересоздания paper'а — переопределяем CSS-ом
+   с !important. Грид-цвет всё равно зашит в SVG-pattern, его обновляет JS-watch в CanvasPane. */
+.joint-paper-background {
+  background-color: #f8fafc !important;
+}
+.dark .joint-paper-background {
+  background-color: #0f172a !important;
+}
+
+/* Подсветка выделенной ячейки/линии в Inspector'е — в primary-цвете темы
+   (Aura: emerald-500). Прозрачный drop-shadow в базовом состоянии нужен для
+   плавного fade-in/out — иначе CSS не умеет переходить filter: none ↔ drop-shadow. */
+.joint-element,
+.joint-link {
+  filter: drop-shadow(0 0 0 transparent);
+  transition: filter 0.15s ease-out;
+  cursor: pointer;
+}
+/* Hover affordance — нейтральный drop-shadow, чтобы было заметно
+   «вот сейчас кликнешь — выделится». Только когда не выделено (selection приоритетнее). */
+.joint-element:hover:not(.tms-selected),
+.joint-link:hover:not(.tms-selected) {
+  filter: drop-shadow(0 0 2px var(--p-surface-400));
+}
+/* Selected: двойной drop-shadow для более заметной обводки primary-цветом */
+.tms-selected {
+  filter: drop-shadow(0 0 1.5px var(--p-primary-500))
+    drop-shadow(0 0 3px var(--p-primary-500));
+}
+.joint-link .joint-link-line {
+  transition: stroke-width 0.15s ease-out;
+}
+
+/* draw.io-стиль: порты ячейки видны только на hover. Так схема выглядит
+   спокойнее, особенно при экспорте/демонстрации. JointJS magnet-логика
+   во время drag-линии работает по событиям, а не по opacity, поэтому
+   скрытые порты остаются функциональны для рисования связей. */
+.joint-element .joint-port {
+  opacity: 0;
+  transition: opacity 0.12s linear;
+}
+.joint-element:hover .joint-port,
+.joint-element.tms-selected .joint-port {
+  opacity: 1;
+}
+
+/* Prefix-лейбл показываем только при hover/selected — как tooltip. */
+.joint-element .tms-prefix-label {
+  opacity: 0;
+  transition: opacity 0.12s linear;
+}
+.joint-element:hover .tms-prefix-label,
+.joint-element.tms-selected .tms-prefix-label {
+  opacity: 1;
+}
+
+/* Тумбны палитры: SVG стенсила вставляется через v-html и идёт со своими
+   width/height. Переопределяем через CSS, чтобы вписать в 48×48 контейнер
+   с сохранением aspect ratio (за счёт viewBox). */
+.stencil-thumb svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* PrimeVue Splitter gutter имеет tabindex="0" и рисует focus-ring рядом
+   с панелью палитры/инспектора — выглядит как обводка соседнего aside.
+   Сейчас accessibility-keyboard-resize не используется, скрываем кольцо. */
+.p-splitter-gutter:focus,
+.p-splitter-gutter:focus-visible,
+.p-splitterpanel:focus,
+.p-splitterpanel:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Единый focus-visible-outline в primary-цвете для нативных кнопок (footer help)
+   и карточек палитры (role=button + tabindex). PrimeVue компоненты ведут себя сами. */
+button:focus-visible,
+[role='button'][tabindex]:focus-visible {
+  outline: 2px solid var(--p-primary-500);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
