@@ -5,6 +5,7 @@ import {
   buildTextExportSvg,
   buildValueExportSvg,
 } from '../stencils/svgInjector'
+import { ANIMATION_CLASS_COLORS } from '../constants/animation'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
@@ -123,16 +124,24 @@ export function exportProject(graph, paper = null) {
         bold: tms.bold,
       })
     } else if (tms.stencilId === 'cell_value') {
-      cellSvg = buildValueExportSvg(tms.prefix, tms.valueTag || '', size.width, size.height)
-      // Карточка text-анимации: рантайм обновляет содержимое value-элемента
-      // (id=animation-{prefix}) на основе выбранного тега.
+      // Для cell_value с привязанным тегом используем САМ ТЕГ как идентификатор
+      // SVG-элемента и ключа animations.json — это общая конвенция стенсилов
+      // ({prefix}.SUFFIX). Без этого рантайм не цеплял text-update: id вида
+      // `animation-cell_value_2` (auto-prefix) не соответствует ожиданиям.
+      // Без тега fallback'имся на prefix — id всё равно нужен для уникальности.
+      const animId = tms.valueTag || tms.prefix
+      cellSvg = buildValueExportSvg(animId, tms.valueTag || '', size.width, size.height)
       if (tms.valueTag) {
-        animations[`animation-${tms.prefix}`] = {
+        // Конвенция WebScada-рантайма: пустой output.text означает «взять
+        // значение из binding.tag» (т.е. того же тега, что подписан). Поэтому
+        // output.text.from не нужен — рантайм сам подставит. decimals выносим
+        // на уровень output (форматтер вывода).
+        animations[`animation-${animId}`] = {
           animation: 'text',
           bindings: [
             {
               tag: tms.valueTag,
-              output: { text: { from: 'value' }, decimals: 2 },
+              output: { text: {}, decimals: 2 },
             },
           ],
           detailTags: [{ tag: tms.valueTag }],
@@ -144,13 +153,27 @@ export function exportProject(graph, paper = null) {
       Object.assign(animations, inst.animations)
     }
 
+    // animId — идентификатор для внешних SVG-ids (animation-cell-{animId})
+    // и для voltage-карточек. Для cell_value с привязкой = сам тег
+    // (animation-cell-PS031VV001.IB), у остальных = prefix.
+    const animId =
+      tms.stencilId === 'cell_value' && tms.valueTag ? tms.valueTag : tms.prefix
     cellExports.push({
+      cellId: cell.id, // нужен для data-tms-meta + связей в проводах
       x: pos.x,
       y: pos.y,
+      width: size.width,
+      height: size.height,
       stencilId: tms.stencilId,
       prefix: tms.prefix,
+      animId,
       svgContent: cellSvg,
       voltageSource: tms.voltageSource || null,
+      // Cтенсило-специфичные поля для round-trip восстановления редактором
+      text: tms.text,
+      fontSize: tms.fontSize,
+      bold: tms.bold,
+      valueTag: tms.valueTag,
     })
 
     minX = Math.min(minX, pos.x)
@@ -224,10 +247,17 @@ export function exportProject(graph, paper = null) {
     }
 
     const linkTms = link.get('tms') || {}
+    const sourceRef = link.get('source')
+    const targetRef = link.get('target')
     linkExports.push({
       id: wireId,
+      linkId: link.id, // JointJS-id для round-trip восстановления редактором
       d: pathD,
       voltageSource: linkTms.voltageSource || null,
+      // Endpoint-references для редактора: какие именно ячейки/порты соединены.
+      // Эти данные ИЗ source/target в JointJS-модели, не из геометрии пути.
+      source: sourceRef ? { id: sourceRef.id, port: sourceRef.port } : null,
+      target: targetRef ? { id: targetRef.id, port: targetRef.port } : null,
     })
   }
 
@@ -257,11 +287,12 @@ export function exportProject(graph, paper = null) {
   for (const c of cellExports) {
     if (!c.voltageSource?.tag) continue
     const voltageCard = buildVoltageCard(c.voltageSource)
-    animations[`animation-cell-${c.prefix}`] = voltageCard
+    animations[`animation-cell-${c.animId}`] = voltageCard
 
+    // merge в стенсильные anim-cards с тем же prefix'ом (cell_vk's .VK и т.д.)
     const prefixKey = `animation-${c.prefix}`
     for (const key of Object.keys(animations)) {
-      if (key === `animation-cell-${c.prefix}`) continue
+      if (key === `animation-cell-${c.animId}`) continue
       if (animations[key].animation === 'text') continue
       if (!key.startsWith(prefixKey + '.')) continue
       animations[key].bindings = [
@@ -276,12 +307,24 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── SVG-фрагменты ───
+  // data-tms-meta — авторитетный источник для редактора при обратной загрузке
+  // SVG: содержит JointJS-id, source/target-refs для проводов, размеры и
+  // tms-payload для ячеек. Рантайм атрибут игнорирует.
+  const escapeAttr = (s) =>
+    String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+
   // Линии — первыми (фон), ячейки сверху, чтобы цеплялись к портам
   const lines = linkExports
-    .map(
-      (l) =>
-        `  <path id="${l.id}" d="${l.d}" stroke="#000" stroke-width="2" fill="none"/>`
-    )
+    .map((l) => {
+      const meta = {
+        id: l.linkId,
+        source: l.source,
+        target: l.target,
+      }
+      if (l.voltageSource) meta.voltageSource = l.voltageSource
+      const metaAttr = escapeAttr(JSON.stringify(meta))
+      return `  <path id="${l.id}" d="${l.d}" stroke="#000" stroke-width="2" fill="none" data-tms-meta="${metaAttr}"/>`
+    })
     .join('\n')
 
   const groups = cellExports
@@ -292,7 +335,20 @@ export function exportProject(graph, paper = null) {
       for (const child of Array.from(sourceRoot.children)) {
         inner += new XMLSerializer().serializeToString(child)
       }
-      return `  <g id="animation-cell-${c.prefix}" transform="translate(${c.x},${c.y})" data-tms-stencil="${c.stencilId}" data-tms-object="${c.prefix}">${inner}</g>`
+      const meta = {
+        id: c.cellId,
+        stencilId: c.stencilId,
+        prefix: c.prefix,
+        width: c.width,
+        height: c.height,
+      }
+      if (c.text !== undefined) meta.text = c.text
+      if (c.fontSize !== undefined) meta.fontSize = c.fontSize
+      if (c.bold !== undefined) meta.bold = c.bold
+      if (c.valueTag !== undefined) meta.valueTag = c.valueTag
+      if (c.voltageSource) meta.voltageSource = c.voltageSource
+      const metaAttr = escapeAttr(JSON.stringify(meta))
+      return `  <g id="animation-cell-${c.animId}" transform="translate(${c.x},${c.y})" data-tms-stencil="${c.stencilId}" data-tms-object="${c.prefix}" data-tms-meta="${metaAttr}">${inner}</g>`
     })
     .join('\n')
 
@@ -315,16 +371,16 @@ export function exportProject(graph, paper = null) {
     /* Stroke красим всем потомкам КРОМЕ text — у текста stroke по дефолту "none",
        и добавление цветного контура на мелких шрифтах визуально читается как
        перекраска самого текста. Цвет текста управляется только через fill ниже. */
-    .animation-low,  .animation-low  *:not(text) { stroke: green  !important; }
-    .animation-mid,  .animation-mid  *:not(text) { stroke: orange !important; }
-    .animation-high, .animation-high *:not(text) { stroke: red    !important; }
+${Object.entries(ANIMATION_CLASS_COLORS)
+  .map(([cls, hex]) => `    .${cls}, .${cls} *:not(text) { stroke: ${hex} !important; }`)
+  .join('\n')}
     /* Fill — opt-in: красим только элементы с классом tms-voltage-fill, чтобы заливка
        не закрывала информационные элементы (текст значений, фоны рамок).
        Стенсилы, которым нужна цветная заливка (шина, текст), помечают свои элементы
        этим классом сами в экспортном SVG. */
-    .animation-low  .tms-voltage-fill, .animation-low.tms-voltage-fill   { fill: green  !important; }
-    .animation-mid  .tms-voltage-fill, .animation-mid.tms-voltage-fill   { fill: orange !important; }
-    .animation-high .tms-voltage-fill, .animation-high.tms-voltage-fill  { fill: red    !important; }
+${Object.entries(ANIMATION_CLASS_COLORS)
+  .map(([cls, hex]) => `    .${cls} .tms-voltage-fill, .${cls}.tms-voltage-fill { fill: ${hex} !important; }`)
+  .join('\n')}
     .animation-off { opacity: 0.4; }
     ]]>
   </style>`

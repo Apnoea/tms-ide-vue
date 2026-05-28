@@ -2,6 +2,6 @@
   <!-- Контент шины рисуется динамически в svgInjector.buildBusContent
        (зависит от текущей ширины cell'а). Этот файл — только превью в палитре. -->
   <rect x="6" y="0" width="68" height="8" fill="#000"/>
-  <rect x="0" y="-2" width="6" height="12" fill="#10b981"/>
-  <rect x="74" y="-2" width="6" height="12" fill="#10b981"/>
+  <rect x="0" y="-2" width="6" height="12" fill="#06b6d4"/>
+  <rect x="74" y="-2" width="6" height="12" fill="#06b6d4"/>
 </svg>

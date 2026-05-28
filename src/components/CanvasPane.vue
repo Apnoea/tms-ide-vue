@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { dia, shapes } from '@joint/core'
 import Button from 'primevue/button'
+import ContextMenu from 'primevue/contextmenu'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
 import { getStencilById } from '../stencils/registry'
@@ -11,13 +12,26 @@ import {
   computeBusPorts,
   busPortX,
   desiredBusPortCount,
+  TEXT_FONT_SIZE,
+  TEXT_PADDING_X,
+  textCellHeight,
+  textCellWidth,
 } from '../stencils/svgInjector'
+import { LINK_DEFAULTS } from '../stencils/linkDefaults'
 import { exportProject, downloadFile } from '../services/exporter'
+import { parseSvgProject } from '../services/projectLoader'
 import { getEligiblePrefixes, getUsedPrefixes } from '../stencils/tagMatching'
+import {
+  ANIMATION_CLASS_COLORS,
+  ANIMATION_CLASS_OPTIONS,
+  createDefaultVoltageConfig,
+} from '../constants/animation'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from '../composables/useCanvas'
 import { nplural } from '../utils/plural'
+import { computeBridgeLinks } from '../utils/bridgeLinks'
+import { TOAST_LIFE } from '../constants/toast'
 import PrefixPickerDialog from './PrefixPickerDialog.vue'
 import TagPickerDialog from './TagPickerDialog.vue'
 
@@ -48,7 +62,7 @@ const TMSStencil = dia.Element.define(
             portBody: {
               r: 3,
               fill: '#ffffff',
-              stroke: '#10b981',
+              stroke: '#06b6d4', // cyan-500 (= primary темы)
               strokeWidth: 1,
               magnet: 'active',
               cursor: 'crosshair',
@@ -93,30 +107,12 @@ let dragSnapshot = null
 let activeResize = null
 
 /**
- * Возвращает массив link-items, оба конца которых лежат в наборе cellIds.
- * Используется чтобы автоматически добавлять «мостовые» линии в выделение
- * при multi-select ячеек (лассо, Ctrl-клик).
- */
-function computeBridgeLinks(cellIds) {
-  if (!graph) return []
-  const set = new Set(cellIds)
-  const out = []
-  for (const link of graph.getLinks()) {
-    const s = link.get('source')?.id
-    const t = link.get('target')?.id
-    if (s && t && set.has(s) && set.has(t)) {
-      out.push({ kind: 'link', id: link.id })
-    }
-  }
-  return out
-}
-
-/**
  * Заменяет выделение на cells + автодобавленные «мостовые» линии между ними.
+ * computeBridgeLinks вынесен в utils/bridgeLinks.js — общая логика c useCanvas.
  */
 function selectCellsWithBridges(cellItems) {
   const cellIds = cellItems.map((c) => c.id)
-  const bridges = computeBridgeLinks(cellIds)
+  const bridges = computeBridgeLinks(graph, cellIds)
   canvas.setSelection([...cellItems, ...bridges])
 }
 
@@ -319,6 +315,19 @@ function nextPrefix(stencilId) {
   return `${stencilId}_${n}`
 }
 
+/**
+ * Доступные prefix'ы для стенсила: пересечение eligible (по tagPattern и
+ * required-суффиксам) и не-used (по существующим ячейкам того же стенсила).
+ * exclude — prefix, который надо ОСТАВИТЬ доступным (для смены prefix'а
+ * текущей ячейки, чтобы её собственный не попал в used).
+ */
+function findAvailablePrefixes(stencil, stencilId, exclude = null) {
+  if (!graph || !stencil) return []
+  const used = getUsedPrefixes(graph, stencilId)
+  if (exclude) used.delete(exclude)
+  return getEligiblePrefixes(stencil, project.tags, used)
+}
+
 onMounted(async () => {
   if (!paperContainer.value) return
 
@@ -354,25 +363,7 @@ onMounted(async () => {
     // а не подгоняется под boundary магнита (тогда был бы offset = portRadius).
     // Применяется ко ВСЕМ линиям, независимо от source/target — на paper-уровне.
     defaultConnectionPoint: { name: 'anchor' },
-    defaultLink: () =>
-      new shapes.standard.Link({
-        // manhattan-router строит ортогональные пути, ИЗБЕГАЯ ячеек.
-        // step должен совпадать с gridSize холста, чтобы линии ложились на сетку.
-        router: {
-          name: 'manhattan',
-          args: { padding: 10, step: 10 },
-        },
-        // Углы на изгибах острые — без скругления.
-        connector: { name: 'normal' },
-        attrs: {
-          line: {
-            stroke: '#000',
-            strokeWidth: 2,
-            targetMarker: { type: 'none' },
-            sourceMarker: { type: 'none' },
-          },
-        },
-      }),
+    defaultLink: () => new shapes.standard.Link(LINK_DEFAULTS),
     validateConnection: (sourceView, sourceMagnet, targetView, targetMagnet, _end, linkView) => {
       // запрещаем «на себя» и в воздух (targetMagnet нужен)
       if (sourceView === targetView) return false
@@ -499,6 +490,34 @@ onMounted(async () => {
     dragSnapshot = null
   })
 
+  // Double-click по cell_text — открыть inline-редактор поверх ячейки.
+  paper.on('element:pointerdblclick', (elementView) => {
+    const tms = elementView.model.get('tms') || {}
+    if (tms.stencilId === 'cell_text') startTextEdit(elementView.model.id)
+  })
+
+  // Hover-tooltip: показываем над ячейкой при mouseenter, прячем при leave.
+  // Также скрываем на pointerdown (drag/select), чтобы не висел поверх drag'а.
+  paper.on('element:mouseenter', showCellTooltip)
+  paper.on('element:mouseleave', hideCellTooltip)
+  paper.on('element:pointerdown', hideCellTooltip)
+  paper.on('blank:pointerdown', hideCellTooltip)
+
+  // Context menu: правый клик по ячейке / проводу / пустому месту. JointJS
+  // сам подавляет нативный browser-контекстменю на своём paper-уровне.
+  paper.on('element:contextmenu', (view, evt) => {
+    hideCellTooltip()
+    showContextMenu({ kind: 'cell', id: view.model.id }, evt)
+  })
+  paper.on('link:contextmenu', (view, evt) => {
+    hideCellTooltip()
+    showContextMenu({ kind: 'link', id: view.model.id }, evt)
+  })
+  paper.on('blank:contextmenu', (evt) => {
+    hideCellTooltip()
+    showContextMenu(null, evt)
+  })
+
   // ─── Graph change tracking (для Inspector computed-ов) ───
   graph.on('change add remove', () => canvas.bumpVersion())
 
@@ -532,8 +551,12 @@ onMounted(async () => {
 
   // Прокидываем graph/paper в composable, чтобы Inspector мог читать
   canvas.setCanvasRefs(graph, paper)
+  // Регистрируем функции импорта/экспорта чтобы AppHeader мог их триггерить
+  canvas.setImportFromSvgFn(importFromSvgText)
+  canvas.setExportFn(onExport)
 
   window.addEventListener('keydown', onKeyDown)
+  document.addEventListener('mousedown', onTextEditOutside, true)
 
   // Сообщаем о восстановлении уже после монтирования (toast service готов)
   if (restored > 0) {
@@ -541,7 +564,7 @@ onMounted(async () => {
       severity: 'info',
       summary: 'Автосейв восстановлен',
       detail: `${nplural(restored, 'ячейка', 'ячейки', 'ячеек')} с прошлой сессии`,
-      life: 3500,
+      life: TOAST_LIFE.NORMAL,
     })
   }
 })
@@ -684,6 +707,10 @@ watch(
       const view = paper.findViewByModel(cell)
       view?.el?.classList.add('tms-selected')
     }
+    // Inline-× реализован как HTML-overlay (см. deleteBtnStyle в template).
+    // Раньше использовали JointJS elementTools.Remove, но они кэшируют bbox
+    // после addTools и не пересчитывают положение при cell.resize — × «застревал»
+    // на старой позиции после ресайза cell_text / cell_bus.
   },
   { deep: true }
 )
@@ -740,6 +767,62 @@ function onKeyDown(event) {
     return
   }
 
+  // Ctrl/Cmd+S — сохранить (= экспорт view.svg + animations.json).
+  if ((event.ctrlKey || event.metaKey) && event.code === 'KeyS') {
+    if (isFocusInInput(event.target)) return
+    event.preventDefault()
+    event.stopPropagation()
+    onExport()
+    return
+  }
+
+  // Ctrl/Cmd+O — открыть SVG-проект (хоткей в CanvasPane, но действие живёт
+  // в AppHeader.openProjectSvg, поэтому шлём custom-event на window).
+  if ((event.ctrlKey || event.metaKey) && event.code === 'KeyO') {
+    if (isFocusInInput(event.target)) return
+    event.preventDefault()
+    event.stopPropagation()
+    window.dispatchEvent(new CustomEvent('tms-open-project'))
+    return
+  }
+
+  // Ctrl/Cmd+C — копировать выделение в внутренний буфер
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.code === 'KeyC') {
+    if (isFocusInInput(event.target)) return
+    event.preventDefault()
+    event.stopPropagation()
+    copySelection()
+    return
+  }
+
+  // Ctrl/Cmd+V — вставить из буфера со сдвигом
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.code === 'KeyV') {
+    if (isFocusInInput(event.target)) return
+    event.preventDefault()
+    event.stopPropagation()
+    pasteClipboard()
+    return
+  }
+
+  // Ctrl/Cmd+D — дублировать выделение (= C+V в одно действие, не трогая буфер)
+  if ((event.ctrlKey || event.metaKey) && event.code === 'KeyD') {
+    if (isFocusInInput(event.target)) return
+    event.preventDefault()
+    event.stopPropagation()
+    duplicateSelection()
+    return
+  }
+
+  // Ctrl/Cmd+A — выделить все ячейки + bridge-линии между ними
+  if ((event.ctrlKey || event.metaKey) && event.code === 'KeyA') {
+    if (isFocusInInput(event.target)) return
+    if (!graph) return
+    event.preventDefault()
+    event.stopPropagation()
+    canvas.selectAllCells()
+    return
+  }
+
   // Escape — снять выделение. Открытые PrimeVue-диалоги закрываются сами
   // (close-on-escape), так что вешать stopPropagation не надо.
   if (event.key === 'Escape') {
@@ -793,11 +876,16 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerup', onDragPointerUp)
   window.removeEventListener('blur', onDragCancel)
   window.removeEventListener('keydown', onKeyDown)
+  document.removeEventListener('mousedown', onTextEditOutside, true)
   // Отложенные таймеры: после unmount graph=null, их колбэки безвредны (guard'ы),
   // но чистим, чтобы не держать ссылки на функции компонента.
   clearTimeout(snapshotTimer)
   clearTimeout(savedFlashTimer)
+  clearInterval(simIntervalId)
+  simIntervalId = null
   canvas.clearCanvasRefs()
+  canvas.setImportFromSvgFn(null)
+  canvas.setExportFn(null)
   paper?.remove()
   paper = null
   graph = null
@@ -837,6 +925,7 @@ function onWheel(event) {
   paper.translate(tx + dx, ty + dy)
 
   zoomPercent.value = Math.round(newScale * 100)
+  canvas.bumpPaperView()
 }
 
 function onPanStart(event) {
@@ -856,6 +945,7 @@ function onPanMove(event) {
   const dx = event.clientX - panStart.clientX
   const dy = event.clientY - panStart.clientY
   paper.translate(panStart.tx + dx, panStart.ty + dy)
+  canvas.bumpPaperView()
 }
 
 function onPanEnd() {
@@ -943,6 +1033,7 @@ function fitToContent() {
     paper.scale(1, 1)
     paper.translate(0, 0)
     zoomPercent.value = 100
+    canvas.bumpPaperView()
     return
   }
 
@@ -971,6 +1062,7 @@ function fitToContent() {
   }
 
   zoomPercent.value = Math.round(paper.scale().sx * 100)
+  canvas.bumpPaperView()
 }
 
 /**
@@ -1013,9 +1105,19 @@ function createStencilAt(stencilId, x, y, forcedPrefix = null, extraTms = null) 
   if (stencilId === 'cell_value') tms.valueTag = ''
   if (extraTms) Object.assign(tms, extraTms)
 
+  // cell_text — размер подгоняем под фактический текст, иначе остаётся
+  // широкая пустая bbox с inline-X в правом верхнем углу далеко от текста.
+  let cellWidth = stencil.width
+  let cellHeight = stencil.height
+  if (stencilId === 'cell_text') {
+    const fz = tms.fontSize ?? TEXT_FONT_SIZE
+    cellWidth = textCellWidth(tms.text ?? '', fz, !!tms.bold)
+    cellHeight = textCellHeight(fz)
+  }
+
   const cell = new TMSStencil({
     position: { x: finalX, y: finalY },
-    size: { width: stencil.width, height: stencil.height },
+    size: { width: cellWidth, height: cellHeight },
     tms,
     ports: { items: portItems },
   })
@@ -1033,6 +1135,13 @@ const cursorX = ref(-1000)
 const cursorY = ref(-1000)
 
 const previewVisible = computed(() => ui.dragging !== null && cursorX.value >= 0)
+
+// SVG-миниатюра для preview-overlay'я при drag'е из палитры — берём ту же
+// svgText, что показывается в палитре. Достаём через registry по stencilId.
+const draggingStencilSvg = computed(() => {
+  const id = ui.dragging?.stencilId
+  return id ? getStencilById(id)?.svgText || '' : ''
+})
 const previewStyle = computed(() => {
   if (!ui.dragging) return {}
   // Масштабируем превью под текущий zoom paper'а — иначе при увеличении/уменьшении
@@ -1129,16 +1238,139 @@ function clearPreview() {
   ui.stopDragging()
 }
 
-// ─── Prefix picker state (открывается при drop'е, если tag-list загружен) ───
+// ─── Prefix picker state (открывается при drop'е или при смене prefix'а
+//     через context-menu существующей ячейки). Discriminator — pickerIntent. ───
 const pickerOpen = ref(false)
 const pickerOptions = ref([])
 const pickerStencilLabel = ref('')
 const pickerTagSuffixes = ref([])
+const pickerIntent = ref(null) // 'drop' | 'change-prefix'
 const pendingDrop = ref(null) // { stencilId, x, y }
+const pendingPrefixChange = ref(null) // { cellId, stencilId }
 
 // ─── Tag picker state (для cell_value: выбор отображаемого полного тега) ───
 const valueTagPickerOpen = ref(false)
 const pendingValueDrop = ref(null) // { stencilId, x, y }
+
+// ─── Tag picker для context-menu «Тег источника напряжения…» ───
+// Применяется к одной выбранной правым кликом ячейке/проводу (ctxVoltageTarget).
+const ctxVoltageTagPickerOpen = ref(false)
+const ctxVoltageTarget = ref(null) // { kind, id } | null
+
+// ─── Context menu state ───
+// ctxTarget — что под правым кликом ({kind,id} | null для blank).
+// items вычисляются по таргету: для cell/link разные наборы, для blank — paste.
+const ctxMenuRef = ref(null)
+const ctxTarget = ref(null)
+
+const ctxItems = computed(() => {
+  const t = ctxTarget.value
+  // Blank: только paste, и только если в буфере что-то есть
+  if (!t) {
+    if (!clipboard.cells.length) return []
+    return [
+      {
+        label: 'Вставить',
+        icon: 'pi pi-clone',
+        command: pasteClipboard,
+      },
+    ]
+  }
+
+  const cell = graph?.getCell(t.id)
+  if (!cell) return []
+
+  if (t.kind === 'cell') {
+    const tms = cell.get('tms') || {}
+    const stencil = getStencilById(tms.stencilId)
+    const hasPrefix = !!tms.prefix && (stencil?.tagSuffixes?.length || 0) > 0
+    const items = [
+      {
+        label: 'Дублировать',
+        icon: 'pi pi-copy',
+        command: () => runOnTarget(t, duplicateSelection),
+      },
+      {
+        label: 'Скопировать',
+        icon: 'pi pi-clone',
+        command: () => runOnTarget(t, copySelection),
+      },
+      { separator: true },
+      {
+        label: 'Тег источника напряжения…',
+        icon: 'pi pi-flash',
+        disabled: !project.tags.length,
+        command: () => {
+          ctxVoltageTarget.value = t
+          ctxVoltageTagPickerOpen.value = true
+        },
+      },
+    ]
+    if (hasPrefix) {
+      items.push({
+        label: 'Сменить prefix…',
+        icon: 'pi pi-pencil',
+        disabled: !project.tags.length,
+        command: () => openChangePrefixPicker(t.id),
+      })
+    }
+    items.push({ separator: true })
+    items.push({
+      label: 'Удалить',
+      icon: 'pi pi-trash',
+      command: () => removeCells([t]),
+    })
+    return items
+  }
+
+  if (t.kind === 'link') {
+    return [
+      {
+        label: 'Тег источника напряжения…',
+        icon: 'pi pi-flash',
+        disabled: !project.tags.length,
+        command: () => {
+          ctxVoltageTarget.value = t
+          ctxVoltageTagPickerOpen.value = true
+        },
+      },
+      { separator: true },
+      {
+        label: 'Удалить',
+        icon: 'pi pi-trash',
+        command: () => removeCells([t]),
+      },
+    ]
+  }
+  return []
+})
+
+/** Выделяет target (если не выделено) и запускает функцию, работающую через selection. */
+function runOnTarget(target, fn) {
+  if (!canvas.isSelected(target.id)) {
+    canvas.selectOnly(target.kind, target.id)
+  }
+  fn()
+}
+
+function removeCells(items) {
+  if (!graph) return
+  for (const it of items) graph.getCell(it.id)?.remove()
+  canvas.clearSelection()
+}
+
+/** Показать context-menu для целевого элемента. Также выделяет target,
+ *  если он не был выделен — стандартный editor-pattern. */
+function showContextMenu(target, evt) {
+  if (target && !canvas.isSelected(target.id)) {
+    canvas.selectOnly(target.kind, target.id)
+  }
+  ctxTarget.value = target
+  // PrimeVue ContextMenu.show(MouseEvent) — позиция от clientX/Y
+  ctxMenuRef.value?.show(evt)
+  // На всякий случай — JointJS обычно сам preventDefault'ит, но дублируем
+  if (evt && typeof evt.preventDefault === 'function') evt.preventDefault()
+}
 
 /**
  * Размещает стенсил в точке (paper-координаты). Решает, нужен ли picker
@@ -1176,10 +1408,7 @@ function placeStencil(stencilId, point) {
   }
 
   // Tag-list есть → находим подходящие prefix'ы.
-  // used фильтруем по stencilId, чтобы разные стенсилы могли сидеть на одном
-  // логическом объекте (на одном prefix'е, если у них непересекающиеся суффиксы).
-  const used = getUsedPrefixes(graph, stencilId)
-  const eligible = getEligiblePrefixes(stencil, project.tags, used)
+  const eligible = findAvailablePrefixes(stencil, stencilId)
 
   if (eligible.length === 0) {
     console.warn(
@@ -1195,6 +1424,7 @@ function placeStencil(stencilId, point) {
   }
 
   // Несколько вариантов — показываем picker
+  pickerIntent.value = 'drop'
   pendingDrop.value = { stencilId, x: point.x, y: point.y }
   pickerOptions.value = eligible
   pickerStencilLabel.value = stencil.label
@@ -1203,14 +1433,88 @@ function placeStencil(stencilId, point) {
 }
 
 function onPickerSelect(prefix) {
-  const p = pendingDrop.value
-  if (!p) return
-  createStencilAt(p.stencilId, p.x, p.y, prefix)
-  pendingDrop.value = null
+  if (pickerIntent.value === 'change-prefix') {
+    const p = pendingPrefixChange.value
+    if (p) applyPrefixChangeFromCtx(p.cellId, prefix)
+    pendingPrefixChange.value = null
+  } else {
+    const p = pendingDrop.value
+    if (p) createStencilAt(p.stencilId, p.x, p.y, prefix)
+    pendingDrop.value = null
+  }
+  pickerIntent.value = null
 }
 
 function onPickerCancel() {
   pendingDrop.value = null
+  pendingPrefixChange.value = null
+  pickerIntent.value = null
+}
+
+/** Применить новый prefix к существующей ячейке + перерисовать SVG-контент. */
+function applyPrefixChangeFromCtx(cellId, newPrefix) {
+  if (!graph || !paper || !newPrefix) return
+  const cell = graph.getCell(cellId)
+  if (!cell) return
+  const tms = cell.get('tms') || {}
+  if (tms.prefix === newPrefix) return
+  const stencil = getStencilById(tms.stencilId)
+  if (!stencil) return
+  cell.set('tms', { ...tms, prefix: newPrefix })
+  const cellView = paper.findViewByModel(cell)
+  if (cellView) injectStencilSvg(cellView, stencil, newPrefix)
+  canvas.bumpVersion()
+  scheduleSnapshot()
+}
+
+/** Открыть picker смены prefix'а для текущей выделенной правым кликом ячейки. */
+function openChangePrefixPicker(cellId) {
+  if (!graph) return
+  const cell = graph.getCell(cellId)
+  if (!cell) return
+  const tms = cell.get('tms') || {}
+  const stencil = getStencilById(tms.stencilId)
+  if (!stencil || !stencil.tagSuffixes?.length) return
+
+  const eligible = findAvailablePrefixes(stencil, tms.stencilId, tms.prefix)
+  if (!eligible.length) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Нет вариантов',
+      detail: 'В tag-list\'е нет свободных подходящих prefix\'ов',
+      life: TOAST_LIFE.NORMAL,
+    })
+    return
+  }
+
+  pickerIntent.value = 'change-prefix'
+  pendingPrefixChange.value = { cellId, stencilId: tms.stencilId }
+  pickerOptions.value = eligible
+  pickerStencilLabel.value = stencil.label
+  pickerTagSuffixes.value = stencil.tagSuffixes || []
+  pickerOpen.value = true
+}
+
+/** Применить voltage-source { tag, defaultRanges } к одной ячейке/проводу. */
+function onPickCtxVoltageTag(tag) {
+  const target = ctxVoltageTarget.value
+  if (!graph || !target || !tag) return
+  const cell = graph.getCell(target.id)
+  if (!cell) return
+  const tms = cell.get('tms') || {}
+  cell.set('tms', {
+    ...tms,
+    voltageSource: createDefaultVoltageConfig(tag),
+  })
+  ctxVoltageTarget.value = null
+  canvas.bumpVersion()
+  scheduleSnapshot()
+  toast.add({
+    severity: 'success',
+    summary: 'Источник привязан',
+    detail: `Тег ${tag}`,
+    life: TOAST_LIFE.SHORT,
+  })
 }
 
 function onValueTagPickerSelect(tag) {
@@ -1273,11 +1577,613 @@ function performClearCanvas(count) {
     severity: 'info',
     summary: 'Холст очищен',
     detail: `Удалено ${nplural(count, 'элемент', 'элемента', 'элементов')}`,
-    life: 2500,
+    life: TOAST_LIFE.SHORT,
   })
 }
 
+// ─── Copy / Paste / Duplicate ячеек + bridge-проводов ───
+// Внутренний буфер: { cells: [...], links: [...] }. Не уходит в нативный
+// clipboard (не вставится в другую вкладку), теряется на F5. Достаточно для
+// «продублировал кусок схемы внутри одного сеанса».
+//
+// Bridge-провода — линии, у которых ОБА конца лежат в копируемом наборе ячеек.
+// Их source/target id'ы на paste'е перевешиваются на новые ячейки через
+// oldId → newId маппинг.
+let clipboard = { cells: [], links: [] }
+
+function snapshotCell(item) {
+  const c = graph?.getCell(item.id)
+  if (!c) return null
+  const tms = c.get('tms') || {}
+  const pos = c.get('position')
+  const size = c.get('size')
+  // prefix намеренно стираем — на paste'е выделим новый из tag-list'а или
+  // через nextPrefix-fallback (для безпрефиксных стенсилов вроде cell_text).
+  const { prefix: _omit, ...rest } = tms
+  return {
+    oldId: c.id,
+    stencilId: tms.stencilId,
+    tms: rest,
+    position: { x: pos.x, y: pos.y },
+    size: { width: size.width, height: size.height },
+  }
+}
+
+/** Собирает снимки всех bridge-линий между cellIds (оба конца внутри набора). */
+function collectBridgeLinkSnaps(cellIds) {
+  if (!graph) return []
+  const set = new Set(cellIds)
+  const out = []
+  for (const link of graph.getLinks()) {
+    const s = link.get('source')?.id
+    const t = link.get('target')?.id
+    if (!s || !t || !set.has(s) || !set.has(t)) continue
+    out.push({
+      sourceCellId: s,
+      targetCellId: t,
+      // toJSON сохраняет всё: type, router, attrs, tms (с voltageSource).
+      // На paste'е id обнуляется, source/target.id перевешиваются.
+      json: link.toJSON(),
+    })
+  }
+  return out
+}
+
+function pasteSnapshots(snaps) {
+  if (!graph || !paper || !snaps.cells.length) {
+    return { added: 0, skipped: 0, linksAdded: 0 }
+  }
+  const offset = 20
+  // Накопитель prefix'ов, выданных в текущей операции paste — чтобы две копии
+  // одного стенсила в одной пачке не получили одинаковый prefix.
+  const usedByStencil = new Map()
+  const oldToNew = new Map()
+  const newCellIds = []
+  let skipped = 0
+
+  for (const snap of snaps.cells) {
+    const stencil = getStencilById(snap.stencilId)
+    if (!stencil) {
+      skipped++
+      continue
+    }
+
+    let prefix = null
+    if (stencil.tagPattern && stencil.tagSuffixes?.length) {
+      // claimed — prefix'ы, уже занятые в ЭТОЙ пачке paste'а (graph их ещё не
+      // знает, поэтому отдельный set'ом). findAvailablePrefixes сам учтёт graph'овые.
+      const claimed = usedByStencil.get(snap.stencilId) || new Set()
+      const eligible = findAvailablePrefixes(stencil, snap.stencilId).filter(
+        (p) => !claimed.has(p)
+      )
+      if (!eligible.length) {
+        skipped++
+        continue
+      }
+      prefix = eligible[0]
+      claimed.add(prefix)
+      usedByStencil.set(snap.stencilId, claimed)
+    } else {
+      prefix = nextPrefix(snap.stencilId)
+    }
+
+    const g = paper.options.gridSize
+    const finalX = Math.round((snap.position.x + offset) / g) * g
+    const finalY = Math.round((snap.position.y + offset) / g) * g
+
+    const portItems =
+      snap.stencilId === 'cell_bus'
+        ? computeBusPorts(snap.size.width, snap.size.height)
+        : (stencil.ports || []).map((p) => ({
+            id: p.name,
+            group: 'port',
+            args: { x: p.x, y: p.y },
+          }))
+
+    const cell = new TMSStencil({
+      position: { x: finalX, y: finalY },
+      size: snap.size,
+      tms: { ...snap.tms, stencilId: snap.stencilId, prefix },
+      ports: { items: portItems },
+    })
+    graph.addCell(cell)
+    oldToNew.set(snap.oldId, cell.id)
+    newCellIds.push(cell.id)
+
+    const cellView = paper.findViewByModel(cell)
+    if (cellView) injectStencilSvg(cellView, stencil, prefix)
+  }
+
+  // Восстанавливаем bridge-линии: id ячеек перевешиваем через oldToNew,
+  // port-id'ы остаются те же (новые ячейки того же стенсила имеют такие же порты).
+  // Если какая-то из двух ячеек пропустилась (нет prefix'а) — линию тоже скипаем.
+  let linksAdded = 0
+  const newLinkItems = []
+  for (const linkSnap of snaps.links) {
+    const newSrcId = oldToNew.get(linkSnap.sourceCellId)
+    const newTgtId = oldToNew.get(linkSnap.targetCellId)
+    if (!newSrcId || !newTgtId) continue
+    const linkData = JSON.parse(JSON.stringify(linkSnap.json))
+    delete linkData.id // JointJS назначит новый
+    linkData.source = { ...linkData.source, id: newSrcId }
+    linkData.target = { ...linkData.target, id: newTgtId }
+    const linkModel = graph.addCell(linkData)
+    if (linkModel) {
+      newLinkItems.push({ kind: 'link', id: linkModel.id })
+      linksAdded++
+    }
+  }
+
+  if (newCellIds.length) {
+    canvas.setSelection([
+      ...newCellIds.map((id) => ({ kind: 'cell', id })),
+      ...newLinkItems,
+    ])
+    scheduleSnapshot()
+  }
+  return { added: newCellIds.length, skipped, linksAdded }
+}
+
+/** Формирует строку для toast'а: «3 ячейки + 2 провода» или варианты. */
+function describePasted(added, linksAdded, skipped) {
+  const parts = [nplural(added, 'ячейка', 'ячейки', 'ячеек')]
+  if (linksAdded > 0) {
+    parts.push(nplural(linksAdded, 'провод', 'провода', 'проводов'))
+  }
+  let out = parts.join(' + ')
+  if (skipped > 0) out += ` · пропущено: ${skipped}`
+  return out
+}
+
+function copySelection() {
+  if (!graph) return
+  const cellSel = canvas.selection.value.filter((s) => s.kind === 'cell')
+  if (!cellSel.length) {
+    toast.add({
+      severity: 'info',
+      summary: 'Нечего копировать',
+      detail: 'Выдели хотя бы одну ячейку',
+      life: TOAST_LIFE.SHORT,
+    })
+    return
+  }
+  const cellIds = cellSel.map((s) => s.id)
+  clipboard = {
+    cells: cellSel.map(snapshotCell).filter(Boolean),
+    links: collectBridgeLinkSnaps(cellIds),
+  }
+  toast.add({
+    severity: 'success',
+    summary: 'Скопировано',
+    detail: clipboard.links.length
+      ? `${nplural(clipboard.cells.length, 'ячейка', 'ячейки', 'ячеек')} + ${nplural(clipboard.links.length, 'провод', 'провода', 'проводов')}`
+      : nplural(clipboard.cells.length, 'ячейка', 'ячейки', 'ячеек'),
+    life: TOAST_LIFE.SHORT,
+  })
+}
+
+function pasteClipboard() {
+  if (!clipboard.cells.length) {
+    toast.add({
+      severity: 'info',
+      summary: 'Буфер пуст',
+      detail: 'Скопируй ячейки через Ctrl+C',
+      life: TOAST_LIFE.SHORT,
+    })
+    return
+  }
+  const { added, skipped, linksAdded } = pasteSnapshots(clipboard)
+  if (added) {
+    toast.add({
+      severity: 'success',
+      summary: 'Вставлено',
+      detail: describePasted(added, linksAdded, skipped),
+      life: TOAST_LIFE.SHORT,
+    })
+  } else {
+    toast.add({
+      severity: 'warn',
+      summary: 'Не удалось вставить',
+      detail: 'Нет свободных prefix\'ов в tag-list для копий',
+      life: TOAST_LIFE.NORMAL,
+    })
+  }
+}
+
+function duplicateSelection() {
+  if (!graph) return
+  const cellSel = canvas.selection.value.filter((s) => s.kind === 'cell')
+  if (!cellSel.length) {
+    toast.add({
+      severity: 'info',
+      summary: 'Нечего дублировать',
+      detail: 'Выдели хотя бы одну ячейку',
+      life: TOAST_LIFE.SHORT,
+    })
+    return
+  }
+  const cellIds = cellSel.map((s) => s.id)
+  const snaps = {
+    cells: cellSel.map(snapshotCell).filter(Boolean),
+    links: collectBridgeLinkSnaps(cellIds),
+  }
+  const { added, skipped, linksAdded } = pasteSnapshots(snaps)
+  if (added) {
+    toast.add({
+      severity: 'success',
+      summary: 'Дублировано',
+      detail: describePasted(added, linksAdded, skipped),
+      life: TOAST_LIFE.SHORT,
+    })
+  } else {
+    toast.add({
+      severity: 'warn',
+      summary: 'Не удалось дублировать',
+      detail: 'Нет свободных prefix\'ов в tag-list для копий',
+      life: TOAST_LIFE.NORMAL,
+    })
+  }
+}
+
+// ─── Inline-× кнопка для удаления выделенной ячейки ───
+// Раньше использовали JointJS elementTools.Remove, но он считает свою позицию
+// один раз при addTools (по x:'100%' от bbox) и не пересчитывает после
+// cell.resize — × застревал на старой позиции. HTML-overlay reactive: позиция
+// пересчитывается через computed от graphVersion (cell move/resize) + paperViewTick
+// (pan/zoom) + selection.
+const deleteBtn = computed(() => {
+  // eslint-disable-next-line no-unused-expressions
+  canvas.graphVersion.value
+  // eslint-disable-next-line no-unused-expressions
+  canvas.paperViewTick.value
+  const sel = canvas.selection.value
+  if (sel.length !== 1 || sel[0].kind !== 'cell') return null
+  if (textEditing.value) return null // во время инлайн-edit'а × прячем
+  if (!paper || !graph) return null
+  const cell = graph.getCell(sel[0].id)
+  if (!cell) return null
+  const pos = cell.get('position')
+  const size = cell.get('size')
+  const scale = paper.scale().sx
+  const { tx, ty } = paper.translate()
+  // anchor: top-right cell'а в container-px; кнопка центрируется на anchor'е
+  // через left/top - halfSize (а не через CSS transform), чтобы Tailwind
+  // hover:scale-* мог корректно работать поверх позиционирования.
+  const HALF = 16 // half of 32px button (PrimeVue Button small rounded)
+  // +10 / -10 — кнопка «висит» вне правого верхнего угла ячейки с заметным
+  // отступом, не наезжая на содержимое
+  const anchorX = (pos.x + size.width) * scale + tx + 10
+  const anchorY = pos.y * scale + ty - 10
+  return {
+    id: cell.id,
+    style: {
+      left: `${anchorX - HALF}px`,
+      top: `${anchorY - HALF}px`,
+    },
+  }
+})
+
+function onDeleteSelected() {
+  const sel = canvas.selection.value
+  if (sel.length !== 1 || sel[0].kind !== 'cell' || !graph) return
+  graph.getCell(sel[0].id)?.remove()
+  canvas.clearSelection()
+}
+
+// ─── Hover-tooltip над ячейкой ───
+// Заменяет старый SVG-prefix-label: HTML-плашка позволяет показать больше
+// (prefix, лейбл стенсила, voltageSource, text для cell_text и т.д.).
+// Позиционируется относительно правого верхнего угла ячейки с учётом
+// текущего translate+scale paper'а.
+const cellHoverTooltip = ref(null) // { style, prefix, stencilLabel, animationCount, voltageTag, extra } | null
+
+function showCellTooltip(elementView) {
+  if (!paper || !graph) return
+  // Не показываем во время drag'а / pan'а / resize'а / edit-in-place
+  if (isPanning || activeDragCellId || activeResize || textEditing.value) return
+
+  const cell = elementView.model
+  const tms = cell.get('tms') || {}
+  const stencil = getStencilById(tms.stencilId)
+  if (!stencil) return
+
+  const pos = cell.get('position')
+  const size = cell.get('size')
+  const scale = paper.scale().sx
+  const { tx, ty } = paper.translate()
+
+  // Anchor: top-right ячейки в container-px. Tooltip позиционируем так чтобы
+  // его нижний-правый угол прижался к anchor'у с зазором 4px сверху.
+  const anchorX = (pos.x + size.width) * scale + tx
+  const anchorY = pos.y * scale + ty - 4
+
+  // Текст-превью для cell_text — обрезаем длинное содержимое
+  let extra = null
+  if (tms.stencilId === 'cell_text') {
+    const t = (tms.text || '').trim()
+    extra = t ? `«${t.length > 32 ? t.slice(0, 32) + '…' : t}»` : 'пустой текст'
+  } else if (tms.stencilId === 'cell_value') {
+    extra = tms.valueTag || '— тег не выбран —'
+  }
+
+  cellHoverTooltip.value = {
+    style: {
+      left: `${anchorX}px`,
+      top: `${anchorY}px`,
+      transform: 'translate(-100%, -100%)',
+    },
+    prefix: tms.prefix || null,
+    stencilLabel: stencil.label,
+    animationCount: stencil.animationTemplate?.length || 0,
+    voltageTag: tms.voltageSource?.tag || null,
+    extra,
+  }
+}
+
+function hideCellTooltip() {
+  cellHoverTooltip.value = null
+}
+
+// ─── Edit-in-place для cell_text ───
+// Double-click по cell_text открывает HTML-overlay <input> поверх ячейки.
+// SVG-<text> ячейки прячем на время edit'а (visibility:hidden), чтобы он не
+// «просвечивал» сквозь прозрачный input. Координаты overlay'я в container-px
+// пересчитываются из paper translate+scale; при zoom/pan во время edit'а они
+// не обновляются — следующий клик коммитит правку и закрывает редактор.
+//
+// Коммит на клик-вне делаем через document-mousedown в capture-фазе, потому
+// что JointJS вызывает preventDefault на своих pointerdown — событие @blur
+// у input'а тогда не срабатывает при клике по канве.
+const textEditing = ref(null) // { id, original, style: {...} } | null
+const textEditValue = ref('')
+
+// Live-resize пока юзер печатает в inline-overlay: расширяем сам cell (и его
+// selection-glow / × tool следуют за bbox) + расширяем HTML-overlay по ширине.
+// Snapshot history НЕ засоряем — cell.resize не дёргает scheduleSnapshot,
+// финальный snapshot снимется на commit или pointerup'е блока редактирования.
+watch(textEditValue, (val) => {
+  const editing = textEditing.value
+  if (!editing || !paper) return
+  const cell = graph?.getCell(editing.id)
+  if (!cell) return
+  const tms = cell.get('tms') || {}
+  const fz = tms.fontSize ?? TEXT_FONT_SIZE
+  const newCellW = textCellWidth(val, fz, !!tms.bold)
+  const currentW = cell.get('size').width
+  if (newCellW !== currentW) {
+    cell.resize(newCellW, textCellHeight(fz))
+    // bumpVersion в свою очередь реактивно перепозиционирует HTML × overlay
+    canvas.bumpVersion()
+  }
+  const scale = paper.scale().sx
+  textEditing.value = {
+    ...editing,
+    style: {
+      ...editing.style,
+      width: `${Math.max(40, newCellW * scale - TEXT_PADDING_X * scale)}px`,
+    },
+  }
+})
+
+function findCellTextEl(cellId) {
+  const cell = graph?.getCell(cellId)
+  if (!cell || !paper) return null
+  const cellView = paper.findViewByModel(cell)
+  return cellView?.el?.querySelector('text') ?? null
+}
+
+function startTextEdit(cellId) {
+  if (!graph || !paper) return
+  const cell = graph.getCell(cellId)
+  if (!cell) return
+  const tms = cell.get('tms') || {}
+  if (tms.stencilId !== 'cell_text') return
+
+  const pos = cell.get('position')
+  const size = cell.get('size')
+  const scale = paper.scale().sx
+  const tr = paper.translate()
+  const fontSize = tms.fontSize ?? TEXT_FONT_SIZE
+
+  textEditValue.value = tms.text ?? ''
+  textEditing.value = {
+    id: cellId,
+    original: tms.text ?? '',
+    style: {
+      left: `${pos.x * scale + tr.tx + TEXT_PADDING_X * scale}px`,
+      top: `${pos.y * scale + tr.ty}px`,
+      width: `${Math.max(40, size.width * scale - TEXT_PADDING_X * scale)}px`,
+      height: `${size.height * scale}px`,
+      fontSize: `${fontSize * scale}px`,
+      fontWeight: tms.bold ? 'bold' : 'normal',
+    },
+  }
+
+  // Прячем SVG-текст, чтобы не просвечивал сквозь прозрачный input.
+  findCellTextEl(cellId)?.style.setProperty('visibility', 'hidden')
+
+  nextTick(() => {
+    const el = paperContainer.value?.parentElement?.querySelector('[data-text-editor]')
+    if (el) el.focus() // без .select() — каретка в конец, существующий текст не выделяем
+  })
+}
+
+function commitTextEdit() {
+  const editing = textEditing.value
+  if (!editing) return
+  textEditing.value = null
+
+  const cell = graph?.getCell(editing.id)
+  // Восстановить видимость SVG-текста независимо от того, был ли изменён текст:
+  // при re-inject ниже элемент пересоздаётся, и атрибут визуально сбрасывается;
+  // если re-inject не происходит — без restore остался бы скрытым.
+  findCellTextEl(editing.id)?.style.removeProperty('visibility')
+  if (!cell) return
+
+  const tms = cell.get('tms') || {}
+  const stencil = getStencilById(tms.stencilId)
+  const newText = textEditValue.value
+  if (!stencil || newText === editing.original) return
+
+  cell.set('tms', { ...tms, text: newText })
+  // Ресайз под новый текст — ширина адаптивная, высота под шрифт.
+  const fz = tms.fontSize ?? TEXT_FONT_SIZE
+  cell.resize(textCellWidth(newText, fz, !!tms.bold), textCellHeight(fz))
+  const cellView = paper.findViewByModel(cell)
+  if (cellView) injectStencilSvg(cellView, stencil, tms.prefix)
+  canvas.bumpVersion()
+  scheduleSnapshot()
+}
+
+function cancelTextEdit() {
+  const editing = textEditing.value
+  if (!editing) return
+  textEditing.value = null
+  findCellTextEl(editing.id)?.style.removeProperty('visibility')
+}
+
+// Document-level mousedown в capture-фазе: коммитим текст когда юзер кликнул
+// мимо input'а. JointJS делает preventDefault на pointerdown → input не теряет
+// фокус через blur, поэтому ловим клик руками.
+function onTextEditOutside(e) {
+  if (!textEditing.value) return
+  const editor = paperContainer.value?.parentElement?.querySelector('[data-text-editor]')
+  if (editor && (e.target === editor || editor.contains(e.target))) return
+  commitTextEdit()
+}
+
 // ─── Экспорт ───
+// ─── Симуляция: визуальный цикл animation-классов ───
+// Preview как будут выглядеть элементы в WebScada-рантайме. Таймер раз в SIM_CYCLE_MS:
+//   • voltage-классы (low → mid → high → ...) — циклятся на elements с voltageSource
+//   • alarm (cell_alr) — show ↔ hide на каждом тике (.ALR false ↔ true)
+//   • .ONOFF (cell_vk) — on ↔ off на каждом тике
+//
+// Voltage идёт через 3 состояния, bool — через 2, общий цикл = 6 тиков (LCM(3,2)).
+// Не реалистичная симуляция со значениями тегов — просто визуальный preview всех
+// состояний, которые WebScada может навесить.
+//
+// CSS-правила (voltage colors + animation-hidden/off) инжектим один раз при
+// первом старте, под селектор .tms-simulating, чтобы не «протекали» в обычный
+// режим редактора.
+const SIM_CYCLE_MS = 1500
+const SIM_TOTAL_STATES = ANIMATION_CLASS_OPTIONS.length * 2 // voltage × bool
+const simulating = ref(false)
+let simIntervalId = null
+let simIndex = 0
+let simCssInjected = false
+
+function injectSimulationCss() {
+  if (simCssInjected) return
+  const style = document.createElement('style')
+  style.id = 'tms-sim-css'
+  // Исключения для voltage-stroke селектора:
+  //   [joint-selector="wrapper"] — у standard.Link широкий невидимый path
+  //     для хитбокса; без exclusion с !important становится окрашен и толст.
+  //   .tms-hit-area — наш прозрачный rect-хитбокс у каждой ячейки;
+  //     без exclusion рисует зелёную «рамку» у стенсилов без своей rect-обёртки.
+  const voltageRules = Object.entries(ANIMATION_CLASS_COLORS)
+    .map(
+      ([cls, hex]) => `
+.tms-simulating .${cls},
+.tms-simulating .${cls} *:not(text):not([joint-selector="wrapper"]):not(.tms-hit-area) { stroke: ${hex} !important; }
+.tms-simulating .${cls} .tms-voltage-fill,
+.tms-simulating .${cls}.tms-voltage-fill { fill: ${hex} !important; }`
+    )
+    .join('\n')
+  // Boolean false-classes — те же что навешивает WebScada-рантайм при value=false
+  const boolRules = `
+.tms-simulating .animation-hidden { display: none !important; }
+.tms-simulating .animation-off { opacity: 0.4 !important; }`
+  style.textContent = voltageRules + '\n' + boolRules
+  document.head.appendChild(style)
+  simCssInjected = true
+}
+
+/** Снимает все sim-классы — voltage с outer-g, animation-hidden/off с descendants. */
+function clearSimClasses() {
+  if (!graph || !paper) return
+  for (const cell of graph.getCells()) {
+    const view = paper.findViewByModel(cell)
+    if (!view?.el) continue
+    for (const cls of ANIMATION_CLASS_OPTIONS) view.el.classList.remove(cls)
+    // Bool-false классы живут на ВНУТРЕННИХ элементах (data-anim-suffix), не на outer-g
+    for (const el of view.el.querySelectorAll('.animation-hidden, .animation-off')) {
+      el.classList.remove('animation-hidden')
+      el.classList.remove('animation-off')
+    }
+  }
+}
+
+/** Применяет classы текущего тика: voltage (если voltageSource) + bool-false (по animationTemplate). */
+function applySimClass() {
+  if (!graph || !paper) return
+  const voltageCls = ANIMATION_CLASS_OPTIONS[simIndex % ANIMATION_CLASS_OPTIONS.length]
+  // Bool флипается КАЖДЫЙ тик — alarm/ONOFF мерцают «вкл/выкл» в темпе voltage'а.
+  // Чётные тики = true (default), нечётные = false (применяем false-классы).
+  const boolFalsePhase = simIndex % 2 === 1
+
+  clearSimClasses()
+
+  // Voltage классы на outer-g элементов с voltageSource (cells + links)
+  for (const cell of graph.getCells()) {
+    const vs = cell.get('tms')?.voltageSource
+    if (!vs?.tag) continue
+    const view = paper.findViewByModel(cell)
+    view?.el?.classList.add(voltageCls)
+  }
+
+  // Bool-false классы на внутренних элементах ячеек по animationTemplate стенсилов.
+  // Generic: для каждого binding'а с when.cases.false.apply.addClass находим
+  // нужный элемент по id="animation-{prefix}{idSuffix}" — parser.injectIds
+  // удаляет data-anim-suffix и пишет id, поэтому ищем именно по id.
+  if (boolFalsePhase) {
+    for (const cell of graph.getElements()) {
+      const tms = cell.get('tms') || {}
+      if (!tms.prefix) continue
+      const stencil = getStencilById(tms.stencilId)
+      if (!stencil?.animationTemplate?.length) continue
+      const view = paper.findViewByModel(cell)
+      if (!view?.el) continue
+      for (const tpl of stencil.animationTemplate) {
+        const targetId = `animation-${tms.prefix}${tpl.idSuffix || ''}`
+        const el = view.el.querySelector(`[id="${targetId}"]`)
+        if (!el) continue
+        for (const binding of tpl.bindings || []) {
+          const cls = binding.when?.cases?.false?.apply?.addClass
+          if (cls) el.classList.add(cls)
+        }
+      }
+    }
+  }
+}
+
+function startSimulation() {
+  if (simulating.value || !paper) return
+  injectSimulationCss()
+  paperContainer.value?.classList.add('tms-simulating')
+  simulating.value = true
+  simIndex = 0
+  applySimClass()
+  simIntervalId = setInterval(() => {
+    simIndex = (simIndex + 1) % SIM_TOTAL_STATES
+    applySimClass()
+  }, SIM_CYCLE_MS)
+}
+
+function stopSimulation() {
+  clearInterval(simIntervalId)
+  simIntervalId = null
+  simulating.value = false
+  clearSimClasses()
+  paperContainer.value?.classList.remove('tms-simulating')
+}
+
+function toggleSimulation() {
+  if (simulating.value) stopSimulation()
+  else startSimulation()
+}
+
 function onExport() {
   if (!graph) return
 
@@ -1289,7 +2195,7 @@ function onExport() {
       severity: 'warn',
       summary: 'Экспорт',
       detail: 'Холст пуст — нечего экспортировать',
-      life: 3000,
+      life: TOAST_LIFE.NORMAL,
     })
     return
   }
@@ -1303,10 +2209,85 @@ function onExport() {
     summary: 'Экспорт готов',
     detail: [
       nplural(result.count, 'ячейка', 'ячейки', 'ячеек'),
-      nplural(result.linkCount, 'линия', 'линии', 'линий'),
+      nplural(result.linkCount, 'провод', 'провода', 'проводов'),
       `${nplural(animCount, 'карточка', 'карточки', 'карточек')} анимаций`,
     ].join(', '),
-    life: 4000,
+    life: TOAST_LIFE.NORMAL,
+  })
+}
+
+// ─── Импорт SVG (обратная операция экспорту) ───
+// Считывает data-tms-meta JSON-атрибуты с ячеек и проводов, реконструирует
+// граф через graph.fromJSON, перерисовывает SVG-содержимое стенсилов.
+// Заменяет текущее состояние холста; если на холсте есть элементы — confirm.
+
+function performImportFromSvgText(svgText, sourceLabel = 'SVG') {
+  if (!graph || !paper) return false
+  const parsed = parseSvgProject(svgText)
+  if (!parsed.ok) {
+    toast.add({
+      severity: 'error',
+      summary: 'Не удалось загрузить',
+      detail: parsed.errors.join('; ') || 'В файле нет ячеек / data-tms-meta',
+      life: TOAST_LIFE.LONG,
+    })
+    return false
+  }
+
+  // Сбрасываем текущее состояние (как clear canvas)
+  restoringHistory = true
+  clearTimeout(snapshotTimer)
+  snapshotTimer = null
+  graph.clear()
+  graph.fromJSON({ cells: parsed.cells })
+  // fromJSON использует resetCells — 'add'-event не летит, наш авто-toBack
+  // для линий не срабатывает. Отправляем все провода на задний план явно,
+  // иначе они накроют ячейки/порты.
+  for (const link of graph.getLinks()) link.toBack()
+  reinjectAllStencils(graph, paper)
+  canvas.bumpVersion()
+  restoringHistory = false
+
+  // History начинается с восстановленного состояния — undo не должен «возвращать» к старому
+  history = [graph.toJSON()]
+  historyIndex = 0
+  canvas.clearSelection()
+  syncUndoRedoAvail()
+  saveAutosave()
+
+  const cellsAdded = graph.getElements().length
+  const linksAdded = graph.getLinks().length
+  toast.add({
+    severity: 'success',
+    summary: `Загружен ${sourceLabel}`,
+    detail: `${nplural(cellsAdded, 'ячейка', 'ячейки', 'ячеек')}, ${nplural(linksAdded, 'провод', 'провода', 'проводов')}${parsed.errors.length ? ` · предупреждений: ${parsed.errors.length}` : ''}`,
+    life: TOAST_LIFE.NORMAL,
+  })
+  if (parsed.errors.length) {
+    console.warn('[Canvas] Импорт SVG с предупреждениями:', parsed.errors)
+  }
+  return true
+}
+
+/** Внешний entry point: подтверждает у юзера если на холсте есть элементы. */
+function importFromSvgText(svgText, sourceLabel = 'SVG') {
+  if (!graph) return Promise.resolve(false)
+  const hasContent = graph.getElements().length + graph.getLinks().length > 0
+  if (!hasContent) {
+    return Promise.resolve(performImportFromSvgText(svgText, sourceLabel))
+  }
+  return new Promise((resolve) => {
+    confirm.require({
+      header: 'Открыть проект?',
+      message: 'Текущая работа на холсте будет заменена. Локальный автосейв перезапишется.',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Открыть',
+      rejectLabel: 'Отмена',
+      acceptProps: { severity: 'primary', size: 'small' },
+      rejectProps: { severity: 'secondary', text: true, size: 'small' },
+      accept: () => resolve(performImportFromSvgText(svgText, sourceLabel)),
+      reject: () => resolve(false),
+    })
   })
 }
 </script>
@@ -1351,6 +2332,15 @@ function onExport() {
           @click="fitToContent"
         />
         <Button
+          v-tooltip.bottom="simulating ? 'Остановить симуляцию' : 'Запустить симуляцию (цикл animation-low/mid/high)'"
+          :icon="simulating ? 'pi pi-pause-circle' : 'pi pi-play-circle'"
+          :severity="simulating ? 'primary' : 'secondary'"
+          :text="!simulating"
+          size="small"
+          aria-label="Toggle simulation"
+          @click="toggleSimulation"
+        />
+        <Button
           v-tooltip.bottom="'Очистить холст'"
           icon="pi pi-trash"
           severity="secondary"
@@ -1358,13 +2348,6 @@ function onExport() {
           size="small"
           :disabled="canvas.cellsCount.value === 0"
           @click="onClearCanvas"
-        />
-        <Button
-          v-tooltip.bottom="'Экспорт в view.svg и animations.json'"
-          label="Экспорт"
-          icon="pi pi-download"
-          size="small"
-          @click="onExport"
         />
       </div>
     </div>
@@ -1382,12 +2365,79 @@ function onExport() {
         class="absolute pointer-events-none border-2 border-dashed border-primary-500 bg-primary-500/10 rounded transition-opacity"
         :style="previewStyle"
       >
+        <!-- Миниатюра стенсила внутри preview-рамки — то же SVG, что в палитре.
+             stencil-thumb-классом подхватываем правило (w/h 100%, block) из style.css. -->
+        <div
+          v-if="draggingStencilSvg"
+          class="stencil-thumb absolute inset-1 opacity-70"
+          v-html="draggingStencilSvg"
+        />
         <div
           class="absolute -top-6 left-0 text-xs font-medium text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-950/80 px-1.5 py-0.5 rounded"
         >
           {{ ui.dragging?.label }}
         </div>
       </div>
+
+      <!-- Edit-in-place для cell_text: прозрачный HTML <input> поверх ячейки.
+           SVG-<text> на время edit'а скрыт (см. startTextEdit), поэтому input
+           может быть без фона/рамки — визуально выглядит как inline-правка
+           самого текста. Каретка — primary темы (через CSS-var).
+           Коммит при клике вне ловится document-mousedown (см. onTextEditOutside). -->
+      <input
+        v-if="textEditing"
+        data-text-editor
+        v-model="textEditValue"
+        type="text"
+        class="absolute z-10 p-0 m-0 bg-transparent border-0 outline-none text-black font-sans"
+        :style="{ caretColor: 'var(--p-primary-500)', ...textEditing.style }"
+        @keydown.enter.prevent="commitTextEdit"
+        @keydown.esc.prevent="cancelTextEdit"
+      />
+
+      <!-- Hover-tooltip над ячейкой: HTML-плашка с расширенной инфой.
+           pointer-events отключены чтобы tooltip не перехватывал клики/hover,
+           иначе после mouseenter он бы сам ловил mouseleave при выходе из cell-bbox. -->
+      <div
+        v-if="cellHoverTooltip"
+        class="absolute z-20 pointer-events-none bg-surface-800 dark:bg-surface-200 text-surface-0 dark:text-surface-900 text-[11px] px-2 py-1.5 rounded shadow-lg max-w-[260px] font-sans leading-tight"
+        :style="cellHoverTooltip.style"
+      >
+        <div v-if="cellHoverTooltip.prefix" class="font-mono font-semibold text-[11px]">
+          {{ cellHoverTooltip.prefix }}
+        </div>
+        <div class="text-[10px] opacity-75 mt-0.5">
+          {{ cellHoverTooltip.stencilLabel }}
+        </div>
+        <div v-if="cellHoverTooltip.extra" class="text-[10px] opacity-75 mt-0.5 font-mono truncate">
+          {{ cellHoverTooltip.extra }}
+        </div>
+        <div v-if="cellHoverTooltip.animationCount" class="text-[10px] opacity-75 mt-0.5 flex items-center gap-1">
+          <i class="pi pi-bolt text-[8px]" />
+          {{ cellHoverTooltip.animationCount }} {{ cellHoverTooltip.animationCount === 1 ? 'анимация' : 'анимаций' }}
+        </div>
+        <div v-if="cellHoverTooltip.voltageTag" class="text-[10px] opacity-75 mt-0.5 flex items-center gap-1 truncate">
+          <i class="pi pi-flash text-[8px]" />
+          <span class="font-mono truncate">{{ cellHoverTooltip.voltageTag }}</span>
+        </div>
+      </div>
+
+      <!-- Inline-удаление для одиночной выделенной ячейки. Reactive HTML-overlay
+           вместо JointJS elementTools.Remove — последний кэширует позицию и не
+           следует за cell.resize. PrimeVue Button (secondary + rounded) — тянет
+           focus/hover/dark-mode стили из Aura темы автоматически. -->
+      <Button
+        v-if="deleteBtn"
+        v-tooltip.top="'Удалить · Del'"
+        icon="pi pi-trash"
+        severity="secondary"
+        rounded
+        size="small"
+        class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 dark:!border-surface-600 hover:!border-surface-400 dark:hover:!border-surface-500"
+        :style="deleteBtn.style"
+        aria-label="Удалить ячейку"
+        @click="onDeleteSelected"
+      />
 
       <!-- Lasso overlay (Alt+LMB drag): рамка выделения, координаты в container-px -->
       <div
@@ -1401,33 +2451,72 @@ function onExport() {
         }"
       ></div>
 
-      <!-- Empty canvas hint — показываем когда нет ячеек и не идёт drag -->
+      <!-- Empty canvas hint — показываем когда нет ячеек и не идёт drag.
+           Двухшаговый чек-лист: tag-list → стенсил. Первый шаг отмечается ✓
+           когда теги загружены, чтобы юзер видел прогресс. -->
       <div
         v-if="canvas.cellsCount.value === 0 && !ui.dragging"
         class="absolute inset-0 flex items-center justify-center pointer-events-none"
       >
-        <div
-          class="text-center text-surface-400 dark:text-surface-500 max-w-xs"
-        >
-          <i class="pi pi-arrow-circle-left text-3xl mb-3 block opacity-60" />
-          <div class="text-sm font-medium text-surface-500 dark:text-surface-400 mb-2">
+        <div class="text-center text-surface-400 dark:text-surface-500 max-w-sm px-4">
+          <div class="text-sm font-medium text-surface-500 dark:text-surface-400 mb-4">
             Пустой холст
           </div>
-          <p class="text-xs leading-relaxed">
-            Перетащи стенсил из палитры слева, чтобы начать.<br />
-            <span class="text-[11px] opacity-75">
-              Колесом — зум · drag по пустому месту — pan ·
-              <kbd
-                class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono"
-                >Del</kbd
+          <ol class="text-xs leading-relaxed inline-block text-left space-y-2 mb-4">
+            <li class="flex items-start gap-2" :class="project.tags.length ? 'opacity-60' : ''">
+              <span
+                class="flex-shrink-0 w-5 h-5 rounded-full text-[10px] font-semibold flex items-center justify-center"
+                :class="
+                  project.tags.length
+                    ? 'bg-primary-500/15 text-primary-600 dark:text-primary-300'
+                    : 'bg-surface-200 dark:bg-surface-700 text-surface-700 dark:text-surface-200'
+                "
               >
-              — удалить ·
-              <kbd
-                class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono"
-                >Ctrl+Z</kbd
-              >
-              — undo
-            </span>
+                <i v-if="project.tags.length" class="pi pi-check text-[9px]" />
+                <span v-else>1</span>
+              </span>
+              <span class="pt-0.5">
+                <template v-if="project.tags.length">
+                  Tag-list загружен ({{ project.tags.length }})
+                </template>
+                <template v-else>
+                  Загрузи <strong class="text-surface-600 dark:text-surface-300">tag-list</strong> — кнопка сверху справа
+                </template>
+              </span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span
+                class="flex-shrink-0 w-5 h-5 rounded-full text-[10px] font-semibold flex items-center justify-center"
+                :class="
+                  project.tags.length
+                    ? 'bg-primary-500/15 text-primary-600 dark:text-primary-300'
+                    : 'bg-surface-200 dark:bg-surface-700 text-surface-700 dark:text-surface-200'
+                "
+              >2</span>
+              <span class="pt-0.5">Перетащи стенсил из палитры слева</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span
+                class="flex-shrink-0 w-5 h-5 rounded-full text-[10px] font-semibold flex items-center justify-center"
+                :class="
+                  project.tags.length
+                    ? 'bg-primary-500/15 text-primary-600 dark:text-primary-300'
+                    : 'bg-surface-200 dark:bg-surface-700 text-surface-700 dark:text-surface-200'
+                "
+              >3</span>
+              <span class="pt-0.5">
+                Наведи на ячейку → потяни за <span class="inline-block w-2 h-2 rounded-full border align-middle" style="background: var(--p-surface-0); border-color: var(--p-primary-500);"></span> кружок-порт → соедини
+              </span>
+            </li>
+          </ol>
+          <p class="text-[11px] opacity-75">
+            Колесом — зум · drag по пустому месту — pan ·
+            <kbd class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono">Del</kbd>
+            — удалить ·
+            <kbd class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono">Ctrl+Z</kbd>
+            — undo ·
+            <kbd class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono">F1</kbd>
+            — справка
           </p>
         </div>
       </div>
@@ -1473,5 +2562,16 @@ function onExport() {
       @select="onValueTagPickerSelect"
       @cancel="onValueTagPickerCancel"
     />
+
+    <!-- Тег источника напряжения из контекстного меню для одной ячейки/провода -->
+    <TagPickerDialog
+      v-model:visible="ctxVoltageTagPickerOpen"
+      :tags="project.tags"
+      header="Тег источника напряжения"
+      @select="onPickCtxVoltageTag"
+      @cancel="ctxVoltageTarget = null"
+    />
+
+    <ContextMenu ref="ctxMenuRef" :model="ctxItems" />
   </section>
 </template>

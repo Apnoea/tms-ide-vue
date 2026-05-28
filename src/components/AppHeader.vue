@@ -1,4 +1,5 @@
 <script setup>
+import { onMounted, onBeforeUnmount } from 'vue'
 import Button from 'primevue/button'
 import { useToast } from 'primevue/usetoast'
 import { useUiStore } from '../stores/useUiStore'
@@ -7,12 +8,18 @@ import { storeToRefs } from 'pinia'
 import * as fs from '../services/fileSystem'
 import * as parsers from '../services/parsers'
 import { nplural } from '../utils/plural'
+import { idbGet, idbSet, idbDel } from '../utils/idb'
+import { TOAST_LIFE } from '../constants/toast'
+import { useCanvas } from '../composables/useCanvas'
 
 const ui = useUiStore()
 const project = useProjectStore()
+const canvas = useCanvas()
 const toast = useToast()
 const { darkMode } = storeToRefs(ui)
 const { tags, tagListHandle } = storeToRefs(project)
+
+const IDB_HANDLE_KEY = 'tagListHandle'
 
 /**
  * Читает и парсит tag-list из FileSystem-handle с проверкой пермишена.
@@ -29,7 +36,7 @@ async function loadParsedTagsFromHandle(handle) {
         severity: 'warn',
         summary: 'Нет доступа к файлу',
         detail: 'Браузер отозвал разрешение, выберите файл заново',
-        life: 4000,
+        life: TOAST_LIFE.NORMAL,
       })
       return null
     }
@@ -40,7 +47,7 @@ async function loadParsedTagsFromHandle(handle) {
       severity: 'error',
       summary: 'Tag-list',
       detail: 'Не удалось прочитать файл',
-      life: 4000,
+      life: TOAST_LIFE.NORMAL,
     })
     return null
   }
@@ -50,7 +57,7 @@ async function loadParsedTagsFromHandle(handle) {
       severity: 'warn',
       summary: 'Tag-list',
       detail: 'Файл пуст или не содержит валидных тегов',
-      life: 4000,
+      life: TOAST_LIFE.NORMAL,
     })
     return null
   }
@@ -67,6 +74,10 @@ async function pickTagList() {
 
     project.setTags(parsed)
     project.setTagListHandle(fileHandle)
+    // Сохраняем handle в IDB — пережить F5. В рамках одной browser-session
+    // permission остаётся 'granted', поэтому при перезагрузке tag-list
+    // подхватится автоматически (см. tryRestoreTagListHandle).
+    await idbSet(IDB_HANDLE_KEY, fileHandle)
     const dir = await fs.getFileDirectory(fileHandle)
     ui.setLastTagListPickerStartIn(dir ?? fileHandle)
 
@@ -74,7 +85,7 @@ async function pickTagList() {
       severity: 'success',
       summary: 'Tag-list загружен',
       detail: `${nplural(parsed.length, 'тег', 'тега', 'тегов')} из ${fileHandle.name}`,
-      life: 3000,
+      life: TOAST_LIFE.NORMAL,
     })
   } catch (e) {
     if (e.name === 'AbortError') return
@@ -83,7 +94,122 @@ async function pickTagList() {
       severity: 'error',
       summary: 'Ошибка загрузки tag-list',
       detail: e.message || String(e),
-      life: 5000,
+      life: TOAST_LIFE.LONG,
+    })
+  }
+}
+
+/**
+ * Сбросить загруженный tag-list — очищает теги и забывает file handle.
+ * Сами стенсилы остаются на холсте с привязанными тегами, но новые prefix'ы
+ * выбрать уже не получится, пока не загружен новый tag-list.
+ */
+function unloadTagList() {
+  project.clearTagList()
+  idbDel(IDB_HANDLE_KEY)
+  toast.add({
+    severity: 'info',
+    summary: 'Tag-list сброшен',
+    detail: 'Стенсилы на холсте сохранены, но привязать новые prefix\'ы пока не получится',
+    life: TOAST_LIFE.NORMAL,
+  })
+}
+
+/**
+ * При монтировании пытаемся восстановить handle из IDB. Если permission
+ * 'granted' (та же browser-session) — подгружаем теги и показываем info-toast.
+ * Если 'prompt' — handle ставим (UI покажет Refresh-кнопку) + warn-toast
+ * с подсказкой нажать pi-refresh, потому что requestPermission требует
+ * user-gesture (silently дёргнуть нельзя).
+ */
+async function tryRestoreTagListHandle() {
+  const handle = await idbGet(IDB_HANDLE_KEY)
+  if (!handle) return
+  try {
+    const perm = await handle.queryPermission?.({ mode: 'read' })
+    if (perm === 'granted') {
+      const content = await fs.getFileContentFromHandle(handle)
+      if (!content) return
+      const parsed = parsers.parseTagList(content)
+      if (parsed.length === 0) return
+      project.setTags(parsed)
+      project.setTagListHandle(handle)
+      toast.add({
+        severity: 'info',
+        summary: 'Tag-list восстановлен',
+        detail: `${nplural(parsed.length, 'тег', 'тега', 'тегов')} из ${handle.name}`,
+        life: TOAST_LIFE.SHORT,
+      })
+    } else {
+      project.setTagListHandle(handle)
+      toast.add({
+        severity: 'warn',
+        summary: 'Tag-list требует разрешения',
+        detail: `Нажми обновить — браузер запросит доступ к ${handle.name}`,
+        life: TOAST_LIFE.LONG,
+      })
+    }
+  } catch (e) {
+    console.warn('[Header] Не удалось восстановить tag-list handle:', e)
+  }
+}
+
+onMounted(() => {
+  tryRestoreTagListHandle()
+  // Ctrl+O в CanvasPane эмитит этот event'е, потому что хоткеи живут там.
+  window.addEventListener('tms-open-project', openProjectSvg)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('tms-open-project', openProjectSvg)
+})
+
+/**
+ * Открывает SVG (экспортированный через «Экспорт») и восстанавливает по нему
+ * холст. На SVG должны быть data-tms-meta-атрибуты — иначе парсер не вытащит
+ * source/target проводов и tms-поля ячеек.
+ *
+ * Fallback на скрытый <input type=file> для браузеров без File System Access API.
+ */
+async function openProjectSvg() {
+  try {
+    let svgText = null
+    let fileName = 'SVG'
+
+    if (typeof window !== 'undefined' && window.showOpenFilePicker) {
+      const handle = await fs.selectFile(null, [
+        { description: 'SVG-проект', accept: { 'image/svg+xml': ['.svg'] } },
+      ])
+      if (!handle) return // юзер отменил
+      const file = await handle.getFile()
+      svgText = await file.text()
+      fileName = handle.name
+    } else {
+      // Fallback: скрытый input
+      svgText = await new Promise((resolve) => {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = '.svg,image/svg+xml'
+        input.onchange = async () => {
+          const f = input.files?.[0]
+          if (!f) return resolve(null)
+          fileName = f.name
+          resolve(await f.text())
+        }
+        input.click()
+      })
+      if (!svgText) return
+    }
+
+    await canvas.importFromSvg(svgText, fileName)
+  } catch (e) {
+    if (e.name === 'AbortError') return
+    console.error('[Header] Ошибка загрузки SVG-проекта:', e)
+    toast.add({
+      severity: 'error',
+      summary: 'Ошибка загрузки',
+      detail: e.message || String(e),
+      life: TOAST_LIFE.LONG,
     })
   }
 }
@@ -106,7 +232,7 @@ async function refreshTagList() {
       severity: 'success',
       summary: 'Tag-list обновлён',
       detail: `${nplural(parsed.length, 'тег', 'тега', 'тегов')}${diff !== 0 ? ` (${diff > 0 ? '+' : ''}${diff})` : ''}`,
-      life: 3000,
+      life: TOAST_LIFE.NORMAL,
     })
   } catch (e) {
     console.error('[Header] Ошибка рефреша tag-list:', e)
@@ -114,7 +240,7 @@ async function refreshTagList() {
       severity: 'error',
       summary: 'Не удалось обновить tag-list',
       detail: e.message || String(e),
-      life: 5000,
+      life: TOAST_LIFE.LONG,
     })
   }
 }
@@ -140,26 +266,70 @@ async function refreshTagList() {
       </div>
     </div>
 
-    <div class="flex items-center gap-2">
-      <Button
-        v-tooltip.bottom="tags.length ? 'Выбрать другой tag-list' : 'Загрузить tag-list (.txt)'"
-        :label="tags.length ? `✓ tag-list (${tags.length})` : 'Tag-list'"
-        :severity="tags.length ? 'secondary' : 'primary'"
-        icon="pi pi-tags"
-        size="small"
-        @click="pickTagList"
-      />
-      <Button
-        v-if="tagListHandle"
-        v-tooltip.bottom="'Перечитать tag-list'"
-        icon="pi pi-refresh"
-        severity="secondary"
-        text
-        rounded
-        size="small"
-        aria-label="Обновить tag-list"
-        @click="refreshTagList"
-      />
+    <div class="flex items-center gap-3">
+      <!-- Group 1: Project IO (open / save SVG-project) -->
+      <div class="flex items-center gap-1">
+        <Button
+          v-tooltip.bottom="'Открыть проект из SVG · Ctrl+O'"
+          label="Открыть"
+          icon="pi pi-folder-open"
+          severity="secondary"
+          text
+          size="small"
+          @click="openProjectSvg"
+        />
+        <Button
+          v-tooltip.bottom="'Сохранить view.svg + animations.json · Ctrl+S'"
+          aria-label="Сохранить"
+          label="Сохранить"
+          icon="pi pi-download"
+          severity="secondary"
+          text
+          size="small"
+          @click="canvas.exportProject"
+        />
+      </div>
+
+      <span class="text-surface-300 dark:text-surface-700">|</span>
+
+      <!-- Group 2: Tag-list (data binding) -->
+      <div class="flex items-center gap-1">
+        <Button
+          v-tooltip.bottom="tags.length ? 'Выбрать другой tag-list' : 'Загрузить tag-list (.txt)'"
+          :label="tags.length ? `Tag-list (${tags.length})` : 'Tag-list'"
+          :icon="tags.length ? 'pi pi-check' : 'pi pi-tags'"
+          :severity="tags.length ? 'secondary' : 'primary'"
+          :text="tags.length ? true : false"
+          size="small"
+          @click="pickTagList"
+        />
+        <Button
+          v-if="tagListHandle"
+          v-tooltip.bottom="'Перечитать tag-list'"
+          icon="pi pi-refresh"
+          severity="secondary"
+          text
+          rounded
+          size="small"
+          aria-label="Обновить tag-list"
+          @click="refreshTagList"
+        />
+        <Button
+          v-if="tags.length"
+          v-tooltip.bottom="'Сбросить tag-list'"
+          icon="pi pi-times"
+          severity="secondary"
+          text
+          rounded
+          size="small"
+          aria-label="Сбросить tag-list"
+          @click="unloadTagList"
+        />
+      </div>
+
+      <span class="text-surface-300 dark:text-surface-700">|</span>
+
+      <!-- Group 3: Theme -->
       <Button
         v-tooltip.bottom="darkMode ? 'Светлая тема' : 'Тёмная тема'"
         :icon="darkMode ? 'pi pi-sun' : 'pi pi-moon'"

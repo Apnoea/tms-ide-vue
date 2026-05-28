@@ -1,4 +1,5 @@
 import { shallowRef, ref, computed } from 'vue'
+import { computeBridgeLinks } from '../utils/bridgeLinks'
 
 /**
  * Shared singleton-доступ к JointJS-состоянию холста.
@@ -15,9 +16,24 @@ import { shallowRef, ref, computed } from 'vue'
 const graphRef = shallowRef(null)
 const paperRef = shallowRef(null)
 
+// CanvasPane регистрирует свою функцию импорта SVG → граф через setImportFromSvgFn.
+// Внешним компонентам (AppHeader) удобно дёргать importFromSvg(text) без знания
+// о деталях. Если CanvasPane не смонтирован — no-op.
+const importFromSvgFn = shallowRef(null)
+
+// Аналогично для экспорта — кнопка живёт в AppHeader, но логика (graph+paper +
+// download) в CanvasPane.
+const exportFn = shallowRef(null)
+
+
 const selection = ref([]) // Array<{ kind, id }>
 
 const graphVersion = ref(0)
+// Тик paper-view: bump'ается на pan/zoom/fit. Нужен для overlay'ев, чьё
+// положение зависит от paper.translate()/scale() (× кнопка, hover-tooltip
+// при будущем расширении). Отделён от graphVersion чтобы не дёргать Inspector
+// и прочих consumer'ов graph-данных на каждый mousemove во время pan'а.
+const paperViewTick = ref(0)
 
 // ─── Status-bar метрики ───
 const zoomPercent = ref(100)
@@ -64,7 +80,7 @@ const selectionLabel = computed(() => {
     const prefix = cell.get('tms')?.prefix
     return prefix ? `ячейка · ${prefix}` : 'ячейка'
   }
-  if (item.kind === 'link') return 'линия'
+  if (item.kind === 'link') return 'провод'
   return null
 })
 
@@ -87,6 +103,18 @@ export function useCanvas() {
     setCanvasRefs(graph, paper) {
       graphRef.value = graph
       paperRef.value = paper
+    },
+    setImportFromSvgFn(fn) {
+      importFromSvgFn.value = fn
+    },
+    importFromSvg(text, sourceLabel) {
+      return importFromSvgFn.value?.(text, sourceLabel) ?? false
+    },
+    setExportFn(fn) {
+      exportFn.value = fn
+    },
+    exportProject() {
+      return exportFn.value?.() ?? false
     },
     clearCanvasRefs() {
       graphRef.value = null
@@ -116,6 +144,18 @@ export function useCanvas() {
     clearSelection() {
       selection.value = []
     },
+    /** Выделить все ячейки на холсте + bridge-линии между ними. */
+    selectAllCells() {
+      const graph = graphRef.value
+      if (!graph) return
+      const cells = graph.getElements()
+      const cellItems = cells.map((c) => ({ kind: 'cell', id: c.id }))
+      const bridges = computeBridgeLinks(
+        graph,
+        cells.map((c) => c.id)
+      )
+      selection.value = [...cellItems, ...bridges]
+    },
     setZoomPercent(value) {
       zoomPercent.value = value
     },
@@ -134,6 +174,10 @@ export function useCanvas() {
     },
     bumpVersion() {
       graphVersion.value++
+    },
+    paperViewTick,
+    bumpPaperView() {
+      paperViewTick.value++
     },
   }
 }

@@ -24,9 +24,10 @@ function applyDarkMode(isDark) {
   else document.documentElement.classList.remove('dark')
 }
 
-// ? — открыть справку. Глобальный хоткей, игнорируем если фокус в инпуте.
+// ? и F1 — открыть справку. Глобальный хоткей, игнорируем если фокус в инпуте.
+// F1 нужен потому что `?` на русской раскладке = Shift+, и не сразу очевиден.
 function onGlobalKeyDown(event) {
-  if (event.key !== '?') return
+  if (event.key !== '?' && event.key !== 'F1') return
   const t = event.target
   if (
     t &&

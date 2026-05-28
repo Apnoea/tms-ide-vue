@@ -35,9 +35,9 @@ body,
   background-color: #0f172a !important;
 }
 
-/* Подсветка выделенной ячейки/линии в Inspector'е — в primary-цвете темы
-   (Aura: emerald-500). Прозрачный drop-shadow в базовом состоянии нужен для
-   плавного fade-in/out — иначе CSS не умеет переходить filter: none ↔ drop-shadow. */
+/* Подсветка выделенной ячейки/провода в Inspector'е — в primary-цвете темы
+   (Aura override → cyan-500). Прозрачный drop-shadow в базовом состоянии нужен
+   для плавного fade-in/out — иначе CSS не умеет переходить filter: none ↔ drop-shadow. */
 .joint-element,
 .joint-link {
   filter: drop-shadow(0 0 0 transparent);
@@ -72,16 +72,6 @@ body,
   opacity: 1;
 }
 
-/* Prefix-лейбл показываем только при hover/selected — как tooltip. */
-.joint-element .tms-prefix-label {
-  opacity: 0;
-  transition: opacity 0.12s linear;
-}
-.joint-element:hover .tms-prefix-label,
-.joint-element.tms-selected .tms-prefix-label {
-  opacity: 1;
-}
-
 /* Тумбны палитры: SVG стенсила вставляется через v-html и идёт со своими
    width/height. Переопределяем через CSS, чтобы вписать в 48×48 контейнер
    с сохранением aspect ratio (за счёт viewBox). */
@@ -109,4 +99,15 @@ button:focus-visible,
   outline: 2px solid var(--p-primary-500);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* Close-кнопки PrimeVue (Toast × и Dialog ×) — у них свой hover/focus-фон,
+   наш общий button:focus-visible тут даёт двойной outline и торчит чёрной
+   рамкой. Гасим прицельно. */
+.p-toast-close-button:focus,
+.p-toast-close-button:focus-visible,
+.p-dialog-close-button:focus,
+.p-dialog-close-button:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }

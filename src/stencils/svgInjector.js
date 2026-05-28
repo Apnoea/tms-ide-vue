@@ -5,7 +5,6 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
 
 /** CSS-класс редактор-only меток (prefix-лейблов) — exporter их игнорирует
  *  через свежий instantiate(), поэтому в view.svg они не попадают. */
-const PREFIX_LABEL_CLASS = 'tms-prefix-label'
 
 /** Ширина resize-хэндлов шины (см. buildBusContent). */
 const BUS_HANDLE_WIDTH = 6
@@ -55,7 +54,7 @@ export function buildBusExportSvg(width, height) {
 
 /** Параметры рендера текстового стенсила (общие для редактора и экспорта). */
 export const TEXT_FONT_SIZE = 14 // дефолт (= пресет M)
-const TEXT_PADDING_X = 4
+export const TEXT_PADDING_X = 4
 
 /** Lookup лейблов и единиц измерения для cell_value по суффиксу выбранного тега.
  *  Известные суффиксы маппятся в физические имена и СИ-единицы; неизвестные —
@@ -103,6 +102,29 @@ export function textCellHeight(fontSize) {
   return fontSize + 6
 }
 
+// Canvas-контекст для measureText. Один на модуль, чтобы не плодить
+// detached canvas'ы на каждый вызов textCellWidth.
+let _measureCtx = null
+function getMeasureCtx() {
+  if (!_measureCtx && typeof document !== 'undefined') {
+    _measureCtx = document.createElement('canvas').getContext('2d')
+  }
+  return _measureCtx
+}
+
+/**
+ * Ширина cell'а под текущий текст + шрифт + bold. Меряем через Canvas API
+ * (не точно, но довольно близко к реальному рендеру в SVG), добавляем
+ * паддинги по бокам. Минимум — 24px чтобы пустой текст не схлопывался в 0.
+ */
+export function textCellWidth(text, fontSize, bold = false) {
+  const ctx = getMeasureCtx()
+  if (!ctx) return 100 // SSR fallback
+  ctx.font = `${bold ? 'bold ' : ''}${fontSize}px sans-serif`
+  const w = ctx.measureText(text || '').width
+  return Math.max(24, Math.ceil(w) + TEXT_PADDING_X * 2)
+}
+
 /** Экранирует спецсимволы для вставки текста в XML/SVG-строку. */
 function escapeXml(s) {
   return String(s)
@@ -132,7 +154,7 @@ export function buildValueExportSvg(prefix, valueTag, width = 100, height = 18) 
   const unitText = unit
     ? `<text x="72" y="13" font-size="9" font-family="sans-serif" fill="#888">${escapeXml(unit)}</text>`
     : ''
-  const frame = `<rect x="0" y="0" width="${width}" height="${height}" fill="#fff" stroke="#000" stroke-width="1.5"/>`
+  const frame = `<rect x="0" y="0" width="${width}" height="${height}" fill="#fff" stroke="#000" stroke-width="2"/>`
   return `<svg xmlns="${SVG_NS}">${frame}<text x="2" y="13" font-size="11" font-family="sans-serif" fill="#666">${escapeXml(label)}</text><text id="animation-${prefix}" x="68" y="13" text-anchor="end" font-size="11" font-family="sans-serif" font-weight="bold" fill="#222">--</text>${unitText}</svg>`
 }
 
@@ -164,7 +186,7 @@ function buildBusContent(cellView) {
     h.setAttribute('y', String(-overhang))
     h.setAttribute('width', String(hw))
     h.setAttribute('height', String(height + overhang * 2))
-    h.setAttribute('fill', '#10b981') // emerald-500
+    h.setAttribute('fill', '#06b6d4') // cyan-500 (= primary темы)
     h.style.cursor = 'ew-resize'
     out.push(h)
   }
@@ -214,7 +236,7 @@ function buildValueContent(cellView) {
   frame.setAttribute('height', String(height))
   frame.setAttribute('fill', '#fff')
   frame.setAttribute('stroke', '#000')
-  frame.setAttribute('stroke-width', '1.5')
+  frame.setAttribute('stroke-width', '2')
   out.push(frame)
 
   const labelEl = document.createElementNS(SVG_NS, 'text')
@@ -252,13 +274,11 @@ function buildValueContent(cellView) {
 }
 
 /**
- * Впихивает SVG-разметку стенсила в body-группу cellView'а + добавляет
- * маленький prefix-лейбл над ячейкой (виден только в редакторе, экспортёр
- * вырежет элементы с классом PREFIX_LABEL_CLASS).
- *
- * Сначала очищает старое содержимое body — это позволяет переиспользовать
- * функцию и для первого рендера ячейки, и для перерисовки после смены prefix'а
- * или восстановления из history.
+ * Впихивает SVG-разметку стенсила в body-группу cellView'а. Сначала очищает
+ * старое содержимое — это позволяет переиспользовать функцию и для первого
+ * рендера ячейки, и для перерисовки после смены prefix'а / восстановления
+ * из history. Hover-tooltip с prefix/лейблом/анимациями живёт в HTML
+ * (CanvasPane.cellHoverTooltip), отдельно от SVG-разметки ячейки.
  *
  * @param {dia.CellView} cellView — JointJS CellView выбранной ячейки
  * @param {object} stencil — определение стенсила из реестра
@@ -286,12 +306,17 @@ export function injectStencilSvg(cellView, stencil, prefix) {
   // Невидимая «hit area» по всему bbox ячейки — чтобы клик мимо тонких линий
   // (например, в углах cell_vk или cell_rz) всё равно выделял ячейку.
   // pointer-events="all" — прозрачный rect ловит события несмотря на отсутствие fill'а.
+  // stroke="none" — обрубаем CSS-наследование stroke от родительского <g>,
+  // иначе в симуляции hit-area подхватывала animation-color как «рамку»
+  // вокруг ячеек без своей rect-обёртки (cell_rz / cell_rzv).
   const hit = document.createElementNS(SVG_NS, 'rect')
+  hit.setAttribute('class', 'tms-hit-area')
   hit.setAttribute('x', '0')
   hit.setAttribute('y', '0')
   hit.setAttribute('width', String(currentSize.width))
   hit.setAttribute('height', String(currentSize.height))
   hit.setAttribute('fill', 'transparent')
+  hit.setAttribute('stroke', 'none')
   hit.setAttribute('pointer-events', 'all')
   target.appendChild(hit)
 
@@ -319,48 +344,9 @@ export function injectStencilSvg(cellView, stencil, prefix) {
     }
   }
 
-  // Prefix-лейбл показываем только для стенсилов, привязанных к tag-list
-  // (есть tagSuffixes). У декоративных шин/заземлений auto-prefix — лейбл
-  // только засоряет вид.
-  const hasTagBinding = (stencil.tagSuffixes || []).length > 0
-  if (!hasTagBinding) return true
-
-  // Prefix-лейбл как tooltip: тёмный плашка сверху-справа над ячейкой.
-  // Виден только на hover/selected (CSS в style.css), pointer-events отключён.
-  // Не попадает в export — exporter дёргает свежий instantiate(), не читает живой DOM.
-  const fontSize = 9
-  const paddingX = 4
-  const paddingY = 2
-  const textW = prefix.length * fontSize * 0.6 // приближение для моноширинного шрифта
-  const rectW = textW + paddingX * 2
-  const rectH = fontSize + paddingY * 2
-  const rectX = currentSize.width - rectW
-  const rectY = -rectH - 2 // 2px зазор над ячейкой
-
-  const labelGroup = document.createElementNS(SVG_NS, 'g')
-  labelGroup.setAttribute('class', PREFIX_LABEL_CLASS)
-  labelGroup.setAttribute('pointer-events', 'none')
-
-  const bg = document.createElementNS(SVG_NS, 'rect')
-  bg.setAttribute('x', String(rectX))
-  bg.setAttribute('y', String(rectY))
-  bg.setAttribute('width', String(rectW))
-  bg.setAttribute('height', String(rectH))
-  bg.setAttribute('rx', '3')
-  bg.setAttribute('fill', '#334155') // slate-700
-  labelGroup.appendChild(bg)
-
-  const text = document.createElementNS(SVG_NS, 'text')
-  text.setAttribute('x', String(rectX + paddingX))
-  text.setAttribute('y', String(rectY + paddingY + fontSize - 1))
-  text.setAttribute('font-size', String(fontSize))
-  text.setAttribute('font-family', 'ui-monospace, monospace')
-  text.setAttribute('fill', '#ffffff')
-  text.textContent = prefix
-  labelGroup.appendChild(text)
-
-  target.appendChild(labelGroup)
-
+  // Раньше тут рисовался SVG-prefix-label, видимый на hover. Заменили
+  // на HTML-tooltip в CanvasPane (см. cellHoverTooltip) — там можно показать
+  // больше: prefix, лейбл стенсила, кол-во анимаций, voltageSource.
   return true
 }
 

@@ -19,5 +19,10 @@ export const useProjectStore = defineStore('project', () => {
     tagListHandle.value = handle
   }
 
-  return { tags, tagListHandle, setTags, setTagListHandle }
+  function clearTagList() {
+    tags.value = []
+    tagListHandle.value = null
+  }
+
+  return { tags, tagListHandle, setTags, setTagListHandle, clearTagList }
 })

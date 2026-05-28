@@ -14,11 +14,18 @@ const { tags } = storeToRefs(project)
   <footer
     class="px-4 py-1.5 border-t border-surface-200 dark:border-surface-700 bg-surface-0 dark:bg-surface-900 flex items-center gap-4 text-xs text-surface-500 dark:text-surface-400 font-mono"
   >
-    <!-- Левый блок: счётчики -->
-    <span class="flex items-center gap-1">
+    <!-- Левый блок: счётчики. Клик по ячейкам — выделить всё, провода/теги
+         пассивные (выделение всех проводов мало кому нужно отдельно). -->
+    <button
+      v-tooltip.top="canvas.cellsCount.value > 0 ? 'Выделить все ячейки' : 'Ячеек на холсте нет'"
+      type="button"
+      class="flex items-center gap-1 hover:text-surface-700 dark:hover:text-surface-200 transition-colors disabled:opacity-50 disabled:cursor-default disabled:hover:text-inherit"
+      :disabled="canvas.cellsCount.value === 0"
+      @click="canvas.selectAllCells()"
+    >
       <i class="pi pi-th-large text-[10px]" />
       {{ canvas.cellsCount.value }}
-    </span>
+    </button>
     <span class="flex items-center gap-1">
       <i class="pi pi-arrows-h text-[10px]" />
       {{ canvas.linksCount.value }}
@@ -53,12 +60,13 @@ const { tags } = storeToRefs(project)
 
     <!-- Правый блок: справка + версия -->
     <button
-      v-tooltip.top="'Горячие клавиши · ?'"
+      v-tooltip.top="'Горячие клавиши · ? или F1'"
       type="button"
-      class="ml-auto flex items-center text-surface-400 dark:text-surface-500 hover:text-surface-700 dark:hover:text-surface-200 transition-colors"
+      class="ml-auto flex items-center gap-1 text-surface-400 dark:text-surface-500 hover:text-surface-700 dark:hover:text-surface-200 transition-colors"
       @click="ui.openHelp"
     >
-      <i class="pi pi-question-circle text-[12px]" />
+      <i class="pi pi-question-circle text-sm" />
+      <kbd class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono">F1</kbd>
     </button>
     <span class="text-surface-400 dark:text-surface-500">tms-ide-vue · v0.1.0</span>
   </footer>

@@ -41,12 +41,16 @@ export async function getFileDirectory(fileHandle) {
     }
 }
 
-export async function selectFile(startInHandle = null) {
+export async function selectFile(startInHandle = null, accept = null) {
     if (!isFileSystemAccessSupported()) {
         throw new Error('Браузер не поддерживает File System Access API');
     }
 
     const options = { multiple: false };
+    if (accept) {
+        // accept: [{ description, accept: { mime: [extensions] } }]
+        options.types = accept;
+    }
     const resolved = await resolveStartInForOpenFilePicker(startInHandle);
     if (resolved) {
         try {

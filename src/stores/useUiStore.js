@@ -1,8 +1,32 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
+
+const DARK_MODE_KEY = 'tms-ide:dark-mode:v1'
+
+function loadDarkMode() {
+  try {
+    const raw = localStorage.getItem(DARK_MODE_KEY)
+    if (raw !== null) return raw === '1'
+  } catch {
+    /* ignore — приватный режим / quota */
+  }
+  // Если в localStorage ничего нет — берём системное предпочтение
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  }
+  return false
+}
 
 export const useUiStore = defineStore('ui', () => {
-  const darkMode = ref(false)
+  const darkMode = ref(loadDarkMode())
+
+  watch(darkMode, (v) => {
+    try {
+      localStorage.setItem(DARK_MODE_KEY, v ? '1' : '0')
+    } catch {
+      /* ignore quota */
+    }
+  })
 
   const lastTagListPickerStartIn = ref(null)
 

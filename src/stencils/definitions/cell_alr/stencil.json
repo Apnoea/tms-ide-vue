@@ -1,0 +1,36 @@
+{
+  "id": "cell_alr",
+  "label": "Аварийный сигнал",
+  "category": "Сигналы",
+  "version": "0.1.0",
+
+  "tagPattern": "^PS\\d+\\w+\\d+$",
+  "tagSuffixes": [
+    { "suffix": ".ALR", "type": "Boolean", "required": true }
+  ],
+
+  "shapeFile": "shape.svg",
+  "width": 40,
+  "height": 36,
+  "ports": [],
+
+  "animationTemplate": [
+    {
+      "idSuffix": ".ALR",
+      "type": "shape",
+      "bindings": [
+        {
+          "tag": "{prefix}.ALR",
+          "when": {
+            "source": "value",
+            "type": "map",
+            "cases": {
+              "false": { "apply": { "addClass": "animation-hidden" } }
+            }
+          }
+        }
+      ],
+      "detailTags": [{ "tag": "{prefix}.ALR" }]
+    }
+  ]
+}
