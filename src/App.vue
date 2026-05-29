@@ -3,7 +3,7 @@ import { watch, onMounted, onBeforeUnmount } from 'vue'
 import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
 import Toast from 'primevue/toast'
-import ConfirmDialog from 'primevue/confirmdialog'
+import ConfirmPopup from 'primevue/confirmpopup'
 
 import AppHeader from './components/AppHeader.vue'
 import AppFooter from './components/AppFooter.vue'
@@ -86,7 +86,7 @@ watch(darkMode, applyDarkMode)
     <AppFooter />
 
     <Toast position="bottom-right" />
-    <ConfirmDialog />
+    <ConfirmPopup />
     <HelpDialog />
   </div>
 </template>

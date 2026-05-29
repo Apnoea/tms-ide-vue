@@ -1,12 +1,13 @@
 <script setup>
-import { onMounted, onBeforeUnmount } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import { useToast } from 'primevue/usetoast'
+import { useConfirm } from 'primevue/useconfirm'
 import { useUiStore } from '../stores/useUiStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { storeToRefs } from 'pinia'
 import * as fs from '../services/fileSystem'
-import * as parsers from '../services/parsers'
+import { parseTagList } from '../services/parsers'
 import { nplural } from '../utils/plural'
 import { idbGet, idbSet, idbDel } from '../utils/idb'
 import { TOAST_LIFE } from '../constants/toast'
@@ -16,10 +17,15 @@ const ui = useUiStore()
 const project = useProjectStore()
 const canvas = useCanvas()
 const toast = useToast()
+const confirm = useConfirm()
 const { darkMode } = storeToRefs(ui)
 const { tags, tagListHandle } = storeToRefs(project)
 
 const IDB_HANDLE_KEY = 'tagListHandle'
+
+// Ref на кнопку «Открыть» — нужен как target для ConfirmPopup. Используем и
+// для click'а, и для хоткея Ctrl+O (у CustomEvent нет полезного DOM-источника).
+const openBtnRef = ref(null)
 
 /**
  * Читает и парсит tag-list из FileSystem-handle с проверкой пермишена.
@@ -51,7 +57,7 @@ async function loadParsedTagsFromHandle(handle) {
     })
     return null
   }
-  const parsed = parsers.parseTagList(content)
+  const parsed = parseTagList(content)
   if (parsed.length === 0) {
     toast.add({
       severity: 'warn',
@@ -101,8 +107,8 @@ async function pickTagList() {
 
 /**
  * Сбросить загруженный tag-list — очищает теги и забывает file handle.
- * Сами стенсилы остаются на холсте с привязанными тегами, но новые prefix'ы
- * выбрать уже не получится, пока не загружен новый tag-list.
+ * Уже привязанные слоты остаются на ячейках, но picker'ы тегов будут пустые
+ * пока не загружен новый tag-list.
  */
 function unloadTagList() {
   project.clearTagList()
@@ -110,7 +116,7 @@ function unloadTagList() {
   toast.add({
     severity: 'info',
     summary: 'Tag-list сброшен',
-    detail: 'Стенсилы на холсте сохранены, но привязать новые prefix\'ы пока не получится',
+    detail: 'Привязки на холсте сохранены, но выбрать новые теги пока нельзя',
     life: TOAST_LIFE.NORMAL,
   })
 }
@@ -130,7 +136,7 @@ async function tryRestoreTagListHandle() {
     if (perm === 'granted') {
       const content = await fs.getFileContentFromHandle(handle)
       if (!content) return
-      const parsed = parsers.parseTagList(content)
+      const parsed = parseTagList(content)
       if (parsed.length === 0) return
       project.setTags(parsed)
       project.setTagListHandle(handle)
@@ -164,14 +170,45 @@ onBeforeUnmount(() => {
   window.removeEventListener('tms-open-project', openProjectSvg)
 })
 
+// Запрос на открытие tag-list-picker'а из любого места приложения (например
+// кнопка «Загрузить tag-list…» в инспекторе, когда юзер увидел empty-state).
+// Сигнал — счётчик в UI store, повторный запрос подряд тоже триггерит watch.
+watch(
+  () => ui.tagListLoadRequest,
+  () => pickTagList()
+)
+
 /**
  * Открывает SVG (экспортированный через «Экспорт») и восстанавливает по нему
  * холст. На SVG должны быть data-tms-meta-атрибуты — иначе парсер не вытащит
  * source/target проводов и tms-поля ячеек.
  *
  * Fallback на скрытый <input type=file> для браузеров без File System Access API.
+ *
+ * Confirm спрашиваем ДО открытия нативного file-picker'а: иначе попап
+ * вылетает у кнопки Open уже после того как юзер выбрал файл в пикере
+ * (десятки секунд), визуальная связь «кнопка → попап» теряется.
  */
 async function openProjectSvg() {
+  const hasContent = canvas.cellsCount.value + canvas.linksCount.value > 0
+  if (hasContent) {
+    const accepted = await new Promise((resolve) => {
+      confirm.require({
+        target: openBtnRef.value?.$el ?? null,
+        message: 'Открыть проект? Текущая работа на холсте будет заменена.',
+        icon: 'pi pi-exclamation-triangle',
+        acceptLabel: 'Открыть',
+        rejectLabel: 'Отмена',
+        acceptProps: { severity: 'primary', size: 'small' },
+        rejectProps: { severity: 'secondary', text: true, size: 'small' },
+        accept: () => resolve(true),
+        reject: () => resolve(false),
+        onHide: () => resolve(false),
+      })
+    })
+    if (!accepted) return
+  }
+
   try {
     let svgText = null
     let fileName = 'SVG'
@@ -270,6 +307,7 @@ async function refreshTagList() {
       <!-- Group 1: Project IO (open / save SVG-project) -->
       <div class="flex items-center gap-1">
         <Button
+          ref="openBtnRef"
           v-tooltip.bottom="'Открыть проект из SVG · Ctrl+O'"
           label="Открыть"
           icon="pi pi-folder-open"

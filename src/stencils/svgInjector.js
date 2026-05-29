@@ -3,9 +3,6 @@ import { getStencilById } from './registry'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
-/** CSS-класс редактор-only меток (prefix-лейблов) — exporter их игнорирует
- *  через свежий instantiate(), поэтому в view.svg они не попадают. */
-
 /** Ширина resize-хэндлов шины (см. buildBusContent). */
 const BUS_HANDLE_WIDTH = 6
 
@@ -146,16 +143,24 @@ export function buildTextExportSvg(text, height, { fontSize = TEXT_FONT_SIZE, bo
 
 /**
  * SVG-строка cell_value для экспорта: label + value (динамический) + единица.
- * Value-элемент получает id="animation-{prefix}" — рантайм обновляет его
- * содержимое из тега tms.valueTag (text-анимация, см. exporter).
+ * Value-элемент получает id="animation-{animId}" — рантайм обновляет его
+ * содержимое из тега tms.valueTag (text-анимация, см. exporter). animId
+ * обычно равен tms.valueTag (рантайм-конвенция {prefix}.SUFFIX), fallback
+ * на cell.id если valueTag не задан.
  */
-export function buildValueExportSvg(prefix, valueTag, width = 100, height = 18) {
+export function buildValueExportSvg(animId, valueTag, width = 100, height = 20) {
   const { label, unit } = resolveValueDisplay(valueTag)
+  const by = height - 5
+  // Геометрия и цвета — синхронны с buildValueContent (см. константы VALUE_*).
+  // Меняем здесь — меняй там, иначе editor-preview и export разойдутся.
+  const stripe = `<rect x="0" y="0" width="3" height="${height}" fill="#000"/>`
+  const bg = `<rect x="3" y="0" width="${Math.max(0, width - 3)}" height="${height}" fill="#fafafa"/>`
+  const labelText = `<text x="8" y="${by}" font-size="10" font-family="sans-serif" fill="#71717a">${escapeXml(label)}</text>`
+  const valueText = `<text id="animation-${animId}" x="${width - 32}" y="${by}" text-anchor="end" font-size="12" font-family="sans-serif" font-weight="bold" fill="#18181b">--</text>`
   const unitText = unit
-    ? `<text x="72" y="13" font-size="9" font-family="sans-serif" fill="#888">${escapeXml(unit)}</text>`
+    ? `<text x="${width - 5}" y="${by}" text-anchor="end" font-size="9" font-family="sans-serif" fill="#a1a1aa">${escapeXml(unit)}</text>`
     : ''
-  const frame = `<rect x="0" y="0" width="${width}" height="${height}" fill="#fff" stroke="#000" stroke-width="2"/>`
-  return `<svg xmlns="${SVG_NS}">${frame}<text x="2" y="13" font-size="11" font-family="sans-serif" fill="#666">${escapeXml(label)}</text><text id="animation-${prefix}" x="68" y="13" text-anchor="end" font-size="11" font-family="sans-serif" font-weight="bold" fill="#222">--</text>${unitText}</svg>`
+  return `<svg xmlns="${SVG_NS}">${stripe}${bg}${labelText}${valueText}${unitText}</svg>`
 }
 
 /**
@@ -215,57 +220,101 @@ function buildTextContent(cellView) {
   return [t]
 }
 
+// ─── cell_value: дизайн «card с accent-полоской» ────────────────────────────
+// Стиль выровнен на остальные «data display» стенсилы (в будущем — расширим
+// тот же язык на другие measurement-блоки). Преимущество перед старой
+// 2px-чёрной рамкой: стек из 5+ ячеек больше не выглядит как сетка таблицы,
+// карточки читаются как сгруппированные строки, акцент уходит на ЗНАЧЕНИЕ.
+//
+// Координатная сетка (для width=100, height=20 — стандарт стенсила):
+//   [0..3]   accent-stripe (черный)
+//   [3..100] фон surface-50
+//   x=8      label (left-anchor, 10px gray)
+//   x=68     value-end (right-anchor, 12px bold near-black)
+//   x=95     unit-end  (right-anchor, 9px light gray)
+// Все text'ы выровнены по общей baseline (alphabetic, y = height - 5) — «по полу».
+// Value-end и unit-end фиксированные (не зависят от длины unit'а) — иначе
+// при стеке value'ов с разными единицами (А / кВт / квар / без unit'а)
+// колонки разъезжаются. Цена — узкое value-поле для случаев «без unit'а».
+// UNIT_ZONE = 32 рассчитано на самый широкий unit «квар» (~22px @9px) + 4px gap
+// до value + 5px правый паддинг. Иначе value визуально слипается с unit'ом.
+const VALUE_STRIPE_W = 3
+const VALUE_BG_COLOR = '#fafafa'
+const VALUE_STRIPE_COLOR = '#000'          // нейтральный — не конкурирует с voltage-цветами стенсилов и не выделяется по теме
+const VALUE_LABEL_COLOR = '#71717a'        // zinc-500
+const VALUE_TEXT_COLOR = '#18181b'         // zinc-900
+const VALUE_UNIT_COLOR = '#a1a1aa'         // zinc-400
+const VALUE_PAD_LEFT = 8                    // label-start от левого края
+const VALUE_UNIT_RIGHT_PAD = 5              // unit-end от правого края
+const VALUE_UNIT_ZONE = 32                  // зарезервировано на unit + gap до value
+const VALUE_BASELINE_PAD = 5                // расстояние от пола ячейки до общей baseline
+
 /**
- * Контент cell_value для редактора: 3 text-ноды (label, value-placeholder, unit).
- * Label/unit подбираются по суффиксу tms.valueTag (см. resolveValueDisplay).
- * В редакторе value показывает «--» — реальное значение появится при экспорте/runtime.
+ * Контент cell_value для редактора: stripe + bg + 3 text-ноды (label, value,
+ * unit). Label/unit подбираются по суффиксу tms.valueTag. В редакторе value
+ * показывает «--» — реальное значение появится при экспорте/runtime через
+ * text-анимацию (id="animation-{valueTag}").
  */
 function buildValueContent(cellView) {
   const tms = cellView.model.get('tms') || {}
   const { label, unit } = resolveValueDisplay(tms.valueTag)
   const { width, height } = cellView.model.size()
+  // Общая baseline для label/value/unit — alphabetic-выравнивание «по полу».
+  // y-координата это baseline-line; descender'ы (например φ в cosφ) уходят
+  // ниже на 2-3px, паддинг VALUE_BASELINE_PAD рассчитан с запасом под них.
+  const by = height - VALUE_BASELINE_PAD
 
   const out = []
 
-  // Рамка с белой заливкой и чёрной обводкой. В редакторе окраска от
-  // voltage-source не применяется (это runtime-only через CSS classes).
-  const frame = document.createElementNS(SVG_NS, 'rect')
-  frame.setAttribute('x', '0')
-  frame.setAttribute('y', '0')
-  frame.setAttribute('width', String(width))
-  frame.setAttribute('height', String(height))
-  frame.setAttribute('fill', '#fff')
-  frame.setAttribute('stroke', '#000')
-  frame.setAttribute('stroke-width', '2')
-  out.push(frame)
+  // Stripe-маркер слева
+  const stripe = document.createElementNS(SVG_NS, 'rect')
+  stripe.setAttribute('x', '0')
+  stripe.setAttribute('y', '0')
+  stripe.setAttribute('width', String(VALUE_STRIPE_W))
+  stripe.setAttribute('height', String(height))
+  stripe.setAttribute('fill', VALUE_STRIPE_COLOR)
+  out.push(stripe)
 
+  // Светлый фон (от stripe до правого края). Окраска от voltage-source в
+  // редакторе не применяется (это runtime-only через CSS classes).
+  const bg = document.createElementNS(SVG_NS, 'rect')
+  bg.setAttribute('x', String(VALUE_STRIPE_W))
+  bg.setAttribute('y', '0')
+  bg.setAttribute('width', String(Math.max(0, width - VALUE_STRIPE_W)))
+  bg.setAttribute('height', String(height))
+  bg.setAttribute('fill', VALUE_BG_COLOR)
+  out.push(bg)
+
+  // Label — приглушённый, слева
   const labelEl = document.createElementNS(SVG_NS, 'text')
-  labelEl.setAttribute('x', '2')
-  labelEl.setAttribute('y', '13')
-  labelEl.setAttribute('font-size', '11')
+  labelEl.setAttribute('x', String(VALUE_PAD_LEFT))
+  labelEl.setAttribute('y', String(by))
+  labelEl.setAttribute('font-size', '10')
   labelEl.setAttribute('font-family', 'sans-serif')
-  labelEl.setAttribute('fill', '#666')
+  labelEl.setAttribute('fill', VALUE_LABEL_COLOR)
   labelEl.textContent = label
   out.push(labelEl)
 
+  // Value — фокус блока: жирно, near-black, чуть крупнее label/unit
   const valueEl = document.createElementNS(SVG_NS, 'text')
-  valueEl.setAttribute('x', '68')
-  valueEl.setAttribute('y', '13')
+  valueEl.setAttribute('x', String(width - VALUE_UNIT_ZONE))
+  valueEl.setAttribute('y', String(by))
   valueEl.setAttribute('text-anchor', 'end')
-  valueEl.setAttribute('font-size', '11')
+  valueEl.setAttribute('font-size', '12')
   valueEl.setAttribute('font-family', 'sans-serif')
   valueEl.setAttribute('font-weight', 'bold')
-  valueEl.setAttribute('fill', '#222')
+  valueEl.setAttribute('fill', VALUE_TEXT_COLOR)
   valueEl.textContent = '--'
   out.push(valueEl)
 
   if (unit) {
     const unitEl = document.createElementNS(SVG_NS, 'text')
-    unitEl.setAttribute('x', '72')
-    unitEl.setAttribute('y', '13')
+    unitEl.setAttribute('x', String(width - VALUE_UNIT_RIGHT_PAD))
+    unitEl.setAttribute('y', String(by))
+    unitEl.setAttribute('text-anchor', 'end')
     unitEl.setAttribute('font-size', '9')
     unitEl.setAttribute('font-family', 'sans-serif')
-    unitEl.setAttribute('fill', '#888')
+    unitEl.setAttribute('fill', VALUE_UNIT_COLOR)
     unitEl.textContent = unit
     out.push(unitEl)
   }
@@ -275,17 +324,16 @@ function buildValueContent(cellView) {
 
 /**
  * Впихивает SVG-разметку стенсила в body-группу cellView'а. Сначала очищает
- * старое содержимое — это позволяет переиспользовать функцию и для первого
- * рендера ячейки, и для перерисовки после смены prefix'а / восстановления
- * из history. Hover-tooltip с prefix/лейблом/анимациями живёт в HTML
+ * старое содержимое — позволяет переиспользовать функцию и для первого
+ * рендера ячейки, и для перерисовки после правки слотов / восстановления из
+ * history. Hover-tooltip с лейблом и счётчиком анимаций живёт в HTML
  * (CanvasPane.cellHoverTooltip), отдельно от SVG-разметки ячейки.
  *
  * @param {dia.CellView} cellView — JointJS CellView выбранной ячейки
  * @param {object} stencil — определение стенсила из реестра
- * @param {string} prefix — текущий prefix логического объекта
- * @returns {boolean} true если SVG был успешно вставлен, false если что-то пошло не так
+ * @returns {boolean} true если SVG был успешно вставлен
  */
-export function injectStencilSvg(cellView, stencil, prefix) {
+export function injectStencilSvg(cellView, stencil) {
   if (!cellView || !stencil) return false
 
   const found = cellView.findBySelector('body')
@@ -330,7 +378,13 @@ export function injectStencilSvg(cellView, stencil, prefix) {
   } else if (stencil.id === 'cell_value') {
     for (const el of buildValueContent(cellView)) target.appendChild(el)
   } else {
-    const { svg } = instantiate(stencil, prefix)
+    // animId — основа SVG-id'шников анимируемых элементов. Используем cell.id
+    // (стабильный JointJS-uuid, переживает round-trip), slots для интерполяции
+    // {slot.X} в bindings (хотя на этапе injectIds bindings уже не нужны —
+    // важна только подстановка cellId в id-атрибуты).
+    const tms = cellView.model.get('tms') || {}
+    const cellId = cellView.model.id
+    const { svg } = instantiate(stencil, cellId, tms.slots || {})
     if (!svg) return false
 
     const doc = new DOMParser().parseFromString(svg, 'image/svg+xml')
@@ -344,18 +398,13 @@ export function injectStencilSvg(cellView, stencil, prefix) {
     }
   }
 
-  // Раньше тут рисовался SVG-prefix-label, видимый на hover. Заменили
-  // на HTML-tooltip в CanvasPane (см. cellHoverTooltip) — там можно показать
-  // больше: prefix, лейбл стенсила, кол-во анимаций, voltageSource.
   return true
 }
 
 /**
- * После graph.fromJSON() cellView'ы рендерятся без SVG-контента — JointJS
- * не знает про наши стенсилы. Пробегает по всем элементам с мета `tms` и
- * переинжектит SVG по сохранённому stencilId/prefix.
- *
- * Используется и для restore из autosave, и для undo/redo.
+ * После graph.fromJSON() cellView'ы рендерятся без SVG-контента — JointJS не
+ * знает про наши стенсилы. Пробегаем по всем элементам с мета `tms` и
+ * переинжектим SVG. Используется для restore из autosave и undo/redo.
  */
 export function reinjectAllStencils(graph, paper) {
   if (!graph || !paper) return
@@ -365,6 +414,6 @@ export function reinjectAllStencils(graph, paper) {
     const stencil = getStencilById(tms.stencilId)
     if (!stencil) continue
     const cellView = paper.findViewByModel(cell)
-    if (cellView) injectStencilSvg(cellView, stencil, tms.prefix)
+    if (cellView) injectStencilSvg(cellView, stencil)
   }
 }

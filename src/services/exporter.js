@@ -5,7 +5,7 @@ import {
   buildTextExportSvg,
   buildValueExportSvg,
 } from '../stencils/svgInjector'
-import { ANIMATION_CLASS_COLORS } from '../constants/animation'
+import { ANIMATION_CLASS_COLORS, ANIMATION_OFF_COLOR } from '../constants/animation'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
@@ -14,8 +14,9 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
  *  • view.svg        — целостный SVG со всеми ячейками
  *  • animations.json — объединённые карточки всех ячеек
  *
- * На каждой ячейке должна быть meta `tms = { stencilId, prefix }`,
- * которую CanvasPane проставляет в момент создания ячейки.
+ * На каждой ячейке должна быть meta `tms = { stencilId, slots? }`,
+ * которую CanvasPane проставляет в момент создания ячейки. slots — карта
+ * key→tag, заполняется юзером через инспектор.
  *
  * В выходной SVG зашиваются data-tms-* атрибуты — для round-trip
  * (открыть view.svg обратно в IDE с восстановлением модели).
@@ -80,6 +81,65 @@ function buildVoltageCard(vs) {
 }
 
 /**
+ * Карточка анимации switch-source: bool-тег → класс animation-off при false.
+ * Single-purpose: «выключатель выключился — группа потускнела». Структура
+ * биндинга совместима с cell_vk's .VK template — те же поля source/type/cases
+ * использует рантайм.
+ */
+function buildSwitchCard(ss) {
+  return {
+    animation: 'shape',
+    bindings: [
+      {
+        tag: ss.tag,
+        when: {
+          source: 'value',
+          type: 'map',
+          cases: { false: { apply: { addClass: 'animation-off' } } },
+        },
+      },
+    ],
+  }
+}
+
+/**
+ * Карточка под ключ либо создаётся, либо в существующую дописываются
+ * bindings. Нужно потому что несколько источников (voltage + switch) могут
+ * хотеть навесить биндинги на один и тот же outer-wrapper или link-id —
+ * порядок добавления не должен затирать предыдущее.
+ */
+function assignOrMergeAnimation(animations, key, card) {
+  if (animations[key]) {
+    animations[key].bindings = [
+      ...(animations[key].bindings || []),
+      ...card.bindings,
+    ]
+  } else {
+    animations[key] = card
+  }
+}
+
+/**
+ * Дублирует bindings новой карточки во ВСЕ стенсильные shape-карточки того же
+ * cellId (`animation-{cellId}.VK`, `.VK-cross`, …). Так класс ляжет не только
+ * на outer-wrapper, но и на внутренние shape-группы стенсила. Text-карточки
+ * (вроде cell_value text-update) пропускаем — их раскрашивать чужими классами
+ * не нужно.
+ */
+function mergeBindingsIntoStencilCards(animations, cellId, exceptKey, card) {
+  const keyPrefix = `animation-${cellId}.`
+  for (const key of Object.keys(animations)) {
+    if (key === exceptKey) continue
+    if (animations[key].animation === 'text') continue
+    if (!key.startsWith(keyPrefix)) continue
+    animations[key].bindings = [
+      ...(animations[key].bindings || []),
+      ...card.bindings,
+    ]
+  }
+}
+
+/**
  * @param {dia.Graph} graph
  * @param {dia.Paper} [paper] — если передан, в SVG для линий пишутся РЕАЛЬНЫЕ
  *   ортогональные пути (manhattan-router), как видно на холсте.
@@ -101,7 +161,7 @@ export function exportProject(graph, paper = null) {
   // ─── Ячейки (стенсилы) ───
   for (const cell of elements) {
     const tms = cell.get('tms')
-    if (!tms?.stencilId || !tms?.prefix) continue
+    if (!tms?.stencilId) continue
 
     const stencil = getStencilById(tms.stencilId)
     if (!stencil) {
@@ -112,9 +172,15 @@ export function exportProject(graph, paper = null) {
     const pos = cell.get('position')
     const size = cell.get('size')
 
+    // animId — идентификатор для внешних SVG-ids (animation-cell-{animId}).
+    // Для cell_value с тегом — сам тег (рантайм-конвенция {prefix}.SUFFIX),
+    // у остальных — cell.id (стабильный JointJS-uuid, переживает round-trip).
+    const animId =
+      tms.stencilId === 'cell_value' && tms.valueTag ? tms.valueTag : cell.id
+
     // Динамические стенсилы (шина, текст, значение) рендерятся по реальному
     // размеру/контенту и без редактор-only декораций; у остальных — обычный
-    // svgText из шаблона.
+    // svgText из шаблона + bindings из animationTemplate с подстановкой slots.
     let cellSvg
     if (tms.stencilId === 'cell_bus') {
       cellSvg = buildBusExportSvg(size.width, size.height)
@@ -124,18 +190,10 @@ export function exportProject(graph, paper = null) {
         bold: tms.bold,
       })
     } else if (tms.stencilId === 'cell_value') {
-      // Для cell_value с привязанным тегом используем САМ ТЕГ как идентификатор
-      // SVG-элемента и ключа animations.json — это общая конвенция стенсилов
-      // ({prefix}.SUFFIX). Без этого рантайм не цеплял text-update: id вида
-      // `animation-cell_value_2` (auto-prefix) не соответствует ожиданиям.
-      // Без тега fallback'имся на prefix — id всё равно нужен для уникальности.
-      const animId = tms.valueTag || tms.prefix
       cellSvg = buildValueExportSvg(animId, tms.valueTag || '', size.width, size.height)
       if (tms.valueTag) {
         // Конвенция WebScada-рантайма: пустой output.text означает «взять
-        // значение из binding.tag» (т.е. того же тега, что подписан). Поэтому
-        // output.text.from не нужен — рантайм сам подставит. decimals выносим
-        // на уровень output (форматтер вывода).
+        // значение из binding.tag» (т.е. того же тега, что подписан).
         animations[`animation-${animId}`] = {
           animation: 'text',
           bindings: [
@@ -148,16 +206,13 @@ export function exportProject(graph, paper = null) {
         }
       }
     } else {
-      const inst = instantiate(stencil, tms.prefix)
+      // parser.instantiate сделает интерполяцию {slot.X} → tms.slots[X] в
+      // bindings и собёрет SVG с id="animation-{cellId}{suffix}".
+      const inst = instantiate(stencil, cell.id, tms.slots || {})
       cellSvg = inst.svg
       Object.assign(animations, inst.animations)
     }
 
-    // animId — идентификатор для внешних SVG-ids (animation-cell-{animId})
-    // и для voltage-карточек. Для cell_value с привязкой = сам тег
-    // (animation-cell-PS031VV001.IB), у остальных = prefix.
-    const animId =
-      tms.stencilId === 'cell_value' && tms.valueTag ? tms.valueTag : tms.prefix
     cellExports.push({
       cellId: cell.id, // нужен для data-tms-meta + связей в проводах
       x: pos.x,
@@ -165,10 +220,11 @@ export function exportProject(graph, paper = null) {
       width: size.width,
       height: size.height,
       stencilId: tms.stencilId,
-      prefix: tms.prefix,
       animId,
       svgContent: cellSvg,
+      slots: tms.slots || null,
       voltageSource: tms.voltageSource || null,
+      switchSource: tms.switchSource || null,
       // Cтенсило-специфичные поля для round-trip восстановления редактором
       text: tms.text,
       fontSize: tms.fontSize,
@@ -183,9 +239,6 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── Линии (links) ───
-  // Для дисамбигуации id'ов нескольких проводов между одной парой ячеек
-  const wireIdUsage = new Map() // baseId → count
-
   for (const link of links) {
     let pathD = null
 
@@ -228,23 +281,10 @@ export function exportProject(graph, paper = null) {
       maxY = Math.max(maxY, source.y, target.y)
     }
 
-    // id провода = `animation-wire-{prefixA}-{prefixB}` (сортировка по алфавиту);
-    // для параллельных проводов между той же парой добавляется суффикс `-2`, `-3`...
-    const sId = link.get('source')?.id
-    const tId = link.get('target')?.id
-    const sPrefix = sId ? graph.getCell(sId)?.get('tms')?.prefix : null
-    const tPrefix = tId ? graph.getCell(tId)?.get('tms')?.prefix : null
-    let wireId
-    if (sPrefix && tPrefix) {
-      const [a, b] = [sPrefix, tPrefix].sort()
-      const base = `animation-wire-${a}-${b}`
-      const used = wireIdUsage.get(base) || 0
-      wireIdUsage.set(base, used + 1)
-      wireId = used === 0 ? base : `${base}-${used + 1}`
-    } else {
-      // У провода нет полноценных эндпоинтов — даём fallback-id по индексу
-      wireId = `animation-wire-${linkExports.length}`
-    }
+    // id провода — `animation-wire-{linkId}`. linkId стабилен в рамках сессии и
+    // переживает round-trip (хранится в data-tms-meta.id). Уникальность —
+    // автоматически (JointJS-uuid), не нужны коллизионные суффиксы по парам.
+    const wireId = `animation-wire-${link.id}`
 
     const linkTms = link.get('tms') || {}
     const sourceRef = link.get('source')
@@ -254,6 +294,7 @@ export function exportProject(graph, paper = null) {
       linkId: link.id, // JointJS-id для round-trip восстановления редактором
       d: pathD,
       voltageSource: linkTms.voltageSource || null,
+      switchSource: linkTms.switchSource || null,
       // Endpoint-references для редактора: какие именно ячейки/порты соединены.
       // Эти данные ИЗ source/target в JointJS-модели, не из геометрии пути.
       source: sourceRef ? { id: sourceRef.id, port: sourceRef.port } : null,
@@ -276,34 +317,31 @@ export function exportProject(graph, paper = null) {
     viewBoxH = Math.ceil(maxY - minY + padding * 2)
   }
 
-  // ─── Карточки анимации voltage-source ───
-  // Для каждого элемента с voltageSource эмитим range-биндинг.
-  //
-  // Для ячейки кладём в карточку на outer wrapper id="animation-cell-{prefix}" +
-  // дублируем биндинг в стенсильные карточки этого prefix'а
-  // (animation-{prefix}.RZ, animation-{prefix}.VK, animation-{prefix}.frame и т.д.).
-  // Так класс ляжет на внутренние shape-группы. Карточки type="text" пропускаем,
-  // чтобы текстовые значения не перекрашивались (рантайм бы по классу покрасил).
-  for (const c of cellExports) {
-    if (!c.voltageSource?.tag) continue
-    const voltageCard = buildVoltageCard(c.voltageSource)
-    animations[`animation-cell-${c.animId}`] = voltageCard
-
-    // merge в стенсильные anim-cards с тем же prefix'ом (cell_vk's .VK и т.д.)
-    const prefixKey = `animation-${c.prefix}`
-    for (const key of Object.keys(animations)) {
-      if (key === `animation-cell-${c.animId}`) continue
-      if (animations[key].animation === 'text') continue
-      if (!key.startsWith(prefixKey + '.')) continue
-      animations[key].bindings = [
-        ...(animations[key].bindings || []),
-        ...voltageCard.bindings,
-      ]
+  // ─── Карточки анимации voltage-source + switch-source ───
+  // Оба источника применяются одинаково:
+  //  • на ячейке — карточка на outer wrapper (`animation-cell-{animId}`) +
+  //    дубль bindings во все стенсильные shape-карточки того же cellId
+  //    (cell_vk's .VK, .VK-cross, frame и т.д.) — чтобы класс ложился на
+  //    внутренние shape-группы тоже;
+  //  • на линке — карточка на link's id.
+  // При наличии обоих (voltage + switch на одном элементе) bindings мержатся
+  // в одну карточку — assignOrMergeAnimation учитывает существующую.
+  const cellBindingSources = [
+    { field: 'voltageSource', build: buildVoltageCard },
+    { field: 'switchSource', build: buildSwitchCard },
+  ]
+  for (const { field, build } of cellBindingSources) {
+    for (const c of cellExports) {
+      if (!c[field]?.tag) continue
+      const card = build(c[field])
+      const outerKey = `animation-cell-${c.animId}`
+      assignOrMergeAnimation(animations, outerKey, card)
+      mergeBindingsIntoStencilCards(animations, c.cellId, outerKey, card)
     }
-  }
-  for (const l of linkExports) {
-    if (!l.voltageSource?.tag) continue
-    animations[l.id] = buildVoltageCard(l.voltageSource)
+    for (const l of linkExports) {
+      if (!l[field]?.tag) continue
+      assignOrMergeAnimation(animations, l.id, build(l[field]))
+    }
   }
 
   // ─── SVG-фрагменты ───
@@ -322,6 +360,7 @@ export function exportProject(graph, paper = null) {
         target: l.target,
       }
       if (l.voltageSource) meta.voltageSource = l.voltageSource
+      if (l.switchSource) meta.switchSource = l.switchSource
       const metaAttr = escapeAttr(JSON.stringify(meta))
       return `  <path id="${l.id}" d="${l.d}" stroke="#000" stroke-width="2" fill="none" data-tms-meta="${metaAttr}"/>`
     })
@@ -338,17 +377,18 @@ export function exportProject(graph, paper = null) {
       const meta = {
         id: c.cellId,
         stencilId: c.stencilId,
-        prefix: c.prefix,
         width: c.width,
         height: c.height,
       }
+      if (c.slots) meta.slots = c.slots
       if (c.text !== undefined) meta.text = c.text
       if (c.fontSize !== undefined) meta.fontSize = c.fontSize
       if (c.bold !== undefined) meta.bold = c.bold
       if (c.valueTag !== undefined) meta.valueTag = c.valueTag
       if (c.voltageSource) meta.voltageSource = c.voltageSource
+      if (c.switchSource) meta.switchSource = c.switchSource
       const metaAttr = escapeAttr(JSON.stringify(meta))
-      return `  <g id="animation-cell-${c.animId}" transform="translate(${c.x},${c.y})" data-tms-stencil="${c.stencilId}" data-tms-object="${c.prefix}" data-tms-meta="${metaAttr}">${inner}</g>`
+      return `  <g id="animation-cell-${c.animId}" transform="translate(${c.x},${c.y})" data-tms-stencil="${c.stencilId}" data-tms-meta="${metaAttr}">${inner}</g>`
     })
     .join('\n')
 
@@ -381,7 +421,10 @@ ${Object.entries(ANIMATION_CLASS_COLORS)
 ${Object.entries(ANIMATION_CLASS_COLORS)
   .map(([cls, hex]) => `    .${cls} .tms-voltage-fill, .${cls}.tms-voltage-fill { fill: ${hex} !important; }`)
   .join('\n')}
-    .animation-off { opacity: 0.4; }
+    /* animation-off: серый stroke + fill, перебивает voltage-классы (объявлен ПОСЛЕ).
+       Та же descendant-схема: красим всё кроме text, fill — opt-in через tms-voltage-fill. */
+    .animation-off, .animation-off *:not(text) { stroke: ${ANIMATION_OFF_COLOR} !important; }
+    .animation-off .tms-voltage-fill, .animation-off.tms-voltage-fill { fill: ${ANIMATION_OFF_COLOR} !important; }
     ]]>
   </style>`
 

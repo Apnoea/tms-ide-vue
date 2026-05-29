@@ -15,23 +15,10 @@ export const ANIMATION_CLASS_COLORS = {
 
 export const ANIMATION_CLASS_OPTIONS = Object.keys(ANIMATION_CLASS_COLORS)
 
-// Дефолтные диапазоны voltage-source при первом включении на элементе или
-// применении из context-menu / multi-select picker'а. Юзер дальше тонит вручную.
-// Внутреннее — используется только createDefaultVoltageConfig ниже.
-const VOLTAGE_RANGE_DEFAULTS = [
-  { min: 0, max: 4,  class: 'animation-low' },
-  { min: 4, max: 7,  class: 'animation-mid' },
-  { min: 7, max: 10, class: 'animation-high' },
-]
-
-/**
- * Конструктор дефолтного voltageSource-конфига: deep-копия ranges чтобы каждый
- * элемент получил свой массив (правка одного не задевала другие).
- * Используется на включении voltage-source и применении тега из picker'ов.
- */
-export function createDefaultVoltageConfig(tag = '') {
-  return {
-    tag,
-    ranges: VOLTAGE_RANGE_DEFAULTS.map((r) => ({ ...r })),
-  }
-}
+// Цвет затемнения «выключено» (animation-off). Tailwind slate-500 — нейтральный
+// серый того же уровня насыщенности что и voltage-палитра (все Tailwind 500).
+// Применяется как stroke на элементах когда привязанный bool-тег = false:
+// перекрашивает контуры в серый поверх любых voltage-классов (cascade-порядок:
+// .animation-off декларируется ПОСЛЕ voltage-правил). В отличие от opacity 0.4
+// эффект предсказуем независимо от родительских fill/stroke.
+export const ANIMATION_OFF_COLOR = '#64748b'

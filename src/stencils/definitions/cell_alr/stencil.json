@@ -2,11 +2,16 @@
   "id": "cell_alr",
   "label": "Аварийный сигнал",
   "category": "Сигналы",
-  "version": "0.1.0",
+  "version": "0.2.0",
 
-  "tagPattern": "^PS\\d+\\w+\\d+$",
-  "tagSuffixes": [
-    { "suffix": ".ALR", "type": "Boolean", "required": true }
+  "slots": [
+    {
+      "key": "alr",
+      "label": "Состояние аварии",
+      "type": "Boolean",
+      "required": true,
+      "tagSuffix": ".ALR"
+    }
   ],
 
   "shapeFile": "shape.svg",
@@ -20,7 +25,7 @@
       "type": "shape",
       "bindings": [
         {
-          "tag": "{prefix}.ALR",
+          "tag": "{slot.alr}",
           "when": {
             "source": "value",
             "type": "map",
@@ -30,7 +35,7 @@
           }
         }
       ],
-      "detailTags": [{ "tag": "{prefix}.ALR" }]
+      "detailTags": [{ "tag": "{slot.alr}" }]
     }
   ]
 }

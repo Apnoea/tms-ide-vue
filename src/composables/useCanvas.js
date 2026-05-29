@@ -39,24 +39,36 @@ const paperViewTick = ref(0)
 const zoomPercent = ref(100)
 // { x, y } в paper-локальных координатах либо null когда курсор вне холста
 const cursorLocal = ref(null)
-// Индикаторы для footer'а
+// Индикаторы для footer'а.
+// recentlySaved — короткий «flash» на 1.5 сек после сохранения (зелёная галочка).
+// lastSavedAt — timestamp последнего успешного autosave'а (для «N сек назад»).
 const recentlySaved = ref(false)
+const lastSavedAt = ref(0)
 const canUndo = ref(false)
 const canRedo = ref(false)
 
-// Тик для внешних запросов snapshot'а (Inspector после смены prefix'а).
+// Тик для внешних запросов snapshot'а (Inspector после правки слотов и т.п.).
 // CanvasPane watch'ит изменения и вызывает свой scheduleSnapshot.
 const snapshotTick = ref(0)
 
+// Запрос «открыть picker первого пустого required-слота» — bump'ается клик'ом
+// по жёлтому badge'у на холсте. Inspector watch'ит и сам открывает picker
+// (Canvas не знает про устройство Inspector'а; Inspector не знает про badge).
+const slotPickRequest = ref({ tick: 0, cellId: null })
+
+// Тег, по которому в данный момент подсвечены элементы (cells + links с
+// matching voltageSource.tag). null = подсветки нет. Кнопка «Подсветить на
+// схеме» в VoltageSourceBlock включает/выключает это значение через toggle:
+// тот же тег второй раз → снимает подсветку.
+const highlightedTag = ref(null)
+
 const cellsCount = computed(() => {
-  // eslint-disable-next-line no-unused-expressions
-  graphVersion.value
+  graphVersion.value // touch для reactive-зависимости
   return graphRef.value?.getElements().length || 0
 })
 
 const linksCount = computed(() => {
-  // eslint-disable-next-line no-unused-expressions
-  graphVersion.value
+  graphVersion.value // touch для reactive-зависимости
   return graphRef.value?.getLinks().length || 0
 })
 
@@ -67,8 +79,7 @@ const singleSelection = computed(() =>
 
 // Краткое описание выделения для info-bar canvas'а
 const selectionLabel = computed(() => {
-  // eslint-disable-next-line no-unused-expressions
-  graphVersion.value
+  graphVersion.value // touch для reactive-зависимости
   const sel = selection.value
   if (sel.length === 0) return null
   if (sel.length > 1) return `выделено: ${sel.length}`
@@ -77,8 +88,12 @@ const selectionLabel = computed(() => {
   const cell = graph?.getCell(item.id)
   if (!cell) return null
   if (item.kind === 'cell') {
-    const prefix = cell.get('tms')?.prefix
-    return prefix ? `ячейка · ${prefix}` : 'ячейка'
+    // В status-bar показываем первый заполненный slot как «идентификатор объекта».
+    // Если слотов нет / все пустые — просто «ячейка».
+    const tms = cell.get('tms') || {}
+    const slots = tms.slots || {}
+    const firstTag = Object.values(slots).find((v) => v)
+    return firstTag ? `ячейка · ${firstTag}` : 'ячейка'
   }
   if (item.kind === 'link') return 'провод'
   return null
@@ -96,6 +111,7 @@ export function useCanvas() {
     cellsCount,
     linksCount,
     recentlySaved,
+    lastSavedAt,
     canUndo,
     canRedo,
     snapshotTick,
@@ -164,6 +180,22 @@ export function useCanvas() {
     },
     setRecentlySaved(value) {
       recentlySaved.value = value
+    },
+    setLastSavedAt(ts) {
+      lastSavedAt.value = ts
+    },
+    slotPickRequest,
+    requestSlotPick(cellId) {
+      slotPickRequest.value = { tick: slotPickRequest.value.tick + 1, cellId }
+    },
+    highlightedTag,
+    /** Toggle подсветки тега на холсте. Тот же тег → выкл, новый → переключаем. */
+    toggleHighlightedTag(tag) {
+      if (!tag) return
+      highlightedTag.value = highlightedTag.value === tag ? null : tag
+    },
+    clearHighlightedTag() {
+      highlightedTag.value = null
     },
     setUndoRedoAvail(undo, redo) {
       canUndo.value = undo

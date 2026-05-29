@@ -42,7 +42,7 @@ export function parseSvgProject(svgText) {
       const tr = g.getAttribute('transform') || ''
       const m = tr.match(/translate\s*\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)\s*\)/)
       if (!m) {
-        errors.push(`Ячейка ${meta.prefix || meta.id}: нет transform`)
+        errors.push(`Ячейка ${meta.id}: нет transform`)
         continue
       }
       const x = parseFloat(m[1])
@@ -69,12 +69,14 @@ export function parseSvgProject(svgText) {
             }))
 
       // Собираем tms-payload только из того, что было в meta (не плодим undefined)
-      const tms = { stencilId: meta.stencilId, prefix: meta.prefix }
+      const tms = { stencilId: meta.stencilId }
+      if (meta.slots) tms.slots = { ...meta.slots }
       if (meta.text !== undefined) tms.text = meta.text
       if (meta.fontSize !== undefined) tms.fontSize = meta.fontSize
       if (meta.bold !== undefined) tms.bold = meta.bold
       if (meta.valueTag !== undefined) tms.valueTag = meta.valueTag
       if (meta.voltageSource) tms.voltageSource = meta.voltageSource
+      if (meta.switchSource) tms.switchSource = meta.switchSource
 
       cells.push({
         type: 'tms.Stencil',
@@ -108,8 +110,10 @@ export function parseSvgProject(svgText) {
         source: meta.source,
         target: meta.target,
       }
-      if (meta.voltageSource) {
-        link.tms = { voltageSource: meta.voltageSource }
+      if (meta.voltageSource || meta.switchSource) {
+        link.tms = {}
+        if (meta.voltageSource) link.tms.voltageSource = meta.voltageSource
+        if (meta.switchSource) link.tms.switchSource = meta.switchSource
       }
       cells.push(link)
     } catch (e) {

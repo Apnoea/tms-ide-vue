@@ -1,4 +1,5 @@
 <script setup>
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useCanvas } from '../composables/useCanvas'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
@@ -8,6 +9,32 @@ const canvas = useCanvas()
 const project = useProjectStore()
 const ui = useUiStore()
 const { tags } = storeToRefs(project)
+
+// nowTick — bump'аем раз в секунду, чтобы relative time реактивно обновлялся.
+// Альтернатива (вешать watch на lastSavedAt + setTimeout) усложнила бы код
+// без выигрыша — индикатор и так редко перерисовывается.
+const nowTick = ref(Date.now())
+let tickInterval = null
+onMounted(() => {
+  tickInterval = setInterval(() => (nowTick.value = Date.now()), 1000)
+})
+onBeforeUnmount(() => {
+  if (tickInterval) clearInterval(tickInterval)
+})
+
+// Текст про autosave: либо «Сохраняется...» (короткий flash после save),
+// либо «Сохранено · 12 сек назад» / «Сохранено · 2 мин назад» / «—» если
+// сейв ещё не было (свежий запуск без autosave). Минуты округляем — секунды
+// до 59, потом «N мин назад» (>60 минут редкость для autosave).
+const savedAgo = computed(() => {
+  const ts = canvas.lastSavedAt.value
+  if (!ts) return '—'
+  const diff = Math.max(0, Math.floor((nowTick.value - ts) / 1000))
+  if (diff < 5) return 'только что'
+  if (diff < 60) return `${diff} сек назад`
+  const mins = Math.floor(diff / 60)
+  return `${mins} мин назад`
+})
 </script>
 
 <template>
@@ -38,7 +65,8 @@ const { tags } = storeToRefs(project)
     <!-- Разделитель -->
     <span class="text-surface-300 dark:text-surface-700">·</span>
 
-    <!-- Autosave-индикатор -->
+    <!-- Autosave-индикатор: всегда показываем «когда последний раз сохранили»,
+         плюс flash зелёной галочкой первые 1.5 сек после успешного save. -->
     <span
       class="flex items-center gap-1 transition-colors"
       :class="
@@ -46,16 +74,13 @@ const { tags } = storeToRefs(project)
           ? 'text-primary-600 dark:text-primary-300'
           : 'text-surface-400 dark:text-surface-500'
       "
-      :title="
-        canvas.recentlySaved.value
-          ? 'Только что сохранено в localStorage'
-          : 'Автосохранение включено'
-      "
+      :title="canvas.lastSavedAt.value ? 'Автосохранение в localStorage' : 'Изменений ещё не было'"
     >
-      <i class="pi text-[10px]" :class="canvas.recentlySaved.value ? 'pi-check-circle' : 'pi-save'" />
-      <span class="text-[11px]">
-        {{ canvas.recentlySaved.value ? 'Сохранено' : 'Авто' }}
-      </span>
+      <i
+        class="pi text-[10px]"
+        :class="canvas.recentlySaved.value ? 'pi-check-circle' : 'pi-save'"
+      />
+      <span class="text-[11px]">{{ savedAgo }}</span>
     </span>
 
     <!-- Правый блок: справка + версия -->

@@ -35,66 +35,125 @@ src/
 │   ├── PalettePane.vue       # палитра стенсилов (слева)
 │   ├── CanvasPane.vue        # холст JointJS (центр)
 │   ├── InspectorPane.vue     # инспектор выбранного элемента (справа)
-│   ├── VoltageSourceBlock.vue # переиспользуемый блок «Источник напряжения»
+│   ├── VoltageSourceBlock.vue # карточка-анимация «Источник напряжения»
+│   ├── SwitchSourceBlock.vue  # карточка-анимация «Привязка к выключателю»
 │   ├── BasePickerDialog.vue  # универсальный picker-модал (поиск + группировка)
-│   ├── PrefixPickerDialog.vue / TagPickerDialog.vue # обёртки над Base
+│   ├── TagPickerDialog.vue   # обёртка над Base для выбора тегов
 │   └── HelpDialog.vue        # справка по горячим клавишам
 ├── stores/
-│   ├── useUiStore.js         # UI-state (dragging, selection, dialogs)
-│   └── useProjectStore.js    # проект (cells, tags, history, autosave)
+│   ├── useUiStore.js         # UI-state (dragging, dialogs, dark-mode)
+│   └── useProjectStore.js    # проект (tag-list + handle)
 ├── composables/
 │   └── useCanvas.js          # singleton-доступ к graph/paper/selection
 ├── services/
 │   ├── exporter.js           # сборка view.svg + animations.json
-│   ├── fileSystem.js         # File System Access API (загрузка tag-list)
-│   └── parsers.js            # парсинг tag-list / project JSON
+│   ├── projectLoader.js      # round-trip: парсинг view.svg → JointJS cells
+│   ├── fileSystem.js         # File System Access API (tag-list + svg-проект)
+│   └── parsers.js            # парсинг tag-list
 ├── stencils/
 │   ├── registry.js           # авто-сборка стенсилов через Vite glob imports
-│   ├── parser.js             # подстановка {prefix} в template + injectIds
-│   ├── svgInjector.js        # рендер SVG стенсила внутрь JointJS cellView,
+│   ├── parser.js             # подстановка {slot.X} в template + injectIds
+│   ├── linkDefaults.js       # router/connector/attrs для проводов
+│   ├── svgInjector.js        # рендер SVG стенсила в JointJS cellView;
 │   │                         #   программные билдеры для cell_bus/text/value
-│   ├── tagMatching.js        # фильтрация подходящих prefix'ов из tag-list
 │   └── definitions/<id>/{stencil.json, shape.svg}
-└── utils/                    # plural / nplural
+├── constants/
+│   ├── animation.js          # voltage-палитра + ANIMATION_OFF_COLOR
+│   └── toast.js              # стандартные lifetime'ы toast'ов
+└── utils/
+    ├── plural.js / nplural   # русские падежи
+    ├── bridgeLinks.js        # вычисление «мостов» при copy/paste
+    └── idb.js                # минимальный IndexedDB-wrapper для file handles
 ```
 
 Тесты лежат рядом с модулями: `*.test.js` (Vitest подхватывает автоматически).
-Покрытие — чистые функции (парсеры, tag-matching, svg-инъекция, plural).
+Покрытие — чистые функции (parser, exporter, projectLoader, svg-инъекция, plural).
 
-## Стенсилы
+## Модель стенсила
 
 Каждый стенсил живёт в `src/stencils/definitions/<id>/`:
 
-- `stencil.json` — id, label, category, tagPattern, tagSuffixes, размеры,
-  порты, animationTemplate
+- `stencil.json` — id, label, category, размеры, ports, slots, animationTemplate
 - `shape.svg` — SVG-разметка с атрибутами `data-anim-suffix="..."` на
-  элементах, которые анимируются (id'ы подставятся при экспорте)
+  элементах, которые анимируются (id'ы подставятся при инстанциации)
 
 Добавление новой папки автоматически подтягивается реестром — перезапуск
 не нужен.
 
-Текущие стенсилы:
+### Слоты и привязка тегов
 
-- **cell_vk** — выключатель
-- **cell_rz** — разъединитель
-- **cell_rzv** — заземлитель
-- **cell_bus** — шина (резайз по ширине, динамические порты каждые 20px)
-- **cell_text** — текстовое поле (3 размера престе + bold)
-- **cell_value** — отображение одного тега с суффиксом (.UA / .IA / итд)
+Стенсил декларирует **слоты** — именованные места под пользовательский
+тег. Каждый слот:
+
+```json
+{
+  "key": "onoff",              // ключ для подстановки {slot.KEY}
+  "label": "Состояние ВКЛ/ВЫКЛ",
+  "type": "Boolean",
+  "required": true,
+  "tagSuffix": ".ONOFF"        // фильтр picker'а (опционально)
+}
+```
+
+В `animationTemplate.bindings.tag` используется placeholder `{slot.KEY}` —
+при экспорте подставится тег, который юзер выбрал в инспекторе. Если слот
+не выбран — биндинг отбрасывается (нет привязки = нет анимации, элемент
+рендерится как статика).
+
+Слоты заменили старую модель «префикс объекта + tagSuffixes regex» — теперь
+тег = строка, которую юзер выбирает явно из tag-list'а; никакой автомагии
+вокруг `{prefix}.SUFFIX` нет.
+
+### Текущие стенсилы
+
+- **cell_vk** — выключатель (slot.onoff)
+- **cell_alr** — аварийный сигнал (slot.alr)
+- **cell_rz** — разъединитель (без слотов, чисто визуальный)
+- **cell_rzv** — заземлитель (без слотов)
+- **cell_bus** — шина (resize по ширине, динамические порты каждые 20px)
+- **cell_text** — текстовое поле (3 размера-пресет + bold)
+- **cell_value** — отображение одного тега (label/единица по суффиксу)
 
 `cell_bus`, `cell_text`, `cell_value` рендерятся программно через
 `svgInjector.js` (без `shape.svg`), потому что их разметка параметризуется
-(ширина / текст / выбранный суффикс).
+(ширина / текст / выбранный тег).
 
-## Анимация напряжения
+## Анимации в инспекторе
 
-В инспекторе у каждой ячейки / линии можно включить чекбокс
-«Источник напряжения», выбрать тег и задать диапазоны → классы
-(`animation-low` / `animation-mid` / `animation-high`). Экспортёр
-прокидывает range-binding во все cards'ы префикса плюс на провода между
-двумя «источниковыми» элементами (id вида `animation-wire-{prefixA}-{prefixB}`).
+В блоке «Анимации» инспектора отображаются три типа карточек:
 
-CSS-правила экспортируются в `view.svg` как `<style>`:
+- **A. Из стенсила** (read-only) — биндинги из `animationTemplate`,
+  человеко-читаемые правила вида `PS031VK001.ONOFF = false → animation-off`
+- **B. Источник напряжения** (`tms.voltageSource`) — range-биндинг на
+  выбранный тег, классы `animation-low / -mid / -high` (Tailwind 500
+  emerald/amber/red)
+- **C. Привязка к выключателю** (`tms.switchSource`) — bool-биндинг,
+  на `false` → `animation-off` (slate-500 серый)
 
-- `*:not(text)` для `stroke` — чтобы текст не перекрашивался
-- opt-in класс `.tms-voltage-fill` для заливки (только rect/circle/ellipse/polygon/text)
+B и C добавляются кнопками «+ Источник» / «+ Выключатель», удаляются
+крестиком на карточке. Слоты (A) редактируются отдельным блоком «Привязки
+тегов» — picker фильтруется по `tagSuffix` слота.
+
+## Экспорт
+
+`exportProject(graph)` собирает:
+
+- **view.svg** — целостный SVG со всеми ячейками. На outer-wrapper'е каждой
+  ячейки висит `id="animation-cell-{cellId}"` + `data-tms-meta` (JSON для
+  round-trip'а в редактор). Провода — `<path id="animation-wire-{linkId}">`.
+- **animations.json** — мапа `id → card` для WebScada-рантайма.
+  `cellId`/`linkId` = JointJS UUID, стабилен между сессиями.
+
+CSS-правила анимаций вшиваются в SVG как `<style>`:
+
+- `*:not(text)` для `stroke` — текст не перекрашивается
+- opt-in класс `.tms-voltage-fill` для заливки (только маркированные
+  элементы — текст ячеек, точка восклицательного знака в cell_alr и т.п.)
+- `.animation-off` — slate-500 серый стрелок поверх voltage-классов
+- `.animation-hidden { display: none }`
+
+## Round-trip
+
+Сохранённый `view.svg` можно открыть обратно в IDE (Ctrl+O) — `projectLoader`
+читает `data-tms-meta` JSON-атрибуты, восстанавливает JointJS-граф. Так
+один файл служит и для рантайма, и для редактирования.

@@ -100,6 +100,28 @@ function onStencilPointerDown(event, stencil) {
     label: stencil.label,
   })
 }
+
+/**
+ * Tooltip-объект для PrimeVue v-tooltip: HTML с id + версия + перечисление
+ * слотов. escape:false разрешает HTML, pt-класс whitespace-pre-line корректно
+ * переносит строки в многострочном описании.
+ */
+function stencilTooltip(stencil) {
+  const slots = stencil.slots || []
+  const slotsHtml = slots.length
+    ? '<div style="margin-top:6px;font-size:11px;opacity:0.85"><b>Слоты:</b><br/>' +
+      slots
+        .map((s) => {
+          const required = s.required ? ' *' : ''
+          const sfx = s.tagSuffix ? ` <code>${s.tagSuffix}</code>` : ''
+          return `· ${s.label}${sfx}${required}`
+        })
+        .join('<br/>') +
+      '</div>'
+    : ''
+  const value = `<div><b>${stencil.label}</b><br/><code style="font-size:10px;opacity:0.7">${stencil.id} · v${stencil.version}</code></div>${slotsHtml}`
+  return { value, escape: false, showDelay: 400 }
+}
 </script>
 
 <template>
@@ -177,7 +199,7 @@ function onStencilPointerDown(event, stencil) {
               v-for="stencil in stencilsByCategory.get(cat)"
               :key="stencil.id"
               class="group flex items-center gap-3 p-2 rounded hover:bg-surface-100 dark:hover:bg-surface-800 cursor-grab active:cursor-grabbing select-none"
-              :title="`${stencil.id} · v${stencil.version}`"
+              v-tooltip.right="stencilTooltip(stencil)"
               :aria-label="`Перетащить стенсил ${stencil.label} на холст`"
               role="button"
               tabindex="0"

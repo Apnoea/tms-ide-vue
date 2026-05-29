@@ -17,13 +17,13 @@ describe('parseSvgProject', () => {
     expect(noMeta.cells).toEqual([])
   })
 
-  it('парсит cell_vk с минимальной meta', () => {
+  it('парсит cell_vk с минимальной meta (slot-based)', () => {
     const meta = {
       id: 'cell-abc',
       stencilId: 'cell_vk',
-      prefix: 'PS031VK001',
       width: 20,
       height: 20,
+      slots: { onoff: 'PS031VK001.ONOFF' },
     }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
       <g transform="translate(50, 100)" data-tms-meta='${JSON.stringify(meta).replace(/"/g, '&quot;')}'>
@@ -39,14 +39,13 @@ describe('parseSvgProject', () => {
     expect(cell.position).toEqual({ x: 50, y: 100 })
     expect(cell.size).toEqual({ width: 20, height: 20 })
     expect(cell.tms.stencilId).toBe('cell_vk')
-    expect(cell.tms.prefix).toBe('PS031VK001')
+    expect(cell.tms.slots).toEqual({ onoff: 'PS031VK001.ONOFF' })
   })
 
   it('подтягивает дополнительные tms-поля (text, fontSize, valueTag, voltageSource)', () => {
     const meta = {
       id: 'c1',
       stencilId: 'cell_text',
-      prefix: 'cell_text_1',
       width: 60,
       height: 20,
       text: 'Hello',
@@ -84,7 +83,6 @@ describe('parseSvgProject', () => {
     const meta = {
       id: 'c1',
       stencilId: 'cell_nonexistent',
-      prefix: 'X',
       width: 10,
       height: 10,
     }
@@ -111,7 +109,6 @@ describe('parseSvgProject', () => {
     const meta = {
       id: 'c1',
       stencilId: 'cell_vk',
-      prefix: 'PS031',
       width: 20,
       height: 20,
     }

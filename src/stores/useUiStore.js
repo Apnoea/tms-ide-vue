@@ -38,6 +38,16 @@ export const useUiStore = defineStore('ui', () => {
   // Модалка справки по хоткеям
   const helpOpen = ref(false)
 
+  // Счётчик-сигнал для запроса диалога выбора tag-list'а из не-header контекста
+  // (например, кнопки «Загрузить tag-list…» в инспекторе, когда юзер видит
+  // empty-state и хочет загрузить прямо отсюда). AppHeader watch'ит счётчик и
+  // вызывает свой pickTagList. Счётчик, а не boolean — чтобы повторный запрос
+  // подряд тоже триггерился (boolean застрял бы в true).
+  const tagListLoadRequest = ref(0)
+  function requestTagListLoad() {
+    tagListLoadRequest.value++
+  }
+
   function toggleDarkMode() {
     darkMode.value = !darkMode.value
   }
@@ -67,11 +77,13 @@ export const useUiStore = defineStore('ui', () => {
     lastTagListPickerStartIn,
     dragging,
     helpOpen,
+    tagListLoadRequest,
     toggleDarkMode,
     setLastTagListPickerStartIn,
     startDragging,
     stopDragging,
     openHelp,
     closeHelp,
+    requestTagListLoad,
   }
 })

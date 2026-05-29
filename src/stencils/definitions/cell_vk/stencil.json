@@ -2,11 +2,16 @@
   "id": "cell_vk",
   "label": "Выключатель",
   "category": "Коммутация",
-  "version": "0.2.0",
+  "version": "0.3.0",
 
-  "tagPattern": "^PS\\d+\\w+\\d+$",
-  "tagSuffixes": [
-    { "suffix": ".ONOFF", "type": "Boolean", "required": true }
+  "slots": [
+    {
+      "key": "onoff",
+      "label": "Состояние ВКЛ/ВЫКЛ",
+      "type": "Boolean",
+      "required": true,
+      "tagSuffix": ".ONOFF"
+    }
   ],
 
   "shapeFile": "shape.svg",
@@ -25,7 +30,7 @@
       "type": "shape",
       "bindings": [
         {
-          "tag": "{prefix}.ONOFF",
+          "tag": "{slot.onoff}",
           "when": {
             "source": "value",
             "type": "map",
@@ -35,14 +40,14 @@
           }
         }
       ],
-      "detailTags": [{ "tag": "{prefix}.ONOFF" }]
+      "detailTags": [{ "tag": "{slot.onoff}" }]
     },
     {
       "idSuffix": ".VK-cross",
       "type": "shape",
       "bindings": [
         {
-          "tag": "{prefix}.ONOFF",
+          "tag": "{slot.onoff}",
           "when": {
             "source": "value",
             "type": "map",
@@ -52,7 +57,7 @@
           }
         }
       ],
-      "detailTags": [{ "tag": "{prefix}.ONOFF" }]
+      "detailTags": [{ "tag": "{slot.onoff}" }]
     }
   ]
 }

@@ -4,8 +4,6 @@
   "category": "Шины",
   "version": "0.1.0",
 
-  "tagSuffixes": [],
-
   "shapeFile": "shape.svg",
   "width": 80,
   "height": 8,
