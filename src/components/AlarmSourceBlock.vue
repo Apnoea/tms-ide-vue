@@ -19,19 +19,19 @@ import Tag from 'primevue/tag'
 // шаблона в Vue 2 (deprecated в Vue 3), eslint-plugin-vue ругается на :slot=…
 defineProps({
   alarmSlot: { type: Object, required: true }, // { key, label, value, tagSuffix, required }
-  tagsLoaded: { type: Boolean, default: false }
+  tagsLoaded: { type: Boolean, default: false },
 })
 
 defineEmits(['open-tag-picker'])
 </script>
 
 <template>
-  <div class="border border-surface-200 dark:border-surface-700 rounded p-3 bg-surface-0 dark:bg-surface-900">
+  <div
+    class="border border-surface-200 dark:border-surface-700 rounded p-3 bg-surface-0 dark:bg-surface-900"
+  >
     <div class="flex items-center gap-2 mb-2">
       <i class="pi pi-bell text-amber-500" aria-hidden="true" />
-      <div class="text-xs font-medium text-surface-700 dark:text-surface-200">
-        Аварийный сигнал
-      </div>
+      <div class="text-xs font-medium text-surface-700 dark:text-surface-200">Аварийный сигнал</div>
       <Tag
         v-if="alarmSlot.tagSuffix"
         v-tooltip.bottom="`Ожидается тег с суффиксом ${alarmSlot.tagSuffix}`"
@@ -43,8 +43,9 @@ defineEmits(['open-tag-picker'])
     </div>
 
     <p class="text-[11px] text-surface-500 dark:text-surface-400 mb-2 leading-snug">
-      Когда значение тега = <code class="font-mono">true</code> — индикатор аварии виден,
-      иначе скрыт.
+      Когда значение тега =
+      <code class="font-mono">true</code>
+      — индикатор аварии виден, иначе скрыт.
     </p>
 
     <div>
@@ -54,12 +55,15 @@ defineEmits(['open-tag-picker'])
           class="flex-1 px-2 py-1 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 rounded text-xs font-mono truncate transition-colors"
           :class="[
             tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
-            alarmSlot.required && !alarmSlot.value ? 'border border-amber-500/40' : ''
+            alarmSlot.required && !alarmSlot.value ? 'border border-amber-500/40' : '',
           ]"
           :title="tagsLoaded ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'"
           @click="tagsLoaded && $emit('open-tag-picker')"
         >
-          {{ alarmSlot.value || (alarmSlot.tagSuffix ? `— выбрать тег ${alarmSlot.tagSuffix} —` : '— не выбран —') }}
+          {{
+            alarmSlot.value ||
+            (alarmSlot.tagSuffix ? `— выбрать тег ${alarmSlot.tagSuffix} —` : '— не выбран —')
+          }}
         </code>
         <Button
           icon="pi pi-pencil"

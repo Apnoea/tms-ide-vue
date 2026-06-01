@@ -10,9 +10,7 @@ describe('parseSvgProject', () => {
     const empty = parseSvgProject('')
     expect(empty.ok).toBe(false)
 
-    const noMeta = parseSvgProject(
-      '<svg xmlns="http://www.w3.org/2000/svg"><g/></svg>'
-    )
+    const noMeta = parseSvgProject('<svg xmlns="http://www.w3.org/2000/svg"><g/></svg>')
     expect(noMeta.ok).toBe(false)
     expect(noMeta.cells).toEqual([])
   })

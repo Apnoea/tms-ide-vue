@@ -2,7 +2,6 @@
   "id": "cell_bus",
   "label": "Шина",
   "category": "Шины",
-  "version": "0.1.0",
 
   "shapeFile": "shape.svg",
   "width": 80,

@@ -57,21 +57,39 @@ export const TEXT_PADDING_X = 4
  *  Известные суффиксы маппятся в физические имена и СИ-единицы; неизвестные —
  *  показываются как есть (суффикс без точки) с пустой единицей. */
 const VALUE_LABEL_BY_SUFFIX = {
-  '.IA': 'Ia',  '.IB': 'Ib',  '.IC': 'Ic',
-  '.UA': 'Ua',  '.UB': 'Ub',  '.UC': 'Uc',
-  '.UAB': 'Uab', '.UBC': 'Ubc', '.UCA': 'Uca',
-  '.PW': 'P',   '.QW': 'Q',   '.SW': 'S',
+  '.IA': 'Ia',
+  '.IB': 'Ib',
+  '.IC': 'Ic',
+  '.UA': 'Ua',
+  '.UB': 'Ub',
+  '.UC': 'Uc',
+  '.UAB': 'Uab',
+  '.UBC': 'Ubc',
+  '.UCA': 'Uca',
+  '.PW': 'P',
+  '.QW': 'Q',
+  '.SW': 'S',
   '.COSF': 'cosφ',
-  '.F': 'f',    '.T': 't',
+  '.F': 'f',
+  '.T': 't',
 }
 
 const VALUE_UNIT_BY_SUFFIX = {
-  '.IA': 'А', '.IB': 'А', '.IC': 'А',
-  '.UA': 'В', '.UB': 'В', '.UC': 'В',
-  '.UAB': 'В', '.UBC': 'В', '.UCA': 'В',
-  '.PW': 'кВт', '.QW': 'квар', '.SW': 'кВА',
+  '.IA': 'А',
+  '.IB': 'А',
+  '.IC': 'А',
+  '.UA': 'В',
+  '.UB': 'В',
+  '.UC': 'В',
+  '.UAB': 'В',
+  '.UBC': 'В',
+  '.UCA': 'В',
+  '.PW': 'кВт',
+  '.QW': 'квар',
+  '.SW': 'кВА',
   '.COSF': '',
-  '.F': 'Гц', '.T': '°C',
+  '.F': 'Гц',
+  '.T': '°C',
 }
 
 function suffixOfTag(tag) {
@@ -124,10 +142,7 @@ export function textCellWidth(text, fontSize, bold = false) {
 
 /** Экранирует спецсимволы для вставки текста в XML/SVG-строку. */
 function escapeXml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 /**
@@ -220,34 +235,21 @@ function buildTextContent(cellView) {
   return [t]
 }
 
-// ─── cell_value: дизайн «card с accent-полоской» ────────────────────────────
-// Стиль выровнен на остальные «data display» стенсилы (в будущем — расширим
-// тот же язык на другие measurement-блоки). Преимущество перед старой
-// 2px-чёрной рамкой: стек из 5+ ячеек больше не выглядит как сетка таблицы,
-// карточки читаются как сгруппированные строки, акцент уходит на ЗНАЧЕНИЕ.
-//
-// Координатная сетка (для width=100, height=20 — стандарт стенсила):
-//   [0..3]   accent-stripe (черный)
-//   [3..100] фон surface-50
-//   x=8      label (left-anchor, 10px gray)
-//   x=68     value-end (right-anchor, 12px bold near-black)
-//   x=95     unit-end  (right-anchor, 9px light gray)
-// Все text'ы выровнены по общей baseline (alphabetic, y = height - 5) — «по полу».
-// Value-end и unit-end фиксированные (не зависят от длины unit'а) — иначе
-// при стеке value'ов с разными единицами (А / кВт / квар / без unit'а)
-// колонки разъезжаются. Цена — узкое value-поле для случаев «без unit'а».
-// UNIT_ZONE = 32 рассчитано на самый широкий unit «квар» (~22px @9px) + 4px gap
-// до value + 5px правый паддинг. Иначе value визуально слипается с unit'ом.
+// ─── cell_value: «card с accent-полоской» ───
+// Сетка (width=100, height=20): [0..3] stripe, [3..100] surface-50,
+// x=8 label, x=68 value-end, x=95 unit-end, baseline y=height-5.
+// Фиксированные value-end/unit-end — чтобы колонки не разъезжались при стеке.
+// UNIT_ZONE = 32 рассчитано на самый широкий unit «квар» (~22px @9px) + gap.
 const VALUE_STRIPE_W = 3
 const VALUE_BG_COLOR = '#fafafa'
-const VALUE_STRIPE_COLOR = '#000'          // нейтральный — не конкурирует с voltage-цветами стенсилов и не выделяется по теме
-const VALUE_LABEL_COLOR = '#71717a'        // zinc-500
-const VALUE_TEXT_COLOR = '#18181b'         // zinc-900
-const VALUE_UNIT_COLOR = '#a1a1aa'         // zinc-400
-const VALUE_PAD_LEFT = 8                    // label-start от левого края
-const VALUE_UNIT_RIGHT_PAD = 5              // unit-end от правого края
-const VALUE_UNIT_ZONE = 32                  // зарезервировано на unit + gap до value
-const VALUE_BASELINE_PAD = 5                // расстояние от пола ячейки до общей baseline
+const VALUE_STRIPE_COLOR = '#000' // нейтральный — не конкурирует с voltage-цветами стенсилов и не выделяется по теме
+const VALUE_LABEL_COLOR = '#71717a' // zinc-500
+const VALUE_TEXT_COLOR = '#18181b' // zinc-900
+const VALUE_UNIT_COLOR = '#a1a1aa' // zinc-400
+const VALUE_PAD_LEFT = 8 // label-start от левого края
+const VALUE_UNIT_RIGHT_PAD = 5 // unit-end от правого края
+const VALUE_UNIT_ZONE = 32 // зарезервировано на unit + gap до value
+const VALUE_BASELINE_PAD = 5 // расстояние от пола ячейки до общей baseline
 
 /**
  * Контент cell_value для редактора: stripe + bg + 3 text-ноды (label, value,
@@ -337,8 +339,7 @@ export function injectStencilSvg(cellView, stencil) {
   if (!cellView || !stencil) return false
 
   const found = cellView.findBySelector('body')
-  const bodyEl =
-    found && typeof found.length === 'number' ? found[0] : found
+  const bodyEl = found && typeof found.length === 'number' ? found[0] : found
   const target = bodyEl || cellView.el.firstElementChild
   if (!target) return false
 
@@ -351,12 +352,8 @@ export function injectStencilSvg(cellView, stencil) {
     height: stencil.height || 0,
   }
 
-  // Невидимая «hit area» по всему bbox ячейки — чтобы клик мимо тонких линий
-  // (например, в углах cell_vk или cell_rz) всё равно выделял ячейку.
-  // pointer-events="all" — прозрачный rect ловит события несмотря на отсутствие fill'а.
-  // stroke="none" — обрубаем CSS-наследование stroke от родительского <g>,
-  // иначе в симуляции hit-area подхватывала animation-color как «рамку»
-  // вокруг ячеек без своей rect-обёртки (cell_rz / cell_rzv).
+  // Невидимая hit-area по всему bbox — клик мимо тонких линий всё равно
+  // выделяет ячейку. stroke="none" — иначе подхватывает animation-color в симуляции.
   const hit = document.createElementNS(SVG_NS, 'rect')
   hit.setAttribute('class', 'tms-hit-area')
   hit.setAttribute('x', '0')
@@ -368,9 +365,7 @@ export function injectStencilSvg(cellView, stencil) {
   hit.setAttribute('pointer-events', 'all')
   target.appendChild(hit)
 
-  // Стенсилы вроде шины рендерятся программно из cell.size(), а не из
-  // shape.svg — у них размер меняется в редакторе. Остальные берут готовый
-  // SVG из шаблона с подстановкой animation-id'ов.
+  // Bus/text/value рендерятся программно (размер/контент динамические).
   if (stencil.id === 'cell_bus') {
     for (const el of buildBusContent(cellView)) target.appendChild(el)
   } else if (stencil.id === 'cell_text') {
@@ -378,10 +373,6 @@ export function injectStencilSvg(cellView, stencil) {
   } else if (stencil.id === 'cell_value') {
     for (const el of buildValueContent(cellView)) target.appendChild(el)
   } else {
-    // animId — основа SVG-id'шников анимируемых элементов. Используем cell.id
-    // (стабильный JointJS-uuid, переживает round-trip), slots для интерполяции
-    // {slot.X} в bindings (хотя на этапе injectIds bindings уже не нужны —
-    // важна только подстановка cellId в id-атрибуты).
     const tms = cellView.model.get('tms') || {}
     const cellId = cellView.model.id
     const { svg } = instantiate(stencil, cellId, tms.slots || {})

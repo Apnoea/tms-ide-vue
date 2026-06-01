@@ -6,15 +6,18 @@
 import js from '@eslint/js'
 import vue from 'eslint-plugin-vue'
 import globals from 'globals'
+import prettierConfig from 'eslint-config-prettier'
 
 export default [
   // Полностью игнорируем сторонний/сгенерированный код
   {
-    ignores: ['dist/', 'node_modules/', '*.min.js']
+    ignores: ['dist/', 'node_modules/', '*.min.js'],
   },
 
   js.configs.recommended,
   ...vue.configs['flat/recommended'],
+  // Отключаем стилистические ESLint-правила в пользу prettier.
+  prettierConfig,
 
   {
     languageOptions: {
@@ -22,18 +25,21 @@ export default [
       sourceType: 'module',
       globals: {
         ...globals.browser,
-        ...globals.node
-      }
+        ...globals.node,
+      },
     },
     rules: {
       // ─── Что ловим ───
       // Unused vars/imports — главная цель. Аргументы с префиксом _ игнорируем
       // (общая JS-конвенция «specified-on-purpose-but-unused»).
-      'no-unused-vars': ['warn', {
-        argsIgnorePattern: '^_',
-        varsIgnorePattern: '^_',
-        caughtErrorsIgnorePattern: '^_'
-      }],
+      'no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
 
       // Вьюшные баги, которые приводят к runtime-сюрпризам
       'vue/no-unused-components': 'warn',
@@ -60,8 +66,8 @@ export default [
       // v-html опасен XSS-ом только если в него идёт юзерский ввод. У нас
       // все usages — bundled SVG из stencil.svg файлов (build-time trusted).
       // Отключаем globally чтобы не плодить eslint-disable-next-line.
-      'vue/no-v-html': 'off'
-    }
+      'vue/no-v-html': 'off',
+    },
   },
 
   // Тесты — vitest вводит globals describe/it/expect, чтобы no-undef не ругался
@@ -75,8 +81,8 @@ export default [
         beforeEach: 'readonly',
         afterEach: 'readonly',
         beforeAll: 'readonly',
-        afterAll: 'readonly'
-      }
-    }
-  }
+        afterAll: 'readonly',
+      },
+    },
+  },
 ]

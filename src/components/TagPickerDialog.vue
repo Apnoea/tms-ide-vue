@@ -23,7 +23,7 @@ const props = defineProps({
   tags: { type: Array, default: () => [] },
   // Полное имя текущего тега — preselect'ит соответствующий option при открытии.
   selected: { type: String, default: '' },
-  header: { type: String, default: 'Выберите тег' }
+  header: { type: String, default: 'Выберите тег' },
 })
 
 const emit = defineEmits(['select', 'cancel', 'update:visible'])
@@ -61,7 +61,7 @@ watch(
     if (!open) return
     search.value = ''
     picked.value = props.selected
-      ? props.tags.find((t) => t.name === props.selected) ?? null
+      ? (props.tags.find((t) => t.name === props.selected) ?? null)
       : null
   }
 )
@@ -91,17 +91,13 @@ function cancel() {
   >
     <div class="space-y-3">
       <p class="text-sm text-surface-500 dark:text-surface-400">
-        Доступно: <strong>{{ nplural(tags.length, 'тег', 'тега', 'тегов') }}</strong>
+        Доступно:
+        <strong>{{ nplural(tags.length, 'тег', 'тега', 'тегов') }}</strong>
       </p>
 
       <IconField v-if="tags.length">
         <InputIcon class="pi pi-search" />
-        <InputText
-          v-model="search"
-          size="small"
-          class="w-full"
-          placeholder="Поиск по имени..."
-        />
+        <InputText v-model="search" size="small" class="w-full" placeholder="Поиск по имени..." />
       </IconField>
 
       <Listbox
@@ -118,11 +114,15 @@ function cancel() {
         <template #option="{ option }">
           <span class="flex items-center justify-between w-full font-mono">
             <span class="text-sm text-surface-900 dark:text-surface-50">{{ option.name }}</span>
-            <span class="text-[10px] text-surface-400 dark:text-surface-500 ml-2">{{ option.type }}</span>
+            <span class="text-[10px] text-surface-400 dark:text-surface-500 ml-2">
+              {{ option.type }}
+            </span>
           </span>
         </template>
         <template #optiongroup="{ option }">
-          <span class="text-[10px] uppercase tracking-wider text-surface-500 dark:text-surface-400 font-mono">
+          <span
+            class="text-[10px] uppercase tracking-wider text-surface-500 dark:text-surface-400 font-mono"
+          >
             {{ option.name }}
           </span>
         </template>
@@ -136,12 +136,7 @@ function cancel() {
 
     <template #footer>
       <Button label="Отмена" severity="secondary" text @click="cancel" />
-      <Button
-        label="Выбрать"
-        icon="pi pi-check"
-        :disabled="!picked"
-        @click="confirm"
-      />
+      <Button label="Выбрать" icon="pi pi-check" :disabled="!picked" @click="confirm" />
     </template>
   </Dialog>
 </template>

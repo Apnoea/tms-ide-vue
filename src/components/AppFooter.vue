@@ -91,7 +91,9 @@ const savedAgo = computed(() => {
       @click="ui.openHelp"
     >
       <i class="pi pi-question-circle text-sm" />
-      <kbd class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono">F1</kbd>
+      <kbd class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono">
+        F1
+      </kbd>
     </button>
     <span class="text-surface-400 dark:text-surface-500">tms-ide-vue · v0.1.0</span>
   </footer>

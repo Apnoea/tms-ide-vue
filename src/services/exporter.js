@@ -1,10 +1,6 @@
 import { getStencilById } from '../stencils/registry'
 import { instantiate } from '../stencils/parser'
-import {
-  buildBusExportSvg,
-  buildTextExportSvg,
-  buildValueExportSvg,
-} from '../stencils/svgInjector'
+import { buildBusExportSvg, buildTextExportSvg, buildValueExportSvg } from '../stencils/svgInjector'
 import { ANIMATION_CLASS_COLORS, ANIMATION_OFF_COLOR } from '../constants/animation'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -110,10 +106,7 @@ function buildSwitchCard(ss) {
  */
 function assignOrMergeAnimation(animations, key, card) {
   if (animations[key]) {
-    animations[key].bindings = [
-      ...(animations[key].bindings || []),
-      ...card.bindings,
-    ]
+    animations[key].bindings = [...(animations[key].bindings || []), ...card.bindings]
   } else {
     animations[key] = card
   }
@@ -132,10 +125,7 @@ function mergeBindingsIntoStencilCards(animations, cellId, exceptKey, card) {
     if (key === exceptKey) continue
     if (animations[key].animation === 'text') continue
     if (!key.startsWith(keyPrefix)) continue
-    animations[key].bindings = [
-      ...(animations[key].bindings || []),
-      ...card.bindings,
-    ]
+    animations[key].bindings = [...(animations[key].bindings || []), ...card.bindings]
   }
 }
 
@@ -175,8 +165,7 @@ export function exportProject(graph, paper = null) {
     // animId — идентификатор для внешних SVG-ids (animation-cell-{animId}).
     // Для cell_value с тегом — сам тег (рантайм-конвенция {prefix}.SUFFIX),
     // у остальных — cell.id (стабильный JointJS-uuid, переживает round-trip).
-    const animId =
-      tms.stencilId === 'cell_value' && tms.valueTag ? tms.valueTag : cell.id
+    const animId = tms.stencilId === 'cell_value' && tms.valueTag ? tms.valueTag : cell.id
 
     // Динамические стенсилы (шина, текст, значение) рендерятся по реальному
     // размеру/контенту и без редактор-only декораций; у остальных — обычный
@@ -225,6 +214,9 @@ export function exportProject(graph, paper = null) {
       slots: tms.slots || null,
       voltageSource: tms.voltageSource || null,
       switchSource: tms.switchSource || null,
+      // navigation — имя другой view, на которую переходит рантайм при клике
+      // (см. handler ниже: пишется в animation-entry как поле navigation).
+      navigation: tms.navigation || null,
       // Cтенсило-специфичные поля для round-trip восстановления редактором
       text: tms.text,
       fontSize: tms.fontSize,
@@ -248,8 +240,7 @@ export function exportProject(graph, paper = null) {
       const linkView = paper.findViewByModel(link)
       if (linkView?.el) {
         const pathEl =
-          linkView.el.querySelector('path.joint-link-line') ||
-          linkView.el.querySelector('path')
+          linkView.el.querySelector('path.joint-link-line') || linkView.el.querySelector('path')
         if (pathEl) {
           pathD = pathEl.getAttribute('d')
           // Заодно собираем bbox по реальной геометрии
@@ -317,15 +308,10 @@ export function exportProject(graph, paper = null) {
     viewBoxH = Math.ceil(maxY - minY + padding * 2)
   }
 
-  // ─── Карточки анимации voltage-source + switch-source ───
-  // Оба источника применяются одинаково:
-  //  • на ячейке — карточка на outer wrapper (`animation-cell-{animId}`) +
-  //    дубль bindings во все стенсильные shape-карточки того же cellId
-  //    (cell_vk's .VK, .VK-cross, frame и т.д.) — чтобы класс ложился на
-  //    внутренние shape-группы тоже;
-  //  • на линке — карточка на link's id.
-  // При наличии обоих (voltage + switch на одном элементе) bindings мержатся
-  // в одну карточку — assignOrMergeAnimation учитывает существующую.
+  // ─── Voltage/switch source ───
+  // На ячейке: карточка на outer wrapper + дубль bindings во все стенсильные
+  // shape-карточки (чтобы класс ложился и на внутренние группы). На линке —
+  // карточка на link.id. При наличии обоих источников bindings мержатся.
   const cellBindingSources = [
     { field: 'voltageSource', build: buildVoltageCard },
     { field: 'switchSource', build: buildSwitchCard },
@@ -344,10 +330,20 @@ export function exportProject(graph, paper = null) {
     }
   }
 
+  // ─── Navigation ───
+  // Поле navigation в animation-entry outer wrapper'а. Если у ячейки нет
+  // других анимаций — создаём пустую shape-карточку (рантайму нужна запись).
+  for (const c of cellExports) {
+    if (!c.navigation) continue
+    const outerKey = `animation-cell-${c.animId}`
+    if (!animations[outerKey]) {
+      animations[outerKey] = { animation: 'shape', bindings: [] }
+    }
+    animations[outerKey].navigation = c.navigation
+  }
+
   // ─── SVG-фрагменты ───
-  // data-tms-meta — авторитетный источник для редактора при обратной загрузке
-  // SVG: содержит JointJS-id, source/target-refs для проводов, размеры и
-  // tms-payload для ячеек. Рантайм атрибут игнорирует.
+  // data-tms-meta — авторитет для редактора при загрузке; рантайм игнорирует.
   const escapeAttr = (s) =>
     String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
 
@@ -387,42 +383,30 @@ export function exportProject(graph, paper = null) {
       if (c.valueTag !== undefined) meta.valueTag = c.valueTag
       if (c.voltageSource) meta.voltageSource = c.voltageSource
       if (c.switchSource) meta.switchSource = c.switchSource
+      if (c.navigation) meta.navigation = c.navigation
       const metaAttr = escapeAttr(JSON.stringify(meta))
       return `  <g id="animation-cell-${c.animId}" transform="translate(${c.x},${c.y})" data-tms-stencil="${c.stencilId}" data-tms-meta="${metaAttr}">${inner}</g>`
     })
     .join('\n')
 
-  // Инлайн-стили для animation-классов.
-  // Костыль: в WebScada рантайме CSS-правил для этих классов нет — animations.json
-  // только навешивает класс, но без декларации он визуально ничего не делает.
-  // Поэтому шьём стили прямо в SVG, чтобы файл был самодостаточен.
-  //
-  // Descendant-селектор `* { stroke; fill }` нужен потому, что внутренние path/rect
-  // ячеек имеют свои presentation-атрибуты `fill="#000"` etc. — без `*` они бы
-  // не перекрашивались. Для проводов id висит на самом <path>, поэтому базового
-  // правила хватает.
-  //
-  // Порядок ВАЖЕН: animation-off объявлен ПОСЛЕ voltage-классов, поэтому при
-  // равной specificity побеждает по каскаду — если у элемента есть и voltage,
-  // и off, то off (серый/dim) перекрывает цвет напряжения.
+  // Инлайн-стили — рантайм только навешивает классы, CSS должен быть в SVG.
+  // Descendant-селектор `* { stroke }` нужен из-за inline presentation-атрибутов
+  // внутри ячеек. animation-off объявлен ПОСЛЕ voltage — перебивает по каскаду.
   const inlineStyles = `  <style>
     <![CDATA[
     .animation-hidden { display: none; }
-    /* Stroke красим всем потомкам КРОМЕ text — у текста stroke по дефолту "none",
-       и добавление цветного контура на мелких шрифтах визуально читается как
-       перекраска самого текста. Цвет текста управляется только через fill ниже. */
+    /* Stroke красим всем потомкам кроме text — у текста stroke=none по дефолту. */
 ${Object.entries(ANIMATION_CLASS_COLORS)
   .map(([cls, hex]) => `    .${cls}, .${cls} *:not(text) { stroke: ${hex} !important; }`)
   .join('\n')}
-    /* Fill — opt-in: красим только элементы с классом tms-voltage-fill, чтобы заливка
-       не закрывала информационные элементы (текст значений, фоны рамок).
-       Стенсилы, которым нужна цветная заливка (шина, текст), помечают свои элементы
-       этим классом сами в экспортном SVG. */
+    /* Fill — opt-in через .tms-voltage-fill, чтобы не закрывать инфо-элементы. */
 ${Object.entries(ANIMATION_CLASS_COLORS)
-  .map(([cls, hex]) => `    .${cls} .tms-voltage-fill, .${cls}.tms-voltage-fill { fill: ${hex} !important; }`)
+  .map(
+    ([cls, hex]) =>
+      `    .${cls} .tms-voltage-fill, .${cls}.tms-voltage-fill { fill: ${hex} !important; }`
+  )
   .join('\n')}
-    /* animation-off: серый stroke + fill, перебивает voltage-классы (объявлен ПОСЛЕ).
-       Та же descendant-схема: красим всё кроме text, fill — opt-in через tms-voltage-fill. */
+    /* animation-off — серый поверх voltage-классов. */
     .animation-off, .animation-off *:not(text) { stroke: ${ANIMATION_OFF_COLOR} !important; }
     .animation-off .tms-voltage-fill, .animation-off.tms-voltage-fill { fill: ${ANIMATION_OFF_COLOR} !important; }
     ]]>

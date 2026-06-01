@@ -9,7 +9,6 @@ function validStencil(overrides = {}) {
     id: 'cell_x',
     label: 'Тест',
     category: 'Тест',
-    version: '0.1.0',
     width: 20,
     height: 20,
     shapeFile: 'shape.svg',
@@ -33,7 +32,15 @@ describe('validateStencilJson', () => {
           resizable: 'horizontal',
           defaultText: 'Текст',
           ports: [{ name: 'top', x: 10, y: 0, type: 'io' }],
-          slots: [{ key: 'onoff', label: 'ВКЛ/ВЫКЛ', type: 'Boolean', required: true, tagSuffix: '.ONOFF' }],
+          slots: [
+            {
+              key: 'onoff',
+              label: 'ВКЛ/ВЫКЛ',
+              type: 'Boolean',
+              required: true,
+              tagSuffix: '.ONOFF',
+            },
+          ],
           animationTemplate: [
             { idSuffix: '.X', type: 'shape', bindings: [{ tag: '{slot.onoff}' }] },
           ],
@@ -43,7 +50,7 @@ describe('validateStencilJson', () => {
   })
 
   it('каждое отсутствующее required-поле → issue', () => {
-    const requiredFields = ['id', 'label', 'category', 'version', 'width', 'height', 'shapeFile']
+    const requiredFields = ['id', 'label', 'category', 'width', 'height', 'shapeFile']
     for (const field of requiredFields) {
       const stencil = validStencil()
       delete stencil[field]
@@ -58,18 +65,12 @@ describe('validateStencilJson', () => {
   })
 
   it('slot без key → issue', () => {
-    const issues = validateStencilJson(
-      PATH,
-      validStencil({ slots: [{ label: 'X' }] })
-    )
+    const issues = validateStencilJson(PATH, validStencil({ slots: [{ label: 'X' }] }))
     expect(issues.some((s) => s.includes('slots[0] без "key"'))).toBe(true)
   })
 
   it('slot без label → issue', () => {
-    const issues = validateStencilJson(
-      PATH,
-      validStencil({ slots: [{ key: 'x' }] })
-    )
+    const issues = validateStencilJson(PATH, validStencil({ slots: [{ key: 'x' }] }))
     expect(issues.some((s) => s.includes('slots[0] без "label"'))).toBe(true)
   })
 
@@ -104,9 +105,8 @@ describe('validateStencilJson', () => {
     const stencil = { id: 'x' } // нет почти всего + неизвестное поле
     stencil.unknown = true
     const issues = validateStencilJson(PATH, stencil)
-    // 6 пропущенных required (label, category, version, width, height, shapeFile)
-    // + 1 unknown field
-    expect(issues.length).toBeGreaterThanOrEqual(7)
+    // 5 пропущенных required (label, category, width, height, shapeFile) + 1 unknown field
+    expect(issues.length).toBeGreaterThanOrEqual(6)
   })
 
   it('каждое сообщение содержит путь к файлу (для удобной локализации в console)', () => {

@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  resolveValueDisplay,
-  busPortX,
-  desiredBusPortCount,
-  computeBusPorts,
-} from './svgInjector'
+import { resolveValueDisplay, busPortX, desiredBusPortCount, computeBusPorts } from './svgInjector'
 
 describe('resolveValueDisplay', () => {
   it('maps known current suffix to amperes', () => {

@@ -15,15 +15,16 @@
  *   getCategories()          — список уникальных категорий
  */
 
-const jsonModules = import.meta.glob(
-  './definitions/*/stencil.json',
-  { eager: true, import: 'default' }
-)
+const jsonModules = import.meta.glob('./definitions/*/stencil.json', {
+  eager: true,
+  import: 'default',
+})
 
-const svgModules = import.meta.glob(
-  './definitions/*/shape.svg',
-  { eager: true, query: '?raw', import: 'default' }
-)
+const svgModules = import.meta.glob('./definitions/*/shape.svg', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+})
 
 /**
  * Минимальная schema-валидация stencil.json. Возвращает массив проблем
@@ -41,7 +42,7 @@ const svgModules = import.meta.glob(
 export function validateStencilJson(path, json) {
   const issues = []
 
-  const required = ['id', 'label', 'category', 'version', 'width', 'height', 'shapeFile']
+  const required = ['id', 'label', 'category', 'width', 'height', 'shapeFile']
   for (const key of required) {
     if (json[key] === undefined || json[key] === null) {
       issues.push(`[stencils] ${path}: отсутствует поле "${key}"`)
@@ -50,10 +51,18 @@ export function validateStencilJson(path, json) {
 
   // Известные поля верхнего уровня. Опечатки типа `slts` / `slosts` вылавливаем.
   const known = new Set([
-    'id', 'label', 'category', 'version',
-    'width', 'height', 'minWidth', 'resizable',
-    'shapeFile', 'ports', 'slots', 'animationTemplate',
-    'defaultText'  // cell_text-only
+    'id',
+    'label',
+    'category',
+    'width',
+    'height',
+    'minWidth',
+    'resizable',
+    'shapeFile',
+    'ports',
+    'slots',
+    'animationTemplate',
+    'defaultText', // cell_text-only
   ])
   for (const key of Object.keys(json)) {
     if (!known.has(key)) {
@@ -127,8 +136,19 @@ export function getStencilById(id) {
   return registry.get(id)
 }
 
+// Категория «Текст и значения» закреплена ПЕРВОЙ независимо от алфавита: это
+// utility-стенсилы (подписи + значения тегов) которые юзеру нужны на любой
+// схеме и в любом workflow. Остальные категории — по алфавиту (ru-локаль для
+// корректной А-Я сортировки). Добавление нового стенсила/категории встаёт в
+// логичную позицию автоматически, без правок этого файла.
+const PINNED_FIRST_CATEGORIES = ['Текст и значения']
+
 export function getCategories() {
   const cats = new Set()
   for (const stencil of registry.values()) cats.add(stencil.category)
-  return Array.from(cats)
+  const pinned = PINNED_FIRST_CATEGORIES.filter((c) => cats.has(c))
+  const rest = Array.from(cats)
+    .filter((c) => !PINNED_FIRST_CATEGORIES.includes(c))
+    .sort((a, b) => a.localeCompare(b, 'ru'))
+  return [...pinned, ...rest]
 }

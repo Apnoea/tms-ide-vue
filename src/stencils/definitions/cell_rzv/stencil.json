@@ -2,14 +2,11 @@
   "id": "cell_rzv",
   "label": "РЗВ (заземление)",
   "category": "Коммутация",
-  "version": "0.2.0",
 
   "shapeFile": "shape.svg",
   "width": 40,
   "height": 20,
-  "ports": [
-    { "name": "right", "x": 40, "y": 10, "type": "io" }
-  ],
+  "ports": [{ "name": "right", "x": 40, "y": 10, "type": "io" }],
 
   "animationTemplate": []
 }

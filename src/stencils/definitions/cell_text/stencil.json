@@ -1,8 +1,7 @@
 {
   "id": "cell_text",
   "label": "Текстовое поле",
-  "category": "Прочее",
-  "version": "0.1.0",
+  "category": "Текст и значения",
 
   "shapeFile": "shape.svg",
   "width": 100,

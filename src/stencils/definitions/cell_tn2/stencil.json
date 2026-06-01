@@ -1,7 +1,7 @@
 {
-  "id": "cell_rz",
-  "label": "Разъединитель",
-  "category": "Коммутация",
+  "id": "cell_tn2",
+  "label": "Трансформатор напряжения (2ф)",
+  "category": "Измерения",
 
   "shapeFile": "shape.svg",
   "width": 20,

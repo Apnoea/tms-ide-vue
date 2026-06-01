@@ -1,5 +1,6 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
+import { useLocalStorage } from '@vueuse/core'
 import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
@@ -20,12 +21,11 @@ const allCategories = computed(() => getCategories())
 function matchesSearch(stencil) {
   const q = search.value.trim().toLowerCase()
   if (!q) return true
-  return (
-    stencil.label.toLowerCase().includes(q) ||
-    stencil.id.toLowerCase().includes(q)
-  )
+  return stencil.label.toLowerCase().includes(q) || stencil.id.toLowerCase().includes(q)
 }
 
+// Внутри категории сортируем по label (то, что видит юзер в палитре),
+// ru-локаль для корректной А-Я сортировки.
 const stencilsByCategory = computed(() => {
   const map = new Map()
   for (const cat of allCategories.value) map.set(cat, [])
@@ -33,44 +33,25 @@ const stencilsByCategory = computed(() => {
     if (!matchesSearch(stencil)) continue
     map.get(stencil.category)?.push(stencil)
   }
+  for (const list of map.values()) {
+    list.sort((a, b) => a.label.localeCompare(b.label, 'ru'))
+  }
   return map
 })
 
 // При активном поиске показываем только непустые категории.
 const categories = computed(() => {
   if (!search.value.trim()) return allCategories.value
-  return allCategories.value.filter(
-    (c) => (stencilsByCategory.value.get(c)?.length || 0) > 0
-  )
+  return allCategories.value.filter((c) => (stencilsByCategory.value.get(c)?.length || 0) > 0)
 })
 
-const noResults = computed(
-  () => !!search.value.trim() && categories.value.length === 0
-)
+const noResults = computed(() => !!search.value.trim() && categories.value.length === 0)
 
-// Активные (раскрытые) категории. По умолчанию — все. Persist в localStorage,
-// чтобы UI не сбрасывался после F5.
-const OPEN_KEY = 'tms-ide:palette-open:v2'
-function loadOpen() {
-  try {
-    const raw = localStorage.getItem(OPEN_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-const userOpen = ref(loadOpen() ?? allCategories.value)
-watch(
-  userOpen,
-  (val) => {
-    try {
-      localStorage.setItem(OPEN_KEY, JSON.stringify(val))
-    } catch {
-      /* ignore quota */
-    }
-  },
-  { deep: true }
-)
+// Активные (раскрытые) категории — persist в localStorage чтобы UI не
+// сбрасывался после F5. Дефолт — все категории раскрыты.
+const userOpen = useLocalStorage('tms-ide:palette-open:v2', allCategories.value, {
+  deep: true,
+})
 
 // Во время поиска принудительно раскрываем все категории с матчами — иначе
 // результат может «спрятаться» в свёрнутой. После сброса поиска возвращаемся
@@ -102,24 +83,11 @@ function onStencilPointerDown(event, stencil) {
 }
 
 /**
- * Tooltip-объект для PrimeVue v-tooltip: HTML с id + версия + перечисление
- * слотов. escape:false разрешает HTML, pt-класс whitespace-pre-line корректно
- * переносит строки в многострочном описании.
+ * Tooltip — только увеличенное превью SVG стенсила. Лейбл/id/слоты уже видны
+ * в самой плашке палитры, дублировать их в тултипе не нужно.
  */
 function stencilTooltip(stencil) {
-  const slots = stencil.slots || []
-  const slotsHtml = slots.length
-    ? '<div style="margin-top:6px;font-size:11px;opacity:0.85"><b>Слоты:</b><br/>' +
-      slots
-        .map((s) => {
-          const required = s.required ? ' *' : ''
-          const sfx = s.tagSuffix ? ` <code>${s.tagSuffix}</code>` : ''
-          return `· ${s.label}${sfx}${required}`
-        })
-        .join('<br/>') +
-      '</div>'
-    : ''
-  const value = `<div><b>${stencil.label}</b><br/><code style="font-size:10px;opacity:0.7">${stencil.id} · v${stencil.version}</code></div>${slotsHtml}`
+  const value = `<div class="tms-stencil-zoom">${stencil.svgText || ''}</div>`
   return { value, escape: false, showDelay: 400 }
 }
 </script>
@@ -129,7 +97,9 @@ function stencilTooltip(stencil) {
     class="h-full flex flex-col bg-surface-50 dark:bg-surface-900 border-r border-surface-200 dark:border-surface-700"
   >
     <div class="px-4 py-3 border-b border-surface-200 dark:border-surface-700">
-      <h2 class="text-sm font-semibold text-surface-900 dark:text-surface-50 uppercase tracking-wide">
+      <h2
+        class="text-sm font-semibold text-surface-900 dark:text-surface-50 uppercase tracking-wide"
+      >
         Палитра
       </h2>
       <p class="text-xs text-surface-500 dark:text-surface-400">
@@ -158,9 +128,7 @@ function stencilTooltip(stencil) {
           <div class="text-sm font-medium text-surface-500 dark:text-surface-400">
             Реестр стенсилов пуст
           </div>
-          <p class="text-[11px] mt-1 max-w-[180px]">
-            Добавь папку в src/stencils/definitions/
-          </p>
+          <p class="text-[11px] mt-1 max-w-[180px]">Добавь папку в src/stencils/definitions/</p>
         </div>
       </template>
 
@@ -173,19 +141,12 @@ function stencilTooltip(stencil) {
         </div>
       </template>
 
-      <Accordion
-        v-else
-        v-model:value="accordionActive"
-        multiple
-        class="tms-palette-accordion"
-      >
-        <AccordionPanel
-          v-for="cat in categories"
-          :key="cat"
-          :value="cat"
-        >
+      <Accordion v-else v-model:value="accordionActive" multiple class="tms-palette-accordion">
+        <AccordionPanel v-for="cat in categories" :key="cat" :value="cat">
           <AccordionHeader>
-            <span class="flex items-center gap-2 w-full pr-2 text-[11px] uppercase tracking-wider font-semibold">
+            <span
+              class="flex items-center gap-2 w-full pr-2 text-[11px] uppercase tracking-wider font-semibold"
+            >
               <span class="flex-1 text-left">{{ cat }}</span>
               <Badge
                 :value="stencilsByCategory.get(cat)?.length || 0"
@@ -206,7 +167,7 @@ function stencilTooltip(stencil) {
               @pointerdown="onStencilPointerDown($event, stencil)"
             >
               <div
-                class="stencil-thumb flex-shrink-0 w-12 h-12 flex items-center justify-center bg-white dark:bg-surface-800 rounded border border-surface-200 dark:border-surface-700 overflow-hidden p-1 transition-transform group-hover:scale-105"
+                class="stencil-thumb flex-shrink-0 w-9 h-9 flex items-center justify-center bg-white dark:bg-surface-800 rounded border border-surface-200 dark:border-surface-700 overflow-hidden p-1 transition-transform group-hover:scale-105"
                 v-html="stencil.svgText"
               ></div>
               <div class="flex-1 min-w-0">
@@ -226,6 +187,31 @@ function stencilTooltip(stencil) {
 </template>
 
 <style>
+/* Увеличенное превью SVG стенсила в hover-tooltip'е (см. stencilTooltip).
+   PrimeVue tooltip монтируется в body — стили не должны быть scoped. Белый
+   фон чтобы чёрные обводки SVG читались на тёмной плашке tooltip'а. */
+.tms-stencil-zoom {
+  width: 96px;
+  height: 96px;
+  background: #fff;
+  border-radius: 4px;
+  padding: 8px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tms-stencil-zoom svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* По дефолту .p-tooltip-text имеет асимметричный padding (4/8) — для
+   зум-превью переопределяем на равномерный, иначе сверху «съедается». */
+.p-tooltip:has(.tms-stencil-zoom) .p-tooltip-text {
+  padding: 6px;
+}
+
 /* PrimeVue Accordion-дефолты в Aura — слишком жирные border/padding для
    узкой колонки палитры. Сжимаем: тонкая нижняя линия между панелями,
    компактные паддинги, header с прозрачным background чтобы вписаться

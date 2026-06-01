@@ -77,6 +77,7 @@ export function parseSvgProject(svgText) {
       if (meta.valueTag !== undefined) tms.valueTag = meta.valueTag
       if (meta.voltageSource) tms.voltageSource = meta.voltageSource
       if (meta.switchSource) tms.switchSource = meta.switchSource
+      if (meta.navigation) tms.navigation = meta.navigation
 
       cells.push({
         type: 'tms.Stencil',

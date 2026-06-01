@@ -40,6 +40,14 @@ const sections = [
     ],
   },
   {
+    title: 'Поиск',
+    items: [
+      { keys: ['Ctrl', 'F'], desc: 'Найти ячейку по тегу или тексту' },
+      { keys: ['Enter'], keysAlt: ['F3'], desc: 'Следующее совпадение' },
+      { keys: ['Shift', 'Enter'], keysAlt: ['Shift', 'F3'], desc: 'Предыдущее совпадение' },
+    ],
+  },
+  {
     title: 'Общее',
     items: [
       { keys: ['?'], keysAlt: ['F1'], desc: 'Эта справка' },
@@ -83,31 +91,25 @@ const sections = [
             </span>
             <span class="flex items-center gap-1">
               <template v-for="(k, idx) in item.keys" :key="'k' + idx">
-                <span
-                  v-if="idx > 0"
-                  class="text-surface-400 dark:text-surface-500 text-xs"
-                >
-                  +
-                </span>
+                <span v-if="idx > 0" class="text-surface-400 dark:text-surface-500 text-xs">+</span>
                 <kbd
                   class="px-1.5 py-0.5 bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded text-[11px] font-mono text-surface-700 dark:text-surface-200"
-                  >{{ k }}</kbd
                 >
+                  {{ k }}
+                </kbd>
               </template>
               <!-- Альтернативный аккорд того же действия — через «/» -->
               <template v-if="item.keysAlt">
                 <span class="text-surface-400 dark:text-surface-500 text-xs">/</span>
                 <template v-for="(k, idx) in item.keysAlt" :key="'a' + idx">
-                  <span
-                    v-if="idx > 0"
-                    class="text-surface-400 dark:text-surface-500 text-xs"
-                  >
+                  <span v-if="idx > 0" class="text-surface-400 dark:text-surface-500 text-xs">
                     +
                   </span>
                   <kbd
                     class="px-1.5 py-0.5 bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded text-[11px] font-mono text-surface-700 dark:text-surface-200"
-                    >{{ k }}</kbd
                   >
+                    {{ k }}
+                  </kbd>
                 </template>
               </template>
             </span>

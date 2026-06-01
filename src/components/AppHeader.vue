@@ -289,16 +289,12 @@ async function refreshTagList() {
   >
     <div class="flex items-center gap-4">
       <div>
-        <h1 class="text-lg font-semibold text-surface-900 dark:text-surface-50">
-          TMS IDE
-        </h1>
+        <h1 class="text-lg font-semibold text-surface-900 dark:text-surface-50">TMS IDE</h1>
         <p class="text-xs text-surface-500 dark:text-surface-400">
           <template v-if="!tags.length">
             Подключите tag-list, чтобы привязывать ячейки к объектам
           </template>
-          <template v-else>
-            ✓ tag-list: {{ nplural(tags.length, 'тег', 'тега', 'тегов') }}
-          </template>
+          <template v-else>✓ tag-list: {{ nplural(tags.length, 'тег', 'тега', 'тегов') }}</template>
         </p>
       </div>
     </div>

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Tag from 'primevue/tag'
+import ToggleSwitch from 'primevue/toggleswitch'
 import { useToast } from 'primevue/usetoast'
 import { useCanvas } from '../composables/useCanvas'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -14,7 +15,7 @@ import {
   TEXT_SIZE_PRESETS,
   textCellHeight,
   textCellWidth,
-  resolveValueDisplay
+  resolveValueDisplay,
 } from '../stencils/svgInjector'
 import { nplural } from '../utils/plural'
 import TagPickerDialog from './TagPickerDialog.vue'
@@ -24,19 +25,24 @@ import SwitchBlock from './SwitchBlock.vue'
 import {
   ANIMATION_CLASS_COLORS,
   ANIMATION_CLASS_OPTIONS,
-  ANIMATION_OFF_COLOR
+  ANIMATION_OFF_COLOR,
 } from '../constants/animation'
 import { TOAST_LIFE } from '../constants/toast'
 
-// Дефолтные диапазоны voltage-source при первом включении / применении тега
-// через picker. Юзер дальше правит вручную. .map(r => ({...r})) на каждое
-// использование — чтобы каждый элемент получил свой массив (правка ranges на
-// одной ячейке не задевала другие, у которых ссылка на тот же массив).
+// Дефолтные диапазоны voltage-source. .map(({...r})) на каждое использование —
+// чтобы ячейки не делили один и тот же массив.
 const VOLTAGE_RANGE_DEFAULTS = [
-  { min: 0, max: 4,  class: 'animation-low' },
-  { min: 4, max: 7,  class: 'animation-mid' },
-  { min: 7, max: 10, class: 'animation-high' }
+  { min: 0, max: 4, class: 'animation-low' },
+  { min: 4, max: 7, class: 'animation-mid' },
+  { min: 7, max: 10, class: 'animation-high' },
 ]
+
+// Стенсилы без визуальной реакции на animation-классы — voltage/switch source
+// на них бессмыслен, в multi-select их пропускаем.
+const LAYOUT_ONLY_STENCILS = new Set(['cell_text', 'cell_value'])
+function isLayoutOnly(stencilId) {
+  return LAYOUT_ONLY_STENCILS.has(stencilId)
+}
 
 const canvas = useCanvas()
 const project = useProjectStore()
@@ -90,10 +96,11 @@ const details = computed(() => {
         required: !!s.required,
         tagSuffix: s.tagSuffix || null,
         value: slotValues[s.key] || '',
-        tooltip: buildSlotTooltip(s.key, stencil?.animationTemplate)
+        tooltip: buildSlotTooltip(s.key, stencil?.animationTemplate),
       })),
       voltageSource: tms.voltageSource || null,
-      switchSource: tms.switchSource || null
+      switchSource: tms.switchSource || null,
+      navigation: tms.navigation || '',
     }
   }
 
@@ -116,17 +123,15 @@ const details = computed(() => {
       targetLabel: endpointLabel(targetCell),
       targetPort: target?.port || '—',
       voltageSource: tms.voltageSource || null,
-      switchSource: tms.switchSource || null
+      switchSource: tms.switchSource || null,
     }
   }
 
   return null
 })
 
-// Multi-select breakdown: сводка по типам стенсилов в выделении.
-// «3 Выключатель + 2 Связь» — даёт контекст к чему применишь massive-операцию,
-// иначе ты видишь только число «5 элементов» и не понимаешь содержимого.
-// Сортировка по убыванию count'а — самые частые первыми.
+// Multi-select breakdown: сводка по типам стенсилов в выделении («3 Выключатель
+// + 2 Связь») — даёт контекст к чему применишь massive-операцию.
 const selectionBreakdown = computed(() => {
   canvas.graphVersion.value // touch для reactive-зависимости
   const sel = canvas.selection.value
@@ -162,13 +167,9 @@ function onDelete() {
   canvas.clearSelection()
 }
 
-// ─── Редактирование слотов (привязка тегов к слотам стенсила) ───
-// Picker для одного слота. activeSlotKey хранит ключ слота, в который
-// записывается выбранный тег. typeFilter — для фильтрации tag-list'а
-// (например только .ONOFF для Boolean-слота — TagPickerDialog принимает
-// уже отфильтрованный массив).
+// ─── Редактирование слотов (привязка тегов) ───
 const slotPickerOpen = ref(false)
-const activeSlot = ref(null) // { key, label, type } или null
+const activeSlot = ref(null) // { key, label, type, tagSuffix }
 
 function openSlotPicker(slot) {
   activeSlot.value = slot
@@ -213,10 +214,6 @@ function patchSlotTag(key, tag) {
   else delete nextSlots[key]
   cell.set('tms', { ...tms, slots: nextSlots })
 
-  // Перерисовываем содержимое cell-view'а — на этапе экспорта новые slots
-  // подставятся в animationTemplate. SVG-id'шники остаются те же (cell.id),
-  // но reinject нужен чтобы svgInjector подхватил новый расклад если стенсил
-  // в будущем будет рендерить что-то по слотам напрямую.
   const cellView = paper.findViewByModel(cell)
   if (cellView) injectStencilSvg(cellView, stencil)
 
@@ -224,9 +221,7 @@ function patchSlotTag(key, tag) {
   canvas.requestSnapshot()
 }
 
-// Фильтр тегов для текущего слота. Если у слота задан tagSuffix
-// (например ".ONOFF" для cell_vk), показываем только теги с этим суффиксом.
-// Иначе — весь tag-list. Регистронезависимо (tag-list иногда .OnOff).
+// Фильтр тегов по slot.tagSuffix (например .ONOFF). Регистронезависимо.
 const slotPickerTags = computed(() => {
   const sfx = activeSlot.value?.tagSuffix
   if (!sfx) return project.tags
@@ -281,13 +276,9 @@ function toggleBold() {
 
 // ─── Источник напряжения ───
 const tagPickerOpen = ref(false)
-// Отдельный picker для multi-select: один тег раздаётся на всё выделение сразу
-// (lasso-сценарий). Дефолтные диапазоны, ranges правятся потом по одному элементу.
-const multiVoltageTagPickerOpen = ref(false)
+const multiVoltageTagPickerOpen = ref(false) // для multi-select на lasso
 
-// ─── Tag-picker для cell_value (выбор отображаемого тега) ───
-// Используем тот же TagPickerDialog, но с отдельным флагом — иначе оба
-// диалога делили бы видимость и пересекались по логике @select.
+// ─── Tag-picker для cell_value (отображаемый тег) ───
 const valueTagPickerOpen = ref(false)
 
 function openValueTagPicker() {
@@ -321,29 +312,31 @@ function onPickValueTag(tag) {
   canvas.requestSnapshot()
 }
 
-/** Базовый патч tms.voltageSource у текущей выделенной ячейки/линии. */
-function patchVoltageSource(patch) {
+/**
+ * Базовый патч tms-поля (voltageSource / switchSource) у выделенной ячейки.
+ * patch=null — удаляет источник целиком; иначе мержит в существующий объект.
+ */
+function patchTmsField(field, patch) {
   const graph = canvas.graphRef.value
   const d = details.value
   if (!graph || !d) return
-
   const cell = graph.getCell(d.id)
   if (!cell) return
-
   const tms = cell.get('tms') || {}
-  const current = tms.voltageSource || null
-  const next = patch === null ? null : { ...(current || {}), ...patch }
-  cell.set('tms', { ...tms, voltageSource: next })
-
+  const next = patch === null ? null : { ...(tms[field] || {}), ...patch }
+  cell.set('tms', { ...tms, [field]: next })
   canvas.bumpVersion()
   canvas.requestSnapshot()
 }
+
+const patchVoltageSource = (patch) => patchTmsField('voltageSource', patch)
+const patchSwitchSource = (patch) => patchTmsField('switchSource', patch)
 
 function addVoltageSource() {
   // Включение: ставим дефолтные диапазоны и пустой тег (юзер выберет через picker).
   patchVoltageSource({
     tag: '',
-    ranges: VOLTAGE_RANGE_DEFAULTS.map((r) => ({ ...r }))
+    ranges: VOLTAGE_RANGE_DEFAULTS.map((r) => ({ ...r })),
   })
 }
 
@@ -358,16 +351,13 @@ function onPickTag(tag) {
 function updateRange(idx, field, value) {
   const vs = details.value?.voltageSource
   if (!vs) return
-  const ranges = vs.ranges.map((r, i) => (i === idx ? { ...r, [field]: field === 'class' ? value : Number(value) } : r))
+  const ranges = vs.ranges.map((r, i) =>
+    i === idx ? { ...r, [field]: field === 'class' ? value : Number(value) } : r
+  )
   patchVoltageSource({ ranges })
 }
 
-/**
- * «Подсветить на схеме» — переключатель подсветки всех элементов с тем же
- * voltageSource.tag, что у текущего выделенного. Toggle: тот же тег второй
- * раз — снимает; новый тег — переключает на него. Гасится Escape'ом или
- * сменой кнопки в инспекторе.
- */
+/** «Подсветить на схеме»: toggle подсветки элементов с тем же voltageSource.tag. */
 function toggleVoltageHighlight() {
   const tag = details.value?.voltageSource?.tag
   if (!tag) {
@@ -375,76 +365,60 @@ function toggleVoltageHighlight() {
       severity: 'warn',
       summary: 'Тег не выбран',
       detail: 'Выберите тег источника, чтобы подсветить элементы с тем же тегом',
-      life: TOAST_LIFE.NORMAL
+      life: TOAST_LIFE.NORMAL,
     })
     return
   }
   canvas.toggleHighlightedTag(tag)
 }
 
-/** Раздать voltageSource с выбранным тегом + дефолтными диапазонами на всё текущее выделение. */
-function onPickMultiVoltageTag(tag) {
+/**
+ * Раздаёт значение tms[field] на всё выделение; cell_text/cell_value
+ * пропускает (см. isLayoutOnly). valueFactory(tag) формирует записываемый объект.
+ */
+function applyTagToSelection({ field, tag, valueFactory, summary, verb }) {
   const graph = canvas.graphRef.value
   if (!graph || !tag) return
   const sel = canvas.selection.value
   if (!sel.length) return
-
   let applied = 0
   let skipped = 0
   for (const item of sel) {
     const cell = graph.getCell(item.id)
     if (!cell) continue
     const tms = cell.get('tms') || {}
-    // Пропускаем cell_text и cell_value — у них нет визуальной реакции
-    // на voltage-классы, и в animations.json карточка только засоряет.
-    if (tms.stencilId === 'cell_text' || tms.stencilId === 'cell_value') {
+    if (isLayoutOnly(tms.stencilId)) {
       skipped++
       continue
     }
-    // Каждой ячейке — свежая deep-копия ranges, чтобы правка на одной не задевала других
-    cell.set('tms', {
-      ...tms,
-      voltageSource: {
-        tag,
-        ranges: VOLTAGE_RANGE_DEFAULTS.map((r) => ({ ...r }))
-      }
-    })
+    cell.set('tms', { ...tms, [field]: valueFactory(tag) })
     applied++
   }
   canvas.bumpVersion()
   canvas.requestSnapshot()
+  const count = nplural(applied, 'элемент', 'элемента', 'элементов')
   toast.add({
     severity: 'success',
-    summary: 'Источник применён',
+    summary,
     detail:
       skipped > 0
-        ? `Тег привязан к ${nplural(applied, 'элемент', 'элемента', 'элементов')} · пропущено: ${skipped} (текст/значение)`
-        : `Тег привязан к ${nplural(applied, 'элемент', 'элемента', 'элементов')}`,
-    life: TOAST_LIFE.SHORT
+        ? `${verb} ${count} · пропущено: ${skipped} (текст/значение)`
+        : `${verb} ${count}`,
+    life: TOAST_LIFE.SHORT,
+  })
+}
+
+function onPickMultiVoltageTag(tag) {
+  applyTagToSelection({
+    field: 'voltageSource',
+    tag,
+    valueFactory: (t) => ({ tag: t, ranges: VOLTAGE_RANGE_DEFAULTS.map((r) => ({ ...r })) }),
+    summary: 'Источник применён',
+    verb: 'Тег привязан к',
   })
 }
 
 // ─── SwitchSource: bool-тег → класс animation-off (затемнение группы) ───
-// По аналогии с voltageSource, но без ranges/classes — эффект захардкожен
-// (single-purpose: «выключатель погас → группа потускнела»).
-
-/** Базовый патч tms.switchSource у текущей выделенной ячейки/линии. */
-function patchSwitchSource(patch) {
-  const graph = canvas.graphRef.value
-  const d = details.value
-  if (!graph || !d) return
-
-  const cell = graph.getCell(d.id)
-  if (!cell) return
-
-  const tms = cell.get('tms') || {}
-  const current = tms.switchSource || null
-  const next = patch === null ? null : { ...(current || {}), ...patch }
-  cell.set('tms', { ...tms, switchSource: next })
-
-  canvas.bumpVersion()
-  canvas.requestSnapshot()
-}
 
 function addSwitchSource() {
   patchSwitchSource({ tag: '' })
@@ -458,59 +432,61 @@ function onPickSwitchTag(tag) {
   patchSwitchSource({ tag })
 }
 
-/** Раздать switchSource с выбранным тегом на всё текущее выделение. */
 function onPickMultiSwitchTag(tag) {
-  const graph = canvas.graphRef.value
-  if (!graph || !tag) return
-  const sel = canvas.selection.value
-  if (!sel.length) return
-
-  let applied = 0
-  let skipped = 0
-  for (const item of sel) {
-    const cell = graph.getCell(item.id)
-    if (!cell) continue
-    const tms = cell.get('tms') || {}
-    // Cell_text / cell_value — без визуальной реакции на animation-off:
-    // у текста и value-дисплея opacity-фильтр выглядит странно, толку нет.
-    if (tms.stencilId === 'cell_text' || tms.stencilId === 'cell_value') {
-      skipped++
-      continue
-    }
-    cell.set('tms', { ...tms, switchSource: { tag } })
-    applied++
-  }
-  canvas.bumpVersion()
-  canvas.requestSnapshot()
-  toast.add({
-    severity: 'success',
+  applyTagToSelection({
+    field: 'switchSource',
+    tag,
+    valueFactory: (t) => ({ tag: t }),
     summary: 'Выключатель привязан',
-    detail:
-      skipped > 0
-        ? `Привязано к ${nplural(applied, 'элемент', 'элемента', 'элементов')} · пропущено: ${skipped} (текст/значение)`
-        : `Привязано к ${nplural(applied, 'элемент', 'элемента', 'элементов')}`,
-    life: TOAST_LIFE.SHORT
+    verb: 'Привязано к',
   })
 }
 
 const switchTagPickerOpen = ref(false)
 const multiSwitchTagPickerOpen = ref(false)
 
+// ─── Hyperlink-навигация: клик в рантайме открывает другую view ───
+// Свич управляет видимостью инпута; пустое значение не пишется, при OFF — чистим.
+const navigationEnabled = ref(false)
+watch(
+  () => details.value?.id,
+  () => {
+    navigationEnabled.value = !!details.value?.navigation
+  },
+  { immediate: true }
+)
+function toggleNavigationEnabled(value) {
+  navigationEnabled.value = value
+  if (!value) patchNavigation('')
+}
+
+function patchNavigation(value) {
+  const graph = canvas.graphRef.value
+  const d = details.value
+  if (!graph || !d || d.kind !== 'cell') return
+  const cell = graph.getCell(d.id)
+  if (!cell) return
+  const tms = cell.get('tms') || {}
+  const trimmed = String(value || '').trim()
+  if ((tms.navigation || '') === trimmed) return
+  const next = { ...tms }
+  if (trimmed) next.navigation = trimmed
+  else delete next.navigation
+  cell.set('tms', next)
+  canvas.bumpVersion()
+  canvas.requestSnapshot()
+}
+
 // Цветовая карта для swatch'ей в подсказке-тултипе слота.
 // Voltage-палитра + off — те же значения попадают в CSS экспорта/симуляции.
 const BINDING_CLASS_COLORS = {
   ...ANIMATION_CLASS_COLORS,
-  'animation-off': ANIMATION_OFF_COLOR
+  'animation-off': ANIMATION_OFF_COLOR,
 }
 
 /**
- * Собирает встроенные правила анимации, реагирующие на конкретный slot.
- * Используется для тултипа у слота — «что произойдёт когда привязанный тег
- * примет такое-то значение». Полностью описано в stencil.animationTemplate;
- * показываем юзеру в человеко-читаемом виде (условие → swatch + класс).
- *
- * Дубликаты схлопываются: один и тот же `когда=false → animation-off` может
- * прийти из .VK и .VK-cross одновременно, юзеру это не важно.
+ * Правила animationTemplate для конкретного слота — для info-tooltip'а
+ * рядом со слотом. Дубликаты схлопываются.
  */
 function slotBindingRules(slotKey, animationTemplate) {
   const rules = []
@@ -526,7 +502,7 @@ function slotBindingRules(slotKey, animationTemplate) {
             condition: `= ${value}`,
             applyClass: cls,
             color: BINDING_CLASS_COLORS[cls] || null,
-            hidden: cls === 'animation-hidden'
+            hidden: cls === 'animation-hidden',
           })
         }
       } else if (when.type === 'range' && Array.isArray(when.cases)) {
@@ -537,7 +513,7 @@ function slotBindingRules(slotKey, animationTemplate) {
             condition: `в [${range.min}, ${range.max})`,
             applyClass: cls,
             color: BINDING_CLASS_COLORS[cls] || null,
-            hidden: cls === 'animation-hidden'
+            hidden: cls === 'animation-hidden',
           })
         }
       }
@@ -552,11 +528,7 @@ function slotBindingRules(slotKey, animationTemplate) {
   })
 }
 
-/**
- * HTML-объект для PrimeVue v-tooltip: список правил из slotBindingRules
- * со swatch-индикаторами цвета. Возвращает null если правил нет — тогда
- * иконка-инфо у слота не рендерится.
- */
+/** HTML-объект для v-tooltip: правила со swatch'ами. null = иконку не рендерить. */
 function buildSlotTooltip(slotKey, animationTemplate) {
   const rules = slotBindingRules(slotKey, animationTemplate)
   if (!rules.length) return null
@@ -573,7 +545,7 @@ function buildSlotTooltip(slotKey, animationTemplate) {
   return {
     value: `<div style="min-width:160px"><div style="margin-bottom:4px;font-weight:600;font-size:11px">Поведение анимации:</div><ul style="margin:0;padding-left:14px;font-size:11px;list-style:disc">${items}</ul></div>`,
     escape: false,
-    showDelay: 300
+    showDelay: 300,
   }
 }
 
@@ -581,17 +553,19 @@ function buildSlotTooltip(slotKey, animationTemplate) {
 // switchSource даёт эффект «выключатель = false → затемнение», аналоговый
 // тег .UA/.IA тут бессмысленен. В picker'е скрываем не-ONOFF чтобы не
 // поощрять типичную ошибку. Регистронезависимо (tag-list иногда .OnOff).
-const onoffTags = computed(() =>
-  project.tags.filter((t) => /\.ONOFF$/i.test(t.name))
-)
+const onoffTags = computed(() => project.tags.filter((t) => /\.ONOFF$/i.test(t.name)))
 </script>
 
 <template>
   <aside
-    class="h-full flex flex-col bg-surface-50 dark:bg-surface-900 border-l border-surface-200 dark:border-surface-700 select-none"
+    class="h-full flex flex-col bg-surface-50 dark:bg-surface-900 border-l border-surface-200 dark:border-surface-700"
   >
     <div class="px-4 py-3 border-b border-surface-200 dark:border-surface-700">
-      <h2 class="text-sm font-semibold text-surface-900 dark:text-surface-50 uppercase tracking-wide">Инспектор</h2>
+      <h2
+        class="text-sm font-semibold text-surface-900 dark:text-surface-50 uppercase tracking-wide"
+      >
+        Инспектор
+      </h2>
       <p class="text-xs text-surface-500 dark:text-surface-400">Свойства выделенного объекта</p>
     </div>
 
@@ -600,7 +574,11 @@ const onoffTags = computed(() =>
       <template v-if="canvas.selection.value.length > 1">
         <div class="space-y-4">
           <div>
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1">Выделено</div>
+            <div
+              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
+            >
+              Выделено
+            </div>
             <div class="font-medium text-surface-900 dark:text-surface-50">
               {{ nplural(canvas.selection.value.length, 'элемент', 'элемента', 'элементов') }}
             </div>
@@ -610,17 +588,27 @@ const onoffTags = computed(() =>
                 :key="entry.label"
                 class="flex items-center justify-between gap-2"
               >
-                <span class="text-surface-700 dark:text-surface-200 truncate">{{ entry.label }}</span>
-                <Tag :value="String(entry.count)" severity="secondary" rounded class="!text-[10px] !py-0" />
+                <span class="text-surface-700 dark:text-surface-200 truncate">
+                  {{ entry.label }}
+                </span>
+                <Tag
+                  :value="String(entry.count)"
+                  severity="secondary"
+                  rounded
+                  class="!text-[10px] !py-0"
+                />
               </li>
             </ul>
             <p class="text-[11px] text-surface-500 dark:text-surface-400 mt-2">
-              Ячейки можно тащить группой, удалить клавишей Del. Редактирование свойств — только при одном выделенном.
+              Ячейки можно тащить группой, удалить клавишей Del. Редактирование свойств — только при
+              одном выделенном.
             </p>
           </div>
 
           <div>
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-2">
+            <div
+              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-2"
+            >
               Источник напряжения
             </div>
             <Button
@@ -632,7 +620,10 @@ const onoffTags = computed(() =>
               :disabled="!project.tags.length"
               @click="multiVoltageTagPickerOpen = true"
             />
-            <p v-if="!project.tags.length" class="text-[11px] text-surface-400 dark:text-surface-500 mt-1">
+            <p
+              v-if="!project.tags.length"
+              class="text-[11px] text-surface-400 dark:text-surface-500 mt-1"
+            >
               Загрузи tag-list, чтобы выбрать тег
             </p>
             <p v-else class="text-[11px] text-surface-500 dark:text-surface-400 mt-1">
@@ -641,7 +632,9 @@ const onoffTags = computed(() =>
           </div>
 
           <div>
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-2">
+            <div
+              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-2"
+            >
               Привязка к выключателю
             </div>
             <Button
@@ -653,7 +646,10 @@ const onoffTags = computed(() =>
               :disabled="!project.tags.length"
               @click="multiSwitchTagPickerOpen = true"
             />
-            <p v-if="!project.tags.length" class="text-[11px] text-surface-400 dark:text-surface-500 mt-1">
+            <p
+              v-if="!project.tags.length"
+              class="text-[11px] text-surface-400 dark:text-surface-500 mt-1"
+            >
               Загрузи tag-list, чтобы выбрать тег
             </p>
             <p v-else class="text-[11px] text-surface-500 dark:text-surface-400 mt-1">
@@ -675,9 +671,13 @@ const onoffTags = computed(() =>
       </template>
 
       <template v-else-if="!details">
-        <div class="flex flex-col items-center text-center text-surface-400 dark:text-surface-500 py-10">
+        <div
+          class="flex flex-col items-center text-center text-surface-400 dark:text-surface-500 py-10"
+        >
           <i class="pi pi-mouse text-3xl mb-3 opacity-60" />
-          <div class="text-sm font-medium text-surface-500 dark:text-surface-400 mb-1">Ничего не выделено</div>
+          <div class="text-sm font-medium text-surface-500 dark:text-surface-400 mb-1">
+            Ничего не выделено
+          </div>
           <p class="text-[11px] leading-relaxed max-w-[180px]">
             Кликни по ячейке или проводу на холсте — здесь появятся свойства
           </p>
@@ -699,7 +699,11 @@ const onoffTags = computed(() =>
       <template v-else-if="details.kind === 'cell'">
         <div class="space-y-4">
           <div>
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1">Стенсил</div>
+            <div
+              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
+            >
+              Стенсил
+            </div>
             <div class="font-medium text-surface-900 dark:text-surface-50">
               {{ details.stencilLabel }}
             </div>
@@ -711,7 +715,11 @@ const onoffTags = computed(() =>
           <!-- Текстовое поле: редактирование содержимого + стиль -->
           <div v-if="details.isText" class="space-y-3">
             <div>
-              <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1">Текст</div>
+              <div
+                class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
+              >
+                Текст
+              </div>
               <InputText
                 :model-value="details.text"
                 size="small"
@@ -723,7 +731,9 @@ const onoffTags = computed(() =>
 
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1">
+                <div
+                  class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
+                >
                   Размер
                 </div>
                 <div class="flex items-center gap-1">
@@ -739,7 +749,9 @@ const onoffTags = computed(() =>
                 </div>
               </div>
               <div>
-                <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1">
+                <div
+                  class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
+                >
                   Жирность
                 </div>
                 <Button
@@ -757,7 +769,9 @@ const onoffTags = computed(() =>
 
           <!-- cell_value: picker одного полного тега для отображения значения -->
           <div v-else-if="details.isValue">
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1">
+            <div
+              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
+            >
               Тег значения
             </div>
             <div class="flex items-center gap-2">
@@ -793,9 +807,11 @@ const onoffTags = computed(() =>
               v-if="details.valueTag && valueDisplay"
               class="text-[11px] text-surface-500 dark:text-surface-400 mt-2 font-mono"
             >
-              Подпись: <span class="text-surface-700 dark:text-surface-200">{{ valueDisplay.label }}</span>
+              Подпись:
+              <span class="text-surface-700 dark:text-surface-200">{{ valueDisplay.label }}</span>
               <template v-if="valueDisplay.unit">
-                · единица: <span class="text-surface-700 dark:text-surface-200">{{ valueDisplay.unit }}</span>
+                · единица:
+                <span class="text-surface-700 dark:text-surface-200">{{ valueDisplay.unit }}</span>
               </template>
             </div>
           </div>
@@ -805,22 +821,27 @@ const onoffTags = computed(() =>
                cell_alr / cell_vk рендерят свой единственный required-слот в
                специальном Alarm/Switch-блоке внутри секции «Анимации» — поэтому
                общий slot-row для них скрываем, чтобы тег не показывался дважды. -->
-          <div v-else-if="details.slots.length && !details.isAlarm && !details.isSwitch" class="space-y-2">
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400">
+          <div
+            v-else-if="details.slots.length && !details.isAlarm && !details.isSwitch"
+            class="space-y-2"
+          >
+            <div
+              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400"
+            >
               Привязки тегов
             </div>
-            <div
-              v-for="slot in details.slots"
-              :key="slot.key"
-              class="space-y-1"
-            >
-              <div class="flex items-center gap-2 text-[11px] text-surface-500 dark:text-surface-400">
+            <div v-for="slot in details.slots" :key="slot.key" class="space-y-1">
+              <div
+                class="flex items-center gap-2 text-[11px] text-surface-500 dark:text-surface-400"
+              >
                 <span>{{ slot.label }}</span>
                 <span
                   v-if="slot.required && !slot.value"
                   class="text-amber-500"
                   title="Обязательно для работы анимации"
-                >*</span>
+                >
+                  *
+                </span>
                 <!-- info-иконка с тултипом: правила встроенной анимации стенсила,
                      реагирующие на этот слот. Заменяет прежний read-only блок
                      «Встроенные анимации» — теперь юзер видит описание только при наведении,
@@ -846,21 +867,26 @@ const onoffTags = computed(() =>
                 <span
                   v-else-if="slot.type"
                   class="text-surface-400 dark:text-surface-500 ml-auto font-mono"
-                >{{ slot.type }}</span>
+                >
+                  {{ slot.type }}
+                </span>
               </div>
               <div class="flex items-center gap-2">
                 <code
                   class="flex-1 px-2 py-1 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 rounded text-xs font-mono truncate transition-colors"
                   :class="[
                     project.tags.length ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
-                    slot.required && !slot.value
-                      ? 'border border-amber-500/40'
-                      : ''
+                    slot.required && !slot.value ? 'border border-amber-500/40' : '',
                   ]"
-                  :title="project.tags.length ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'"
+                  :title="
+                    project.tags.length ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'
+                  "
                   @click="project.tags.length && openSlotPicker(slot)"
                 >
-                  {{ slot.value || (slot.tagSuffix ? `— выбрать тег ${slot.tagSuffix} —` : '— не выбран —') }}
+                  {{
+                    slot.value ||
+                    (slot.tagSuffix ? `— выбрать тег ${slot.tagSuffix} —` : '— не выбран —')
+                  }}
                 </code>
                 <Button
                   v-if="slot.value"
@@ -894,8 +920,41 @@ const onoffTags = computed(() =>
             />
           </div>
 
+          <!-- Навигация (hyperlink на другую view при клике в рантайме). Юзер
+               вводит имя view строкой — IDE про другие view не знает, проверка
+               по факту в рантайме (как `<a href>` в HTML). Свич справа от
+               заголовка показывает/скрывает инпут; выключение очищает значение. -->
+          <div v-if="!details.isText" class="space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <div
+                  class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400"
+                >
+                  Навигация
+                </div>
+                <div class="text-[11px] text-surface-500 dark:text-surface-400">
+                  переход при клике
+                </div>
+              </div>
+              <ToggleSwitch
+                :model-value="navigationEnabled"
+                @update:model-value="toggleNavigationEnabled"
+              />
+            </div>
+            <InputText
+              v-if="navigationEnabled"
+              :model-value="details.navigation"
+              size="small"
+              placeholder="view_id"
+              class="w-full !text-xs font-mono"
+              @update:model-value="patchNavigation"
+            />
+          </div>
+
           <div v-if="!details.isText && !details.isValue" class="space-y-2">
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400">
+            <div
+              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400"
+            >
               Анимации
             </div>
 
@@ -951,7 +1010,10 @@ const onoffTags = computed(() =>
                  у cell_alr switch-source бессмыслен (тревога — не поток);
                  у cell_vk он дублирует тег, уже выбранный в SwitchBlock. -->
             <div
-              v-if="!details.voltageSource || (!details.switchSource && !details.isAlarm && !details.isSwitch)"
+              v-if="
+                !details.voltageSource ||
+                (!details.switchSource && !details.isAlarm && !details.isSwitch)
+              "
               class="flex flex-wrap gap-2 pt-1"
             >
               <Button
@@ -982,25 +1044,49 @@ const onoffTags = computed(() =>
       <template v-else-if="details.kind === 'link'">
         <div class="space-y-4">
           <div>
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1">Связь</div>
+            <div
+              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
+            >
+              Связь
+            </div>
             <div class="font-medium text-surface-900 dark:text-surface-50">Провод</div>
           </div>
 
-          <div class="grid gap-x-2 gap-y-1 items-center" style="grid-template-columns: 1fr auto 1fr">
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400">Источник</div>
+          <div
+            class="grid gap-x-2 gap-y-1 items-center"
+            style="grid-template-columns: 1fr auto 1fr"
+          >
+            <div
+              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400"
+            >
+              Источник
+            </div>
             <div></div>
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400">Цель</div>
-            <code class="px-2 py-1 bg-surface-100 dark:bg-surface-800 rounded text-xs font-mono truncate">
+            <div
+              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400"
+            >
+              Цель
+            </div>
+            <code
+              class="px-2 py-1 bg-surface-100 dark:bg-surface-800 rounded text-xs font-mono truncate"
+            >
               {{ details.sourceLabel }} · {{ details.sourcePort }}
             </code>
-            <i class="pi pi-arrow-right text-surface-400 dark:text-surface-500 text-[10px]" aria-hidden="true" />
-            <code class="px-2 py-1 bg-surface-100 dark:bg-surface-800 rounded text-xs font-mono truncate">
+            <i
+              class="pi pi-arrow-right text-surface-400 dark:text-surface-500 text-[10px]"
+              aria-hidden="true"
+            />
+            <code
+              class="px-2 py-1 bg-surface-100 dark:bg-surface-800 rounded text-xs font-mono truncate"
+            >
               {{ details.targetLabel }} · {{ details.targetPort }}
             </code>
           </div>
 
           <div class="space-y-2">
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400">
+            <div
+              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400"
+            >
               Анимации
             </div>
 

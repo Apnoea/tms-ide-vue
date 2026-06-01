@@ -1,5 +1,6 @@
 import { shallowRef, ref, computed } from 'vue'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
+import { cellMatchesQuery } from '../utils/cellSearch'
 
 /**
  * Shared singleton-доступ к JointJS-состоянию холста.
@@ -24,7 +25,6 @@ const importFromSvgFn = shallowRef(null)
 // Аналогично для экспорта — кнопка живёт в AppHeader, но логика (graph+paper +
 // download) в CanvasPane.
 const exportFn = shallowRef(null)
-
 
 const selection = ref([]) // Array<{ kind, id }>
 
@@ -62,6 +62,15 @@ const slotPickRequest = ref({ tick: 0, cellId: null })
 // тот же тег второй раз → снимает подсветку.
 const highlightedTag = ref(null)
 
+// ─── Ctrl+F поиск по схеме ───
+// searchQuery — что юзер набрал в SearchBar (lower-case-normalize при матчинге).
+// searchMatchIds — id'шники cells, у которых хоть одна tag-привязка содержит
+// query как substring. Сортировка по позиции (y, x) — стабильный порядок цикла.
+// searchCurrentIdx — индекс «текущего» match'а (на котором фокус, центрируется).
+const searchQuery = ref('')
+const searchMatchIds = ref([])
+const searchCurrentIdx = ref(0)
+
 const cellsCount = computed(() => {
   graphVersion.value // touch для reactive-зависимости
   return graphRef.value?.getElements().length || 0
@@ -73,9 +82,7 @@ const linksCount = computed(() => {
 })
 
 // Когда выделен ровно один элемент — удобно для Inspector'а в single-mode
-const singleSelection = computed(() =>
-  selection.value.length === 1 ? selection.value[0] : null
-)
+const singleSelection = computed(() => (selection.value.length === 1 ? selection.value[0] : null))
 
 // Краткое описание выделения для info-bar canvas'а
 const selectionLabel = computed(() => {
@@ -196,6 +203,49 @@ export function useCanvas() {
     },
     clearHighlightedTag() {
       highlightedTag.value = null
+    },
+    searchQuery,
+    searchMatchIds,
+    searchCurrentIdx,
+    /**
+     * Прогнать query по всем cells графа. Перевычисляет matchIds и сбрасывает
+     * currentIdx в 0. Пустой/whitespace-only query даёт пустой результат (без
+     * подсветки). Порядок — top→bottom, left→right по bbox.
+     */
+    runSearch(query) {
+      const q = String(query ?? '')
+        .trim()
+        .toLowerCase()
+      searchQuery.value = query
+      const graph = graphRef.value
+      if (!q || !graph) {
+        searchMatchIds.value = []
+        searchCurrentIdx.value = 0
+        return
+      }
+      const matched = []
+      for (const cell of graph.getCells()) {
+        if (cellMatchesQuery(cell, q)) matched.push(cell)
+      }
+      matched.sort((a, b) => {
+        const ba = a.getBBox()
+        const bb = b.getBBox()
+        if (ba.y !== bb.y) return ba.y - bb.y
+        return ba.x - bb.x
+      })
+      searchMatchIds.value = matched.map((c) => c.id)
+      searchCurrentIdx.value = 0
+    },
+    /** dir = +1 (next) или -1 (prev). Циклически. No-op если match'ей нет. */
+    cycleSearchMatch(dir) {
+      const n = searchMatchIds.value.length
+      if (!n) return
+      searchCurrentIdx.value = (searchCurrentIdx.value + dir + n) % n
+    },
+    clearSearch() {
+      searchQuery.value = ''
+      searchMatchIds.value = []
+      searchCurrentIdx.value = 0
     },
     setUndoRedoAvail(undo, redo) {
       canUndo.value = undo

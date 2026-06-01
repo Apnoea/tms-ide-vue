@@ -25,7 +25,9 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
 </script>
 
 <template>
-  <div class="border border-surface-200 dark:border-surface-700 rounded p-3 bg-surface-0 dark:bg-surface-900">
+  <div
+    class="border border-surface-200 dark:border-surface-700 rounded p-3 bg-surface-0 dark:bg-surface-900"
+  >
     <div class="flex items-center gap-2 mb-2">
       <i class="pi pi-bolt text-yellow-500" aria-hidden="true" />
       <div class="text-xs font-medium text-surface-700 dark:text-surface-200">
@@ -43,8 +45,8 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
     </div>
 
     <p class="text-[11px] text-surface-500 dark:text-surface-400 mb-2 leading-snug">
-      Класс анимации зависит от диапазона значения тега — задайте границы и
-      соответствующие цвета ниже.
+      Класс анимации зависит от диапазона значения тега — задайте границы и соответствующие цвета
+      ниже.
     </p>
 
     <div class="space-y-3">

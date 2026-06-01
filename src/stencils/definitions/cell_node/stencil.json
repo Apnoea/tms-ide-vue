@@ -1,0 +1,10 @@
+{
+  "id": "cell_node",
+  "label": "Точка соединения",
+  "category": "Текст и значения",
+  "shapeFile": "shape.svg",
+  "width": 10,
+  "height": 10,
+  "ports": [{ "name": "center", "x": 5, "y": 5, "type": "io" }],
+  "animationTemplate": []
+}

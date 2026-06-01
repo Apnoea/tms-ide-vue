@@ -14,9 +14,7 @@ describe('parseTagList', () => {
     const text = `#Format <Tag name>=<Tag type>
 #
 PS031VK001.ONOFF=Boolean`
-    expect(parseTagList(text)).toEqual([
-      { name: 'PS031VK001.ONOFF', type: 'Boolean' },
-    ])
+    expect(parseTagList(text)).toEqual([{ name: 'PS031VK001.ONOFF', type: 'Boolean' }])
   })
 
   it('skips empty/whitespace-only lines', () => {
@@ -25,9 +23,7 @@ PS031VK001.ONOFF=Boolean`
   })
 
   it('skips lines without =', () => {
-    expect(parseTagList('garbage\nPS031.X=Float')).toEqual([
-      { name: 'PS031.X', type: 'Float' },
-    ])
+    expect(parseTagList('garbage\nPS031.X=Float')).toEqual([{ name: 'PS031.X', type: 'Float' }])
   })
 
   it('returns empty array for empty input', () => {

@@ -159,6 +159,47 @@ describe('exportProject', () => {
     expect(anims[wireKey].bindings[0].when.cases.false.apply.addClass).toBe('animation-off')
   })
 
+  it('navigation: создаёт animation-cell-{id} с полем navigation + round-trip через data-tms-meta', () => {
+    const graph = mockGraph([
+      mockCell({
+        id: 'c1',
+        stencilId: 'cell_vk',
+        slots: { onoff: 'PS031VK001.ONOFF' },
+        navigation: 'view_substation_a',
+      }),
+    ])
+    const exported = exportProject(graph)
+    const anims = exported.animations.animations
+    expect(anims).toHaveProperty('animation-cell-c1')
+    expect(anims['animation-cell-c1'].navigation).toBe('view_substation_a')
+
+    // Round-trip: navigation должен попасть в data-tms-meta и восстановиться
+    const parsed = parseSvgProject(exported.svgText)
+    expect(parsed.ok).toBe(true)
+    const cell = parsed.cells.find((c) => c.id === 'c1')
+    expect(cell.tms.navigation).toBe('view_substation_a')
+  })
+
+  it('navigation у ячейки без других анимаций → создаётся пустая shape-карточка', () => {
+    // cell_bus не имеет slots/animationTemplate — обычно без anim-карточки.
+    // Но navigation требует animation-entry, чтобы рантайм повесил обработчик клика.
+    const graph = mockGraph([
+      mockCell({
+        id: 'b1',
+        stencilId: 'cell_bus',
+        w: 80,
+        h: 8,
+        navigation: 'view_other',
+      }),
+    ])
+    const anims = exportProject(graph).animations.animations
+    expect(anims['animation-cell-b1']).toEqual({
+      animation: 'shape',
+      bindings: [],
+      navigation: 'view_other',
+    })
+  })
+
   it('экспорт + load round-trip: cells сохраняют tms.slots и position', () => {
     const graph = mockGraph(
       [

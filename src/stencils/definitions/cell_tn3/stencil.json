@@ -1,0 +1,16 @@
+{
+  "id": "cell_tn3",
+  "label": "Трансформатор напряжения (3ф)",
+  "category": "Измерения",
+
+  "shapeFile": "shape.svg",
+  "width": 40,
+  "height": 30,
+  "ports": [
+    { "name": "phase_a", "x": 20, "y": 0, "type": "io" },
+    { "name": "phase_b", "x": 10, "y": 30, "type": "io" },
+    { "name": "phase_c", "x": 30, "y": 30, "type": "io" }
+  ],
+
+  "animationTemplate": []
+}

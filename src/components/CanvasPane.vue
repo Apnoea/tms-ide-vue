@@ -1,5 +1,12 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import {
+  onClickOutside,
+  useEventListener,
+  useMagicKeys,
+  useResizeObserver,
+  whenever,
+} from '@vueuse/core'
 import { dia, shapes } from '@joint/core'
 import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
@@ -33,6 +40,7 @@ import { nplural } from '../utils/plural'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { TOAST_LIFE } from '../constants/toast'
 import TagPickerDialog from './TagPickerDialog.vue'
+import SearchBar from './SearchBar.vue'
 
 const project = useProjectStore()
 const ui = useUiStore()
@@ -40,18 +48,11 @@ const canvas = useCanvas()
 const toast = useToast()
 const confirm = useConfirm()
 
-// ──────────────────────────────────────────────────────────────────────
-// JointJS shape definition
-//
-// Минимальная обёртка: контейнер-группа `root`, в которую мы потом
-// впихнём содержимое нашего shape.svg (после `injectIds`).
-// ──────────────────────────────────────────────────────────────────────
+// JointJS shape: контейнер-группа `body`, в которую инжектится shape.svg.
 const TMSStencil = dia.Element.define(
   'tms.Stencil',
   {
     size: { width: 120, height: 220 },
-    // Группы портов в шапке шейпа — JointJS этим занимается общим стилем,
-    // позицией (absolute по args.x/y) и magnet-поведением.
     ports: {
       groups: {
         port: {
@@ -79,13 +80,10 @@ const TMSStencil = dia.Element.define(
 
 const tmsNamespace = { ...shapes, tms: { Stencil: TMSStencil } }
 
-// ──────────────────────────────────────────────────────────────────────
-// Vue refs / JointJS state
-// ──────────────────────────────────────────────────────────────────────
+// ─── Vue refs / JointJS state ───
 const paperContainer = ref(null)
 let paper = null
 let graph = null
-let resizeObserver = null
 
 // ─── Zoom & Pan state ───
 // zoomPercent живёт в useCanvas — нужен и status-bar'у в AppFooter
@@ -302,7 +300,6 @@ const AUTOSAVE_KEY = 'tms-ide:graph:v1'
 const GRID_COLOR_LIGHT = '#e2e8f0' // slate-200
 const GRID_COLOR_DARK = '#334155' // slate-700
 
-
 onMounted(async () => {
   if (!paperContainer.value) return
 
@@ -356,39 +353,33 @@ onMounted(async () => {
         const ot = link.get('target')
         if (!os?.id || !ot?.id) continue
         const same =
-          os.id === srcId && (os.port || null) === srcPort &&
-          ot.id === tgtId && (ot.port || null) === tgtPort
+          os.id === srcId &&
+          (os.port || null) === srcPort &&
+          ot.id === tgtId &&
+          (ot.port || null) === tgtPort
         const reverse =
-          os.id === tgtId && (os.port || null) === tgtPort &&
-          ot.id === srcId && (ot.port || null) === srcPort
+          os.id === tgtId &&
+          (os.port || null) === tgtPort &&
+          ot.id === srcId &&
+          (ot.port || null) === srcPort
         if (same || reverse) return false
       }
       return true
     },
   })
 
-  // Дублирующая страховка: при изменении размеров контейнера
-  // (drag сплиттера, ресайз окна) явно пересчитываем размер paper'а.
-  resizeObserver = new ResizeObserver(() => {
+  // Перерасчёт размера paper'а при изменении контейнера (drag сплиттера, ресайз окна).
+  useResizeObserver(paperContainer, () => {
     if (!paper || !paperContainer.value) return
-    paper.setDimensions(
-      paperContainer.value.clientWidth,
-      paperContainer.value.clientHeight
-    )
+    paper.setDimensions(paperContainer.value.clientWidth, paperContainer.value.clientHeight)
   })
-  resizeObserver.observe(paperContainer.value)
 
-  // ─── Zoom: колесо мыши с центром на курсоре ───
-  paperContainer.value.addEventListener('wheel', onWheel, { passive: false })
-
-  // ─── Cursor tracking для status-bar (paper-local координаты) ───
-  paperContainer.value.addEventListener('mousemove', onCanvasMouseMove)
-  paperContainer.value.addEventListener('mouseleave', onCanvasMouseLeave)
-
-  // ─── Resize шины: capture-phase mousedown ───
-  // Хватаем pointerdown ДО JointJS, чтобы он не начал drag'ать шину как ячейку.
-  // Триггер — data-edge атрибут на SVG-резайз-хэндле (см. svgInjector.buildBusContent).
-  paperContainer.value.addEventListener('mousedown', onMaybeStartResize, true)
+  // Hook'и paperContainer'а — useEventListener авто-снимает на unmount.
+  useEventListener(paperContainer, 'wheel', onWheel, { passive: false })
+  useEventListener(paperContainer, 'mousemove', onCanvasMouseMove)
+  useEventListener(paperContainer, 'mouseleave', onCanvasMouseLeave)
+  // Capture-phase mousedown для resize шины — раньше JointJS, чтобы он не начал drag.
+  useEventListener(paperContainer, 'mousedown', onMaybeStartResize, true)
 
   // ─── Pan vs Lasso на пустой области холста ───
   // Plain LMB-drag = pan; Alt+LMB-drag = lasso (выделение рамкой).
@@ -409,8 +400,7 @@ onMounted(async () => {
     const cellId = elementView.model.id
     if (evt.ctrlKey || evt.metaKey) {
       // Toggle этой ячейки в выделении + пересчёт «мостов»
-      const currentCells = canvas.selection.value
-        .filter((i) => i.kind === 'cell')
+      const currentCells = canvas.selection.value.filter((i) => i.kind === 'cell')
       let nextCells
       if (currentCells.some((c) => c.id === cellId)) {
         nextCells = currentCells.filter((c) => c.id !== cellId)
@@ -455,11 +445,7 @@ onMounted(async () => {
       const startPos = dragSnapshot[item.id]
       const other = graph.getCell(item.id)
       if (other && startPos) {
-        other.set(
-          'position',
-          { x: startPos.x + dx, y: startPos.y + dy },
-          { multiDrag: true }
-        )
+        other.set('position', { x: startPos.x + dx, y: startPos.y + dy }, { multiDrag: true })
       }
     }
   })
@@ -533,9 +519,6 @@ onMounted(async () => {
   canvas.setImportFromSvgFn(importFromSvgText)
   canvas.setExportFn(onExport)
 
-  window.addEventListener('keydown', onKeyDown)
-  document.addEventListener('mousedown', onTextEditOutside, true)
-
   // Сообщаем о восстановлении уже после монтирования (toast service готов)
   if (restored > 0) {
     toast.add({
@@ -601,10 +584,7 @@ function saveAutosave() {
 // Обновляем флаги доступности undo/redo для footer'а.
 // Вызываем после каждого изменения history (snapshot, undo, redo, clear).
 function syncUndoRedoAvail() {
-  canvas.setUndoRedoAvail(
-    historyIndex > 0,
-    historyIndex < history.length - 1
-  )
+  canvas.setUndoRedoAvail(historyIndex > 0, historyIndex < history.length - 1)
 }
 
 // ─── Undo/Redo ───
@@ -681,9 +661,7 @@ watch(
 
     // Снимаем класс со всех ранее выделенных
     const root = paper.el
-    root.querySelectorAll('.tms-selected').forEach((node) =>
-      node.classList.remove('tms-selected')
-    )
+    root.querySelectorAll('.tms-selected').forEach((node) => node.classList.remove('tms-selected'))
 
     if (!Array.isArray(sel) || sel.length === 0) return
     for (const item of sel) {
@@ -700,6 +678,57 @@ watch(
   { deep: true }
 )
 
+// ─── Proximity-подсветка портов ───
+// JS пишет --port-proximity (0..1) на каждый .joint-port по дистанции до
+// курсора в клетках сетки. Формула: max(0, 1 - 0.2 * cells). RAF-throttle.
+let portUpdateRaf = null
+function scheduleUpdatePortProximity() {
+  if (portUpdateRaf) return
+  portUpdateRaf = requestAnimationFrame(() => {
+    portUpdateRaf = null
+    updatePortProximity()
+  })
+}
+
+function updatePortProximity() {
+  if (!paper || !graph) return
+  const cursor = canvas.cursorLocal.value
+  const gridSize = paper.options.gridSize || 10
+  for (const cell of graph.getElements()) {
+    const ports = cell.get('ports')?.items || []
+    if (!ports.length) continue
+    const cellView = paper.findViewByModel(cell)
+    if (!cellView?.el) continue
+    const pos = cell.get('position')
+    for (const port of ports) {
+      // JointJS пишет атрибут `port` на ВНУТРЕННЕМ port-body (например circle),
+      // не на контейнере .joint-port. Поднимаемся до контейнера через closest —
+      // CSS-правило opacity висит на .joint-port (видно/скрыто всё содержимое
+      // включая hit-area).
+      const portBody = cellView.el.querySelector(`[port="${port.id}"]`)
+      const portContainer = portBody?.closest('.joint-port')
+      if (!portContainer) continue
+      if (!cursor) {
+        portContainer.style.removeProperty('--port-proximity')
+        continue
+      }
+      const px = pos.x + (port.args?.x ?? 0)
+      const py = pos.y + (port.args?.y ?? 0)
+      const dx = px - cursor.x
+      const dy = py - cursor.y
+      const distCells = Math.sqrt(dx * dx + dy * dy) / gridSize
+      const opacity = Math.max(0, 1 - 0.2 * distCells)
+      if (opacity > 0) {
+        portContainer.style.setProperty('--port-proximity', opacity.toFixed(2))
+      } else {
+        portContainer.style.removeProperty('--port-proximity')
+      }
+    }
+  }
+}
+
+watch(() => canvas.cursorLocal.value, scheduleUpdatePortProximity)
+
 // ─── Подсветка элементов по voltage-тегу (кнопка «Подсветить на схеме»). ───
 // Watch на canvas.highlightedTag: на set/change перерисовываем класс
 // tms-tag-match у всех cells/links с matching voltageSource.tag. Подсветка
@@ -709,9 +738,7 @@ watch(
   (tag) => {
     if (!paper) return
     const root = paper.el
-    root.querySelectorAll('.tms-tag-match').forEach((n) =>
-      n.classList.remove('tms-tag-match')
-    )
+    root.querySelectorAll('.tms-tag-match').forEach((n) => n.classList.remove('tms-tag-match'))
     if (!tag || !graph) return
     for (const cell of graph.getCells()) {
       if (cell.get('tms')?.voltageSource?.tag !== tag) continue
@@ -720,6 +747,64 @@ watch(
     }
   }
 )
+
+// ─── Подсветка результатов поиска (Ctrl+F) ───
+// Селекшен НЕ трогаем — закрытие поиска не должно сбрасывать выбор.
+watch(
+  () => [canvas.searchMatchIds.value, canvas.searchCurrentIdx.value],
+  ([ids, idx]) => {
+    if (!paper) return
+    const root = paper.el
+    root
+      .querySelectorAll('.tms-search-match')
+      .forEach((n) => n.classList.remove('tms-search-match'))
+    root
+      .querySelectorAll('.tms-search-current')
+      .forEach((n) => n.classList.remove('tms-search-current'))
+    if (!ids.length || !graph) return
+    for (let i = 0; i < ids.length; i++) {
+      const cell = graph.getCell(ids[i])
+      if (!cell) continue
+      const view = paper.findViewByModel(cell)
+      if (!view?.el) continue
+      view.el.classList.add(i === idx ? 'tms-search-current' : 'tms-search-match')
+    }
+    centerOnCell(ids[idx])
+  }
+)
+
+/**
+ * Доводим переданную ячейку в центр viewport'а (paper.translate без изменения
+ * zoom'а). Если она уже видна целиком — не двигаем (избегаем дёрганья при
+ * Enter-листании близких match'ей). bbox считается в model-координатах,
+ * проектируем на экран через текущий paper.scale().
+ */
+function centerOnCell(cellId) {
+  if (!paper || !graph || !cellId || !paperContainer.value) return
+  const cell = graph.getCell(cellId)
+  if (!cell) return
+  const bbox = cell.getBBox?.()
+  if (!bbox) return
+  const s = paper.scale().sx
+  const { tx, ty } = paper.translate()
+  const paperW = paperContainer.value.clientWidth
+  const paperH = paperContainer.value.clientHeight
+  const screenX = bbox.x * s + tx
+  const screenY = bbox.y * s + ty
+  const screenW = bbox.width * s
+  const screenH = bbox.height * s
+  const margin = 40
+  const inView =
+    screenX >= margin &&
+    screenY >= margin &&
+    screenX + screenW <= paperW - margin &&
+    screenY + screenH <= paperH - margin
+  if (inView) return
+  const cx = bbox.x + bbox.width / 2
+  const cy = bbox.y + bbox.height / 2
+  paper.translate(paperW / 2 - cx * s, paperH / 2 - cy * s)
+  canvas.bumpPaperView()
+}
 
 // ─── Внешние запросы snapshot'а (Inspector после правки слотов и т.п.) ───
 // Эти watches должны жить на уровне script setup — внутри async onMounted после
@@ -745,174 +830,155 @@ watch(
   }
 )
 
-// ─── Хоткеи: Delete/Backspace и Undo/Redo ───
+// ─── Хоткеи ───
 function isFocusInInput(t) {
-  return (
-    t &&
-    (t.tagName === 'INPUT' ||
-      t.tagName === 'TEXTAREA' ||
-      t.isContentEditable)
-  )
+  return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
 }
+const notInInput = () => !isFocusInInput(document.activeElement)
 
-function onKeyDown(event) {
-  // Undo / Redo
-  if ((event.ctrlKey || event.metaKey) && event.code === 'KeyZ') {
-    if (isFocusInInput(event.target)) return
-    event.preventDefault()
-    event.stopPropagation()
-    if (event.shiftKey) redo()
-    else undo()
-    return
-  }
-  if ((event.ctrlKey || event.metaKey) && event.code === 'KeyY') {
-    if (isFocusInInput(event.target)) return
-    event.preventDefault()
-    event.stopPropagation()
-    redo()
-    return
-  }
+// Combos + Esc + F3 — декларативно через useMagicKeys/whenever. preventDefault
+// делается в onEventFired по списку «наших» комбинаций (без него браузер
+// перехватит Ctrl+S/Ctrl+F/etc.).
+const keys = useMagicKeys({
+  passive: false,
+  onEventFired(e) {
+    const inInput = isFocusInInput(e.target)
+    const cmd = e.ctrlKey || e.metaKey
+    const k = e.key.toLowerCase()
+    // Ctrl+F — даже при фокусе в инпуте перехватываем браузерный find.
+    if (cmd && !e.shiftKey && k === 'f') {
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+    // F3 — только когда поиск открыт.
+    if (e.key === 'F3' && ui.searchOpen) {
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+    // Остальные Ctrl-combos — preventDefault только когда фокус НЕ в инпуте.
+    if (cmd && !inInput && ['s', 'o', 'z', 'y', 'c', 'v', 'd', 'a'].includes(k)) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+  },
+})
 
-  // Ctrl/Cmd+S — сохранить (= экспорт view.svg + animations.json).
-  if ((event.ctrlKey || event.metaKey) && event.code === 'KeyS') {
-    if (isFocusInInput(event.target)) return
-    event.preventDefault()
-    event.stopPropagation()
-    onExport()
-    return
+whenever(
+  () => keys.ctrl_z.value || keys.meta_z.value,
+  () => {
+    if (!notInInput()) return
+    keys.shift.value ? redo() : undo()
   }
-
-  // Ctrl/Cmd+O — открыть SVG-проект (хоткей в CanvasPane, но действие живёт
-  // в AppHeader.openProjectSvg, поэтому шлём custom-event на window).
-  if ((event.ctrlKey || event.metaKey) && event.code === 'KeyO') {
-    if (isFocusInInput(event.target)) return
-    event.preventDefault()
-    event.stopPropagation()
-    window.dispatchEvent(new CustomEvent('tms-open-project'))
-    return
+)
+whenever(
+  () => keys.ctrl_y.value || keys.meta_y.value,
+  () => notInInput() && redo()
+)
+whenever(
+  () => keys.ctrl_s.value || keys.meta_s.value,
+  () => notInInput() && onExport()
+)
+whenever(
+  () => keys.ctrl_o.value || keys.meta_o.value,
+  () => notInInput() && window.dispatchEvent(new CustomEvent('tms-open-project'))
+)
+whenever(
+  () => keys.ctrl_f.value || keys.meta_f.value,
+  () => {
+    // Если поиск уже открыт — re-mount SearchBar чтобы инпут перехватил фокус.
+    if (ui.searchOpen) {
+      ui.closeSearch()
+      nextTick(() => ui.openSearch())
+    } else {
+      ui.openSearch()
+    }
   }
-
-  // Ctrl/Cmd+C — копировать выделение в внутренний буфер
-  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.code === 'KeyC') {
-    if (isFocusInInput(event.target)) return
-    event.preventDefault()
-    event.stopPropagation()
-    copySelection()
-    return
-  }
-
-  // Ctrl/Cmd+V — вставить из буфера со сдвигом
-  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.code === 'KeyV') {
-    if (isFocusInInput(event.target)) return
-    event.preventDefault()
-    event.stopPropagation()
-    pasteClipboard()
-    return
-  }
-
-  // Ctrl/Cmd+D — дублировать выделение (= C+V в одно действие, не трогая буфер)
-  if ((event.ctrlKey || event.metaKey) && event.code === 'KeyD') {
-    if (isFocusInInput(event.target)) return
-    event.preventDefault()
-    event.stopPropagation()
-    duplicateSelection()
-    return
-  }
-
-  // Ctrl/Cmd+A — выделить все ячейки + bridge-линии между ними
-  if ((event.ctrlKey || event.metaKey) && event.code === 'KeyA') {
-    if (isFocusInInput(event.target)) return
-    if (!graph) return
-    event.preventDefault()
-    event.stopPropagation()
+)
+whenever(
+  () => keys.F3.value,
+  () => ui.searchOpen && canvas.cycleSearchMatch(keys.shift.value ? -1 : 1)
+)
+whenever(
+  () => keys.ctrl_c.value || keys.meta_c.value,
+  () => notInInput() && copySelection()
+)
+whenever(
+  () => keys.ctrl_v.value || keys.meta_v.value,
+  () => notInInput() && pasteClipboard()
+)
+whenever(
+  () => keys.ctrl_d.value || keys.meta_d.value,
+  () => notInInput() && duplicateSelection()
+)
+whenever(
+  () => keys.ctrl_a.value || keys.meta_a.value,
+  () => {
+    if (!notInInput() || !graph) return
     canvas.selectAllCells()
-    return
   }
-
-  // Escape — снять выделение + погасить tag-highlight. Открытые PrimeVue-диалоги
-  // закрываются сами (close-on-escape), так что вешать stopPropagation не надо.
-  if (event.key === 'Escape') {
-    if (isFocusInInput(event.target)) return
+)
+whenever(
+  () => keys.Escape.value,
+  () => {
+    if (!notInInput()) return
     if (canvas.highlightedTag.value) canvas.clearHighlightedTag()
     if (canvas.selection.value.length) canvas.clearSelection()
-    return
   }
+)
 
-  // Стрелки — nudge выделенных ячеек по сетке. Без Shift — 1 клетка (gridSize),
-  // c Shift — 5. Линки не двигаем (они следуют за своими source/target). При
-  // долгом удержании браузер шлёт keydown repeat'ы → ячейки плавно ползут;
-  // scheduleSnapshot debounce'ит history (1 snapshot когда юзер отпустил).
+// Стрелки + Del/Backspace — нужен auto-repeat при удержании (useMagicKeys
+// fires только на transition), поэтому остаются на raw keydown.
+function onKeyDown(event) {
   const isArrow =
     event.key === 'ArrowUp' ||
     event.key === 'ArrowDown' ||
     event.key === 'ArrowLeft' ||
     event.key === 'ArrowRight'
   if (isArrow) {
-    if (isFocusInInput(event.target)) return
-    if (!graph || !paper) return
+    if (isFocusInInput(event.target) || !graph || !paper) return
     const cellSel = canvas.selection.value.filter((s) => s.kind === 'cell')
     if (!cellSel.length) return
     event.preventDefault()
     event.stopPropagation()
     const grid = paper.options.gridSize || 10
     const step = (event.shiftKey ? 5 : 1) * grid
-    const dx =
-      event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0
-    const dy =
-      event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0
-    for (const item of cellSel) {
-      graph.getCell(item.id)?.translate(dx, dy)
-    }
+    const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0
+    const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0
+    for (const item of cellSel) graph.getCell(item.id)?.translate(dx, dy)
     scheduleSnapshot()
     return
   }
 
   if (event.key !== 'Delete' && event.key !== 'Backspace') return
-
-  // Не перехватываем, если пользователь печатает в инпуте/textarea/contenteditable
   if (isFocusInInput(event.target)) return
-
   const sel = canvas.selection.value
   if (!sel.length || !graph) return
   event.preventDefault()
   event.stopPropagation()
-  // Удаляем всех — копию делаем чтобы не итерировать по мутируемому массиву
-  for (const item of [...sel]) {
-    graph.getCell(item.id)?.remove()
-  }
+  for (const item of [...sel]) graph.getCell(item.id)?.remove()
   canvas.clearSelection()
-
-  // PrimeVue Splitter gutter перехватывает фокус на keydown через делегирование
-  // и подсвечивает соседнюю панель (палитру) :focus-кольцом. Снимаем фокус
-  // явно — событие уже обработано.
+  // PrimeVue Splitter gutter ловит keydown — снимаем фокус явно.
   const active = document.activeElement
-  if (active && active !== document.body && typeof active.blur === 'function') {
-    active.blur()
-  }
+  if (active && active !== document.body && typeof active.blur === 'function') active.blur()
 }
+useEventListener(window, 'keydown', onKeyDown)
 
 onBeforeUnmount(() => {
-  resizeObserver?.disconnect()
-  resizeObserver = null
-  paperContainer.value?.removeEventListener('wheel', onWheel)
-  paperContainer.value?.removeEventListener('mousemove', onCanvasMouseMove)
-  paperContainer.value?.removeEventListener('mouseleave', onCanvasMouseLeave)
-  paperContainer.value?.removeEventListener('mousedown', onMaybeStartResize, true)
+  // useEventListener/useResizeObserver сами снимаются на unmount — не дублируем.
+  // Здесь чистим только document-листенеры, которые вешаются динамически
+  // (pan/resize/lasso/drag) и могут остаться висеть, если unmount случился
+  // прямо во время операции.
   document.removeEventListener('mousemove', onPanMove)
   document.removeEventListener('mouseup', onPanEnd)
   document.removeEventListener('mousemove', onResizeMove)
   document.removeEventListener('mouseup', onResizeEnd)
-  // Лассо-листенеры обычно снимаются в onLassoEnd, но если unmount случился
-  // прямо во время рисования рамки — подчищаем здесь, иначе утечка на document.
   document.removeEventListener('mousemove', onLassoMove)
   document.removeEventListener('mouseup', onLassoEnd)
-  // Drag-из-палитры листенеры (вешаются по watch ui.dragging) — на случай
-  // unmount'а прямо во время перетаскивания стенсила.
   document.removeEventListener('pointermove', onDragPointerMove)
   document.removeEventListener('pointerup', onDragPointerUp)
   window.removeEventListener('blur', onDragCancel)
-  window.removeEventListener('keydown', onKeyDown)
-  document.removeEventListener('mousedown', onTextEditOutside, true)
   // Отложенные таймеры: после unmount graph=null, их колбэки безвредны (guard'ы),
   // но чистим, чтобы не держать ссылки на функции компонента.
   clearTimeout(snapshotTimer)
@@ -1045,8 +1111,7 @@ function onLassoEnd(evt) {
 
   if (lassoAdditive) {
     // Объединяем с уже выделенными ячейками, дедуплицируя по id
-    const currentCells = canvas.selection.value
-      .filter((i) => i.kind === 'cell')
+    const currentCells = canvas.selection.value.filter((i) => i.kind === 'cell')
     const ids = new Set(currentCells.map((c) => c.id))
     const merged = [...currentCells]
     for (const item of newCells) {
@@ -1216,7 +1281,6 @@ const previewStyle = computed(() => {
     willChange: 'transform',
   }
 })
-
 
 // ─── Drag из палитры на pointer-events ───
 // PalettePane выставляет ui.dragging на pointerdown. Здесь watch'им это и
@@ -1561,10 +1625,7 @@ function pasteSnapshots(snaps) {
   }
 
   if (newCellIds.length) {
-    canvas.setSelection([
-      ...newCellIds.map((id) => ({ kind: 'cell', id })),
-      ...newLinkItems,
-    ])
+    canvas.setSelection([...newCellIds.map((id) => ({ kind: 'cell', id })), ...newLinkItems])
     scheduleSnapshot()
   }
   return { added: newCellIds.length, skipped, linksAdded }
@@ -1671,12 +1732,9 @@ function duplicateSelection() {
   }
 }
 
-// ─── Inline-× кнопка для удаления выделенной ячейки ───
-// Раньше использовали JointJS elementTools.Remove, но он считает свою позицию
-// один раз при addTools (по x:'100%' от bbox) и не пересчитывает после
-// cell.resize — × застревал на старой позиции. HTML-overlay reactive: позиция
-// пересчитывается через computed от graphVersion (cell move/resize) + paperViewTick
-// (pan/zoom) + selection.
+// ─── Inline-× кнопка удаления выделенной ячейки ───
+// HTML-overlay (а не elementTools.Remove): позиция reactive через computed
+// от graphVersion + paperViewTick + selection.
 const deleteBtn = computed(() => {
   // Touch ref'ы для reactive-зависимости — без чтения computed не пересчитается
   // при изменении графа / pan'е / zoom'е. Это deliberate side-effect.
@@ -1767,15 +1825,9 @@ function onDeleteSelected() {
 }
 
 // ─── Hover-tooltip над ячейкой ───
-// HTML-плашка с лейблом стенсила, первым выбранным тегом (если есть) и
-// счётчиком кастомных анимаций (voltageSource + switchSource).
-// Позиционируется относительно правого верхнего угла ячейки с учётом текущего
-// translate+scale paper'а.
+// HTML-плашка с лейблом / тегом / счётчиком анимаций. Debounce 150ms на
+// mouseenter — иначе мерцает при быстром скольжении между ячейками.
 const cellHoverTooltip = ref(null)
-// Debounce mouseenter: при быстром перемещении курсора между ячейками
-// hover-tooltip успевал на каждую mouseenter перерисоваться → визуальное
-// мерцание. 150ms — достаточно чтобы юзер «осознал» что навёлся, и не успел
-// уйти на соседнюю ячейку случайно при панораме мышью.
 let hoverShowTimer = null
 const HOVER_DELAY_MS = 150
 
@@ -1843,8 +1895,7 @@ function doShowCellTooltip(elementView) {
   ) {
     intrinsicCount = 1
   }
-  const animCount =
-    intrinsicCount + (tms.voltageSource ? 1 : 0) + (tms.switchSource ? 1 : 0)
+  const animCount = intrinsicCount + (tms.voltageSource ? 1 : 0) + (tms.switchSource ? 1 : 0)
 
   cellHoverTooltip.value = {
     style: {
@@ -1867,22 +1918,14 @@ function hideCellTooltip() {
 }
 
 // ─── Edit-in-place для cell_text ───
-// Double-click по cell_text открывает HTML-overlay <input> поверх ячейки.
-// SVG-<text> ячейки прячем на время edit'а (visibility:hidden), чтобы он не
-// «просвечивал» сквозь прозрачный input. Координаты overlay'я в container-px
-// пересчитываются из paper translate+scale; при zoom/pan во время edit'а они
-// не обновляются — следующий клик коммитит правку и закрывает редактор.
-//
-// Коммит на клик-вне делаем через document-mousedown в capture-фазе, потому
-// что JointJS вызывает preventDefault на своих pointerdown — событие @blur
-// у input'а тогда не срабатывает при клике по канве.
-const textEditing = ref(null) // { id, original, style: {...} } | null
+// Double-click открывает HTML-overlay <input> поверх ячейки. SVG-<text>
+// прячется (visibility:hidden). Коммит клика-вне ловим document-mousedown
+// в capture-фазе — у input'а @blur не срабатывает из-за JointJS preventDefault.
+const textEditing = ref(null) // { id, original, style }
 const textEditValue = ref('')
 
-// Live-resize пока юзер печатает в inline-overlay: расширяем сам cell (и его
-// selection-glow / × tool следуют за bbox) + расширяем HTML-overlay по ширине.
-// Snapshot history НЕ засоряем — cell.resize не дёргает scheduleSnapshot,
-// финальный snapshot снимется на commit или pointerup'е блока редактирования.
+// Live-resize ячейки пока юзер печатает. cell.resize не дёргает snapshot —
+// финальный snapshot снимется на commit.
 watch(textEditValue, (val) => {
   const editing = textEditing.value
   if (!editing || !paper) return
@@ -1944,10 +1987,7 @@ function startTextEdit(cellId) {
   // Прячем SVG-текст, чтобы не просвечивал сквозь прозрачный input.
   findCellTextEl(cellId)?.style.setProperty('visibility', 'hidden')
 
-  nextTick(() => {
-    const el = paperContainer.value?.parentElement?.querySelector('[data-text-editor]')
-    if (el) el.focus() // без .select() — каретка в конец, существующий текст не выделяем
-  })
+  nextTick(() => textEditorRef.value?.focus())
 }
 
 function commitTextEdit() {
@@ -1984,30 +2024,17 @@ function cancelTextEdit() {
   findCellTextEl(editing.id)?.style.removeProperty('visibility')
 }
 
-// Document-level mousedown в capture-фазе: коммитим текст когда юзер кликнул
-// мимо input'а. JointJS делает preventDefault на pointerdown → input не теряет
-// фокус через blur, поэтому ловим клик руками.
-function onTextEditOutside(e) {
-  if (!textEditing.value) return
-  const editor = paperContainer.value?.parentElement?.querySelector('[data-text-editor]')
-  if (editor && (e.target === editor || editor.contains(e.target))) return
-  commitTextEdit()
-}
+// Коммит текста при клике мимо input'а. JointJS preventDefault'ит pointerdown,
+// поэтому @blur не срабатывает — ловим клик через onClickOutside.
+const textEditorRef = ref(null)
+onClickOutside(textEditorRef, () => {
+  if (textEditing.value) commitTextEdit()
+})
 
-// ─── Экспорт ───
 // ─── Симуляция: визуальный цикл animation-классов ───
-// Preview как будут выглядеть элементы в WebScada-рантайме. Таймер раз в SIM_CYCLE_MS:
-//   • voltage-классы (low → mid → high → ...) — циклятся на elements с voltageSource
-//   • alarm (cell_alr) — show ↔ hide на каждом тике (.ALR false ↔ true)
-//   • .ONOFF (cell_vk) — on ↔ off на каждом тике
-//
-// Voltage идёт через 3 состояния, bool — через 2, общий цикл = 6 тиков (LCM(3,2)).
-// Не реалистичная симуляция со значениями тегов — просто визуальный preview всех
-// состояний, которые WebScada может навесить.
-//
-// CSS-правила (voltage colors + animation-hidden/off) инжектим один раз при
-// первом старте, под селектор .tms-simulating, чтобы не «протекали» в обычный
-// режим редактора.
+// Preview анимаций таймером раз в SIM_CYCLE_MS: voltage low→mid→high,
+// bool on↔off. Общий цикл = LCM(3,2) = 6 тиков. CSS под .tms-simulating
+// инжектим один раз чтобы не протекало в обычный режим.
 const SIM_CYCLE_MS = 1500
 const SIM_TOTAL_STATES = ANIMATION_CLASS_OPTIONS.length * 2 // voltage × bool
 const simulating = ref(false)
@@ -2284,7 +2311,11 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
           @click="fitToContent"
         />
         <Button
-          v-tooltip.bottom="simulating ? 'Остановить симуляцию' : 'Запустить симуляцию — превью всех анимаций (voltage / alarm / switch)'"
+          v-tooltip.bottom="
+            simulating
+              ? 'Остановить симуляцию'
+              : 'Запустить симуляцию — превью всех анимаций (voltage / alarm / switch)'
+          "
           :icon="simulating ? 'pi pi-pause-circle' : 'pi pi-play-circle'"
           :severity="simulating ? 'primary' : 'secondary'"
           :text="!simulating"
@@ -2313,7 +2344,11 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
       <div
         ref="paperContainer"
         class="absolute inset-0 bg-white dark:bg-surface-900 cursor-grab"
-        :class="simulating ? 'tms-simulating ring-2 ring-inset ring-emerald-400/60 dark:ring-emerald-500/60' : ''"
+        :class="
+          simulating
+            ? 'tms-simulating ring-2 ring-inset ring-emerald-400/60 dark:ring-emerald-500/60'
+            : ''
+        "
         role="application"
         aria-label="Холст редактора мнемосхемы"
       ></div>
@@ -2329,6 +2364,12 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
         severity="success"
         class="!absolute !top-3 !right-3 !z-30 pointer-events-none !text-xs !shadow-md"
       />
+
+      <!-- SearchBar (Ctrl+F): плавающая панель поиска в правом верхнем углу.
+           Открывается из хоткея, рендерится только когда ui.searchOpen — это
+           же триггер для onMounted-автофокуса инпута. Состояние поиска (query,
+           matches) живёт в useCanvas. Подсветка на холсте — через watch выше. -->
+      <SearchBar v-if="ui.searchOpen" />
 
       <div
         v-show="previewVisible"
@@ -2350,13 +2391,11 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
       </div>
 
       <!-- Edit-in-place для cell_text: прозрачный HTML <input> поверх ячейки.
-           SVG-<text> на время edit'а скрыт (см. startTextEdit), поэтому input
-           может быть без фона/рамки — визуально выглядит как inline-правка
-           самого текста. Каретка — primary темы (через CSS-var).
-           Коммит при клике вне ловится document-mousedown (см. onTextEditOutside). -->
+           SVG-<text> на время edit'а скрыт (см. startTextEdit). Коммит на
+           клик-вне ловится через onClickOutside (см. textEditorRef). -->
       <input
         v-if="textEditing"
-        data-text-editor
+        ref="textEditorRef"
         v-model="textEditValue"
         type="text"
         class="absolute z-10 p-0 m-0 bg-transparent border-0 outline-none text-black font-sans"
@@ -2376,34 +2415,49 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
         enter-from-class="opacity-0"
         leave-to-class="opacity-0"
       >
-      <div
-        v-if="cellHoverTooltip"
-        class="absolute z-20 pointer-events-none bg-surface-800 dark:bg-surface-200 text-surface-0 dark:text-surface-900 text-[11px] px-2 py-1.5 rounded shadow-lg max-w-[260px] font-sans leading-tight"
-        :style="cellHoverTooltip.style"
-      >
-        <div class="font-semibold text-[11px]">
-          {{ cellHoverTooltip.stencilLabel }}
+        <div
+          v-if="cellHoverTooltip"
+          class="absolute z-20 pointer-events-none bg-surface-800 dark:bg-surface-200 text-surface-0 dark:text-surface-900 text-[11px] px-2 py-1.5 rounded shadow-lg max-w-[260px] font-sans leading-tight"
+          :style="cellHoverTooltip.style"
+        >
+          <div class="font-semibold text-[11px]">
+            {{ cellHoverTooltip.stencilLabel }}
+          </div>
+          <div
+            v-if="cellHoverTooltip.extra"
+            class="text-[10px] opacity-75 mt-0.5 font-mono truncate"
+          >
+            {{ cellHoverTooltip.extra }}
+          </div>
+          <div
+            v-if="cellHoverTooltip.animationCount"
+            class="text-[10px] opacity-75 mt-0.5 flex items-center gap-1"
+          >
+            <i class="pi pi-play-circle text-[6px]" />
+            {{ nplural(cellHoverTooltip.animationCount, 'анимация', 'анимации', 'анимаций') }}
+          </div>
+          <div
+            v-if="cellHoverTooltip.alarmTag"
+            class="text-[10px] opacity-75 mt-0.5 flex items-center gap-1 truncate"
+          >
+            <i class="pi pi-bell text-[6px]" />
+            <span class="font-mono truncate">{{ cellHoverTooltip.alarmTag }}</span>
+          </div>
+          <div
+            v-if="cellHoverTooltip.voltageTag"
+            class="text-[10px] opacity-75 mt-0.5 flex items-center gap-1 truncate"
+          >
+            <i class="pi pi-bolt text-[6px]" />
+            <span class="font-mono truncate">{{ cellHoverTooltip.voltageTag }}</span>
+          </div>
+          <div
+            v-if="cellHoverTooltip.switchTag"
+            class="text-[10px] opacity-75 mt-0.5 flex items-center gap-1 truncate"
+          >
+            <i class="pi pi-power-off text-[6px]" />
+            <span class="font-mono truncate">{{ cellHoverTooltip.switchTag }}</span>
+          </div>
         </div>
-        <div v-if="cellHoverTooltip.extra" class="text-[10px] opacity-75 mt-0.5 font-mono truncate">
-          {{ cellHoverTooltip.extra }}
-        </div>
-        <div v-if="cellHoverTooltip.animationCount" class="text-[10px] opacity-75 mt-0.5 flex items-center gap-1">
-          <i class="pi pi-play-circle text-[6px]" />
-          {{ nplural(cellHoverTooltip.animationCount, 'анимация', 'анимации', 'анимаций') }}
-        </div>
-        <div v-if="cellHoverTooltip.alarmTag" class="text-[10px] opacity-75 mt-0.5 flex items-center gap-1 truncate">
-          <i class="pi pi-bell text-[6px]" />
-          <span class="font-mono truncate">{{ cellHoverTooltip.alarmTag }}</span>
-        </div>
-        <div v-if="cellHoverTooltip.voltageTag" class="text-[10px] opacity-75 mt-0.5 flex items-center gap-1 truncate">
-          <i class="pi pi-bolt text-[6px]" />
-          <span class="font-mono truncate">{{ cellHoverTooltip.voltageTag }}</span>
-        </div>
-        <div v-if="cellHoverTooltip.switchTag" class="text-[10px] opacity-75 mt-0.5 flex items-center gap-1 truncate">
-          <i class="pi pi-power-off text-[6px]" />
-          <span class="font-mono truncate">{{ cellHoverTooltip.switchTag }}</span>
-        </div>
-      </div>
       </Transition>
 
       <!-- Inline-удаление для одиночной выделенной ячейки. Reactive HTML-overlay
@@ -2480,7 +2534,9 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
                   Tag-list загружен ({{ project.tags.length }})
                 </template>
                 <template v-else>
-                  Загрузи <strong class="text-surface-600 dark:text-surface-300">tag-list</strong> — кнопка сверху справа
+                  Загрузи
+                  <strong class="text-surface-600 dark:text-surface-300">tag-list</strong>
+                  — кнопка сверху справа
                 </template>
               </span>
             </li>
@@ -2492,7 +2548,9 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
                     ? 'bg-primary-500/15 text-primary-600 dark:text-primary-300'
                     : 'bg-surface-200 dark:bg-surface-700 text-surface-700 dark:text-surface-200'
                 "
-              >2</span>
+              >
+                2
+              </span>
               <span class="pt-0.5">Перетащи стенсил из палитры слева</span>
             </li>
             <li class="flex items-start gap-2">
@@ -2503,19 +2561,38 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
                     ? 'bg-primary-500/15 text-primary-600 dark:text-primary-300'
                     : 'bg-surface-200 dark:bg-surface-700 text-surface-700 dark:text-surface-200'
                 "
-              >3</span>
+              >
+                3
+              </span>
               <span class="pt-0.5">
-                Наведи на ячейку → потяни за <span class="inline-block w-2 h-2 rounded-full border align-middle" style="background: var(--p-surface-0); border-color: var(--p-primary-500);"></span> кружок-порт → соедини
+                Наведи на ячейку → потяни за
+                <span
+                  class="inline-block w-2 h-2 rounded-full border align-middle"
+                  style="background: var(--p-surface-0); border-color: var(--p-primary-500)"
+                ></span>
+                кружок-порт → соедини
               </span>
             </li>
           </ol>
           <p class="text-[11px] opacity-75">
             Колесом — зум · drag по пустому месту — pan ·
-            <kbd class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono">Del</kbd>
+            <kbd
+              class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono"
+            >
+              Del
+            </kbd>
             — удалить ·
-            <kbd class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono">Ctrl+Z</kbd>
+            <kbd
+              class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono"
+            >
+              Ctrl+Z
+            </kbd>
             — undo ·
-            <kbd class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono">F1</kbd>
+            <kbd
+              class="px-1 py-0.5 bg-surface-100 dark:bg-surface-800 rounded text-[10px] font-mono"
+            >
+              F1
+            </kbd>
             — справка
           </p>
         </div>
@@ -2537,10 +2614,7 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
         >
           ·
         </span>
-        <span
-          v-if="canvas.selectionLabel.value"
-          class="text-primary-600 dark:text-primary-300"
-        >
+        <span v-if="canvas.selectionLabel.value" class="text-primary-600 dark:text-primary-300">
           {{ canvas.selectionLabel.value }}
         </span>
       </div>

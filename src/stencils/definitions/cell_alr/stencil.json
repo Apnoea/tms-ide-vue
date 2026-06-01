@@ -2,7 +2,6 @@
   "id": "cell_alr",
   "label": "Аварийный сигнал",
   "category": "Сигналы",
-  "version": "0.2.0",
 
   "slots": [
     {

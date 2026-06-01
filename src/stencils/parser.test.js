@@ -40,9 +40,7 @@ describe('parser.instantiate', () => {
 
   it('подставляет {slot.X} в detailTags', () => {
     const { animations } = instantiate(stencil, 'c1', { onoff: 'PS031VK001.ONOFF' })
-    expect(animations['animation-c1.RZ'].detailTags).toEqual([
-      { tag: 'PS031VK001.ONOFF' },
-    ])
+    expect(animations['animation-c1.RZ'].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
   })
 
   it('собирает финальный id="animation-{cellId}{suffix}" в SVG', () => {

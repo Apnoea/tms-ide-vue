@@ -29,12 +29,7 @@ function applyDarkMode(isDark) {
 function onGlobalKeyDown(event) {
   if (event.key !== '?' && event.key !== 'F1') return
   const t = event.target
-  if (
-    t &&
-    (t.tagName === 'INPUT' ||
-      t.tagName === 'TEXTAREA' ||
-      t.isContentEditable)
-  ) {
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
     return
   }
   event.preventDefault()
@@ -50,7 +45,9 @@ watch(darkMode, applyDarkMode)
 </script>
 
 <template>
-  <div class="h-screen flex flex-col bg-surface-0 dark:bg-surface-950 text-surface-900 dark:text-surface-50">
+  <div
+    class="h-screen flex flex-col bg-surface-0 dark:bg-surface-950 text-surface-900 dark:text-surface-50"
+  >
     <AppHeader />
 
     <!-- Внешний splitter управляет только палитрой vs остальной частью.

@@ -52,8 +52,7 @@ body,
 }
 /* Selected: двойной drop-shadow для более заметной обводки primary-цветом */
 .tms-selected {
-  filter: drop-shadow(0 0 1.5px var(--p-primary-500))
-    drop-shadow(0 0 3px var(--p-primary-500));
+  filter: drop-shadow(0 0 1.5px var(--p-primary-500)) drop-shadow(0 0 3px var(--p-primary-500));
 }
 
 /* Подсветка элементов с matching voltageSource.tag — триггерится кнопкой
@@ -62,22 +61,36 @@ body,
    stroke (чтобы не путать с voltage-цветом). filter применяется к outer-g
    у view'а — для линии svg-path подсвечивается ореолом вокруг чёрной линии. */
 .tms-tag-match {
-  filter: drop-shadow(0 0 3px var(--p-primary-500))
-    drop-shadow(0 0 6px var(--p-primary-500));
+  filter: drop-shadow(0 0 3px var(--p-primary-500)) drop-shadow(0 0 6px var(--p-primary-500));
+}
+
+/* Подсветка результатов Ctrl+F-поиска. Разводим по цвету: matches — мягкий
+   амбер (один слой, «эти тоже подходят»), current — насыщенный оранжевый с
+   тремя слоями + дальним свечением («ты сейчас здесь»). Оттенки вне
+   voltage-палитры, чтобы не путаться с voltage-классами. */
+.tms-search-match {
+  filter: drop-shadow(0 0 4px #fbbf24); /* amber-400 — мягкий */
+}
+.tms-search-current {
+  filter: drop-shadow(0 0 3px #f97316) drop-shadow(0 0 8px #f97316) drop-shadow(0 0 18px #fb923c); /* orange-500 + дальний orange-400-ореол */
 }
 .joint-link .joint-link-line {
   transition: stroke-width 0.15s ease-out;
 }
 
-/* draw.io-стиль: порты ячейки видны только на hover. Так схема выглядит
-   спокойнее, особенно при экспорте/демонстрации. JointJS magnet-логика
-   во время drag-линии работает по событиям, а не по opacity, поэтому
-   скрытые порты остаются функциональны для рисования связей. */
+/* draw.io-стиль: порты ячейки скрыты по умолчанию, но «проявляются» в
+   зависимости от расстояния до курсора (см. updatePortProximity в CanvasPane).
+   JS пишет --port-proximity (0..1) на каждый .joint-port, CSS читает через
+   var(). Selected override'ит к 1 — у выделенной ячейки все порты видны
+   полностью независимо от курсора. Hover-override НЕ ставим: курсор уже
+   подсвечивает ближайшие порты через proximity, и при двух эффектах сразу
+   юзер не понимает что отвечает за подсветку.
+   JointJS magnet-логика во время drag-линии работает по событиям, а не по
+   opacity, поэтому скрытые порты остаются функциональны для рисования связей. */
 .joint-element .joint-port {
-  opacity: 0;
-  transition: opacity 0.12s linear;
+  opacity: var(--port-proximity, 0);
+  transition: opacity 0.06s linear;
 }
-.joint-element:hover .joint-port,
 .joint-element.tms-selected .joint-port {
   opacity: 1;
 }
