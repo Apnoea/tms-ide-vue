@@ -6,7 +6,7 @@
   "slots": [
     {
       "key": "onoff",
-      "label": "Состояние ВКЛ/ВЫКЛ",
+      "label": "Основной выключатель",
       "type": "Boolean",
       "required": true,
       "tagSuffix": ".ONOFF"

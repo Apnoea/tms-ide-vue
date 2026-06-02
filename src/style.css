@@ -25,14 +25,10 @@ body,
   height: 100% !important;
 }
 
-/* JointJS ставит цвет фона paper-background div'а inline через paper.options.background.
-   Чтобы переключение dark mode работало без пересоздания paper'а — переопределяем CSS-ом
-   с !important. Грид-цвет всё равно зашит в SVG-pattern, его обновляет JS-watch в CanvasPane. */
+/* JointJS ставит цвет фона paper-background inline — переопределяем !important
+   чтобы вписаться в общий стиль. */
 .joint-paper-background {
   background-color: #f8fafc !important;
-}
-.dark .joint-paper-background {
-  background-color: #0f172a !important;
 }
 
 /* Подсветка выделенной ячейки/провода в Inspector'е — в primary-цвете темы

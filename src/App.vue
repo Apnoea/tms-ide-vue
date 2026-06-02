@@ -1,11 +1,10 @@
 <script setup>
-import { watch, onMounted, onBeforeUnmount } from 'vue'
+import { onMounted, onBeforeUnmount } from 'vue'
 import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
 import Toast from 'primevue/toast'
 import ConfirmPopup from 'primevue/confirmpopup'
 
-import AppHeader from './components/AppHeader.vue'
 import AppFooter from './components/AppFooter.vue'
 import PalettePane from './components/PalettePane.vue'
 import CanvasPane from './components/CanvasPane.vue'
@@ -13,18 +12,10 @@ import InspectorPane from './components/InspectorPane.vue'
 import HelpDialog from './components/HelpDialog.vue'
 
 import { useUiStore } from './stores/useUiStore'
-import { storeToRefs } from 'pinia'
 
 const ui = useUiStore()
-const { darkMode } = storeToRefs(ui)
 
-// Синхронизация PrimeVue / Tailwind dark mode с DOM (через .dark на html)
-function applyDarkMode(isDark) {
-  if (isDark) document.documentElement.classList.add('dark')
-  else document.documentElement.classList.remove('dark')
-}
-
-// ? и F1 — открыть справку. Глобальный хоткей, игнорируем если фокус в инпуте.
+// ? и F1 — открыть справку. Глобальный хоткей, игнорируем фокус в инпуте.
 // F1 нужен потому что `?` на русской раскладке = Shift+, и не сразу очевиден.
 function onGlobalKeyDown(event) {
   if (event.key !== '?' && event.key !== 'F1') return
@@ -37,22 +28,16 @@ function onGlobalKeyDown(event) {
 }
 
 onMounted(() => {
-  applyDarkMode(darkMode.value)
   window.addEventListener('keydown', onGlobalKeyDown)
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeyDown))
-watch(darkMode, applyDarkMode)
 </script>
 
 <template>
-  <div
-    class="h-screen flex flex-col bg-surface-0 dark:bg-surface-950 text-surface-900 dark:text-surface-50"
-  >
-    <AppHeader />
-
+  <div class="h-screen flex flex-col bg-surface-0 text-surface-900">
     <!-- Внешний splitter управляет только палитрой vs остальной частью.
-         Внутренний — canvas vs inspector. Так resize правого gutter'а не сдвигает палитру
-         (баг 3-панельного PrimeVue Splitter с state-storage). -->
+         Внутренний — canvas vs inspector. Так resize правого gutter'а не
+         сдвигает палитру (баг 3-панельного PrimeVue Splitter с state-storage). -->
     <Splitter
       class="flex-1 min-h-0 !border-0 !rounded-none"
       :gutter-size="6"

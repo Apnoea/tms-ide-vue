@@ -99,7 +99,7 @@ const details = computed(() => {
         tooltip: buildSlotTooltip(s.key, stencil?.animationTemplate),
       })),
       voltageSource: tms.voltageSource || null,
-      switchSource: tms.switchSource || null,
+      switchSources: tms.switchSources || null,
       navigation: tms.navigation || '',
     }
   }
@@ -123,7 +123,7 @@ const details = computed(() => {
       targetLabel: endpointLabel(targetCell),
       targetPort: target?.port || '—',
       voltageSource: tms.voltageSource || null,
-      switchSource: tms.switchSource || null,
+      switchSources: tms.switchSources || null,
     }
   }
 
@@ -313,7 +313,7 @@ function onPickValueTag(tag) {
 }
 
 /**
- * Базовый патч tms-поля (voltageSource / switchSource) у выделенной ячейки.
+ * Базовый патч tms-поля (voltageSource / switchSources) у выделенной ячейки.
  * patch=null — удаляет источник целиком; иначе мержит в существующий объект.
  */
 function patchTmsField(field, patch) {
@@ -330,7 +330,7 @@ function patchTmsField(field, patch) {
 }
 
 const patchVoltageSource = (patch) => patchTmsField('voltageSource', patch)
-const patchSwitchSource = (patch) => patchTmsField('switchSource', patch)
+const patchSwitchSources = (patch) => patchTmsField('switchSources', patch)
 
 function addVoltageSource() {
   // Включение: ставим дефолтные диапазоны и пустой тег (юзер выберет через picker).
@@ -418,32 +418,132 @@ function onPickMultiVoltageTag(tag) {
   })
 }
 
-// ─── SwitchSource: bool-тег → класс animation-off (затемнение группы) ───
-
-function addSwitchSource() {
-  patchSwitchSource({ tag: '' })
-}
-
-function removeSwitchSource() {
-  patchSwitchSource(null)
-}
-
-function onPickSwitchTag(tag) {
-  patchSwitchSource({ tag })
-}
-
-function onPickMultiSwitchTag(tag) {
-  applyTagToSelection({
-    field: 'switchSource',
-    tag,
-    valueFactory: (t) => ({ tag: t }),
-    summary: 'Выключатель привязан',
-    verb: 'Привязано к',
-  })
-}
+// ─── switchSources: массив bool-тегов → класс animation-off на любой false ───
+// AND-семантика: любой тег false → элемент серый. Под капотом — N независимых
+// биндингов в animations.json, runtime сам применяет «любой false → класс».
 
 const switchTagPickerOpen = ref(false)
 const multiSwitchTagPickerOpen = ref(false)
+// null = режим «добавить новый», число = «заменить тег по индексу».
+// Сбрасываем явно во всех точках открытия picker'а (add-flow); при cancel
+// флаг остаётся протухшим, но следующий open всегда его перезапишет.
+const editingSwitchTagIdx = ref(null)
+
+function addSwitchSources() {
+  editingSwitchTagIdx.value = null
+  // Создаём пустой контейнер; picker откроется отдельной кнопкой «+ Выбрать тег».
+  patchSwitchSources({ tags: [] })
+}
+
+/**
+ * «+ Добавить тег» из SwitchBlock: для cell_vk smart-flow — если slot.onoff
+ * ещё пуст, открываем slot picker (фильтр по .ONOFF из stencil-схемы),
+ * иначе — switch-tags picker. Для остальных всегда switch-picker.
+ */
+function onAddSwitchTag() {
+  editingSwitchTagIdx.value = null
+  const d = details.value
+  if (d?.isSwitch) {
+    const slot = d.slots?.[0]
+    if (slot && !slot.value) {
+      openSlotPicker(slot)
+      return
+    }
+  }
+  switchTagPickerOpen.value = true
+}
+
+/** Клик по тегу-зависимости → открыть picker для замены тега по индексу. */
+function editSwitchTagAt(idx) {
+  editingSwitchTagIdx.value = idx
+  switchTagPickerOpen.value = true
+}
+
+function removeSwitchSources() {
+  patchSwitchSources(null)
+}
+
+/**
+ * Picker вернул тег. Режим:
+ *  • add (editingIdx=null) — append, skip если дубль
+ *  • edit (editingIdx=N)   — replace at N, дедупим (если выбран тег равный
+ *    другому — оставляем только одну копию, тот же тег = no-op)
+ * Дополнительно блокируем выбор основного тега (slot.onoff) в качестве
+ * зависимости — picker уже фильтрует, но защищаемся защитно.
+ */
+function onPickSwitchTag(tag) {
+  const d = details.value
+  if (d?.isSwitch && d.slots?.[0]?.value === tag) {
+    editingSwitchTagIdx.value = null
+    return
+  }
+  const current = d?.switchSources?.tags || []
+  const idx = editingSwitchTagIdx.value
+  if (idx !== null) {
+    editingSwitchTagIdx.value = null
+    if (current[idx] === tag) return
+    const next = current.map((t, i) => (i === idx ? tag : t))
+    // dedupe сохраняя порядок (если выбранный тег уже был — оставляем первое вхождение)
+    const seen = new Set()
+    patchSwitchSources({
+      tags: next.filter((t) => (seen.has(t) ? false : (seen.add(t), true))),
+    })
+    return
+  }
+  if (current.includes(tag)) return
+  patchSwitchSources({ tags: [...current, tag] })
+}
+
+function removeSwitchTagAt(idx) {
+  const current = details.value?.switchSources?.tags || []
+  const next = current.filter((_, i) => i !== idx)
+  if (next.length === 0) patchSwitchSources(null)
+  else patchSwitchSources({ tags: next })
+}
+
+/** Multi-select: добавить тег в switchSources всех выделенных (не дублируя). */
+function onPickMultiSwitchTag(tag) {
+  const graph = canvas.graphRef.value
+  if (!graph || !tag) return
+  const sel = canvas.selection.value
+  if (!sel.length) return
+  let applied = 0
+  let skipped = 0
+  for (const item of sel) {
+    const cell = graph.getCell(item.id)
+    if (!cell) continue
+    const tms = cell.get('tms') || {}
+    if (isLayoutOnly(tms.stencilId)) {
+      skipped++
+      continue
+    }
+    // cell_vk не должен зависеть от своего же тега — слот.onoff уже отвечает
+    // за крестик + animation-off, дубль в switchSources бессмыслен.
+    if (tms.stencilId === 'cell_vk' && tms.slots?.onoff === tag) {
+      skipped++
+      continue
+    }
+    const current = tms.switchSources?.tags || []
+    if (current.includes(tag)) {
+      applied++
+      continue
+    }
+    cell.set('tms', { ...tms, switchSources: { tags: [...current, tag] } })
+    applied++
+  }
+  canvas.bumpVersion()
+  canvas.requestSnapshot()
+  const count = nplural(applied, 'элемент', 'элемента', 'элементов')
+  toast.add({
+    severity: 'success',
+    summary: 'Выключатель привязан',
+    detail:
+      skipped > 0
+        ? `Привязано к ${count} · пропущено: ${skipped} (текст/значение/свой тег)`
+        : `Привязано к ${count}`,
+    life: TOAST_LIFE.SHORT,
+  })
+}
 
 // ─── Hyperlink-навигация: клик в рантайме открывает другую view ───
 // Свич управляет видимостью инпута; пустое значение не пишется, при OFF — чистим.
@@ -549,37 +649,40 @@ function buildSlotTooltip(slotKey, animationTemplate) {
   }
 }
 
-// SwitchSource привязывается ТОЛЬКО к bool-тегам с суффиксом .ONOFF —
-// switchSource даёт эффект «выключатель = false → затемнение», аналоговый
-// тег .UA/.IA тут бессмысленен. В picker'е скрываем не-ONOFF чтобы не
-// поощрять типичную ошибку. Регистронезависимо (tag-list иногда .OnOff).
+// switchSources принимает только bool-теги .ONOFF — эффект «false → затемнение»,
+// аналоговый .UA/.IA бессмысленен. Регистронезависимо (tag-list иногда .OnOff).
 const onoffTags = computed(() => project.tags.filter((t) => /\.ONOFF$/i.test(t.name)))
+
+// Picker для switch-зависимостей исключает уже привязанные теги: основной
+// тег ячейки (slot.onoff у cell_vk) + все теги из switchSources.tags, кроме
+// редактируемого по индексу (его оставляем, чтобы юзер видел текущее значение).
+const switchPickerTags = computed(() => {
+  const d = details.value
+  if (!d) return onoffTags.value
+  const excluded = new Set()
+  if (d.isSwitch && d.slots?.[0]?.value) excluded.add(d.slots[0].value)
+  const currentTags = d.switchSources?.tags || []
+  const editIdx = editingSwitchTagIdx.value
+  currentTags.forEach((t, i) => {
+    if (i !== editIdx && t) excluded.add(t)
+  })
+  return onoffTags.value.filter((t) => !excluded.has(t.name))
+})
 </script>
 
 <template>
-  <aside
-    class="h-full flex flex-col bg-surface-50 dark:bg-surface-900 border-l border-surface-200 dark:border-surface-700"
-  >
-    <div class="px-4 py-3 border-b border-surface-200 dark:border-surface-700">
-      <h2
-        class="text-sm font-semibold text-surface-900 dark:text-surface-50 uppercase tracking-wide"
-      >
-        Инспектор
-      </h2>
-      <p class="text-xs text-surface-500 dark:text-surface-400">Свойства выделенного объекта</p>
+  <aside class="h-full flex flex-col bg-surface-50 border-l border-surface-200">
+    <div class="min-h-16 px-4 py-3 border-b border-surface-200 flex items-center">
+      <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Инспектор</h2>
     </div>
 
     <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm">
       <!-- Multi-select: больше одного элемента — показываем сводку + удаление -->
       <template v-if="canvas.selection.value.length > 1">
-        <div class="space-y-4">
+        <div class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4">
           <div>
-            <div
-              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
-            >
-              Выделено
-            </div>
-            <div class="font-medium text-surface-900 dark:text-surface-50">
+            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Выделено</div>
+            <div class="font-medium text-surface-900">
               {{ nplural(canvas.selection.value.length, 'элемент', 'элемента', 'элементов') }}
             </div>
             <ul class="mt-2 space-y-0.5 text-[11px]">
@@ -588,7 +691,7 @@ const onoffTags = computed(() => project.tags.filter((t) => /\.ONOFF$/i.test(t.n
                 :key="entry.label"
                 class="flex items-center justify-between gap-2"
               >
-                <span class="text-surface-700 dark:text-surface-200 truncate">
+                <span class="text-surface-700 truncate">
                   {{ entry.label }}
                 </span>
                 <Tag
@@ -599,42 +702,14 @@ const onoffTags = computed(() => project.tags.filter((t) => /\.ONOFF$/i.test(t.n
                 />
               </li>
             </ul>
-            <p class="text-[11px] text-surface-500 dark:text-surface-400 mt-2">
+            <p class="text-[11px] text-surface-500 mt-2">
               Ячейки можно тащить группой, удалить клавишей Del. Редактирование свойств — только при
               одном выделенном.
             </p>
           </div>
 
           <div>
-            <div
-              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-2"
-            >
-              Источник напряжения
-            </div>
-            <Button
-              label="Привязать тег к выделению…"
-              icon="pi pi-bolt"
-              severity="secondary"
-              size="small"
-              class="w-full"
-              :disabled="!project.tags.length"
-              @click="multiVoltageTagPickerOpen = true"
-            />
-            <p
-              v-if="!project.tags.length"
-              class="text-[11px] text-surface-400 dark:text-surface-500 mt-1"
-            >
-              Загрузи tag-list, чтобы выбрать тег
-            </p>
-            <p v-else class="text-[11px] text-surface-500 dark:text-surface-400 mt-1">
-              Привяжет тег и дефолтные диапазоны ко всем выделенным элементам
-            </p>
-          </div>
-
-          <div>
-            <div
-              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-2"
-            >
+            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
               Привязка к выключателю
             </div>
             <Button
@@ -646,18 +721,36 @@ const onoffTags = computed(() => project.tags.filter((t) => /\.ONOFF$/i.test(t.n
               :disabled="!project.tags.length"
               @click="multiSwitchTagPickerOpen = true"
             />
-            <p
-              v-if="!project.tags.length"
-              class="text-[11px] text-surface-400 dark:text-surface-500 mt-1"
-            >
+            <p v-if="!project.tags.length" class="text-[11px] text-surface-400 mt-1">
               Загрузи tag-list, чтобы выбрать тег
             </p>
-            <p v-else class="text-[11px] text-surface-500 dark:text-surface-400 mt-1">
+            <p v-else class="text-[11px] text-surface-500 mt-1">
               При значении тега = false элементы окрасятся в серый (animation-off)
             </p>
           </div>
 
-          <div class="pt-2 border-t border-surface-200 dark:border-surface-700">
+          <div>
+            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
+              Источник напряжения
+            </div>
+            <Button
+              label="Привязать тег к выделению…"
+              icon="pi pi-bolt"
+              severity="secondary"
+              size="small"
+              class="w-full"
+              :disabled="!project.tags.length"
+              @click="multiVoltageTagPickerOpen = true"
+            />
+            <p v-if="!project.tags.length" class="text-[11px] text-surface-400 mt-1">
+              Загрузи tag-list, чтобы выбрать тег
+            </p>
+            <p v-else class="text-[11px] text-surface-500 mt-1">
+              Привяжет тег и дефолтные диапазоны ко всем выделенным элементам
+            </p>
+          </div>
+
+          <div class="pt-2 border-t border-surface-200">
             <Button
               :label="`Удалить (${canvas.selection.value.length})`"
               icon="pi pi-trash"
@@ -671,18 +764,14 @@ const onoffTags = computed(() => project.tags.filter((t) => /\.ONOFF$/i.test(t.n
       </template>
 
       <template v-else-if="!details">
-        <div
-          class="flex flex-col items-center text-center text-surface-400 dark:text-surface-500 py-10"
-        >
+        <div class="flex flex-col items-center text-center text-surface-400 py-10">
           <i class="pi pi-mouse text-3xl mb-3 opacity-60" />
-          <div class="text-sm font-medium text-surface-500 dark:text-surface-400 mb-1">
-            Ничего не выделено
-          </div>
+          <div class="text-sm font-medium text-surface-500 mb-1">Ничего не выделено</div>
           <p class="text-[11px] leading-relaxed max-w-[180px]">
             Кликни по ячейке или проводу на холсте — здесь появятся свойства
           </p>
           <!-- CTA когда tag-list ещё не загружен — без него анимации стенсилов
-               не работают, юзеру полезно увидеть кнопку сразу при пустом инспекторе. -->
+ не работают, юзеру полезно увидеть кнопку сразу при пустом инспекторе. -->
           <Button
             v-if="!project.tags.length"
             label="Загрузить tag-list…"
@@ -696,292 +785,281 @@ const onoffTags = computed(() => project.tags.filter((t) => /\.ONOFF$/i.test(t.n
         </div>
       </template>
 
-      <template v-else-if="details.kind === 'cell'">
-        <div class="space-y-4">
-          <div>
-            <div
-              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
-            >
-              Стенсил
-            </div>
-            <div class="font-medium text-surface-900 dark:text-surface-50">
-              {{ details.stencilLabel }}
-            </div>
-            <div class="text-[11px] text-surface-500 dark:text-surface-400 font-mono">
-              {{ details.stencilId }}
-            </div>
-          </div>
-
-          <!-- Текстовое поле: редактирование содержимого + стиль -->
-          <div v-if="details.isText" class="space-y-3">
+      <template v-else-if="details">
+        <div class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4">
+          <template v-if="details.kind === 'cell'">
             <div>
-              <div
-                class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
-              >
-                Текст
+              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Стенсил</div>
+              <div class="font-medium text-surface-900">
+                {{ details.stencilLabel }}
               </div>
-              <InputText
-                :model-value="details.text"
-                size="small"
-                class="w-full"
-                placeholder="Введите текст"
-                @update:model-value="applyText"
-              />
+              <div class="text-[11px] text-surface-500 font-mono">
+                {{ details.stencilId }}
+              </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-3">
+            <!-- Текстовое поле: редактирование содержимого + стиль -->
+            <div v-if="details.isText" class="space-y-3">
               <div>
-                <div
-                  class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
-                >
-                  Размер
+                <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
+                <InputText
+                  :model-value="details.text"
+                  size="small"
+                  class="w-full"
+                  placeholder="Введите текст"
+                  @update:model-value="applyText"
+                />
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
+                    Размер
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <Button
+                      v-for="preset in TEXT_SIZE_PRESETS"
+                      :key="preset.size"
+                      :label="preset.label"
+                      size="small"
+                      :severity="details.fontSize === preset.size ? 'primary' : 'secondary'"
+                      :outlined="details.fontSize !== preset.size"
+                      @click="applyFontSize(preset.size)"
+                    />
+                  </div>
                 </div>
-                <div class="flex items-center gap-1">
+                <div>
+                  <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
+                    Жирность
+                  </div>
                   <Button
-                    v-for="preset in TEXT_SIZE_PRESETS"
-                    :key="preset.size"
-                    :label="preset.label"
+                    label="B"
                     size="small"
-                    :severity="details.fontSize === preset.size ? 'primary' : 'secondary'"
-                    :outlined="details.fontSize !== preset.size"
-                    @click="applyFontSize(preset.size)"
+                    class="!font-bold"
+                    :severity="details.bold ? 'primary' : 'secondary'"
+                    :outlined="!details.bold"
+                    title="Жирный"
+                    @click="toggleBold"
                   />
                 </div>
               </div>
-              <div>
-                <div
-                  class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
-                >
-                  Жирность
-                </div>
-                <Button
-                  label="B"
-                  size="small"
-                  class="!font-bold"
-                  :severity="details.bold ? 'primary' : 'secondary'"
-                  :outlined="!details.bold"
-                  title="Жирный"
-                  @click="toggleBold"
-                />
-              </div>
             </div>
-          </div>
 
-          <!-- cell_value: picker одного полного тега для отображения значения -->
-          <div v-else-if="details.isValue">
-            <div
-              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
-            >
-              Тег значения
-            </div>
-            <div class="flex items-center gap-2">
-              <code
-                class="flex-1 px-2 py-1 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 rounded text-xs font-mono truncate transition-colors"
-                :class="project.tags.length ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
-                :title="project.tags.length ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'"
-                @click="project.tags.length && openValueTagPicker()"
-              >
-                {{ details.valueTag || '— не выбран —' }}
-              </code>
-              <Button
-                icon="pi pi-pencil"
-                severity="secondary"
-                text
-                size="small"
-                title="Выбрать тег"
-                :disabled="!project.tags.length"
-                @click="openValueTagPicker"
-              />
-            </div>
-            <Button
-              v-if="!project.tags.length"
-              label="Загрузить tag-list…"
-              icon="pi pi-upload"
-              severity="secondary"
-              size="small"
-              text
-              class="!p-1 mt-1 !text-[11px]"
-              @click="ui.requestTagListLoad"
-            />
-            <div
-              v-if="details.valueTag && valueDisplay"
-              class="text-[11px] text-surface-500 dark:text-surface-400 mt-2 font-mono"
-            >
-              Подпись:
-              <span class="text-surface-700 dark:text-surface-200">{{ valueDisplay.label }}</span>
-              <template v-if="valueDisplay.unit">
-                · единица:
-                <span class="text-surface-700 dark:text-surface-200">{{ valueDisplay.unit }}</span>
-              </template>
-            </div>
-          </div>
-
-          <!-- Слоты стенсила: каждый слот = один тег, который попадёт в
-               соответствующие bindings шаблона при экспорте.
-               cell_alr / cell_vk рендерят свой единственный required-слот в
-               специальном Alarm/Switch-блоке внутри секции «Анимации» — поэтому
-               общий slot-row для них скрываем, чтобы тег не показывался дважды. -->
-          <div
-            v-else-if="details.slots.length && !details.isAlarm && !details.isSwitch"
-            class="space-y-2"
-          >
-            <div
-              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400"
-            >
-              Привязки тегов
-            </div>
-            <div v-for="slot in details.slots" :key="slot.key" class="space-y-1">
-              <div
-                class="flex items-center gap-2 text-[11px] text-surface-500 dark:text-surface-400"
-              >
-                <span>{{ slot.label }}</span>
-                <span
-                  v-if="slot.required && !slot.value"
-                  class="text-amber-500"
-                  title="Обязательно для работы анимации"
-                >
-                  *
-                </span>
-                <!-- info-иконка с тултипом: правила встроенной анимации стенсила,
-                     реагирующие на этот слот. Заменяет прежний read-only блок
-                     «Встроенные анимации» — теперь юзер видит описание только при наведении,
-                     панель не засоряется. Если у слота нет реактивных правил — иконку не рендерим. -->
-                <i
-                  v-if="slot.tooltip"
-                  v-tooltip.bottom="slot.tooltip"
-                  class="pi pi-info-circle text-surface-400 dark:text-surface-500 cursor-help text-[11px]"
-                  aria-label="Поведение анимации этого слота"
-                />
-                <!-- tagSuffix-чип — даёт юзеру понимание «этот слот ждёт тег с
-                     суффиксом .ONOFF» сразу, без открытия picker'а. type
-                     показываем только если суффикса нет (иначе суффикс
-                     информативнее: type=Boolean без контекста менее полезен). -->
-                <Tag
-                  v-if="slot.tagSuffix"
-                  v-tooltip.bottom="`Ожидается тег с суффиксом ${slot.tagSuffix}`"
-                  :value="slot.tagSuffix"
-                  severity="secondary"
-                  rounded
-                  class="ml-auto !font-mono !text-[10px] !py-0"
-                />
-                <span
-                  v-else-if="slot.type"
-                  class="text-surface-400 dark:text-surface-500 ml-auto font-mono"
-                >
-                  {{ slot.type }}
-                </span>
+            <!-- cell_value: picker одного полного тега для отображения значения -->
+            <div v-else-if="details.isValue">
+              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
+                Тег значения
               </div>
               <div class="flex items-center gap-2">
                 <code
-                  class="flex-1 px-2 py-1 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 rounded text-xs font-mono truncate transition-colors"
-                  :class="[
-                    project.tags.length ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
-                    slot.required && !slot.value ? 'border border-amber-500/40' : '',
-                  ]"
+                  class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
+                  :class="project.tags.length ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
                   :title="
                     project.tags.length ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'
                   "
-                  @click="project.tags.length && openSlotPicker(slot)"
+                  @click="project.tags.length && openValueTagPicker()"
                 >
-                  {{
-                    slot.value ||
-                    (slot.tagSuffix ? `— выбрать тег ${slot.tagSuffix} —` : '— не выбран —')
-                  }}
+                  {{ details.valueTag || '— не выбран —' }}
                 </code>
-                <Button
-                  v-if="slot.value"
-                  icon="pi pi-times"
-                  severity="secondary"
-                  text
-                  size="small"
-                  title="Очистить"
-                  @click="patchSlotTag(slot.key, '')"
-                />
-                <Button
-                  icon="pi pi-pencil"
-                  severity="secondary"
-                  text
-                  size="small"
-                  title="Выбрать тег"
-                  :disabled="!project.tags.length"
-                  @click="openSlotPicker(slot)"
-                />
+              </div>
+              <Button
+                v-if="!project.tags.length"
+                label="Загрузить tag-list…"
+                icon="pi pi-upload"
+                severity="secondary"
+                size="small"
+                text
+                class="!p-1 mt-1 !text-[11px]"
+                @click="ui.requestTagListLoad"
+              />
+              <div
+                v-if="details.valueTag && valueDisplay"
+                class="text-[11px] text-surface-500 mt-2 font-mono"
+              >
+                Подпись:
+                <span class="text-surface-700">{{ valueDisplay.label }}</span>
+                <template v-if="valueDisplay.unit">
+                  · единица:
+                  <span class="text-surface-700">{{ valueDisplay.unit }}</span>
+                </template>
               </div>
             </div>
-            <Button
-              v-if="!project.tags.length"
-              label="Загрузить tag-list…"
-              icon="pi pi-upload"
-              severity="secondary"
-              size="small"
-              text
-              class="!p-1 !text-[11px]"
-              @click="ui.requestTagListLoad"
-            />
-          </div>
 
-          <!-- Навигация (hyperlink на другую view при клике в рантайме). Юзер
-               вводит имя view строкой — IDE про другие view не знает, проверка
-               по факту в рантайме (как `<a href>` в HTML). Свич справа от
-               заголовка показывает/скрывает инпут; выключение очищает значение. -->
-          <div v-if="!details.isText" class="space-y-2">
-            <div class="flex items-center justify-between gap-2">
-              <div>
-                <div
-                  class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400"
-                >
-                  Навигация
+            <!-- Слоты стенсила: каждый слот = один тег, который попадёт в
+ соответствующие bindings шаблона при экспорте.
+ cell_alr / cell_vk рендерят свой единственный required-слот в
+ специальном Alarm/Switch-блоке внутри секции «Анимации» — поэтому
+ общий slot-row для них скрываем, чтобы тег не показывался дважды. -->
+            <div
+              v-else-if="details.slots.length && !details.isAlarm && !details.isSwitch"
+              class="space-y-2"
+            >
+              <div class="text-[11px] uppercase tracking-wider text-surface-500">
+                Привязки тегов
+              </div>
+              <div v-for="slot in details.slots" :key="slot.key" class="space-y-1">
+                <div class="flex items-center gap-2 text-[11px] text-surface-500">
+                  <span>{{ slot.label }}</span>
+                  <span
+                    v-if="slot.required && !slot.value"
+                    class="text-amber-500"
+                    title="Обязательно для работы анимации"
+                  >
+                    *
+                  </span>
+                  <!-- info-иконка с тултипом: правила встроенной анимации стенсила,
+ реагирующие на этот слот. Заменяет прежний read-only блок
+ «Встроенные анимации» — теперь юзер видит описание только при наведении,
+ панель не засоряется. Если у слота нет реактивных правил — иконку не рендерим. -->
+                  <i
+                    v-if="slot.tooltip"
+                    v-tooltip.bottom="slot.tooltip"
+                    class="pi pi-info-circle text-surface-400 cursor-help text-[11px]"
+                    aria-label="Поведение анимации этого слота"
+                  />
+                  <!-- tagSuffix-чип — даёт юзеру понимание «этот слот ждёт тег с
+ суффиксом .ONOFF» сразу, без открытия picker'а. type
+ показываем только если суффикса нет (иначе суффикс
+ информативнее: type=Boolean без контекста менее полезен). -->
+                  <Tag
+                    v-if="slot.tagSuffix"
+                    v-tooltip.bottom="`Ожидается тег с суффиксом ${slot.tagSuffix}`"
+                    :value="slot.tagSuffix"
+                    severity="secondary"
+                    rounded
+                    class="ml-auto !font-mono !text-[10px] !py-0"
+                  />
+                  <span v-else-if="slot.type" class="text-surface-400 ml-auto font-mono">
+                    {{ slot.type }}
+                  </span>
                 </div>
-                <div class="text-[11px] text-surface-500 dark:text-surface-400">
-                  переход при клике
+                <div class="flex items-center gap-2">
+                  <code
+                    class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
+                    :class="[
+                      project.tags.length ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
+                      slot.required && !slot.value ? 'border border-amber-500/40' : '',
+                    ]"
+                    :title="
+                      project.tags.length ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'
+                    "
+                    @click="project.tags.length && openSlotPicker(slot)"
+                  >
+                    {{
+                      slot.value ||
+                      (slot.tagSuffix ? `— выбрать тег ${slot.tagSuffix} —` : '— не выбран —')
+                    }}
+                  </code>
+                  <Button
+                    v-if="slot.value"
+                    icon="pi pi-times"
+                    severity="secondary"
+                    text
+                    size="small"
+                    title="Очистить"
+                    @click="patchSlotTag(slot.key, '')"
+                  />
                 </div>
               </div>
-              <ToggleSwitch
-                :model-value="navigationEnabled"
-                @update:model-value="toggleNavigationEnabled"
+              <Button
+                v-if="!project.tags.length"
+                label="Загрузить tag-list…"
+                icon="pi pi-upload"
+                severity="secondary"
+                size="small"
+                text
+                class="!p-1 !text-[11px]"
+                @click="ui.requestTagListLoad"
               />
             </div>
-            <InputText
-              v-if="navigationEnabled"
-              :model-value="details.navigation"
-              size="small"
-              placeholder="view_id"
-              class="w-full !text-xs font-mono"
-              @update:model-value="patchNavigation"
-            />
-          </div>
 
-          <div v-if="!details.isText && !details.isValue" class="space-y-2">
-            <div
-              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400"
-            >
-              Анимации
+            <!-- Навигация (hyperlink на другую view при клике в рантайме). Юзер
+ вводит имя view строкой — IDE про другие view не знает, проверка
+ по факту в рантайме (как `<a href>` в HTML). Свич справа от
+ заголовка показывает/скрывает инпут; выключение очищает значение. -->
+            <div v-if="!details.isText" class="space-y-2">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <div class="text-[11px] uppercase tracking-wider text-surface-500">Навигация</div>
+                  <div class="text-[11px] text-surface-500">переход при клике</div>
+                </div>
+                <ToggleSwitch
+                  :model-value="navigationEnabled"
+                  @update:model-value="toggleNavigationEnabled"
+                />
+              </div>
+              <InputText
+                v-if="navigationEnabled"
+                :model-value="details.navigation"
+                size="small"
+                placeholder="view_id"
+                class="w-full !text-xs font-mono"
+                @update:model-value="patchNavigation"
+              />
+            </div>
+          </template>
+
+          <template v-else>
+            <div>
+              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Связь</div>
+              <div class="font-medium text-surface-900">Провод</div>
             </div>
 
+            <div
+              class="grid gap-x-2 gap-y-1 items-center"
+              style="grid-template-columns: 1fr auto 1fr"
+            >
+              <div class="text-[11px] uppercase tracking-wider text-surface-500">Источник</div>
+              <div></div>
+              <div class="text-[11px] uppercase tracking-wider text-surface-500">Цель</div>
+              <code class="px-2 py-1 bg-surface-100 rounded text-xs font-mono truncate">
+                {{ details.sourceLabel }} · {{ details.sourcePort }}
+              </code>
+              <i class="pi pi-arrow-right text-surface-400 text-[10px]" aria-hidden="true" />
+              <code class="px-2 py-1 bg-surface-100 rounded text-xs font-mono truncate">
+                {{ details.targetLabel }} · {{ details.targetPort }}
+              </code>
+            </div>
+          </template>
+
+          <div v-if="!details.isText && !details.isValue" class="space-y-2">
+            <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
+
             <!-- Встроенные анимации стенсила теперь живут в tooltip'е у иконки
-                 каждого слота (см. info-icon выше) — read-only блок убран,
-                 чтобы не засорять панель повторением декларативного поведения. -->
+ каждого слота (см. info-icon выше) — read-only блок убран,
+ чтобы не засорять панель повторением декларативного поведения. -->
 
             <!-- A. Аварийный сигнал (cell_alr) / Выключатель (cell_vk):
-                 обёртки для required-слотов стенсилов (.alr / .onoff). Это
-                 интрисик-анимация шаблона, не отдельная tms-сущность. -->
+ обёртки для required-слотов стенсилов (.alr / .onoff). Это
+ интрисик-анимация шаблона, не отдельная tms-сущность. -->
+            <!-- A. cell_alr — обёртка required-слота .alr. -->
             <AlarmSourceBlock
               v-if="details.isAlarm && details.slots[0]"
               :alarm-slot="details.slots[0]"
               :tags-loaded="!!project.tags.length"
               @open-tag-picker="openSlotPicker(details.slots[0])"
             />
+
+            <!-- B. Привязка к выключателю(ям). Unified block: для cell_vk
+                 включает slot.onoff (intrinsic) + switchSources.tags;
+                 для остальных — только switchSources.tags. -->
             <SwitchBlock
-              v-if="details.isSwitch && details.slots[0]"
-              :tag="details.slots[0].value"
-              :tag-suffix="details.slots[0].tagSuffix"
-              :required="details.slots[0].required"
-              :removable="false"
+              v-if="details.isSwitch || details.switchSources"
+              :slot-info="details.isSwitch ? details.slots[0] : null"
+              :tags="details.switchSources?.tags || null"
+              tag-suffix=".ONOFF"
+              :removable="!!details.switchSources"
               :tags-loaded="!!project.tags.length"
-              @open-tag-picker="openSlotPicker(details.slots[0])"
+              title="Привязка к выключателю"
+              @open-slot-picker="openSlotPicker(details.slots[0])"
+              @open-tag-picker="onAddSwitchTag"
+              @remove-tag="removeSwitchTagAt"
+              @remove="removeSwitchSources"
+              @highlight-tag="canvas.toggleHighlightedTag"
+              @edit-tag="editSwitchTagAt"
             />
 
-            <!-- B. Источник напряжения -->
+            <!-- C. Источник напряжения. -->
             <VoltageSourceBlock
               v-if="details.voltageSource"
               :voltage-source="details.voltageSource"
@@ -993,148 +1071,35 @@ const onoffTags = computed(() => project.tags.filter((t) => /\.ONOFF$/i.test(t.n
               @remove="removeVoltageSource"
             />
 
-            <!-- C. Привязка к выключателю -->
-            <SwitchBlock
-              v-if="details.switchSource"
-              :tag="details.switchSource.tag"
-              tag-suffix=".ONOFF"
-              :removable="true"
-              :tags-loaded="!!project.tags.length"
-              title="Привязка к выключателю"
-              @open-tag-picker="switchTagPickerOpen = true"
-              @remove="removeSwitchSource"
-            />
-
-            <!-- Add buttons. Скрываем целиком, если соответствующий источник уже
-                 привязан (юзеру не нужна disabled-кнопка-памятник). Дополнительно:
-                 у cell_alr switch-source бессмыслен (тревога — не поток);
-                 у cell_vk он дублирует тег, уже выбранный в SwitchBlock. -->
+            <!-- Add-кнопки. Выключатель — везде кроме cell_alr (тревога не
+                 поток) и cell_vk (блок уже виден через slot.onoff, add-кнопка
+                 встроена в сам блок). Voltage — везде где нет. -->
             <div
               v-if="
-                !details.voltageSource ||
-                (!details.switchSource && !details.isAlarm && !details.isSwitch)
+                (!details.switchSources && !details.isAlarm && !details.isSwitch) ||
+                !details.voltageSource
               "
               class="flex flex-wrap gap-2 pt-1"
             >
               <Button
-                v-if="!details.voltageSource"
-                label="Источник"
-                icon="pi pi-plus"
-                severity="secondary"
-                size="small"
-                outlined
-                class="flex-1 min-w-[120px]"
-                @click="addVoltageSource"
-              />
-              <Button
-                v-if="!details.switchSource && !details.isAlarm && !details.isSwitch"
+                v-if="!details.switchSources && !details.isAlarm && !details.isSwitch"
                 label="Выключатель"
                 icon="pi pi-plus"
                 severity="secondary"
                 size="small"
                 outlined
                 class="flex-1 min-w-[120px]"
-                @click="addSwitchSource"
+                @click="addSwitchSources"
               />
-            </div>
-          </div>
-        </div>
-      </template>
-
-      <template v-else-if="details.kind === 'link'">
-        <div class="space-y-4">
-          <div>
-            <div
-              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-1"
-            >
-              Связь
-            </div>
-            <div class="font-medium text-surface-900 dark:text-surface-50">Провод</div>
-          </div>
-
-          <div
-            class="grid gap-x-2 gap-y-1 items-center"
-            style="grid-template-columns: 1fr auto 1fr"
-          >
-            <div
-              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400"
-            >
-              Источник
-            </div>
-            <div></div>
-            <div
-              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400"
-            >
-              Цель
-            </div>
-            <code
-              class="px-2 py-1 bg-surface-100 dark:bg-surface-800 rounded text-xs font-mono truncate"
-            >
-              {{ details.sourceLabel }} · {{ details.sourcePort }}
-            </code>
-            <i
-              class="pi pi-arrow-right text-surface-400 dark:text-surface-500 text-[10px]"
-              aria-hidden="true"
-            />
-            <code
-              class="px-2 py-1 bg-surface-100 dark:bg-surface-800 rounded text-xs font-mono truncate"
-            >
-              {{ details.targetLabel }} · {{ details.targetPort }}
-            </code>
-          </div>
-
-          <div class="space-y-2">
-            <div
-              class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400"
-            >
-              Анимации
-            </div>
-
-            <VoltageSourceBlock
-              v-if="details.voltageSource"
-              :voltage-source="details.voltageSource"
-              :tags-loaded="!!project.tags.length"
-              :class-options="ANIMATION_CLASS_OPTIONS"
-              @open-tag-picker="tagPickerOpen = true"
-              @update-range="updateRange"
-              @highlight="toggleVoltageHighlight"
-              @remove="removeVoltageSource"
-            />
-
-            <SwitchBlock
-              v-if="details.switchSource"
-              :tag="details.switchSource.tag"
-              tag-suffix=".ONOFF"
-              :removable="true"
-              :tags-loaded="!!project.tags.length"
-              title="Привязка к выключателю"
-              @open-tag-picker="switchTagPickerOpen = true"
-              @remove="removeSwitchSource"
-            />
-
-            <div
-              v-if="!details.voltageSource || !details.switchSource"
-              class="flex flex-wrap gap-2 pt-1"
-            >
               <Button
                 v-if="!details.voltageSource"
-                label="Источник"
+                label="Источник напряжения"
                 icon="pi pi-plus"
                 severity="secondary"
                 size="small"
                 outlined
                 class="flex-1 min-w-[120px]"
                 @click="addVoltageSource"
-              />
-              <Button
-                v-if="!details.switchSource"
-                label="Выключатель"
-                icon="pi pi-plus"
-                severity="secondary"
-                size="small"
-                outlined
-                class="flex-1 min-w-[120px]"
-                @click="addSwitchSource"
               />
             </div>
           </div>
@@ -1175,9 +1140,9 @@ const onoffTags = computed(() => project.tags.filter((t) => /\.ONOFF$/i.test(t.n
 
     <TagPickerDialog
       v-model:visible="switchTagPickerOpen"
-      :tags="onoffTags"
-      :selected="details?.switchSource?.tag || ''"
-      header="Выберите тег выключателя (.ONOFF)"
+      :tags="switchPickerTags"
+      selected=""
+      header="Добавить тег выключателя (.ONOFF)"
       @select="onPickSwitchTag"
     />
 

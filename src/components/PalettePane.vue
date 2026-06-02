@@ -83,28 +83,21 @@ function onStencilPointerDown(event, stencil) {
 }
 
 /**
- * Tooltip — только увеличенное превью SVG стенсила. Лейбл/id/слоты уже видны
- * в самой плашке палитры, дублировать их в тултипе не нужно.
+ * Tooltip: увеличенное превью SVG + id (внутренний, оператору не нужен в
+ * самой плашке, но при наведении удобно увидеть).
  */
 function stencilTooltip(stencil) {
-  const value = `<div class="tms-stencil-zoom">${stencil.svgText || ''}</div>`
+  const value =
+    `<div class="tms-stencil-zoom">${stencil.svgText || ''}</div>` +
+    `<div class="tms-stencil-id">${stencil.id}</div>`
   return { value, escape: false, showDelay: 400 }
 }
 </script>
 
 <template>
-  <aside
-    class="h-full flex flex-col bg-surface-50 dark:bg-surface-900 border-r border-surface-200 dark:border-surface-700"
-  >
-    <div class="px-4 py-3 border-b border-surface-200 dark:border-surface-700">
-      <h2
-        class="text-sm font-semibold text-surface-900 dark:text-surface-50 uppercase tracking-wide"
-      >
-        Палитра
-      </h2>
-      <p class="text-xs text-surface-500 dark:text-surface-400">
-        Стенсилы для размещения на холсте
-      </p>
+  <aside class="h-full flex flex-col bg-surface-50 border-r border-surface-200">
+    <div class="min-h-16 px-4 py-3 border-b border-surface-200 flex items-center">
+      <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Палитра</h2>
     </div>
 
     <div class="px-2 pt-2">
@@ -121,21 +114,15 @@ function stencilTooltip(stencil) {
 
     <div class="flex-1 p-2 overflow-auto">
       <template v-if="!allCategories.length">
-        <div
-          class="flex flex-col items-center text-center text-surface-400 dark:text-surface-500 py-10"
-        >
+        <div class="flex flex-col items-center text-center text-surface-400 py-10">
           <i class="pi pi-inbox text-3xl mb-3 opacity-60" />
-          <div class="text-sm font-medium text-surface-500 dark:text-surface-400">
-            Реестр стенсилов пуст
-          </div>
+          <div class="text-sm font-medium text-surface-500">Реестр стенсилов пуст</div>
           <p class="text-[11px] mt-1 max-w-[180px]">Добавь папку в src/stencils/definitions/</p>
         </div>
       </template>
 
       <template v-else-if="noResults">
-        <div
-          class="flex flex-col items-center text-center text-surface-400 dark:text-surface-500 py-8"
-        >
+        <div class="flex flex-col items-center text-center text-surface-400 py-8">
           <i class="pi pi-search text-2xl mb-2 opacity-60" />
           <div class="text-xs">Ничего не нашлось по «{{ search }}»</div>
         </div>
@@ -159,7 +146,7 @@ function stencilTooltip(stencil) {
             <div
               v-for="stencil in stencilsByCategory.get(cat)"
               :key="stencil.id"
-              class="group flex items-center gap-3 p-2 rounded hover:bg-surface-100 dark:hover:bg-surface-800 cursor-grab active:cursor-grabbing select-none"
+              class="group flex items-center gap-3 p-2 rounded hover:bg-surface-100 cursor-grab active:cursor-grabbing select-none"
               v-tooltip.right="stencilTooltip(stencil)"
               :aria-label="`Перетащить стенсил ${stencil.label} на холст`"
               role="button"
@@ -167,15 +154,12 @@ function stencilTooltip(stencil) {
               @pointerdown="onStencilPointerDown($event, stencil)"
             >
               <div
-                class="stencil-thumb flex-shrink-0 w-9 h-9 flex items-center justify-center bg-white dark:bg-surface-800 rounded border border-surface-200 dark:border-surface-700 overflow-hidden p-1 transition-transform group-hover:scale-105"
+                class="stencil-thumb flex-shrink-0 w-9 h-9 flex items-center justify-center bg-white rounded border border-surface-200 overflow-hidden p-1 transition-transform group-hover:scale-105"
                 v-html="stencil.svgText"
               ></div>
               <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium text-surface-900 dark:text-surface-50 truncate">
+                <div class="text-sm font-medium text-surface-900 truncate">
                   {{ stencil.label }}
-                </div>
-                <div class="text-[11px] text-surface-500 dark:text-surface-400 truncate font-mono">
-                  {{ stencil.id }}
                 </div>
               </div>
             </div>
@@ -188,8 +172,8 @@ function stencilTooltip(stencil) {
 
 <style>
 /* Увеличенное превью SVG стенсила в hover-tooltip'е (см. stencilTooltip).
-   PrimeVue tooltip монтируется в body — стили не должны быть scoped. Белый
-   фон чтобы чёрные обводки SVG читались на тёмной плашке tooltip'а. */
+ PrimeVue tooltip монтируется в body — стили не должны быть scoped. Белый
+ фон чтобы чёрные обводки SVG читались на тёмной плашке tooltip'а. */
 .tms-stencil-zoom {
   width: 96px;
   height: 96px;
@@ -206,16 +190,23 @@ function stencilTooltip(stencil) {
   height: 100%;
   display: block;
 }
+.tms-stencil-id {
+  margin-top: 4px;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  opacity: 0.7;
+}
 /* По дефолту .p-tooltip-text имеет асимметричный padding (4/8) — для
-   зум-превью переопределяем на равномерный, иначе сверху «съедается». */
+ зум-превью переопределяем на равномерный, иначе сверху «съедается». */
 .p-tooltip:has(.tms-stencil-zoom) .p-tooltip-text {
   padding: 6px;
 }
 
 /* PrimeVue Accordion-дефолты в Aura — слишком жирные border/padding для
-   узкой колонки палитры. Сжимаем: тонкая нижняя линия между панелями,
-   компактные паддинги, header с прозрачным background чтобы вписаться
-   в общий surface-50 фон aside'а. */
+ узкой колонки палитры. Сжимаем: тонкая нижняя линия между панелями,
+ компактные паддинги, header с прозрачным background чтобы вписаться
+ в общий surface-50 фон aside'а. */
 .tms-palette-accordion .p-accordionheader {
   padding: 0.5rem 0.5rem;
   background: transparent;
@@ -223,9 +214,6 @@ function stencilTooltip(stencil) {
 }
 .tms-palette-accordion .p-accordionheader:hover {
   background: var(--p-surface-100);
-}
-.dark .tms-palette-accordion .p-accordionheader:hover {
-  background: var(--p-surface-800);
 }
 .tms-palette-accordion .p-accordioncontent-content {
   padding: 0.25rem 0;
@@ -237,8 +225,5 @@ function stencilTooltip(stencil) {
 }
 .tms-palette-accordion .p-accordionpanel + .p-accordionpanel {
   border-top: 1px solid var(--p-surface-200);
-}
-.dark .tms-palette-accordion .p-accordionpanel + .p-accordionpanel {
-  border-top-color: var(--p-surface-700);
 }
 </style>

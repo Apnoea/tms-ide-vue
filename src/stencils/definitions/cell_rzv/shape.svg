@@ -9,8 +9,8 @@
     <line x1="40" y1="10" x2="30" y2="10" stroke="#000" stroke-width="2"/>
     <line x1="30" y1="6"  x2="30" y2="14" stroke="#000" stroke-width="2"/>
 
-    <!-- Шарнир -->
-    <circle cx="18" cy="10" r="1" stroke="#000"/>
+    <!-- Шарнир (tms-voltage-fill → перекрашивается в симуляции и runtime) -->
+    <circle cx="18" cy="10" r="1" fill="#000" class="tms-voltage-fill" />
 
     <!-- Открытый рычаг (отклонён вверх от шарнира) -->
     <line x1="18" y1="10" x2="26" y2="3"  stroke="#000" stroke-width="2"/>

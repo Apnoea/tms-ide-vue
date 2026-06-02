@@ -22,9 +22,13 @@ const paperRef = shallowRef(null)
 // о деталях. Если CanvasPane не смонтирован — no-op.
 const importFromSvgFn = shallowRef(null)
 
-// Аналогично для экспорта — кнопка живёт в AppHeader, но логика (graph+paper +
-// download) в CanvasPane.
+// Аналогично для экспорта — кнопка живёт в ProjectActions, но логика
+// (graph+paper + download) в CanvasPane.
 const exportFn = shallowRef(null)
+
+// fit-to-content (зум-кнопка в footer'е) — функция владельца CanvasPane,
+// дёргается извне.
+const fitToContentFn = shallowRef(null)
 
 const selection = ref([]) // Array<{ kind, id }>
 
@@ -138,6 +142,12 @@ export function useCanvas() {
     },
     exportProject() {
       return exportFn.value?.() ?? false
+    },
+    setFitToContentFn(fn) {
+      fitToContentFn.value = fn
+    },
+    fitToContent() {
+      return fitToContentFn.value?.() ?? false
     },
     clearCanvasRefs() {
       graphRef.value = null

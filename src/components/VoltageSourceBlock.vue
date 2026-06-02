@@ -25,56 +25,43 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
 </script>
 
 <template>
-  <div
-    class="border border-surface-200 dark:border-surface-700 rounded p-3 bg-surface-0 dark:bg-surface-900"
-  >
+  <div class="border border-surface-200 rounded p-3 bg-surface-0">
     <div class="flex items-center gap-2 mb-2">
       <i class="pi pi-bolt text-yellow-500" aria-hidden="true" />
-      <div class="text-xs font-medium text-surface-700 dark:text-surface-200">
-        Источник напряжения
-      </div>
+      <div class="text-xs font-medium text-surface-700">Источник напряжения</div>
       <Button
+        v-tooltip.bottom="'Удалить анимацию'"
         icon="pi pi-times"
         severity="secondary"
         text
         size="small"
-        title="Удалить"
         class="!p-1 !w-6 !h-6 ml-auto"
         @click="$emit('remove')"
       />
     </div>
 
-    <p class="text-[11px] text-surface-500 dark:text-surface-400 mb-2 leading-snug">
+    <p class="text-[11px] text-surface-500 mb-2 leading-snug">
       Класс анимации зависит от диапазона значения тега — задайте границы и соответствующие цвета
       ниже.
     </p>
 
     <div class="space-y-3">
       <div>
-        <div class="text-[11px] text-surface-500 dark:text-surface-400 mb-1">Тег</div>
+        <div class="text-[11px] text-surface-500 mb-1">Тег</div>
         <div class="flex items-center gap-2">
           <code
-            class="flex-1 px-2 py-1 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 rounded text-xs font-mono truncate transition-colors"
+            class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
             :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
             :title="tagsLoaded ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'"
             @click="tagsLoaded && $emit('open-tag-picker')"
           >
             {{ voltageSource.tag || '— не выбран —' }}
           </code>
-          <Button
-            icon="pi pi-pencil"
-            severity="secondary"
-            text
-            size="small"
-            title="Выбрать тег"
-            :disabled="!tagsLoaded"
-            @click="$emit('open-tag-picker')"
-          />
         </div>
       </div>
 
       <div>
-        <div class="text-[11px] text-surface-500 dark:text-surface-400 mb-1">Диапазоны</div>
+        <div class="text-[11px] text-surface-500 mb-1">Диапазоны</div>
         <div class="space-y-1">
           <div
             v-for="(r, idx) in voltageSource.ranges"
@@ -106,7 +93,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
               <template #value="{ value }">
                 <span class="flex items-center gap-1.5 text-xs">
                   <span
-                    class="w-3 h-3 rounded-sm flex-shrink-0 border border-surface-300 dark:border-surface-600"
+                    class="w-3 h-3 rounded-sm flex-shrink-0 border border-surface-300"
                     :style="{ background: CLASS_COLORS[value] || 'transparent' }"
                     aria-hidden="true"
                   />
@@ -116,7 +103,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
               <template #option="{ option }">
                 <span class="flex items-center gap-1.5 text-xs">
                   <span
-                    class="w-3 h-3 rounded-sm flex-shrink-0 border border-surface-300 dark:border-surface-600"
+                    class="w-3 h-3 rounded-sm flex-shrink-0 border border-surface-300"
                     :style="{ background: CLASS_COLORS[option] || 'transparent' }"
                     aria-hidden="true"
                   />

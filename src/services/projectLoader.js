@@ -76,7 +76,9 @@ export function parseSvgProject(svgText) {
       if (meta.bold !== undefined) tms.bold = meta.bold
       if (meta.valueTag !== undefined) tms.valueTag = meta.valueTag
       if (meta.voltageSource) tms.voltageSource = meta.voltageSource
-      if (meta.switchSource) tms.switchSource = meta.switchSource
+      if (meta.switchSources) tms.switchSources = meta.switchSources
+      // Backward-compat: старый формат `switchSource: { tag }` → массив.
+      else if (meta.switchSource?.tag) tms.switchSources = { tags: [meta.switchSource.tag] }
       if (meta.navigation) tms.navigation = meta.navigation
 
       cells.push({
@@ -111,10 +113,11 @@ export function parseSvgProject(svgText) {
         source: meta.source,
         target: meta.target,
       }
-      if (meta.voltageSource || meta.switchSource) {
+      if (meta.voltageSource || meta.switchSources || meta.switchSource) {
         link.tms = {}
         if (meta.voltageSource) link.tms.voltageSource = meta.voltageSource
-        if (meta.switchSource) link.tms.switchSource = meta.switchSource
+        if (meta.switchSources) link.tms.switchSources = meta.switchSources
+        else if (meta.switchSource?.tag) link.tms.switchSources = { tags: [meta.switchSource.tag] }
       }
       cells.push(link)
     } catch (e) {

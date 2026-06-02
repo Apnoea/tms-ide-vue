@@ -37,7 +37,7 @@ const filtered = computed(() => {
   return props.tags.filter((t) => t.name.toLowerCase().includes(q))
 })
 
-// Группировка по prefix'у — всё до первой точки. PS031VK001.ONOFF → "PS031VK001".
+// Группировка по prefix'у — всё до первой точки. PS031VK001.ONOFF →"PS031VK001".
 // PrimeVue Listbox требует структуру { name, items: [...] } для group-mode.
 const grouped = computed(() => {
   const map = new Map()
@@ -90,7 +90,7 @@ function cancel() {
     @update:visible="emit('update:visible', $event)"
   >
     <div class="space-y-3">
-      <p class="text-sm text-surface-500 dark:text-surface-400">
+      <p class="text-sm text-surface-500">
         Доступно:
         <strong>{{ nplural(tags.length, 'тег', 'тега', 'тегов') }}</strong>
       </p>
@@ -113,22 +113,20 @@ function cancel() {
       >
         <template #option="{ option }">
           <span class="flex items-center justify-between w-full font-mono">
-            <span class="text-sm text-surface-900 dark:text-surface-50">{{ option.name }}</span>
-            <span class="text-[10px] text-surface-400 dark:text-surface-500 ml-2">
+            <span class="text-sm text-surface-900">{{ option.name }}</span>
+            <span class="text-[10px] text-surface-400 ml-2">
               {{ option.type }}
             </span>
           </span>
         </template>
         <template #optiongroup="{ option }">
-          <span
-            class="text-[10px] uppercase tracking-wider text-surface-500 dark:text-surface-400 font-mono"
-          >
+          <span class="text-[10px] uppercase tracking-wider text-surface-500 font-mono">
             {{ option.name }}
           </span>
         </template>
       </Listbox>
 
-      <div v-else class="text-sm text-surface-400 dark:text-surface-500 py-4 text-center">
+      <div v-else class="text-sm text-surface-400 py-4 text-center">
         <template v-if="!tags.length">Tag-list не загружен</template>
         <template v-else>Нет тегов по запросу</template>
       </div>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 36" width="40" height="36">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="30" height="30">
   <!--
     Аварийный сигнал — стандартный warning-треугольник с «!».
     slot.alr = Boolean:
@@ -8,7 +8,7 @@
     Цвет жёлтый (#facc15 = yellow-400 в Tailwind) — общепринятый «warning»-оттенок.
   -->
   <g data-anim-suffix=".ALR">
-    <polygon points="20,3 37,33 3,33"
+    <polygon points="15,3 28,27 2,27"
              fill="#facc15"
              stroke="#000"
              stroke-width="2"
@@ -19,8 +19,8 @@
          У точки fill="#000" — без opt-in класса .tms-voltage-fill CSS-правило
          voltage-источника красит только stroke (см. exporter), и точка
          оставалась чёрной в рантайме когда вокруг всё перекрашивалось. -->
-    <line x1="20" y1="11" x2="20" y2="23"
+    <line x1="15" y1="9" x2="15" y2="19"
           stroke="#000" stroke-width="2" stroke-linecap="round"/>
-    <circle cx="20" cy="28" r="1.5" fill="#000" class="tms-voltage-fill"/>
+    <circle cx="15" cy="23" r="1.5" fill="#000" class="tms-voltage-fill"/>
   </g>
 </svg>

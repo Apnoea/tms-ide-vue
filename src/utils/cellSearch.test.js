@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getCellSearchStrings, cellMatchesQuery } from './cellSearch'
+import { getCellSearchStrings, getCellTags, cellHasTag, cellMatchesQuery } from './cellSearch'
 
 // Минимальный fake-cell с методом get, имитирующий JointJS API.
 function makeCell(tms) {
@@ -20,15 +20,15 @@ describe('getCellSearchStrings', () => {
     expect(strings).toContain('PS031VK001.ALR')
   })
 
-  it('подхватывает voltageSource.tag, switchSource.tag, valueTag', () => {
+  it('подхватывает voltageSource.tag, switchSources.tags[], valueTag', () => {
     const cell = makeCell({
       voltageSource: { tag: 'PS031TN001.U' },
-      switchSource: { tag: 'PS031VK001.ONOFF' },
+      switchSources: { tags: ['ОБЩИЙ.ONOFF', 'LOCAL.ONOFF'] },
       valueTag: 'PS031TN001.UA',
     })
     const strings = getCellSearchStrings(cell)
     expect(strings).toEqual(
-      expect.arrayContaining(['PS031TN001.U', 'PS031VK001.ONOFF', 'PS031TN001.UA'])
+      expect.arrayContaining(['PS031TN001.U', 'ОБЩИЙ.ONOFF', 'LOCAL.ONOFF', 'PS031TN001.UA'])
     )
   })
 
@@ -70,5 +70,36 @@ describe('cellMatchesQuery', () => {
   it('матчит по тексту cell_text', () => {
     const cell = makeCell({ text: 'Фидер №3' })
     expect(cellMatchesQuery(cell, 'фидер')).toBe(true)
+  })
+})
+
+describe('getCellTags / cellHasTag', () => {
+  it('собирает все привязанные теги (slots + voltage + switchSources + valueTag)', () => {
+    const cell = makeCell({
+      slots: { onoff: 'A.ONOFF', alr: 'A.ALR' },
+      voltageSource: { tag: 'A.U' },
+      switchSources: { tags: ['B.ONOFF', 'C.ONOFF'] },
+      valueTag: 'A.IA',
+    })
+    expect(getCellTags(cell).sort()).toEqual(
+      ['A.ALR', 'A.IA', 'A.ONOFF', 'A.U', 'B.ONOFF', 'C.ONOFF'].sort()
+    )
+  })
+
+  it('text / navigation НЕ попадают в теги', () => {
+    const cell = makeCell({ text: 'СШ-110', navigation: 'view_other' })
+    expect(getCellTags(cell)).toEqual([])
+  })
+
+  it('cellHasTag exact-match по любому tag-полю', () => {
+    const cell = makeCell({
+      slots: { onoff: 'A.ONOFF' },
+      switchSources: { tags: ['B.ONOFF'] },
+    })
+    expect(cellHasTag(cell, 'A.ONOFF')).toBe(true)
+    expect(cellHasTag(cell, 'B.ONOFF')).toBe(true)
+    expect(cellHasTag(cell, 'A')).toBe(false) // не substring
+    expect(cellHasTag(cell, 'X.ONOFF')).toBe(false)
+    expect(cellHasTag(cell, '')).toBe(false)
   })
 })

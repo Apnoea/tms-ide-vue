@@ -69,6 +69,26 @@ describe('exportProject', () => {
     expect(anims).toHaveProperty('animation-c1.VK-cross')
     // Биндинг тега из slot.onoff — подставлен в шаблоны стенсила
     expect(anims['animation-c1.VK'].bindings[0].tag).toBe('PS031VK001.ONOFF')
+
+    // slot.onoff неявно даёт animation-off биндинг на outer-wrapper:
+    // крестик переключается (стенсильный .VK / .VK-cross) И ячейка серая
+    // на false без ручного добавления switchSources.
+    expect(anims).toHaveProperty('animation-cell-c1')
+    const outerOff = anims['animation-cell-c1'].bindings.find(
+      (b) =>
+        b.tag === 'PS031VK001.ONOFF' && b.when?.cases?.false?.apply?.addClass === 'animation-off'
+    )
+    expect(outerOff).toBeDefined()
+    // На .VK animation-off уже эмитится стенсильным шаблоном — outer-merge не
+    // нужен (избежать дубля). Проверяем, что биндинг РОВНО один.
+    const vkOffBindings = anims['animation-c1.VK'].bindings.filter(
+      (b) =>
+        b.tag === 'PS031VK001.ONOFF' && b.when?.cases?.false?.apply?.addClass === 'animation-off'
+    )
+    expect(vkOffBindings).toHaveLength(1)
+
+    // detailTags на outer-wrapper — рантайм откроет popup при клике на ячейку
+    expect(anims['animation-cell-c1'].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
   })
 
   it('cell_vk без slots: карточки анимаций НЕ эмитятся (нет привязки = нет анимации)', () => {
@@ -78,6 +98,8 @@ describe('exportProject', () => {
     const anims = exportProject(graph).animations.animations
     expect(anims['animation-c1.VK']).toBeUndefined()
     expect(anims['animation-c1.VK-cross']).toBeUndefined()
+    // Без slot.onoff intrinsic-switch не эмитит animation-off
+    expect(anims['animation-cell-c1']).toBeUndefined()
   })
 
   it('cell_value с valueTag: id и animation key из тега', () => {
@@ -122,41 +144,56 @@ describe('exportProject', () => {
     expect(vkBindings.some((b) => b.tag === 'PS031.UA')).toBe(true)
   })
 
-  it('switchSource на ячейке → карточка с animation-off на false + merge в стенсильные', () => {
+  it('cell_vk: slot.onoff + switchSources родителей → N+1 независимых биндингов', () => {
+    // Типичный кейс: свой выключатель + общий по ПС + секционный. Все три тега
+    // независимы; любой false → ячейка серая (AND через несколько биндингов).
     const graph = mockGraph([
       mockCell({
         id: 'c1',
         stencilId: 'cell_vk',
-        slots: { onoff: 'PS031VK001.ONOFF' },
-        switchSource: { tag: 'PS031VK001.ONOFF' },
+        slots: { onoff: 'LOCAL.ONOFF' },
+        switchSources: { tags: ['ОБЩИЙ.ONOFF', 'SECTION.ONOFF'] },
       }),
     ])
     const anims = exportProject(graph).animations.animations
-    expect(anims).toHaveProperty('animation-cell-c1')
-    const outerBindings = anims['animation-cell-c1'].bindings
-    const switchBinding = outerBindings.find((b) => b.tag === 'PS031VK001.ONOFF')
-    expect(switchBinding).toBeDefined()
-    expect(switchBinding.when.cases.false.apply.addClass).toBe('animation-off')
-    // Merge в .VK / .VK-cross тоже работает
+    const bindings = anims['animation-cell-c1'].bindings
+    const offBindings = bindings.filter(
+      (b) => b.when?.cases?.false?.apply?.addClass === 'animation-off'
+    )
+    expect(offBindings).toHaveLength(3)
+    expect(offBindings.map((b) => b.tag).sort()).toEqual(
+      ['LOCAL.ONOFF', 'SECTION.ONOFF', 'ОБЩИЙ.ONOFF'].sort()
+    )
+    // На .VK: 1 стенсильный (slot.onoff) + 2 от switchSources родителей =
+    // 3 биндинга animation-off. slot.onoff в outer-merge НЕ задваивается
+    // (стенсильный шаблон уже эмитит этот тег прямо в .VK).
     const vkBindings = anims['animation-c1.VK'].bindings
-    expect(vkBindings.some((b) => b.tag === 'PS031VK001.ONOFF' && b.when.cases.false)).toBe(true)
+    const vkOff = vkBindings.filter(
+      (b) => b.when?.cases?.false?.apply?.addClass === 'animation-off'
+    )
+    expect(vkOff).toHaveLength(3)
+    expect(vkOff.map((b) => b.tag).sort()).toEqual(
+      ['LOCAL.ONOFF', 'SECTION.ONOFF', 'ОБЩИЙ.ONOFF'].sort()
+    )
   })
 
-  it('switchSource на линии → анимационная карточка с animation-off', () => {
+  it('switchSources на линии → карточка с animation-off на link-id', () => {
     const cellA = mockCell({ id: 'a', stencilId: 'cell_vk', x: 0, y: 0 })
     const cellB = mockCell({ id: 'b', stencilId: 'cell_vk', x: 100, y: 0 })
     const link = mockLink({
       id: 'l1',
       source: { id: 'a', port: 'right' },
       target: { id: 'b', port: 'left' },
-      tms: { switchSource: { tag: 'PS031VK001.ONOFF' } },
+      tms: { switchSources: { tags: ['PS031VK001.ONOFF'] } },
     })
     const graph = mockGraph([cellA, cellB], [link])
     const anims = exportProject(graph).animations.animations
-    // Wire id формируется по link.id
+    // short-id из link.id 'l1' = 'l1' (нет дефиса для shortenId)
     const wireKey = 'animation-wire-l1'
     expect(anims).toHaveProperty(wireKey)
     expect(anims[wireKey].bindings[0].when.cases.false.apply.addClass).toBe('animation-off')
+    // detailTags на wire-карточке — рантайм откроет popup со связанным тегом
+    expect(anims[wireKey].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
   })
 
   it('navigation: создаёт animation-cell-{id} с полем navigation + round-trip через data-tms-meta', () => {
@@ -193,6 +230,7 @@ describe('exportProject', () => {
       }),
     ])
     const anims = exportProject(graph).animations.animations
+    // shortenId('b1') = 'b1' (без дефисов)
     expect(anims['animation-cell-b1']).toEqual({
       animation: 'shape',
       bindings: [],

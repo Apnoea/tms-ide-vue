@@ -3,8 +3,8 @@
   "label": "Точка соединения",
   "category": "Текст и значения",
   "shapeFile": "shape.svg",
-  "width": 10,
-  "height": 10,
-  "ports": [{ "name": "center", "x": 5, "y": 5, "type": "io" }],
+  "width": 20,
+  "height": 20,
+  "ports": [{ "name": "center", "x": 10, "y": 10, "type": "io" }],
   "animationTemplate": []
 }

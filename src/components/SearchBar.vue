@@ -67,11 +67,11 @@ function onKeyDown(event) {
 
 <template>
   <div
-    class="absolute top-3 right-3 z-30 flex items-center gap-1.5 px-2 py-1.5 bg-surface-0 dark:bg-surface-900 border border-surface-200 dark:border-surface-700 rounded shadow-lg"
+    class="absolute top-3 right-3 z-30 flex items-center gap-1.5 px-2 py-1.5 bg-surface-0 border border-surface-200 rounded shadow-lg"
     @mousedown.stop
     @click.stop
   >
-    <i class="pi pi-search text-surface-400 dark:text-surface-500 text-xs" aria-hidden="true" />
+    <i class="pi pi-search text-surface-400 text-xs" aria-hidden="true" />
     <InputText
       ref="inputRef"
       v-model="query"
@@ -82,11 +82,7 @@ function onKeyDown(event) {
     />
     <span
       class="text-[11px] font-mono tabular-nums min-w-[42px] text-center"
-      :class="
-        query && total === 0
-          ? 'text-red-500 dark:text-red-400'
-          : 'text-surface-500 dark:text-surface-400'
-      "
+      :class="query && total === 0 ? 'text-red-500 ' : 'text-surface-500 '"
     >
       {{ query ? `${current} / ${total}` : '—' }}
     </span>

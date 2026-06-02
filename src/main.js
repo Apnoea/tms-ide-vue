@@ -40,7 +40,6 @@ app.use(PrimeVue, {
   theme: {
     preset: TmsTheme,
     options: {
-      darkModeSelector: '.dark',
       cssLayer: false,
     },
   },

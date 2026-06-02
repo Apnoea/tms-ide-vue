@@ -75,9 +75,7 @@ const sections = [
   >
     <div class="space-y-5">
       <div v-for="section in sections" :key="section.title">
-        <div
-          class="text-[11px] uppercase tracking-wider text-surface-500 dark:text-surface-400 mb-2"
-        >
+        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
           {{ section.title }}
         </div>
         <ul class="space-y-1.5">
@@ -86,27 +84,25 @@ const sections = [
             :key="item.desc"
             class="flex items-center justify-between gap-3 text-sm"
           >
-            <span class="text-surface-700 dark:text-surface-200">
+            <span class="text-surface-700">
               {{ item.desc }}
             </span>
             <span class="flex items-center gap-1">
               <template v-for="(k, idx) in item.keys" :key="'k' + idx">
-                <span v-if="idx > 0" class="text-surface-400 dark:text-surface-500 text-xs">+</span>
+                <span v-if="idx > 0" class="text-surface-400 text-xs">+</span>
                 <kbd
-                  class="px-1.5 py-0.5 bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded text-[11px] font-mono text-surface-700 dark:text-surface-200"
+                  class="px-1.5 py-0.5 bg-surface-100 border border-surface-200 rounded text-[11px] font-mono text-surface-700"
                 >
                   {{ k }}
                 </kbd>
               </template>
               <!-- Альтернативный аккорд того же действия — через «/» -->
               <template v-if="item.keysAlt">
-                <span class="text-surface-400 dark:text-surface-500 text-xs">/</span>
+                <span class="text-surface-400 text-xs">/</span>
                 <template v-for="(k, idx) in item.keysAlt" :key="'a' + idx">
-                  <span v-if="idx > 0" class="text-surface-400 dark:text-surface-500 text-xs">
-                    +
-                  </span>
+                  <span v-if="idx > 0" class="text-surface-400 text-xs">+</span>
                   <kbd
-                    class="px-1.5 py-0.5 bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded text-[11px] font-mono text-surface-700 dark:text-surface-200"
+                    class="px-1.5 py-0.5 bg-surface-100 border border-surface-200 rounded text-[11px] font-mono text-surface-700"
                   >
                     {{ k }}
                   </kbd>

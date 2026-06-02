@@ -1,26 +1,49 @@
 /**
- * Сборка строк ячейки, по которым работает поиск Ctrl+F:
- *   - все привязанные теги из tms.slots
- *   - voltageSource.tag / switchSource.tag / valueTag
- *   - tms.text у cell_text (юзер часто помнит лейбл на схеме, а не тег)
+ * Все ПРИВЯЗАННЫЕ теги ячейки/линка — slot-значения, voltageSource.tag,
+ * switchSources.tags[], valueTag. БЕЗ text/navigation (это не теги, это
+ * payload-поля).
  *
- * Используется в useCanvas.runSearch для substring-matching (case-insensitive).
- * Вынесено в утилиту чтобы тестировать без JointJS DOM-окружения.
+ * Используется eye-подсветкой (exact-match на любой tag-field), а также как
+ * базис для search-strings.
  *
  * @param {{ get: (k: string) => any }} cell — JointJS-cell с методом get('tms')
  * @returns {string[]}
  */
-export function getCellSearchStrings(cell) {
+export function getCellTags(cell) {
   const tms = cell.get('tms') || {}
-  const strings = []
+  const tags = []
   if (tms.slots) {
     for (const v of Object.values(tms.slots)) {
-      if (v) strings.push(String(v))
+      if (v) tags.push(String(v))
     }
   }
-  if (tms.voltageSource?.tag) strings.push(tms.voltageSource.tag)
-  if (tms.switchSource?.tag) strings.push(tms.switchSource.tag)
-  if (tms.valueTag) strings.push(tms.valueTag)
+  if (tms.voltageSource?.tag) tags.push(tms.voltageSource.tag)
+  if (tms.switchSources?.tags?.length) {
+    for (const t of tms.switchSources.tags) if (t) tags.push(t)
+  }
+  if (tms.valueTag) tags.push(tms.valueTag)
+  return tags
+}
+
+/** Exact-match: содержит ли ячейка/линк указанный тег в любом из tag-полей. */
+export function cellHasTag(cell, tag) {
+  if (!tag) return false
+  return getCellTags(cell).includes(tag)
+}
+
+/**
+ * Сборка строк ячейки, по которым работает поиск Ctrl+F: tag-поля
+ * (см. getCellTags) + tms.text у cell_text (юзер часто помнит лейбл на
+ * схеме, а не тег) + tms.navigation (целевая view).
+ *
+ * Используется в useCanvas.runSearch для substring-matching (case-insensitive).
+ *
+ * @param {{ get: (k: string) => any }} cell
+ * @returns {string[]}
+ */
+export function getCellSearchStrings(cell) {
+  const tms = cell.get('tms') || {}
+  const strings = getCellTags(cell)
   if (tms.text) strings.push(String(tms.text))
   if (tms.navigation) strings.push(String(tms.navigation))
   return strings
