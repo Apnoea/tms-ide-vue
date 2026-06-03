@@ -1,5 +1,5 @@
 // File System Access API helpers.
-// Сейчас используется только для tag-list-пикера в AppHeader.
+// Сейчас используется только для tag-list-пикера в ProjectActions.
 
 function isFileSystemAccessSupported() {
   return typeof window !== 'undefined' && window.showDirectoryPicker && window.showOpenFilePicker

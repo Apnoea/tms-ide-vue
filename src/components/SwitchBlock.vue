@@ -6,20 +6,20 @@ import Tag from 'primevue/tag'
 /**
  * Унифицированный блок «выключатель». Принимает два независимых источника тегов:
  *  • `slotInfo` — required-слот стенсила (cell_vk's slot.onoff из tms.slots).
- *    Рендерится первой строкой без × (слот обязательный для стенсила), с
- *    info-icon (tooltip правил из animationTemplate). Pencil → open-slot-picker.
+ *    Рендерится первой строкой без × (слот обязательный для стенсила).
  *    Назван `slotInfo` (не `slot`) — vue/no-deprecated-slot-attribute.
  *  • `tags` — массив switchSources.tags. Optional. Каждая строка с ×.
- *    Add → open-tag-picker.
  *
  * Можно передавать одно или оба. В runtime семантика идентична: каждый тег =
  * независимый bool-биндинг (false → addClass animation-off). N тегов = AND.
  *
  * Эмиты:
- *   open-slot-picker — pencil на slot-row (intrinsic)
- *   open-tag-picker  — «+ Добавить тег» (parent решает: slot или source)
+ *   open-slot-picker — клик по slot-row code-инпуту (intrinsic)
+ *   open-tag-picker  — «+ Добавить зависимость» (parent решает куда писать)
+ *   edit-tag(idx)    — клик по source-row code-инпуту (замена тега по индексу)
  *   remove-tag(idx)  — × на source-row
  *   remove           — × в шапке (удалить switchSources, slot остаётся)
+ *   highlight-tag(t) — eye-иконка → подсветить тег на холсте
  */
 const props = defineProps({
   slotInfo: { type: Object, default: null }, // { label, value, tagSuffix, tooltip }
@@ -113,11 +113,11 @@ const totalTags = computed(() => (props.slotInfo?.value ? 1 : 0) + (props.tags?.
         </code>
         <Button
           v-if="slotInfo.value"
+          v-tooltip.bottom="'Подсветить на схеме'"
           icon="pi pi-search-plus"
           severity="secondary"
           text
           size="small"
-          title="Подсветить на схеме"
           class="!p-1 !w-6 !h-6"
           @click="$emit('highlight-tag', slotInfo.value)"
         />
@@ -138,20 +138,20 @@ const totalTags = computed(() => (props.slotInfo?.value ? 1 : 0) + (props.tags?.
         </code>
         <Button
           v-if="t"
+          v-tooltip.bottom="'Подсветить на схеме'"
           icon="pi pi-search-plus"
           severity="secondary"
           text
           size="small"
-          title="Подсветить на схеме"
           class="!p-1 !w-6 !h-6"
           @click="$emit('highlight-tag', t)"
         />
         <Button
+          v-tooltip.bottom="'Убрать тег'"
           icon="pi pi-times"
           severity="secondary"
           text
           size="small"
-          title="Убрать тег"
           class="!p-1 !w-6 !h-6"
           @click="$emit('remove-tag', idx)"
         />

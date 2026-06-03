@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { onClickOutside, useEventListener, useResizeObserver } from '@vueuse/core'
+import { useEventListener, useResizeObserver } from '@vueuse/core'
 import { dia, shapes } from '@joint/core'
+import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'
 import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
 import Tag from 'primevue/tag'
@@ -12,25 +13,24 @@ import {
   injectStencilSvg,
   reinjectAllStencils,
   computeBusPorts,
-  busPortX,
-  desiredBusPortCount,
   TEXT_FONT_SIZE,
-  TEXT_PADDING_X,
   textCellHeight,
   textCellWidth,
 } from '../stencils/svgInjector'
 import { LINK_DEFAULTS } from '../stencils/linkDefaults'
 import { exportProject, downloadFile } from '../services/exporter'
 import { parseSvgProject } from '../services/projectLoader'
-import {
-  ANIMATION_CLASS_COLORS,
-  ANIMATION_CLASS_OPTIONS,
-  ANIMATION_OFF_COLOR,
-} from '../constants/animation'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from '../composables/useCanvas'
+import { useAutosave } from '../composables/useAutosave'
+import { useUndoRedo } from '../composables/useUndoRedo'
+import { useBusResize } from '../composables/useBusResize'
+import { useSimulation } from '../composables/useSimulation'
+import { useTextEdit } from '../composables/useTextEdit'
+import { useClipboard } from '../composables/useClipboard'
 import { nplural } from '../utils/plural'
+import { snapToGrid } from '../utils/grid'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cellHasTag } from '../utils/cellSearch'
 import { TOAST_LIFE } from '../constants/toast'
@@ -44,37 +44,22 @@ const canvas = useCanvas()
 const toast = useToast()
 const confirm = useConfirm()
 
-// JointJS shape: контейнер-группа `body`, в которую инжектится shape.svg.
-const TMSStencil = dia.Element.define(
-  'tms.Stencil',
-  {
-    size: { width: 120, height: 220 },
-    ports: {
-      groups: {
-        port: {
-          position: { name: 'absolute' },
-          markup: [{ tagName: 'circle', selector: 'portBody' }],
-          attrs: {
-            portBody: {
-              r: 3,
-              fill: '#ffffff',
-              stroke: '#06b6d4', // cyan-500 (= primary темы)
-              strokeWidth: 1,
-              magnet: 'active',
-              cursor: 'crosshair',
-            },
-          },
-        },
-      },
-    },
-  },
-  {
-    // selector 'root' зарезервирован JointJS — используем 'body'
-    markup: [{ tagName: 'g', selector: 'body' }],
-  }
-)
-
-const tmsNamespace = { ...shapes, tms: { Stencil: TMSStencil } }
+// Общий флаг «идёт восстановление графа» — useAutosave и useUndoRedo делят его,
+// чтобы не зациклиться snapshot → save → restore → snapshot. Также взводится
+// performClearCanvas / performImportFromSvgText на время массовых правок.
+const restoringHistory = ref(false)
+const { tryRestoreAutosave, saveAutosave, clearAutosave } = useAutosave({ restoringHistory })
+const { initHistory, scheduleSnapshot, undo, redo, cancelPendingSnapshot } = useUndoRedo({
+  restoringHistory,
+  saveAutosave,
+})
+const bus = useBusResize({ scheduleSnapshot })
+const { simulating, toggleSimulation } = useSimulation()
+const { textEditing, textEditValue, textEditorRef, startTextEdit, commitTextEdit, cancelTextEdit } =
+  useTextEdit({ scheduleSnapshot })
+const { copySelection, pasteClipboard, duplicateSelection, hasClipboard } = useClipboard({
+  scheduleSnapshot,
+})
 
 // ─── Vue refs / JointJS state ───
 const paperContainer = ref(null)
@@ -94,10 +79,6 @@ let panStart = null
 // исходных позиций всех selected-ячеек. Очищается на element:pointerup.
 let activeDragCellId = null
 let dragSnapshot = null
-
-// Resize шины (cell_bus): фиксируем cellId + edge + начальное состояние,
-// дальше слушаем document mousemove/mouseup до отпускания кнопки.
-let activeResize = null
 
 /**
  * Заменяет выделение на cells + автодобавленные «мостовые» линии между ними.
@@ -127,169 +108,9 @@ function prepareMultiDrag(cellId) {
   }
 }
 
-/**
- * Capture-phase mousedown на paperContainer: если клик пришёл по элементу
- * с data-edge — стартуем resize шины и блокируем дальнейшее распространение
- * события (JointJS иначе начнёт обычный element-drag).
- */
-function onMaybeStartResize(evt) {
-  if (evt.button !== 0) return
-  const edge = evt.target?.dataset?.edge
-  if (!edge) return
-
-  // Находим DOM-узел JointJS cellView (у него атрибут model-id)
-  const cellEl = evt.target.closest('[model-id]')
-  const modelId = cellEl?.getAttribute('model-id')
-  if (!modelId || !graph) return
-  const cell = graph.getCell(modelId)
-  if (!cell || cell.get('tms')?.stencilId !== 'cell_bus') return
-
-  evt.stopPropagation()
-  evt.preventDefault()
-  startBusResize(cell, edge, evt.clientX)
-}
-
-/**
- * Старт ресайза шины. Запоминаем исходную геометрию и paper-X курсора —
- * на move будем считать delta в paper-координатах (важно: zoom-инвариантно).
- */
-function startBusResize(cell, edge, startClientX) {
-  if (!cell || !paper) return
-  const pos = cell.get('position')
-  const size = cell.get('size')
-  const local = paper.clientToLocalPoint(startClientX, 0)
-  activeResize = {
-    cellId: cell.id,
-    edge,
-    startWidth: size.width,
-    startHeight: size.height,
-    startX: pos.x,
-    startMouseX: local.x,
-  }
-  // На время ресайза выделяем шину — пользователь видит, что объект «в фокусе»
-  canvas.selectOnly('cell', cell.id)
-  document.addEventListener('mousemove', onResizeMove)
-  document.addEventListener('mouseup', onResizeEnd)
-}
-
-function onResizeMove(evt) {
-  if (!activeResize || !paper || !graph) return
-  const cell = graph.getCell(activeResize.cellId)
-  if (!cell) return
-
-  const stencil = getStencilById(cell.get('tms')?.stencilId)
-  const minW = stencil?.minWidth ?? 20
-  const g = paper.options.gridSize
-
-  const local = paper.clientToLocalPoint(evt.clientX, evt.clientY)
-  const dx = local.x - activeResize.startMouseX
-
-  let newWidth, newX
-  if (activeResize.edge === 'right') {
-    newWidth = activeResize.startWidth + dx
-    newX = activeResize.startX
-  } else {
-    // Left edge: ширина и позиция меняются зеркально
-    newWidth = activeResize.startWidth - dx
-    newX = activeResize.startX + dx
-  }
-
-  // Снап ширины к сетке + защита от шага меньше minW
-  newWidth = Math.max(minW, Math.round(newWidth / g) * g)
-  // Восстанавливаем X так, чтобы правый край оставался на месте при left-resize
-  // после клампа ширины
-  if (activeResize.edge === 'left') {
-    newX = activeResize.startX + (activeResize.startWidth - newWidth)
-  }
-  newX = Math.round(newX / g) * g
-
-  cell.resize(newWidth, activeResize.startHeight)
-  if (activeResize.edge === 'left') {
-    cell.position(newX, cell.get('position').y)
-  }
-
-  // Динамически досоздаём/удаляем порты под новую ширину. syncBusPorts
-  // идемпотентен и репозиционирует только при реальном изменении координаты —
-  // churn'а нет, наездов нет, лишние (за краем) порты удаляются сразу.
-  syncBusPorts(cell, newWidth, activeResize.startHeight)
-
-  // Перерисовываем тело шины + резайз-хэндлы под новый размер
-  const cellView = paper.findViewByModel(cell)
-  if (cellView && stencil) injectStencilSvg(cellView, stencil)
-}
-
-/** id'ы портов шины, к которым подключён хотя бы один провод. */
-function getLinkedBusPortIds(cell) {
-  const ids = new Set()
-  if (!graph) return ids
-  for (const link of graph.getConnectedLinks(cell)) {
-    const s = link.get('source')
-    const t = link.get('target')
-    if (s?.id === cell.id && s.port) ids.add(s.port)
-    if (t?.id === cell.id && t.port) ids.add(t.port)
-  }
-  return ids
-}
-
-/**
- * Приводит набор портов шины в соответствие ширине: порт каждые 2 клетки
- * (BUS_PORT_SPACING). Идемпотентна — безопасно звать на каждом кадре drag'а.
- * 1) досоздаёт недостающие порты 0..desired-1 (закрывает «дыры»)
- * 2) удаляет порты с индексом >= desired, КРОМЕ занятых проводом
- * (это убирает порты, вылезшие за край при сужении)
- * 3) репозиционирует выжившие в канонические координаты — но только если
- * они реально сместились (иначе лишний re-render каждый кадр)
- * addPort/removePort/portProp идут через port-manager (set('ports') бы сломал).
- */
-function syncBusPorts(cell, width, height) {
-  const desired = desiredBusPortCount(width)
-
-  for (let i = 0; i < desired; i++) {
-    if (!cell.hasPort(`top_${i}`)) {
-      cell.addPort({ id: `top_${i}`, group: 'port', args: { x: busPortX(i), y: 0 } })
-    }
-    if (!cell.hasPort(`bot_${i}`)) {
-      cell.addPort({ id: `bot_${i}`, group: 'port', args: { x: busPortX(i), y: height } })
-    }
-  }
-
-  const linked = getLinkedBusPortIds(cell)
-  for (const p of cell.getPorts()) {
-    const idx = Number(p.id.slice(p.id.indexOf('_') + 1))
-    if (idx >= desired && !linked.has(p.id)) {
-      cell.removePort(p.id)
-      continue
-    }
-    const targetX = busPortX(idx)
-    const targetY = p.id.startsWith('bot_') ? height : 0
-    if (p.args?.x !== targetX) cell.portProp(p.id, 'args/x', targetX)
-    if (p.args?.y !== targetY) cell.portProp(p.id, 'args/y', targetY)
-  }
-}
-
-function onResizeEnd() {
-  if (!activeResize) return
-  activeResize = null
-  document.removeEventListener('mousemove', onResizeMove)
-  document.removeEventListener('mouseup', onResizeEnd)
-  // Порты уже синхронизированы в onResizeMove — здесь только snapshot для undo
-  scheduleSnapshot()
-}
-
-// ─── Undo/Redo history ───
-// Стек snapshot'ов graph.toJSON(). Каждое значимое изменение → debounce 200ms → snapshot.
-// JointJS не таскает CommandManager в open-source @joint/core, поэтому минимальная
-// своя реализация — full-graph replay; для текущего объёма (десятки ячеек) ок.
-const HISTORY_LIMIT = 50
-let history = []
-let historyIndex = -1
-let restoringHistory = false
-let snapshotTimer = null
-
-// ─── Auto-save в localStorage ───
-// Версионированный ключ — если в будущем поменяем формат JSON, увеличим v и
-// устаревшие сохранения просто проигнорируются.
-const AUTOSAVE_KEY = 'tms-ide:graph:v1'
+// ─── Resize шины (cell_bus), undo/redo, autosave — вынесены в composables.
+// onMaybeStartResize вешается на mousedown в onMounted; isResizing() читают
+// hover-tooltip и прочие места, которым нужно подавлять UI пока тянем edge.
 
 const GRID_COLOR = '#e2e8f0' // slate-200
 
@@ -371,7 +192,7 @@ onMounted(async () => {
   useEventListener(paperContainer, 'mousemove', onCanvasMouseMove)
   useEventListener(paperContainer, 'mouseleave', onCanvasMouseLeave)
   // Capture-phase mousedown для resize шины — раньше JointJS, чтобы он не начал drag.
-  useEventListener(paperContainer, 'mousedown', onMaybeStartResize, true)
+  useEventListener(paperContainer, 'mousedown', bus.onMaybeStartResize, true)
 
   // ─── Pan vs Lasso на пустой области холста ───
   // Plain LMB-drag = pan; Alt+LMB-drag = lasso (выделение рамкой).
@@ -482,6 +303,10 @@ onMounted(async () => {
     if (cell.isLink && cell.isLink()) cell.toBack()
   })
 
+  // Прокидываем graph/paper в composable ДО tryRestoreAutosave — composable'ы
+  // useAutosave / useUndoRedo читают их через canvas.graphRef.value.
+  canvas.setCanvasRefs(graph, paper)
+
   // ─── Restore из localStorage если есть автосейв ───
   const restored = tryRestoreAutosave()
 
@@ -489,8 +314,7 @@ onMounted(async () => {
   // Раньше слушали 'change' — JointJS шлёт его десятки раз во время draw'а линии,
   // дебаунс не всегда схлопывал. Теперь снимаем snapshot только на pointerup
   // (после действия пользователя) и на add/remove (drop из палитры, удаление).
-  history = [graph.toJSON()]
-  historyIndex = 0
+  initHistory()
 
   // Drop элемента из палитры (для линий ждём pointerup, т.к. add'ятся в начале draw'а)
   graph.on('add', (cell) => {
@@ -505,9 +329,7 @@ onMounted(async () => {
   // конец редактирования link-tools.
   paper.on('cell:pointerup', () => scheduleSnapshot())
 
-  // Прокидываем graph/paper в composable, чтобы Inspector мог читать
-  canvas.setCanvasRefs(graph, paper)
-  // Регистрируем функции импорта/экспорта чтобы AppHeader мог их триггерить
+  // Регистрируем функции импорта/экспорта чтобы ProjectActions мог их триггерить
   canvas.setImportFromSvgFn(importFromSvgText)
   canvas.setExportFn(onExport)
   canvas.setFitToContentFn(fitToContent)
@@ -528,117 +350,6 @@ onMounted(async () => {
     fitToContent()
   }
 })
-
-/**
- * Пытается восстановить граф из localStorage. Возвращает кол-во восстановленных
- * ячеек (0 если сейва нет / битый). После загрузки JSON в граф пробегает по
- * ячейкам и переинжектит SVG для каждой tms-ячейки.
- */
-function tryRestoreAutosave() {
-  try {
-    const raw = localStorage.getItem(AUTOSAVE_KEY)
-    if (!raw) return 0
-    const json = JSON.parse(raw)
-    if (!json?.cells) return 0
-    restoringHistory = true
-    graph.fromJSON(json)
-    reinjectAllStencils(graph, paper)
-    // fromJSON делает silent reset — 'add'/'remove' события не летят,
-    // graphVersion-листенер не подхватит. Бампаем явно, иначе cellsCount
-    // и empty-canvas hint остаются в старом состоянии.
-    canvas.bumpVersion()
-    restoringHistory = false
-    return graph.getElements().length
-  } catch (e) {
-    console.warn('[Canvas] Не удалось восстановить автосейв', e)
-    restoringHistory = false
-    return 0
-  }
-}
-
-// Таймер для индикатора autosave в footer'е — после успешного сохранения
-// показываем «✓ Сохранено» 1.5 секунды, потом возвращаемся к «Авто».
-let savedFlashTimer = null
-
-function saveAutosave() {
-  if (!graph || restoringHistory) return
-  try {
-    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(graph.toJSON()))
-    canvas.setRecentlySaved(true)
-    canvas.setLastSavedAt(Date.now())
-    clearTimeout(savedFlashTimer)
-    savedFlashTimer = setTimeout(() => canvas.setRecentlySaved(false), 1500)
-  } catch (e) {
-    // Quota exceeded — не критично, просто пропускаем сохранение
-    console.warn('[Canvas] Автосейв упал', e)
-  }
-}
-
-// Обновляем флаги доступности undo/redo для footer'а.
-// Вызываем после каждого изменения history (snapshot, undo, redo, clear).
-function syncUndoRedoAvail() {
-  canvas.setUndoRedoAvail(historyIndex > 0, historyIndex < history.length - 1)
-}
-
-// ─── Undo/Redo ───
-function snapshot() {
-  if (restoringHistory || !graph) return
-  // Если делаем новое действие после серии undo — отрезаем «будущее»
-  if (historyIndex < history.length - 1) {
-    history = history.slice(0, historyIndex + 1)
-  }
-  history.push(graph.toJSON())
-  historyIndex++
-  if (history.length > HISTORY_LIMIT) {
-    history.shift()
-    historyIndex--
-  }
-  // Автосейв пишем по тому же триггеру, что и history snapshot —
-  // оба отражают «стабильное» состояние после действия пользователя.
-  saveAutosave()
-  syncUndoRedoAvail()
-}
-
-function scheduleSnapshot() {
-  if (restoringHistory) return
-  clearTimeout(snapshotTimer)
-  snapshotTimer = setTimeout(() => {
-    snapshotTimer = null
-    snapshot()
-  }, 200)
-}
-
-function undo() {
-  if (historyIndex <= 0) return
-  historyIndex--
-  restoreFromHistory()
-}
-
-function redo() {
-  if (historyIndex >= history.length - 1) return
-  historyIndex++
-  restoreFromHistory()
-}
-
-function restoreFromHistory() {
-  if (!graph || !paper) return
-  restoringHistory = true
-  clearTimeout(snapshotTimer)
-  snapshotTimer = null
-
-  graph.fromJSON(history[historyIndex])
-  reinjectAllStencils(graph, paper)
-  // fromJSON делает silent reset — нужно явно бампнуть version, иначе cellsCount
-  // и empty-canvas hint застрянут в старом состоянии.
-  canvas.bumpVersion()
-
-  canvas.clearSelection()
-  restoringHistory = false
-  // После undo/redo состояние графа изменилось — сохраняем в autosave,
-  // чтобы перезагрузка вкладки давала именно тот результат, что виден сейчас.
-  saveAutosave()
-  syncUndoRedoAvail()
-}
 
 // Толщина линий — статичная. Раньше при выделении делали жирнее,
 // но визуально это сбивает восприятие схемы; теперь полагаемся на Inspector
@@ -947,19 +658,13 @@ onBeforeUnmount(() => {
   // прямо во время операции.
   document.removeEventListener('mousemove', onPanMove)
   document.removeEventListener('mouseup', onPanEnd)
-  document.removeEventListener('mousemove', onResizeMove)
-  document.removeEventListener('mouseup', onResizeEnd)
   document.removeEventListener('mousemove', onLassoMove)
   document.removeEventListener('mouseup', onLassoEnd)
   document.removeEventListener('pointermove', onDragPointerMove)
   document.removeEventListener('pointerup', onDragPointerUp)
   window.removeEventListener('blur', onDragCancel)
-  // Отложенные таймеры: после unmount graph=null, их колбэки безвредны (guard'ы),
-  // но чистим, чтобы не держать ссылки на функции компонента.
-  clearTimeout(snapshotTimer)
-  clearTimeout(savedFlashTimer)
-  clearInterval(simIntervalId)
-  simIntervalId = null
+  // Resize-listener'ы, snapshot-таймеры, sim-интервал — собираются их
+  // composable'ами через onBeforeUnmount внутри них.
   canvas.clearCanvasRefs()
   canvas.setImportFromSvgFn(null)
   canvas.setExportFn(null)
@@ -1162,8 +867,8 @@ function createStencilAt(stencilId, x, y, extraTms = null) {
 
   // Снап финальной позиции к сетке, чтобы ячейка падала точно под рамку превью
   const g = paper.options.gridSize
-  const finalX = Math.round((x - stencil.width / 2) / g) * g
-  const finalY = Math.round((y - stencil.height / 2) / g) * g
+  const finalX = snapToGrid(x - stencil.width / 2, g)
+  const finalY = snapToGrid(y - stencil.height / 2, g)
 
   // Порты — из стенсила, все в группу 'port' с absolute-позиционированием.
   // Шина — спецслучай: количество и id'ы фиксированы, координаты пересчитываются
@@ -1240,10 +945,8 @@ const previewStyle = computed(() => {
     const { tx, ty } = p.translate()
     const localX = (leftPx - tx) / scale
     const localY = (topPx - ty) / scale
-    const snappedX = Math.round(localX / g) * g
-    const snappedY = Math.round(localY / g) * g
-    leftPx = snappedX * scale + tx
-    topPx = snappedY * scale + ty
+    leftPx = snapToGrid(localX, g) * scale + tx
+    topPx = snapToGrid(localY, g) * scale + ty
   }
 
   // transform: translate3d вместо left/top — браузер композитит на GPU,
@@ -1329,7 +1032,7 @@ const ctxItems = computed(() => {
   const t = ctxTarget.value
   // Blank: только paste, и только если в буфере что-то есть
   if (!t) {
-    if (!clipboard.cells.length) return []
+    if (!hasClipboard()) return []
     return [
       {
         label: 'Вставить',
@@ -1443,11 +1146,7 @@ function onClearCanvas(event) {
   const count = graph.getElements().length + graph.getLinks().length
   if (count === 0) {
     // Уже пусто — на всякий случай вытираем autosave и выходим
-    try {
-      localStorage.removeItem(AUTOSAVE_KEY)
-    } catch {
-      /* ignore */
-    }
+    clearAutosave()
     return
   }
   confirm.require({
@@ -1463,24 +1162,15 @@ function onClearCanvas(event) {
 }
 
 function performClearCanvas(count) {
-  restoringHistory = true
-  clearTimeout(snapshotTimer)
-  snapshotTimer = null
+  restoringHistory.value = true
+  cancelPendingSnapshot()
   graph.clear()
   canvas.bumpVersion()
-  restoringHistory = false
-
-  try {
-    localStorage.removeItem(AUTOSAVE_KEY)
-  } catch {
-    /* ignore */
-  }
-
+  restoringHistory.value = false
+  clearAutosave()
   // Сбрасываем history до текущего пустого состояния
-  history = [graph.toJSON()]
-  historyIndex = 0
+  initHistory()
   canvas.clearSelection()
-  syncUndoRedoAvail()
 
   toast.add({
     severity: 'info',
@@ -1488,224 +1178,6 @@ function performClearCanvas(count) {
     detail: `Удалено ${nplural(count, 'элемент', 'элемента', 'элементов')}`,
     life: TOAST_LIFE.SHORT,
   })
-}
-
-// ─── Copy / Paste / Duplicate ячеек + bridge-проводов ───
-// Внутренний буфер: { cells: [...], links: [...] }. Не уходит в нативный
-// clipboard (не вставится в другую вкладку), теряется на F5. Достаточно для
-// «продублировал кусок схемы внутри одного сеанса».
-//
-// Bridge-провода — линии, у которых ОБА конца лежат в копируемом наборе ячеек.
-// Их source/target id'ы на paste'е перевешиваются на новые ячейки через
-// oldId → newId маппинг.
-let clipboard = { cells: [], links: [] }
-
-function snapshotCell(item) {
-  const c = graph?.getCell(item.id)
-  if (!c) return null
-  const tms = c.get('tms') || {}
-  const pos = c.get('position')
-  const size = c.get('size')
-  return {
-    oldId: c.id,
-    stencilId: tms.stencilId,
-    tms: { ...tms },
-    position: { x: pos.x, y: pos.y },
-    size: { width: size.width, height: size.height },
-  }
-}
-
-/** Собирает снимки всех bridge-линий между cellIds (оба конца внутри набора). */
-function collectBridgeLinkSnaps(cellIds) {
-  if (!graph) return []
-  const set = new Set(cellIds)
-  const out = []
-  for (const link of graph.getLinks()) {
-    const s = link.get('source')?.id
-    const t = link.get('target')?.id
-    if (!s || !t || !set.has(s) || !set.has(t)) continue
-    out.push({
-      sourceCellId: s,
-      targetCellId: t,
-      // toJSON сохраняет всё: type, router, attrs, tms (с voltageSource).
-      // На paste'е id обнуляется, source/target.id перевешиваются.
-      json: link.toJSON(),
-    })
-  }
-  return out
-}
-
-function pasteSnapshots(snaps) {
-  if (!graph || !paper || !snaps.cells.length) {
-    return { added: 0, skipped: 0, linksAdded: 0 }
-  }
-  const offset = 20
-  const oldToNew = new Map()
-  const newCellIds = []
-  let skipped = 0
-
-  for (const snap of snaps.cells) {
-    const stencil = getStencilById(snap.stencilId)
-    if (!stencil) {
-      skipped++
-      continue
-    }
-
-    const g = paper.options.gridSize
-    const finalX = Math.round((snap.position.x + offset) / g) * g
-    const finalY = Math.round((snap.position.y + offset) / g) * g
-
-    const portItems =
-      snap.stencilId === 'cell_bus'
-        ? computeBusPorts(snap.size.width, snap.size.height)
-        : (stencil.ports || []).map((p) => ({
-            id: p.name,
-            group: 'port',
-            args: { x: p.x, y: p.y },
-          }))
-
-    // tms копируется полностью включая slots — paste должен сохранять привязки
-    // тегов (две копии одного стенсила могут указывать на один и тот же объект,
-    // это нормально для мнемосхем где много визуализаций одного агрегата).
-    const cell = new TMSStencil({
-      position: { x: finalX, y: finalY },
-      size: snap.size,
-      tms: { ...snap.tms, stencilId: snap.stencilId },
-      ports: { items: portItems },
-    })
-    graph.addCell(cell)
-    oldToNew.set(snap.oldId, cell.id)
-    newCellIds.push(cell.id)
-
-    const cellView = paper.findViewByModel(cell)
-    if (cellView) injectStencilSvg(cellView, stencil)
-  }
-
-  // Восстанавливаем bridge-линии: id ячеек перевешиваем через oldToNew,
-  // port-id'ы остаются те же (новые ячейки того же стенсила имеют такие же порты).
-  let linksAdded = 0
-  const newLinkItems = []
-  for (const linkSnap of snaps.links) {
-    const newSrcId = oldToNew.get(linkSnap.sourceCellId)
-    const newTgtId = oldToNew.get(linkSnap.targetCellId)
-    if (!newSrcId || !newTgtId) continue
-    const linkData = JSON.parse(JSON.stringify(linkSnap.json))
-    delete linkData.id // JointJS назначит новый
-    linkData.source = { ...linkData.source, id: newSrcId }
-    linkData.target = { ...linkData.target, id: newTgtId }
-    const linkModel = graph.addCell(linkData)
-    if (linkModel) {
-      newLinkItems.push({ kind: 'link', id: linkModel.id })
-      linksAdded++
-    }
-  }
-
-  if (newCellIds.length) {
-    canvas.setSelection([...newCellIds.map((id) => ({ kind: 'cell', id })), ...newLinkItems])
-    scheduleSnapshot()
-  }
-  return { added: newCellIds.length, skipped, linksAdded }
-}
-
-/** Формирует строку для toast'а: «3 ячейки + 2 провода» или варианты. */
-function describePasted(added, linksAdded, skipped) {
-  const parts = [nplural(added, 'ячейка', 'ячейки', 'ячеек')]
-  if (linksAdded > 0) {
-    parts.push(nplural(linksAdded, 'провод', 'провода', 'проводов'))
-  }
-  let out = parts.join(' + ')
-  if (skipped > 0) out += ` · пропущено: ${skipped}`
-  return out
-}
-
-function copySelection() {
-  if (!graph) return
-  const cellSel = canvas.selection.value.filter((s) => s.kind === 'cell')
-  if (!cellSel.length) {
-    toast.add({
-      severity: 'info',
-      summary: 'Нечего копировать',
-      detail: 'Выдели хотя бы одну ячейку',
-      life: TOAST_LIFE.SHORT,
-    })
-    return
-  }
-  const cellIds = cellSel.map((s) => s.id)
-  clipboard = {
-    cells: cellSel.map(snapshotCell).filter(Boolean),
-    links: collectBridgeLinkSnaps(cellIds),
-  }
-  toast.add({
-    severity: 'success',
-    summary: 'Скопировано',
-    detail: clipboard.links.length
-      ? `${nplural(clipboard.cells.length, 'ячейка', 'ячейки', 'ячеек')} + ${nplural(clipboard.links.length, 'провод', 'провода', 'проводов')}`
-      : nplural(clipboard.cells.length, 'ячейка', 'ячейки', 'ячеек'),
-    life: TOAST_LIFE.SHORT,
-  })
-}
-
-function pasteClipboard() {
-  if (!clipboard.cells.length) {
-    toast.add({
-      severity: 'info',
-      summary: 'Буфер пуст',
-      detail: 'Скопируй ячейки через Ctrl+C',
-      life: TOAST_LIFE.SHORT,
-    })
-    return
-  }
-  const { added, skipped, linksAdded } = pasteSnapshots(clipboard)
-  if (added) {
-    toast.add({
-      severity: 'success',
-      summary: 'Вставлено',
-      detail: describePasted(added, linksAdded, skipped),
-      life: TOAST_LIFE.SHORT,
-    })
-  } else {
-    toast.add({
-      severity: 'warn',
-      summary: 'Не удалось вставить',
-      detail: 'Не удалось создать копии — стенсилы не найдены в реестре',
-      life: TOAST_LIFE.NORMAL,
-    })
-  }
-}
-
-function duplicateSelection() {
-  if (!graph) return
-  const cellSel = canvas.selection.value.filter((s) => s.kind === 'cell')
-  if (!cellSel.length) {
-    toast.add({
-      severity: 'info',
-      summary: 'Нечего дублировать',
-      detail: 'Выдели хотя бы одну ячейку',
-      life: TOAST_LIFE.SHORT,
-    })
-    return
-  }
-  const cellIds = cellSel.map((s) => s.id)
-  const snaps = {
-    cells: cellSel.map(snapshotCell).filter(Boolean),
-    links: collectBridgeLinkSnaps(cellIds),
-  }
-  const { added, skipped, linksAdded } = pasteSnapshots(snaps)
-  if (added) {
-    toast.add({
-      severity: 'success',
-      summary: 'Дублировано',
-      detail: describePasted(added, linksAdded, skipped),
-      life: TOAST_LIFE.SHORT,
-    })
-  } else {
-    toast.add({
-      severity: 'warn',
-      summary: 'Не удалось дублировать',
-      detail: 'Не удалось создать копии — стенсилы не найдены в реестре',
-      life: TOAST_LIFE.NORMAL,
-    })
-  }
 }
 
 // ─── Inline-× кнопка удаления выделенной ячейки ───
@@ -1818,7 +1290,7 @@ function showCellTooltip(elementView) {
 function doShowCellTooltip(elementView) {
   if (!paper || !graph) return
   // Не показываем во время drag'а / pan'а / resize'а / edit-in-place
-  if (isPanning || activeDragCellId || activeResize || textEditing.value) return
+  if (isPanning || activeDragCellId || bus.isResizing() || textEditing.value) return
 
   const cell = elementView.model
   const tms = cell.get('tms') || {}
@@ -1883,270 +1355,6 @@ function hideCellTooltip() {
   cellHoverTooltip.value = null
 }
 
-// ─── Edit-in-place для cell_text ───
-// Double-click открывает HTML-overlay <input> поверх ячейки. SVG-<text>
-// прячется (visibility:hidden). Коммит клика-вне ловим document-mousedown
-// в capture-фазе — у input'а @blur не срабатывает из-за JointJS preventDefault.
-const textEditing = ref(null) // { id, original, style }
-const textEditValue = ref('')
-
-// Live-resize ячейки пока юзер печатает. cell.resize не дёргает snapshot —
-// финальный snapshot снимется на commit.
-watch(textEditValue, (val) => {
-  const editing = textEditing.value
-  if (!editing || !paper) return
-  const cell = graph?.getCell(editing.id)
-  if (!cell) return
-  const tms = cell.get('tms') || {}
-  const fz = tms.fontSize ?? TEXT_FONT_SIZE
-  const newCellW = textCellWidth(val, fz, !!tms.bold)
-  const currentW = cell.get('size').width
-  if (newCellW !== currentW) {
-    cell.resize(newCellW, textCellHeight(fz))
-    // bumpVersion в свою очередь реактивно перепозиционирует HTML × overlay
-    canvas.bumpVersion()
-  }
-  const scale = paper.scale().sx
-  textEditing.value = {
-    ...editing,
-    style: {
-      ...editing.style,
-      width: `${Math.max(40, newCellW * scale - TEXT_PADDING_X * scale)}px`,
-    },
-  }
-})
-
-function findCellTextEl(cellId) {
-  const cell = graph?.getCell(cellId)
-  if (!cell || !paper) return null
-  const cellView = paper.findViewByModel(cell)
-  return cellView?.el?.querySelector('text') ?? null
-}
-
-function startTextEdit(cellId) {
-  if (!graph || !paper) return
-  const cell = graph.getCell(cellId)
-  if (!cell) return
-  const tms = cell.get('tms') || {}
-  if (tms.stencilId !== 'cell_text') return
-
-  const pos = cell.get('position')
-  const size = cell.get('size')
-  const scale = paper.scale().sx
-  const tr = paper.translate()
-  const fontSize = tms.fontSize ?? TEXT_FONT_SIZE
-
-  textEditValue.value = tms.text ?? ''
-  textEditing.value = {
-    id: cellId,
-    original: tms.text ?? '',
-    style: {
-      left: `${pos.x * scale + tr.tx + TEXT_PADDING_X * scale}px`,
-      top: `${pos.y * scale + tr.ty}px`,
-      width: `${Math.max(40, size.width * scale - TEXT_PADDING_X * scale)}px`,
-      height: `${size.height * scale}px`,
-      fontSize: `${fontSize * scale}px`,
-      fontWeight: tms.bold ? 'bold' : 'normal',
-    },
-  }
-
-  // Прячем SVG-текст, чтобы не просвечивал сквозь прозрачный input.
-  findCellTextEl(cellId)?.style.setProperty('visibility', 'hidden')
-
-  nextTick(() => textEditorRef.value?.focus())
-}
-
-function commitTextEdit() {
-  const editing = textEditing.value
-  if (!editing) return
-  textEditing.value = null
-
-  const cell = graph?.getCell(editing.id)
-  // Восстановить видимость SVG-текста независимо от того, был ли изменён текст:
-  // при re-inject ниже элемент пересоздаётся, и атрибут визуально сбрасывается;
-  // если re-inject не происходит — без restore остался бы скрытым.
-  findCellTextEl(editing.id)?.style.removeProperty('visibility')
-  if (!cell) return
-
-  const tms = cell.get('tms') || {}
-  const stencil = getStencilById(tms.stencilId)
-  const newText = textEditValue.value
-  if (!stencil || newText === editing.original) return
-
-  cell.set('tms', { ...tms, text: newText })
-  // Ресайз под новый текст — ширина адаптивная, высота под шрифт.
-  const fz = tms.fontSize ?? TEXT_FONT_SIZE
-  cell.resize(textCellWidth(newText, fz, !!tms.bold), textCellHeight(fz))
-  const cellView = paper.findViewByModel(cell)
-  if (cellView) injectStencilSvg(cellView, stencil)
-  canvas.bumpVersion()
-  scheduleSnapshot()
-}
-
-function cancelTextEdit() {
-  const editing = textEditing.value
-  if (!editing) return
-  textEditing.value = null
-  findCellTextEl(editing.id)?.style.removeProperty('visibility')
-}
-
-// Коммит текста при клике мимо input'а. JointJS preventDefault'ит pointerdown,
-// поэтому @blur не срабатывает — ловим клик через onClickOutside.
-const textEditorRef = ref(null)
-onClickOutside(textEditorRef, () => {
-  if (textEditing.value) commitTextEdit()
-})
-
-// ─── Симуляция: визуальный цикл animation-классов ───
-// Preview анимаций таймером раз в SIM_CYCLE_MS: voltage low→mid→high,
-// bool on↔off. Общий цикл = LCM(3,2) = 6 тиков. CSS под .tms-simulating
-// инжектим один раз чтобы не протекало в обычный режим.
-const SIM_CYCLE_MS = 1500
-const SIM_TOTAL_STATES = ANIMATION_CLASS_OPTIONS.length * 2 // voltage × bool
-const simulating = ref(false)
-let simIntervalId = null
-let simIndex = 0
-let simCssInjected = false
-
-function injectSimulationCss() {
-  if (simCssInjected) return
-  const style = document.createElement('style')
-  style.id = 'tms-sim-css'
-  // Исключения для voltage-stroke селектора:
-  // [joint-selector="wrapper"] — у standard.Link широкий невидимый path
-  // для хитбокса; без exclusion с !important становится окрашен и толст.
-  // .tms-hit-area — наш прозрачный rect-хитбокс у каждой ячейки;
-  // без exclusion рисует зелёную «рамку» у стенсилов без своей rect-обёртки.
-  const voltageRules = Object.entries(ANIMATION_CLASS_COLORS)
-    .map(
-      ([cls, hex]) => `
-.tms-simulating .${cls},
-.tms-simulating .${cls} *:not(text):not([joint-selector="wrapper"]):not(.tms-hit-area) { stroke: ${hex} !important; }
-.tms-simulating .${cls} .tms-voltage-fill,
-.tms-simulating .${cls}.tms-voltage-fill { fill: ${hex} !important; }`
-    )
-    .join('\n')
-  // Boolean false-classes — те же что навешивает WebScada-рантайм при value=false.
-  // animation-off перебивает voltage-классы серым stroke'ом (та же descendant-схема
-  // с исключениями для wrapper/hit-area, что и у voltage). В отличие от opacity 0.4
-  // эффект чистый — voltage-цвет не «просвечивает» под dim'ом.
-  const boolRules = `
-.tms-simulating .animation-hidden { display: none !important; }
-.tms-simulating .animation-off,
-.tms-simulating .animation-off *:not(text):not([joint-selector="wrapper"]):not(.tms-hit-area) { stroke: ${ANIMATION_OFF_COLOR} !important; }
-.tms-simulating .animation-off .tms-voltage-fill,
-.tms-simulating .animation-off.tms-voltage-fill { fill: ${ANIMATION_OFF_COLOR} !important; }`
-  style.textContent = voltageRules + '\n' + boolRules
-  document.head.appendChild(style)
-  simCssInjected = true
-}
-
-/** Снимает все sim-классы — voltage с outer-g, animation-hidden/off с descendants. */
-function clearSimClasses() {
-  if (!graph || !paper) return
-  for (const cell of graph.getCells()) {
-    const view = paper.findViewByModel(cell)
-    if (!view?.el) continue
-    for (const cls of ANIMATION_CLASS_OPTIONS) view.el.classList.remove(cls)
-    // animation-off от switchSource висит на outer-g (затемнение всей ячейки),
-    // от стенсильного template — на внутренних элементах. Чистим оба места.
-    view.el.classList.remove('animation-off')
-    for (const el of view.el.querySelectorAll('.animation-hidden, .animation-off')) {
-      el.classList.remove('animation-hidden')
-      el.classList.remove('animation-off')
-    }
-  }
-}
-
-/** Применяет classы текущего тика: voltage (если voltageSource) + bool-false (по animationTemplate). */
-function applySimClass() {
-  if (!graph || !paper) return
-  const voltageCls = ANIMATION_CLASS_OPTIONS[simIndex % ANIMATION_CLASS_OPTIONS.length]
-  // Bool флипается КАЖДЫЙ тик — alarm/ONOFF мерцают «вкл/выкл» в темпе voltage'а.
-  // Чётные тики = true (default), нечётные = false (применяем false-классы).
-  const boolFalsePhase = simIndex % 2 === 1
-
-  clearSimClasses()
-
-  // Voltage классы на outer-g элементов с voltageSource (cells + links)
-  for (const cell of graph.getCells()) {
-    const vs = cell.get('tms')?.voltageSource
-    if (!vs?.tag) continue
-    const view = paper.findViewByModel(cell)
-    view?.el?.classList.add(voltageCls)
-  }
-  // cell_node наследует voltage от соединённого провода (если своего нет)
-  for (const cell of graph.getElements()) {
-    const tms = cell.get('tms') || {}
-    if (tms.stencilId !== 'cell_node' || tms.voltageSource?.tag) continue
-    for (const link of graph.getConnectedLinks(cell)) {
-      if (link.get('tms')?.voltageSource?.tag) {
-        paper.findViewByModel(cell)?.el?.classList.add(voltageCls)
-        break
-      }
-    }
-  }
-
-  // Bool-false классы на внутренних элементах ячеек по animationTemplate стенсилов.
-  // Generic: для каждого binding'а с when.cases.false.apply.addClass находим
-  // нужный элемент по id="animation-{cellId}{idSuffix}" — parser.injectIds
-  // удаляет data-anim-suffix и пишет id, поэтому ищем именно по id.
-  if (boolFalsePhase) {
-    for (const cell of graph.getElements()) {
-      const tms = cell.get('tms') || {}
-      const stencil = getStencilById(tms.stencilId)
-      if (!stencil?.animationTemplate?.length) continue
-      const view = paper.findViewByModel(cell)
-      if (!view?.el) continue
-      for (const tpl of stencil.animationTemplate) {
-        const targetId = `animation-${cell.id}${tpl.idSuffix || ''}`
-        const el = view.el.querySelector(`[id="${targetId}"]`)
-        if (!el) continue
-        for (const binding of tpl.bindings || []) {
-          const cls = binding.when?.cases?.false?.apply?.addClass
-          if (cls) el.classList.add(cls)
-        }
-      }
-    }
-    // switchSources: затемняем outer-g на любой false-биндинг. В симуляции
-    // достаточно проверить «есть ли хоть один тег» — в реальном рантайме
-    // эффект тот же (любой false из N тегов → animation-off на корне).
-    for (const cell of graph.getCells()) {
-      const ss = cell.get('tms')?.switchSources
-      if (!ss?.tags?.length) continue
-      const view = paper.findViewByModel(cell)
-      view?.el?.classList.add('animation-off')
-    }
-  }
-}
-
-function startSimulation() {
-  if (simulating.value || !paper) return
-  injectSimulationCss()
-  // Класс tms-simulating вешает Vue через :class binding'и на paperContainer
-  // (см. template) — реактивно на simulating ref. Manual classList.add тут
-  // не нужен; ранее он терялся при re-render'е :class.
-  simulating.value = true
-  simIndex = 0
-  applySimClass()
-  simIntervalId = setInterval(() => {
-    simIndex = (simIndex + 1) % SIM_TOTAL_STATES
-    applySimClass()
-  }, SIM_CYCLE_MS)
-}
-
-function stopSimulation() {
-  clearInterval(simIntervalId)
-  simIntervalId = null
-  simulating.value = false
-  clearSimClasses()
-}
-
-function toggleSimulation() {
-  if (simulating.value) stopSimulation()
-  else startSimulation()
-}
-
 function onExport() {
   if (!graph) return
 
@@ -2198,9 +1406,8 @@ function performImportFromSvgText(svgText, sourceLabel = 'SVG') {
   }
 
   // Сбрасываем текущее состояние (как clear canvas)
-  restoringHistory = true
-  clearTimeout(snapshotTimer)
-  snapshotTimer = null
+  restoringHistory.value = true
+  cancelPendingSnapshot()
   graph.clear()
   graph.fromJSON({ cells: parsed.cells })
   // fromJSON использует resetCells — 'add'-event не летит, наш авто-toBack
@@ -2209,13 +1416,11 @@ function performImportFromSvgText(svgText, sourceLabel = 'SVG') {
   for (const link of graph.getLinks()) link.toBack()
   reinjectAllStencils(graph, paper)
   canvas.bumpVersion()
-  restoringHistory = false
+  restoringHistory.value = false
 
   // History начинается с восстановленного состояния — undo не должен «возвращать» к старому
-  history = [graph.toJSON()]
-  historyIndex = 0
+  initHistory()
   canvas.clearSelection()
-  syncUndoRedoAvail()
   saveAutosave()
 
   const cellsAdded = graph.getElements().length
@@ -2239,7 +1444,7 @@ function performImportFromSvgText(svgText, sourceLabel = 'SVG') {
 /**
  * Внешний entry point: заменяет состояние холста на распарсенный из SVG граф.
  * Подтверждение у юзера (при непустом холсте) — ответственность caller'а
- * (AppHeader спрашивает ConfirmPopup'ом ДО открытия нативного file-picker'а,
+ * (ProjectActions спрашивает ConfirmPopup'ом ДО открытия нативного file-picker'а,
  * чтобы попап вылетал чётко у кнопки Open, а не через минуту после клика).
  */
 function importFromSvgText(svgText, sourceLabel = 'SVG') {
@@ -2315,11 +1520,9 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
     </div>
 
     <div class="flex-1 relative overflow-hidden">
-      <!-- :class содержит и tms-simulating, и emerald-ring — оба класса
- управляются Vue вместе. Раньше tms-simulating добавлялся через
- classList.add() в startSimulation(), но любой re-render :class
- перетирал весь className атрибут и убивал нашу метку, из-за чего
- CSS-правила .tms-simulating .X переставали работать. -->
+      <!-- tms-simulating и emerald-ring оба управляются Vue через :class на
+ simulating ref (см. useSimulation). Manual classList.add не используем —
+ любой re-render :class перетёр бы className и убил бы метку. -->
       <div
         ref="paperContainer"
         class="absolute inset-0 bg-white cursor-grab"

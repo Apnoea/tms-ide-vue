@@ -18,7 +18,7 @@ const graphRef = shallowRef(null)
 const paperRef = shallowRef(null)
 
 // CanvasPane регистрирует свою функцию импорта SVG → граф через setImportFromSvgFn.
-// Внешним компонентам (AppHeader) удобно дёргать importFromSvg(text) без знания
+// Внешним компонентам (ProjectActions) удобно дёргать importFromSvg(text) без знания
 // о деталях. Если CanvasPane не смонтирован — no-op.
 const importFromSvgFn = shallowRef(null)
 
