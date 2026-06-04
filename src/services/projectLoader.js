@@ -81,14 +81,18 @@ export function parseSvgProject(svgText) {
       else if (meta.switchSource?.tag) tms.switchSources = { tags: [meta.switchSource.tag] }
       if (meta.navigation) tms.navigation = meta.navigation
 
-      cells.push({
+      const cellJson = {
         type: 'tms.Stencil',
         id: meta.id,
         position: { x, y },
         size: { width, height },
         tms,
         ports: { items: portItems },
-      })
+      }
+      // JointJS пишет angle в верхнее поле cell.toJSON() — там же его и читает
+      // в fromJSON. Применится автоматически как transform на outer-`<g>`.
+      if (meta.angle) cellJson.angle = meta.angle
+      cells.push(cellJson)
     } catch (e) {
       errors.push(`Парсинг ячейки: ${e.message}`)
     }

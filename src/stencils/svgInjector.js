@@ -396,6 +396,9 @@ export function injectStencilSvg(cellView, stencil) {
  * После graph.fromJSON() cellView'ы рендерятся без SVG-контента — JointJS не
  * знает про наши стенсилы. Пробегаем по всем элементам с мета `tms` и
  * переинжектим SVG. Используется для restore из autosave и undo/redo.
+ *
+ * Angle хранится в `cell.angle()` и JointJS сам применяет его на outer-`<g>`
+ * через transform — отдельно тут восстанавливать не нужно.
  */
 export function reinjectAllStencils(graph, paper) {
   if (!graph || !paper) return

@@ -29,6 +29,7 @@ import { useBusResize } from '../composables/useBusResize'
 import { useSimulation } from '../composables/useSimulation'
 import { useTextEdit } from '../composables/useTextEdit'
 import { useClipboard } from '../composables/useClipboard'
+import { useHotkeys } from '../composables/useHotkeys'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
@@ -59,6 +60,17 @@ const { textEditing, textEditValue, textEditorRef, startTextEdit, commitTextEdit
   useTextEdit({ scheduleSnapshot })
 const { copySelection, pasteClipboard, duplicateSelection, hasClipboard } = useClipboard({
   scheduleSnapshot,
+})
+// useHotkeys навешивает window-keydown listener (через useEventListener — auto-cleanup).
+// onExport объявлен ниже как function declaration, поэтому ссылка стабильна.
+useHotkeys({
+  undo,
+  redo,
+  scheduleSnapshot,
+  copySelection,
+  pasteClipboard,
+  duplicateSelection,
+  onExport,
 })
 
 // ─── Vue refs / JointJS state ───
@@ -518,138 +530,6 @@ watch(
   () => canvas.snapshotTick.value,
   () => scheduleSnapshot()
 )
-
-// ─── Хоткеи ───
-function isFocusInInput(t) {
-  return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
-}
-// Все хоткеи через единый raw-keydown handler. Используем event.code (физическая
-// клавиша), а не event.key (символ) — иначе на нелатинских раскладках
-// (русская, немецкая, ...) Ctrl+S, Ctrl+Z, etc. не срабатывают.
-function onKeyDown(event) {
-  const cmd = event.ctrlKey || event.metaKey
-  const code = event.code
-  const inInput = isFocusInInput(event.target)
-
-  // ─── Ctrl+F — открыть поиск. Срабатывает даже при фокусе в инпуте
-  // (стандартное браузерное find-in-page-поведение, мы его перехватываем). ───
-  if (cmd && !event.shiftKey && code === 'KeyF') {
-    event.preventDefault()
-    event.stopPropagation()
-    if (ui.searchOpen) {
-      ui.closeSearch()
-      nextTick(() => ui.openSearch())
-    } else {
-      ui.openSearch()
-    }
-    return
-  }
-
-  // ─── F3 — листать совпадения поиска (только когда открыт). ───
-  if (code === 'F3') {
-    if (!ui.searchOpen) return
-    event.preventDefault()
-    event.stopPropagation()
-    canvas.cycleSearchMatch(event.shiftKey ? -1 : 1)
-    return
-  }
-
-  // ─── Escape — снять выделение / highlight. ───
-  if (code === 'Escape') {
-    if (inInput) return
-    if (canvas.highlightedTag.value) canvas.clearHighlightedTag()
-    if (canvas.selection.value.length) canvas.clearSelection()
-    return
-  }
-
-  // ─── Ctrl-комбинации (Z/Y/S/O/C/V/D/A). Не срабатывают при фокусе в инпуте. ───
-  if (cmd && !inInput) {
-    if (code === 'KeyZ') {
-      event.preventDefault()
-      event.stopPropagation()
-      event.shiftKey ? redo() : undo()
-      return
-    }
-    if (code === 'KeyY') {
-      event.preventDefault()
-      event.stopPropagation()
-      redo()
-      return
-    }
-    if (code === 'KeyS') {
-      event.preventDefault()
-      event.stopPropagation()
-      onExport()
-      return
-    }
-    if (code === 'KeyO') {
-      event.preventDefault()
-      event.stopPropagation()
-      window.dispatchEvent(new CustomEvent('tms-open-project'))
-      return
-    }
-    if (code === 'KeyC' && !event.shiftKey) {
-      event.preventDefault()
-      event.stopPropagation()
-      copySelection()
-      return
-    }
-    if (code === 'KeyV' && !event.shiftKey) {
-      event.preventDefault()
-      event.stopPropagation()
-      pasteClipboard()
-      return
-    }
-    if (code === 'KeyD') {
-      event.preventDefault()
-      event.stopPropagation()
-      duplicateSelection()
-      return
-    }
-    if (code === 'KeyA') {
-      if (!graph) return
-      event.preventDefault()
-      event.stopPropagation()
-      canvas.selectAllCells()
-      return
-    }
-  }
-
-  // ─── Стрелки + Del/Backspace — оставляем как было (event.key для них
-  // безопасен, эти клавиши одинаковы во всех раскладках). ───
-  const isArrow =
-    event.key === 'ArrowUp' ||
-    event.key === 'ArrowDown' ||
-    event.key === 'ArrowLeft' ||
-    event.key === 'ArrowRight'
-  if (isArrow) {
-    if (isFocusInInput(event.target) || !graph || !paper) return
-    const cellSel = canvas.selection.value.filter((s) => s.kind === 'cell')
-    if (!cellSel.length) return
-    event.preventDefault()
-    event.stopPropagation()
-    const grid = paper.options.gridSize || 10
-    const step = (event.shiftKey ? 5 : 1) * grid
-    const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0
-    const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0
-    for (const item of cellSel) graph.getCell(item.id)?.translate(dx, dy)
-    scheduleSnapshot()
-    return
-  }
-
-  if (event.key !== 'Delete' && event.key !== 'Backspace') return
-  if (isFocusInInput(event.target)) return
-  const sel = canvas.selection.value
-  if (!sel.length || !graph) return
-  event.preventDefault()
-  event.stopPropagation()
-  for (const item of [...sel]) graph.getCell(item.id)?.remove()
-  canvas.clearSelection()
-  // PrimeVue Splitter gutter ловит keydown — снимаем фокус явно.
-  const active = document.activeElement
-  if (active && active !== document.body && typeof active.blur === 'function') active.blur()
-}
-useEventListener(window, 'keydown', onKeyDown)
 
 onBeforeUnmount(() => {
   // useEventListener/useResizeObserver сами снимаются на unmount — не дублируем.
@@ -1180,17 +1060,26 @@ function performClearCanvas(count) {
   })
 }
 
-// ─── Inline-× кнопка удаления выделенной ячейки ───
-// HTML-overlay (а не elementTools.Remove): позиция reactive через computed
-// от graphVersion + paperViewTick + selection.
-const deleteBtn = computed(() => {
+// ─── Inline-кнопки overlay'я выделенной ячейки ───
+// HTML-overlay (а не JointJS elementTools.Remove): позиция reactive через
+// computed от graphVersion + paperViewTick + selection.
+//
+// Раскладка (TL/TR/BR от axis-aligned bbox с учётом rotation):
+//   TL — повернуть против часовой
+//   TR — повернуть по часовой
+//   BR — удалить
+//
+// rotate недоступен для cell_text/cell_value/cell_bus (см. canCellTransform):
+// `canTransform=false` в результате — template скрывает две верхние кнопки,
+// оставляя только удаление.
+const overlayBtns = computed(() => {
   // Touch ref'ы для reactive-зависимости — без чтения computed не пересчитается
   // при изменении графа / pan'е / zoom'е. Это deliberate side-effect.
   canvas.graphVersion.value
   canvas.paperViewTick.value
   const sel = canvas.selection.value
   if (sel.length !== 1 || sel[0].kind !== 'cell') return null
-  if (textEditing.value) return null // во время инлайн-edit'а × прячем
+  if (textEditing.value) return null // во время инлайн-edit'а оверлей прячем
   if (!paper || !graph) return null
   const cell = graph.getCell(sel[0].id)
   if (!cell) return null
@@ -1198,20 +1087,26 @@ const deleteBtn = computed(() => {
   const size = cell.get('size')
   const scale = paper.scale().sx
   const { tx, ty } = paper.translate()
-  // anchor: top-right cell'а в container-px; кнопка центрируется на anchor'е
-  // через left/top - halfSize (а не через CSS transform), чтобы Tailwind
-  // hover:scale-* мог корректно работать поверх позиционирования.
-  const HALF = 16 // half of 32px button (PrimeVue Button small rounded)
-  // +10 / -10 — кнопка «висит» вне правого верхнего угла ячейки с заметным
-  // отступом, не наезжая на содержимое
-  const anchorX = (pos.x + size.width) * scale + tx + 10
-  const anchorY = pos.y * scale + ty - 10
+  // Visual AABB с учётом rotation: при 90/270° ширина/высота меняются местами
+  // (центр остаётся прежним — JointJS вращает вокруг центра ячейки).
+  const angle = (cell.angle() || 0) % 360
+  const rot90 = angle === 90 || angle === 270
+  const bbW = rot90 ? size.height : size.width
+  const bbH = rot90 ? size.width : size.height
+  const cx = pos.x + size.width / 2
+  const cy = pos.y + size.height / 2
+  const left = (cx - bbW / 2) * scale + tx
+  const right = (cx + bbW / 2) * scale + tx
+  const top = (cy - bbH / 2) * scale + ty
+  const bottom = (cy + bbH / 2) * scale + ty
+  const HALF = 16 // half of 32px кнопок (rounded small)
+  const GAP = 10 // отступ от ячейки чтобы не наезжать на контент
   return {
     id: cell.id,
-    style: {
-      left: `${anchorX - HALF}px`,
-      top: `${anchorY - HALF}px`,
-    },
+    canTransform: canCellTransform(cell),
+    rotateCcw: { left: `${left - GAP - HALF}px`, top: `${top - GAP - HALF}px` },
+    rotateCw: { left: `${right + GAP - HALF}px`, top: `${top - GAP - HALF}px` },
+    delete: { left: `${right + GAP - HALF}px`, top: `${bottom + GAP - HALF}px` },
   }
 })
 
@@ -1273,6 +1168,28 @@ function onDeleteSelected() {
   if (sel.length !== 1 || sel[0].kind !== 'cell' || !graph) return
   graph.getCell(sel[0].id)?.remove()
   canvas.clearSelection()
+}
+
+// ─── Поворот выделенной ячейки ───
+// Контентозависимые стенсилы (текст, числовое значение, шина) после rotation
+// становятся нечитаемыми / ломаются по resize, поэтому для них трансформ
+// заблокирован — оверлейные кнопки rotate не рендерятся.
+const TRANSFORM_FREE_STENCILS = new Set(['cell_text', 'cell_value', 'cell_bus'])
+function canCellTransform(cell) {
+  return cell && !TRANSFORM_FREE_STENCILS.has(cell.get('tms')?.stencilId)
+}
+
+function rotateSelectedBy(delta) {
+  if (!graph) return
+  const sel = canvas.selection.value.filter((s) => s.kind === 'cell')
+  let changed = false
+  for (const item of sel) {
+    const cell = graph.getCell(item.id)
+    if (!canCellTransform(cell)) continue
+    cell.rotate(delta)
+    changed = true
+  }
+  if (changed) scheduleSnapshot()
 }
 
 // ─── Hover-tooltip над ячейкой ───
@@ -1632,20 +1549,44 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
         </div>
       </Transition>
 
-      <!-- Inline-удаление одиночной выделенной ячейки. Reactive HTML-overlay
- (а не JointJS elementTools.Remove — кэширует позицию, не следует за resize). -->
-      <Button
-        v-if="deleteBtn"
-        v-tooltip.top="'Удалить · Del'"
-        icon="pi pi-trash"
-        severity="secondary"
-        rounded
-        size="small"
-        class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
-        :style="deleteBtn.style"
-        aria-label="Удалить ячейку"
-        @click="onDeleteSelected"
-      />
+      <!-- Inline-overlay одиночной выделенной ячейки: rotate-ccw /
+           rotate-cw / delete. Reactive HTML-overlay (а не JointJS
+           elementTools.Remove — кэширует позицию, не следует за resize).
+           rotate скрыт для cell_text/cell_value/cell_bus. -->
+      <template v-if="overlayBtns">
+        <Button
+          v-if="overlayBtns.canTransform"
+          v-tooltip.top="'Повернуть против часовой'"
+          icon="pi pi-undo"
+          severity="secondary"
+          rounded
+          size="small"
+          class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
+          :style="overlayBtns.rotateCcw"
+          @click="rotateSelectedBy(-90)"
+        />
+        <Button
+          v-if="overlayBtns.canTransform"
+          v-tooltip.top="'Повернуть по часовой'"
+          icon="pi pi-refresh"
+          severity="secondary"
+          rounded
+          size="small"
+          class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
+          :style="overlayBtns.rotateCw"
+          @click="rotateSelectedBy(90)"
+        />
+        <Button
+          v-tooltip.top="'Удалить · Del'"
+          icon="pi pi-trash"
+          severity="secondary"
+          rounded
+          size="small"
+          class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
+          :style="overlayBtns.delete"
+          @click="onDeleteSelected"
+        />
+      </template>
 
       <!-- Бейджи незаполненных required-слотов. Кликабельны: тык по бейджу
  выделяет ячейку и просит инспектор открыть picker первого пустого

@@ -1,9 +1,11 @@
 import { ref, onBeforeUnmount } from 'vue'
+import { useToast } from 'primevue/usetoast'
 import {
   ANIMATION_CLASS_COLORS,
   ANIMATION_CLASS_OPTIONS,
   ANIMATION_OFF_COLOR,
 } from '../constants/animation'
+import { TOAST_LIFE } from '../constants/toast'
 import { getStencilById } from '../stencils/registry'
 import { useCanvas } from './useCanvas'
 
@@ -28,6 +30,7 @@ const SIM_CYCLE_MS = 1500
  */
 export function useSimulation() {
   const canvas = useCanvas()
+  const toast = useToast()
   const simulating = ref(false)
   let simIntervalId = null
   let simCssInjected = false
@@ -189,8 +192,13 @@ export function useSimulation() {
   }
 
   function toggleSimulation() {
-    if (simulating.value) stopSimulation()
-    else startSimulation()
+    if (simulating.value) {
+      stopSimulation()
+      toast.add({ severity: 'info', summary: 'Симуляция остановлена', life: TOAST_LIFE.SHORT })
+    } else {
+      startSimulation()
+      toast.add({ severity: 'info', summary: 'Симуляция запущена', life: TOAST_LIFE.SHORT })
+    }
   }
 
   // Cleanup на unmount компонента — освобождаем таймер.

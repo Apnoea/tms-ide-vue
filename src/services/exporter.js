@@ -241,6 +241,9 @@ export function exportProject(graph, paper = null) {
       fontSize: tms.fontSize,
       bold: tms.bold,
       valueTag: tms.valueTag,
+      // Геометрический трансформ — для round-trip. angle применяется в SVG
+      // как rotate вокруг центра ячейки на outer-`<g>`.
+      angle: cell.angle ? cell.angle() : 0,
     })
 
     minX = Math.min(minX, pos.x)
@@ -476,8 +479,13 @@ export function exportProject(graph, paper = null) {
       if (c.voltageSource) meta.voltageSource = c.voltageSource
       if (c.switchSources) meta.switchSources = c.switchSources
       if (c.navigation) meta.navigation = c.navigation
+      if (c.angle) meta.angle = c.angle
       const metaAttr = escapeAttr(JSON.stringify(meta))
-      return `  <g id="animation-cell-${c.animId}" transform="translate(${c.x},${c.y})" data-tms-stencil="${c.stencilId}" data-tms-meta="${metaAttr}">${inner}</g>`
+      // translate(x,y) ставит ячейку на холст; rotate (если есть) вращает
+      // вокруг центра ячейки в её локальных координатах.
+      let transform = `translate(${c.x},${c.y})`
+      if (c.angle) transform += ` rotate(${c.angle} ${c.width / 2} ${c.height / 2})`
+      return `  <g id="animation-cell-${c.animId}" transform="${transform}" data-tms-stencil="${c.stencilId}" data-tms-meta="${metaAttr}">${inner}</g>`
     })
     .join('\n')
 

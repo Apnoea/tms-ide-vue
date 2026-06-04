@@ -885,13 +885,38 @@ const switchPickerTags = computed(() => {
               </div>
             </div>
 
+            <!-- Навигация (hyperlink на другую view при клике в рантайме). Юзер
+ вводит имя view строкой — IDE про другие view не знает, проверка
+ по факту в рантайме (как `<a href>` в HTML). Свич справа от
+ заголовка показывает/скрывает инпут; выключение очищает значение. -->
+            <div v-if="!details.isText" class="space-y-2">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <div class="text-[11px] uppercase tracking-wider text-surface-500">Навигация</div>
+                  <div class="text-[11px] text-surface-500">переход при клике</div>
+                </div>
+                <ToggleSwitch
+                  :model-value="navigationEnabled"
+                  @update:model-value="toggleNavigationEnabled"
+                />
+              </div>
+              <InputText
+                v-if="navigationEnabled"
+                :model-value="details.navigation"
+                size="small"
+                placeholder="view_id"
+                class="w-full !text-xs font-mono"
+                @update:model-value="patchNavigation"
+              />
+            </div>
+
             <!-- Слоты стенсила: каждый слот = один тег, который попадёт в
  соответствующие bindings шаблона при экспорте.
  cell_alr / cell_qw рендерят свой единственный required-слот в
  специальном Alarm/Switch-блоке внутри секции «Анимации» — поэтому
  общий slot-row для них скрываем, чтобы тег не показывался дважды. -->
             <div
-              v-else-if="details.slots.length && !details.isAlarm && !details.isSwitch"
+              v-if="details.slots.length && !details.isAlarm && !details.isSwitch"
               class="space-y-2"
             >
               <div class="text-[11px] uppercase tracking-wider text-surface-500">
@@ -970,31 +995,6 @@ const switchPickerTags = computed(() => {
                 text
                 class="!p-1 !text-[11px]"
                 @click="ui.requestTagListLoad"
-              />
-            </div>
-
-            <!-- Навигация (hyperlink на другую view при клике в рантайме). Юзер
- вводит имя view строкой — IDE про другие view не знает, проверка
- по факту в рантайме (как `<a href>` в HTML). Свич справа от
- заголовка показывает/скрывает инпут; выключение очищает значение. -->
-            <div v-if="!details.isText" class="space-y-2">
-              <div class="flex items-center justify-between gap-2">
-                <div>
-                  <div class="text-[11px] uppercase tracking-wider text-surface-500">Навигация</div>
-                  <div class="text-[11px] text-surface-500">переход при клике</div>
-                </div>
-                <ToggleSwitch
-                  :model-value="navigationEnabled"
-                  @update:model-value="toggleNavigationEnabled"
-                />
-              </div>
-              <InputText
-                v-if="navigationEnabled"
-                :model-value="details.navigation"
-                size="small"
-                placeholder="view_id"
-                class="w-full !text-xs font-mono"
-                @update:model-value="patchNavigation"
               />
             </div>
           </template>
@@ -1079,7 +1079,7 @@ const switchPickerTags = computed(() => {
                 (!details.switchSources && !details.isAlarm && !details.isSwitch) ||
                 !details.voltageSource
               "
-              class="flex flex-wrap gap-2 pt-1"
+              class="flex flex-col gap-2 pt-1"
             >
               <Button
                 v-if="!details.switchSources && !details.isAlarm && !details.isSwitch"
@@ -1088,7 +1088,6 @@ const switchPickerTags = computed(() => {
                 severity="secondary"
                 size="small"
                 outlined
-                class="flex-1 min-w-[120px]"
                 @click="addSwitchSources"
               />
               <Button
@@ -1098,7 +1097,6 @@ const switchPickerTags = computed(() => {
                 severity="secondary"
                 size="small"
                 outlined
-                class="flex-1 min-w-[120px]"
                 @click="addVoltageSource"
               />
             </div>
