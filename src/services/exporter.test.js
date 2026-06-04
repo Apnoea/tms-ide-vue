@@ -46,11 +46,11 @@ describe('exportProject', () => {
     expect(result.animations.animations).toEqual({})
   })
 
-  it('cell_vk: пишет data-tms-meta и animation-карточки .VK / .VK-cross по cellId', () => {
+  it('cell_qw: пишет data-tms-meta и animation-карточки .QW / .QW-cross по cellId', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
-        stencilId: 'cell_vk',
+        stencilId: 'cell_qw',
         slots: { onoff: 'PS031VK001.ONOFF' },
         x: 50,
         y: 100,
@@ -59,19 +59,19 @@ describe('exportProject', () => {
       }),
     ])
     const result = exportProject(graph)
-    expect(result.svgText).toContain('data-tms-stencil="cell_vk"')
+    expect(result.svgText).toContain('data-tms-stencil="cell_qw"')
     expect(result.svgText).toContain('data-tms-meta=')
     // Outer-wrapper id и стенсильные карточки — все по cellId
     expect(result.svgText).toContain('animation-cell-c1')
 
     const anims = result.animations.animations
-    expect(anims).toHaveProperty('animation-c1.VK')
-    expect(anims).toHaveProperty('animation-c1.VK-cross')
+    expect(anims).toHaveProperty('animation-c1.QW')
+    expect(anims).toHaveProperty('animation-c1.QW-cross')
     // Биндинг тега из slot.onoff — подставлен в шаблоны стенсила
-    expect(anims['animation-c1.VK'].bindings[0].tag).toBe('PS031VK001.ONOFF')
+    expect(anims['animation-c1.QW'].bindings[0].tag).toBe('PS031VK001.ONOFF')
 
     // slot.onoff неявно даёт animation-off биндинг на outer-wrapper:
-    // крестик переключается (стенсильный .VK / .VK-cross) И ячейка серая
+    // крестик переключается (стенсильный .QW / .QW-cross) И ячейка серая
     // на false без ручного добавления switchSources.
     expect(anims).toHaveProperty('animation-cell-c1')
     const outerOff = anims['animation-cell-c1'].bindings.find(
@@ -79,9 +79,9 @@ describe('exportProject', () => {
         b.tag === 'PS031VK001.ONOFF' && b.when?.cases?.false?.apply?.addClass === 'animation-off'
     )
     expect(outerOff).toBeDefined()
-    // На .VK animation-off уже эмитится стенсильным шаблоном — outer-merge не
+    // На .QW animation-off уже эмитится стенсильным шаблоном — outer-merge не
     // нужен (избежать дубля). Проверяем, что биндинг РОВНО один.
-    const vkOffBindings = anims['animation-c1.VK'].bindings.filter(
+    const vkOffBindings = anims['animation-c1.QW'].bindings.filter(
       (b) =>
         b.tag === 'PS031VK001.ONOFF' && b.when?.cases?.false?.apply?.addClass === 'animation-off'
     )
@@ -91,13 +91,13 @@ describe('exportProject', () => {
     expect(anims['animation-cell-c1'].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
   })
 
-  it('cell_vk без slots: карточки анимаций НЕ эмитятся (нет привязки = нет анимации)', () => {
+  it('cell_qw без slots: карточки анимаций НЕ эмитятся (нет привязки = нет анимации)', () => {
     const graph = mockGraph([
-      mockCell({ id: 'c1', stencilId: 'cell_vk', x: 0, y: 0, w: 20, h: 20 }),
+      mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 }),
     ])
     const anims = exportProject(graph).animations.animations
-    expect(anims['animation-c1.VK']).toBeUndefined()
-    expect(anims['animation-c1.VK-cross']).toBeUndefined()
+    expect(anims['animation-c1.QW']).toBeUndefined()
+    expect(anims['animation-c1.QW-cross']).toBeUndefined()
     // Без slot.onoff intrinsic-switch не эмитит animation-off
     expect(anims['animation-cell-c1']).toBeUndefined()
   })
@@ -125,7 +125,7 @@ describe('exportProject', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
-        stencilId: 'cell_vk',
+        stencilId: 'cell_qw',
         slots: { onoff: 'PS031VK001.ONOFF' },
         voltageSource: {
           tag: 'PS031.UA',
@@ -139,18 +139,18 @@ describe('exportProject', () => {
     const anims = exportProject(graph).animations.animations
     expect(anims).toHaveProperty('animation-cell-c1')
     expect(anims['animation-cell-c1'].bindings[0].tag).toBe('PS031.UA')
-    // voltage биндинг МЕРЖИТСЯ в .VK / .VK-cross
-    const vkBindings = anims['animation-c1.VK'].bindings
+    // voltage биндинг МЕРЖИТСЯ в .QW / .QW-cross
+    const vkBindings = anims['animation-c1.QW'].bindings
     expect(vkBindings.some((b) => b.tag === 'PS031.UA')).toBe(true)
   })
 
-  it('cell_vk: slot.onoff + switchSources родителей → N+1 независимых биндингов', () => {
+  it('cell_qw: slot.onoff + switchSources родителей → N+1 независимых биндингов', () => {
     // Типичный кейс: свой выключатель + общий по ПС + секционный. Все три тега
     // независимы; любой false → ячейка серая (AND через несколько биндингов).
     const graph = mockGraph([
       mockCell({
         id: 'c1',
-        stencilId: 'cell_vk',
+        stencilId: 'cell_qw',
         slots: { onoff: 'LOCAL.ONOFF' },
         switchSources: { tags: ['ОБЩИЙ.ONOFF', 'SECTION.ONOFF'] },
       }),
@@ -164,10 +164,10 @@ describe('exportProject', () => {
     expect(offBindings.map((b) => b.tag).sort()).toEqual(
       ['LOCAL.ONOFF', 'SECTION.ONOFF', 'ОБЩИЙ.ONOFF'].sort()
     )
-    // На .VK: 1 стенсильный (slot.onoff) + 2 от switchSources родителей =
+    // На .QW: 1 стенсильный (slot.onoff) + 2 от switchSources родителей =
     // 3 биндинга animation-off. slot.onoff в outer-merge НЕ задваивается
-    // (стенсильный шаблон уже эмитит этот тег прямо в .VK).
-    const vkBindings = anims['animation-c1.VK'].bindings
+    // (стенсильный шаблон уже эмитит этот тег прямо в .QW).
+    const vkBindings = anims['animation-c1.QW'].bindings
     const vkOff = vkBindings.filter(
       (b) => b.when?.cases?.false?.apply?.addClass === 'animation-off'
     )
@@ -178,8 +178,8 @@ describe('exportProject', () => {
   })
 
   it('switchSources на линии → карточка с animation-off на link-id', () => {
-    const cellA = mockCell({ id: 'a', stencilId: 'cell_vk', x: 0, y: 0 })
-    const cellB = mockCell({ id: 'b', stencilId: 'cell_vk', x: 100, y: 0 })
+    const cellA = mockCell({ id: 'a', stencilId: 'cell_qw', x: 0, y: 0 })
+    const cellB = mockCell({ id: 'b', stencilId: 'cell_qw', x: 100, y: 0 })
     const link = mockLink({
       id: 'l1',
       source: { id: 'a', port: 'right' },
@@ -200,7 +200,7 @@ describe('exportProject', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
-        stencilId: 'cell_vk',
+        stencilId: 'cell_qw',
         slots: { onoff: 'PS031VK001.ONOFF' },
         navigation: 'view_substation_a',
       }),
@@ -243,7 +243,7 @@ describe('exportProject', () => {
       [
         mockCell({
           id: 'c1',
-          stencilId: 'cell_vk',
+          stencilId: 'cell_qw',
           slots: { onoff: 'PS031VK001.ONOFF' },
           x: 100,
           y: 200,
@@ -260,7 +260,7 @@ describe('exportProject', () => {
     expect(cells).toHaveLength(1)
     expect(cells[0].id).toBe('c1')
     expect(cells[0].position).toEqual({ x: 100, y: 200 })
-    expect(cells[0].tms.stencilId).toBe('cell_vk')
+    expect(cells[0].tms.stencilId).toBe('cell_qw')
     expect(cells[0].tms.slots).toEqual({ onoff: 'PS031VK001.ONOFF' })
   })
 })

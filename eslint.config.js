@@ -46,7 +46,7 @@ export default [
       'vue/no-unused-vars': 'warn',
 
       // ─── Что НЕ ловим (отключаем шум) ───
-      // У нас стенсилы id'шники snake_case (cell_vk, cell_text). PrimeVue
+      // У нас стенсилы id'шники snake_case (cell_qw, cell_text). PrimeVue
       // компоненты тоже single-word через alias (Button, Tag). Правило про
       // multi-word имена не применимо.
       'vue/multi-word-component-names': 'off',

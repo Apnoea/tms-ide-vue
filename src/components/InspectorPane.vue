@@ -80,11 +80,11 @@ const details = computed(() => {
       // bell-иконкой, без отдельной строки в «Привязки тегов»). Switch-source для
       // тревоги бессмыслен — кнопку «Выключатель» прячем тоже.
       isAlarm: tms.stencilId === 'cell_alr',
-      // cell_vk — аналогично, через тот же SwitchBlock но в intrinsic-режиме
+      // cell_qw — аналогично, через тот же SwitchBlock но в intrinsic-режиме
       // (removable=false, обёртывает slot.onoff). Switch-source-кнопка
       // у выключателя дублировала бы тот же .ONOFF, который уже выбран в слоте,
       // поэтому тоже скрываем (для проводов и других ячеек она остаётся доступной).
-      isSwitch: tms.stencilId === 'cell_vk',
+      isSwitch: tms.stencilId === 'cell_qw',
       // Слоты для UI: декларация из стенсила + текущее значение из tms.slots.
       // tagSuffix — фильтр для picker'а (показывать только теги с .SUFFIX).
       // tooltip — встроенные правила анимации для этого слота (см. buildSlotTooltip),
@@ -436,7 +436,7 @@ function addSwitchSources() {
 }
 
 /**
- * «+ Добавить тег» из SwitchBlock: для cell_vk smart-flow — если slot.onoff
+ * «+ Добавить тег» из SwitchBlock: для cell_qw smart-flow — если slot.onoff
  * ещё пуст, открываем slot picker (фильтр по .ONOFF из stencil-схемы),
  * иначе — switch-tags picker. Для остальных всегда switch-picker.
  */
@@ -517,9 +517,9 @@ function onPickMultiSwitchTag(tag) {
       skipped++
       continue
     }
-    // cell_vk не должен зависеть от своего же тега — слот.onoff уже отвечает
+    // cell_qw не должен зависеть от своего же тега — слот.onoff уже отвечает
     // за крестик + animation-off, дубль в switchSources бессмыслен.
-    if (tms.stencilId === 'cell_vk' && tms.slots?.onoff === tag) {
+    if (tms.stencilId === 'cell_qw' && tms.slots?.onoff === tag) {
       skipped++
       continue
     }
@@ -654,7 +654,7 @@ function buildSlotTooltip(slotKey, animationTemplate) {
 const onoffTags = computed(() => project.tags.filter((t) => /\.ONOFF$/i.test(t.name)))
 
 // Picker для switch-зависимостей исключает уже привязанные теги: основной
-// тег ячейки (slot.onoff у cell_vk) + все теги из switchSources.tags, кроме
+// тег ячейки (slot.onoff у cell_qw) + все теги из switchSources.tags, кроме
 // редактируемого по индексу (его оставляем, чтобы юзер видел текущее значение).
 const switchPickerTags = computed(() => {
   const d = details.value
@@ -887,7 +887,7 @@ const switchPickerTags = computed(() => {
 
             <!-- Слоты стенсила: каждый слот = один тег, который попадёт в
  соответствующие bindings шаблона при экспорте.
- cell_alr / cell_vk рендерят свой единственный required-слот в
+ cell_alr / cell_qw рендерят свой единственный required-слот в
  специальном Alarm/Switch-блоке внутри секции «Анимации» — поэтому
  общий slot-row для них скрываем, чтобы тег не показывался дважды. -->
             <div
@@ -1029,7 +1029,7 @@ const switchPickerTags = computed(() => {
  каждого слота (см. info-icon выше) — read-only блок убран,
  чтобы не засорять панель повторением декларативного поведения. -->
 
-            <!-- A. Аварийный сигнал (cell_alr) / Выключатель (cell_vk):
+            <!-- A. Аварийный сигнал (cell_alr) / Выключатель (cell_qw):
  обёртки для required-слотов стенсилов (.alr / .onoff). Это
  интрисик-анимация шаблона, не отдельная tms-сущность. -->
             <!-- A. cell_alr — обёртка required-слота .alr. -->
@@ -1040,7 +1040,7 @@ const switchPickerTags = computed(() => {
               @open-tag-picker="openSlotPicker(details.slots[0])"
             />
 
-            <!-- B. Привязка к выключателю(ям). Unified block: для cell_vk
+            <!-- B. Привязка к выключателю(ям). Unified block: для cell_qw
                  включает slot.onoff (intrinsic) + switchSources.tags;
                  для остальных — только switchSources.tags. -->
             <SwitchBlock
@@ -1072,7 +1072,7 @@ const switchPickerTags = computed(() => {
             />
 
             <!-- Add-кнопки. Выключатель — везде кроме cell_alr (тревога не
-                 поток) и cell_vk (блок уже виден через slot.onoff, add-кнопка
+                 поток) и cell_qw (блок уже виден через slot.onoff, add-кнопка
                  встроена в сам блок). Voltage — везде где нет. -->
             <div
               v-if="

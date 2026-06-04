@@ -3,7 +3,7 @@ import { dia, shapes } from '@joint/core'
 /**
  * JointJS shape: контейнер-группа `body`, в которую инжектится shape.svg
  * стенсила (см. svgInjector.injectStencilSvg). Один shape-класс на все
- * стенсилы реестра — разница между cell_bus / cell_vk / cell_alr / ... живёт
+ * стенсилы реестра — разница между cell_bus / cell_qw / cell_alr / ... живёт
  * в `tms.stencilId` и SVG, не в JointJS-define'ах.
  *
  * Селектор 'root' зарезервирован JointJS, поэтому используем 'body'.

@@ -1320,7 +1320,7 @@ function doShowCellTooltip(elementView) {
   }
 
   // Алярм/voltage — singular (по одной анимации на ячейку). Switch — массив:
-  // slot.onoff (для cell_vk) + ВСЕ switchSources.tags. Каждый тег = отдельная
+  // slot.onoff (для cell_qw) + ВСЕ switchSources.tags. Каждый тег = отдельная
   // зависимость, в тултипе показываем все, не первый.
   const slotsDef = stencil.slots || []
   const slotValue = (suffix) => {

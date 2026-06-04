@@ -5,7 +5,7 @@ import Tag from 'primevue/tag'
 
 /**
  * Унифицированный блок «выключатель». Принимает два независимых источника тегов:
- *  • `slotInfo` — required-слот стенсила (cell_vk's slot.onoff из tms.slots).
+ *  • `slotInfo` — required-слот стенсила (cell_qw's slot.onoff из tms.slots).
  *    Рендерится первой строкой без × (слот обязательный для стенсила).
  *    Назван `slotInfo` (не `slot`) — vue/no-deprecated-slot-attribute.
  *  • `tags` — массив switchSources.tags. Optional. Каждая строка с ×.
@@ -39,7 +39,7 @@ defineEmits([
   'edit-tag',
 ])
 
-// Единый лейбл — добавление работает одинаково для cell_vk и проводов:
+// Единый лейбл — добавление работает одинаково для cell_qw и проводов:
 // одна кнопка «Добавить зависимость», порождает picker switchSources.tags.
 // Кнопка скрывается когда добавлять не от чего (slot пустой + tags пусто).
 const addButtonVisible = computed(() => {

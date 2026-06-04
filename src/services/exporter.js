@@ -111,7 +111,7 @@ function assignOrMergeAnimation(animations, key, card) {
 
 /**
  * Дублирует bindings новой карточки во ВСЕ стенсильные shape-карточки того же
- * animId (`animation-{animId}.VK`, `.VK-cross`, …). Так класс ляжет не только
+ * animId (`animation-{animId}.QW`, `.QW-cross`, …). Так класс ляжет не только
  * на outer-wrapper, но и на внутренние shape-группы стенсила. Text-карточки
  * (вроде cell_value text-update) пропускаем — их раскрашивать чужими классами
  * не нужно.
@@ -215,7 +215,7 @@ export function exportProject(graph, paper = null) {
     } else {
       // parser.instantiate сделает интерполяцию {slot.X} → tms.slots[X] в
       // bindings и собёрет SVG с id="animation-{animId}{suffix}". Передаём
-      // КОРОТКИЙ animId — стенсильные карточки тоже короткие (animation-c1.VK).
+      // КОРОТКИЙ animId — стенсильные карточки тоже короткие (animation-c1.QW).
       const inst = instantiate(stencil, animId, tms.slots || {})
       cellSvg = inst.svg
       Object.assign(animations, inst.animations)
@@ -350,17 +350,17 @@ export function exportProject(graph, paper = null) {
     }
   }
 
-  // ─── Intrinsic switch (cell_vk): slot.onoff неявно даёт animation-off ───
-  // Привязав тег к слоту, юзер сразу получает И крестик-визуал (через .VK /
-  // .VK-cross из стенсильного шаблона), И серость всей ячейки на false.
+  // ─── Intrinsic switch (cell_qw): slot.onoff неявно даёт animation-off ───
+  // Привязав тег к слоту, юзер сразу получает И крестик-визуал (через .QW /
+  // .QW-cross из стенсильного шаблона), И серость всей ячейки на false.
   // Без ручного дублирования в switchSources. switchSources остаётся для
   // дополнительных РОДИТЕЛЬСКИХ выключателей — их биндинги добавляются ПОВЕРХ
   // slot.onoff (AND-семантика).
-  // Merge в стенсильные .VK / .VK-cross НЕ делаем: стенсильный шаблон уже
-  // эмитит свой animation-off биндинг для slot.onoff в .VK — дубль не нужен,
+  // Merge в стенсильные .QW / .QW-cross НЕ делаем: стенсильный шаблон уже
+  // эмитит свой animation-off биндинг для slot.onoff в .QW — дубль не нужен,
   // да и CSS-cascade с outer-wrapper всё равно красит вложенные элементы.
   for (const c of cellExports) {
-    if (c.stencilId !== 'cell_vk') continue
+    if (c.stencilId !== 'cell_qw') continue
     const onoffTag = c.slots?.onoff
     if (!onoffTag) continue
     const card = buildSwitchCard({ tags: [onoffTag] })

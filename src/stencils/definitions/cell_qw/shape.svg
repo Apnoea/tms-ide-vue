@@ -4,10 +4,10 @@
     «Выключатель» — компактный 20×20 квадрат, slot.onoff = Boolean.
     ONOFF=true (включён, контакт замкнут) → внутри «+»
     ONOFF=false (выключен, разомкнут)      → внутри «−»
-    idSuffix'ы «.VK» / «.VK-cross» уникальны в пределах стенсила (на cellId
-    они становятся `animation-{cellId}.VK` и т.п.).
+    idSuffix'ы «.QW» / «.QW-cross» уникальны в пределах стенсила (на cellId
+    они становятся `animation-{cellId}.QW` и т.п.).
   -->
-  <g data-anim-suffix=".VK">
+  <g data-anim-suffix=".QW">
     <!-- Сам квадрат -->
     <rect x="0" y="0" width="20" height="20"
           fill="#fff" stroke="#000" stroke-width="2"/>
@@ -18,7 +18,7 @@
 
     <!-- Вертикальная палочка («|»), вместе с горизонтальной = «+».
          Видна когда ONOFF=true (включено/замкнуто), скрыта когда OFF. -->
-    <line data-anim-suffix=".VK-cross"
+    <line data-anim-suffix=".QW-cross"
           x1="10" y1="5" x2="10" y2="15"
           stroke="#000" stroke-width="2"/>
   </g>

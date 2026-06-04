@@ -15,10 +15,10 @@ describe('parseSvgProject', () => {
     expect(noMeta.cells).toEqual([])
   })
 
-  it('парсит cell_vk с минимальной meta (slot-based)', () => {
+  it('парсит cell_qw с минимальной meta (slot-based)', () => {
     const meta = {
       id: 'cell-abc',
-      stencilId: 'cell_vk',
+      stencilId: 'cell_qw',
       width: 20,
       height: 20,
       slots: { onoff: 'PS031VK001.ONOFF' },
@@ -36,7 +36,7 @@ describe('parseSvgProject', () => {
     expect(cell.id).toBe('cell-abc')
     expect(cell.position).toEqual({ x: 50, y: 100 })
     expect(cell.size).toEqual({ width: 20, height: 20 })
-    expect(cell.tms.stencilId).toBe('cell_vk')
+    expect(cell.tms.stencilId).toBe('cell_qw')
     expect(cell.tms.slots).toEqual({ onoff: 'PS031VK001.ONOFF' })
   })
 
@@ -106,7 +106,7 @@ describe('parseSvgProject', () => {
   it('пропускает ячейку без transform — пишет в errors', () => {
     const meta = {
       id: 'c1',
-      stencilId: 'cell_vk',
+      stencilId: 'cell_qw',
       width: 20,
       height: 20,
     }

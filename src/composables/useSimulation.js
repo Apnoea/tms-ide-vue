@@ -140,7 +140,7 @@ export function useSimulation() {
     // Bool-биндинги стенсильного template: для КАЖДОГО binding'а резолвим тег
     // ({slot.X} → tms.slots[X]), смотрим rolling state. Если тег в false-фазе —
     // применяем false-классы из биндинга. Несколько биндингов на одном теге
-    // (например .VK + .VK-cross у cell_vk) переключаются согласованно.
+    // (например .QW + .QW-cross у cell_qw) переключаются согласованно.
     for (const cell of graph.getElements()) {
       const tms = cell.get('tms') || {}
       const stencil = getStencilById(tms.stencilId)

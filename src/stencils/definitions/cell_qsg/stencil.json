@@ -1,6 +1,6 @@
 {
-  "id": "cell_rzv",
-  "label": "РЗВ (заземление)",
+  "id": "cell_qsg",
+  "label": "Заземлитель",
   "category": "Коммутация",
 
   "shapeFile": "shape.svg",

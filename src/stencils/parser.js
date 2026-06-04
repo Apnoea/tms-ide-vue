@@ -14,7 +14,7 @@
  * Формат стенсила (упрощённо):
  *
  *   {
- *     "id":          "cell_vk",                // уникальный в реестре
+ *     "id":          "cell_qw",                // уникальный в реестре
  *     "label":       "Выключатель",            // для палитры
  *     "category":    "Коммутация",
  *
@@ -37,7 +37,7 @@
  *     // animationTemplate — список карточек с подстановкой через {slot.KEY}
  *     "animationTemplate": [
  *       {
- *         "idSuffix":   ".VK",                // финальный id = "animation-{cellId}{idSuffix}"
+ *         "idSuffix":   ".QW",                // финальный id = "animation-{cellId}{idSuffix}"
  *         "type":       "shape",
  *         "bindings":   [{ "tag": "{slot.onoff}", ... }]
  *       }
