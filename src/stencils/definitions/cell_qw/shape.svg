@@ -5,7 +5,7 @@
     ONOFF=true (включён, контакт замкнут) → внутри «+»
     ONOFF=false (выключен, разомкнут)      → внутри «−»
     idSuffix'ы «.QW» / «.QW-cross» уникальны в пределах стенсила (на cellId
-    они становятся `animation-{cellId}.QW` и т.п.).
+    они становятся `animation-cell_qw-{cellId}.QW` и т.п.).
   -->
   <g data-anim-suffix=".QW">
     <!-- Сам квадрат -->

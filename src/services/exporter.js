@@ -21,16 +21,19 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
  * @returns {{ svgText: string, animationsJson: string, animations: object, count: number }}
  */
 /**
+ * Короткий стабильный id из JointJS-UUID: первый сегмент (8 hex = 4B комбинаций).
+ * Стабильно между save/load — тот же UUID даёт тот же short-id.
+ */
+function shortenId(fullId) {
+  return String(fullId).split('-')[0]
+}
+
+/**
  * Возвращает абсолютную позицию endpoint'а линка (source/target).
- * Поддерживает три формы привязки:
- *   { id, port }  — к конкретному порту ячейки
- *   { id }        — к центру ячейки
- *   { x, y }      — свободная позиция (если linkPinning отключён)
+ * linkPinning=false на paper'е запрещает свободные endpoint'ы, поэтому ждём
+ * только { id, port } или { id } (центр ячейки).
  */
 function getEndpointPos(end, graph) {
-  if (end.x !== undefined && end.y !== undefined) {
-    return { x: end.x, y: end.y }
-  }
   const cell = graph.getCell(end.id)
   if (!cell) return null
 
@@ -64,6 +67,7 @@ function buildVoltageCard(vs) {
       {
         tag: vs.tag,
         when: {
+          source: 'value',
           type: 'range',
           cases: vs.ranges.map((r) => ({
             min: r.min,
@@ -110,14 +114,32 @@ function assignOrMergeAnimation(animations, key, card) {
 }
 
 /**
- * Дублирует bindings новой карточки во ВСЕ стенсильные shape-карточки того же
- * animId (`animation-{animId}.QW`, `.QW-cross`, …). Так класс ляжет не только
- * на outer-wrapper, но и на внутренние shape-группы стенсила. Text-карточки
- * (вроде cell_value text-update) пропускаем — их раскрашивать чужими классами
- * не нужно.
+ * Outer-key и inner-prefix зависят от стенсила. cell_value сохраняет старую
+ * рантайм-конвенцию (`animation-cell-{tag}`); остальные используют формат
+ * `animation-{stencilId}-{animId}`, чтобы префикс id'шника сразу выдавал тип
+ * стенсила в DOM и в animations.json.
  */
-function mergeBindingsIntoStencilCards(animations, animId, exceptKey, card) {
-  const keyPrefix = `animation-${animId}.`
+function outerKeyFor(stencilId, animId) {
+  if (stencilId === 'cell_value') return `animation-cell-${animId}`
+  return `animation-${stencilId}-${animId}`
+}
+
+function innerPrefixFor(stencilId, animId) {
+  // cell_value не имеет inner-стенсильных карточек (только outer + text-узел
+  // `animation-{tag}`), но prefix согласован с outerKeyFor для единообразия.
+  if (stencilId === 'cell_value') return `animation-${animId}.`
+  return `animation-${stencilId}-${animId}.`
+}
+
+/**
+ * Дублирует bindings новой карточки во ВСЕ стенсильные shape-карточки того же
+ * animId (`animation-{stencilId}-{animId}.QW`, `.QW-cross`, …). Так класс
+ * ляжет не только на outer-wrapper, но и на внутренние shape-группы стенсила.
+ * Text-карточки (вроде cell_value text-update) пропускаем — их раскрашивать
+ * чужими классами не нужно.
+ */
+function mergeBindingsIntoStencilCards(animations, stencilId, animId, exceptKey, card) {
+  const keyPrefix = innerPrefixFor(stencilId, animId)
   for (const key of Object.keys(animations)) {
     if (key === exceptKey) continue
     if (animations[key].animation === 'text') continue
@@ -145,27 +167,6 @@ export function exportProject(graph, paper = null) {
   let maxX = -Infinity
   let maxY = -Infinity
 
-  // ─── animId / wireAnimId — короткие, СТАБИЛЬНЫЕ по cell.id / link.id ───
-  // JointJS-UUID: 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'. Берём первый сегмент
-  // (8 hex = 4B комбинаций) — для любой реальной схемы хватает. Тот же UUID
-  // всегда даёт тот же short-id (стабильно между save/load), на ОЧЕНЬ редкие
-  // коллизии достраиваем следующий сегмент.
-  const usedAnimIds = new Set()
-  function shortenId(fullId) {
-    const segments = String(fullId).split('-')
-    for (let i = 1; i <= segments.length; i++) {
-      const candidate = segments.slice(0, i).join('')
-      if (!usedAnimIds.has(candidate)) {
-        usedAnimIds.add(candidate)
-        return candidate
-      }
-    }
-    // Все сегменты заняты (две ячейки с идентичным id) — отдаём полный.
-    const full = String(fullId)
-    usedAnimIds.add(full)
-    return full
-  }
-
   // ─── Ячейки (стенсилы) ───
   for (const cell of elements) {
     const tms = cell.get('tms')
@@ -180,10 +181,12 @@ export function exportProject(graph, paper = null) {
     const pos = cell.get('position')
     const size = cell.get('size')
 
-    // Для cell_value с тегом animId = сам тег (рантайм-конвенция
-    // animation-{prefix}.SUFFIX), у остальных — short-id из cell.id.
+    // Для cell_value с тегом animId = САМ ТЕГ целиком, без shortenId. Иначе
+    // valueTag вида 'MY-TAG.IA' (с дефисом) split'нулся бы по '-' и порезался
+    // до 'MY' — рантайм бы не нашёл text-карточку. У остальных — short-id из
+    // UUID cell.id, там дефисы это разделитель сегментов.
     const animId =
-      tms.stencilId === 'cell_value' && tms.valueTag ? shortenId(tms.valueTag) : shortenId(cell.id)
+      tms.stencilId === 'cell_value' && tms.valueTag ? tms.valueTag : shortenId(cell.id)
 
     // Динамические стенсилы (шина, текст, значение) рендерятся по реальному
     // размеру/контенту и без редактор-only декораций; у остальных — обычный
@@ -343,9 +346,9 @@ export function exportProject(graph, paper = null) {
     for (const c of cellExports) {
       if (!hasValue(c[field])) continue
       const card = build(c[field])
-      const outerKey = `animation-cell-${c.animId}`
+      const outerKey = outerKeyFor(c.stencilId, c.animId)
       assignOrMergeAnimation(animations, outerKey, card)
-      mergeBindingsIntoStencilCards(animations, c.animId, outerKey, card)
+      mergeBindingsIntoStencilCards(animations, c.stencilId, c.animId, outerKey, card)
     }
     for (const l of linkExports) {
       if (!hasValue(l[field])) continue
@@ -367,7 +370,7 @@ export function exportProject(graph, paper = null) {
     const onoffTag = c.slots?.onoff
     if (!onoffTag) continue
     const card = buildSwitchCard({ tags: [onoffTag] })
-    assignOrMergeAnimation(animations, `animation-cell-${c.animId}`, card)
+    assignOrMergeAnimation(animations, outerKeyFor(c.stencilId, c.animId), card)
   }
 
   // ─── cell_node наследует voltage от соединённого провода ───
@@ -381,7 +384,7 @@ export function exportProject(graph, paper = null) {
       if (!l.voltageSource?.tag) continue
       if (l.source?.id !== c.cellId && l.target?.id !== c.cellId) continue
       const card = buildVoltageCard(l.voltageSource)
-      assignOrMergeAnimation(animations, `animation-cell-${c.animId}`, card)
+      assignOrMergeAnimation(animations, outerKeyFor(c.stencilId, c.animId), card)
       break
     }
   }
@@ -391,7 +394,7 @@ export function exportProject(graph, paper = null) {
   // других анимаций — создаём пустую shape-карточку (рантайму нужна запись).
   for (const c of cellExports) {
     if (!c.navigation) continue
-    const outerKey = `animation-cell-${c.animId}`
+    const outerKey = outerKeyFor(c.stencilId, c.animId)
     if (!animations[outerKey]) {
       animations[outerKey] = { animation: 'shape', bindings: [] }
     }
@@ -403,7 +406,7 @@ export function exportProject(graph, paper = null) {
   // карточки внешней обёртки. У cell_value detailTags исторически ставится
   // на text-карточку (`animation-{valueTag}`) — там и остаётся. Для всех
   // остальных собираем все привязанные теги (slots, voltageSource.tag,
-  // switchSources.tags) и кладём на `animation-cell-{animId}` / wire-card.
+  // switchSources.tags) и кладём на outer-карточку (см. outerKeyFor) / wire.
   function attachDetailTags(key, tags) {
     if (!tags.length) return
     if (!animations[key]) {
@@ -428,7 +431,7 @@ export function exportProject(graph, paper = null) {
     if (c.slots) for (const v of Object.values(c.slots)) if (v) tags.push(v)
     if (c.voltageSource?.tag) tags.push(c.voltageSource.tag)
     if (c.switchSources?.tags?.length) tags.push(...c.switchSources.tags)
-    attachDetailTags(`animation-cell-${c.animId}`, tags)
+    attachDetailTags(outerKeyFor(c.stencilId, c.animId), tags)
   }
   for (const l of linkExports) {
     const tags = []
@@ -437,10 +440,59 @@ export function exportProject(graph, paper = null) {
     attachDetailTags(l.id, tags)
   }
 
+  // ─── Quality (OPC DA): задекларировать good-диапазон ───
+  // У каждого тега в SCADA-payload есть quality (192-255 = good, 64-191 =
+  // uncertain, 0-63 = bad). IDE заявляет «good рассматриваем, ничего не
+  // меняем» (пустой apply); non-good условия пока не описывает.
+  //
+  // Сейчас выпускаем quality только для cell_qk (короткозамыкатель) и cell_qr
+  // (отделитель) — пилотные стенсилы. Остальные не трогаем (когда понадобится,
+  // расширим QUALITY_STENCILS). text/value-карточки рантайм обрабатывает с
+  // собственной quality-семантикой.
+  const QUALITY_STENCILS = new Set(['cell_qk', 'cell_qr'])
+  const cardsForQuality = new Set()
+  for (const c of cellExports) {
+    if (!QUALITY_STENCILS.has(c.stencilId)) continue
+    const outerKey = outerKeyFor(c.stencilId, c.animId)
+    if (animations[outerKey]) cardsForQuality.add(outerKey)
+    const stencilPrefix = innerPrefixFor(c.stencilId, c.animId)
+    for (const key of Object.keys(animations)) {
+      if (key.startsWith(stencilPrefix)) cardsForQuality.add(key)
+    }
+  }
+  for (const key of cardsForQuality) {
+    const card = animations[key]
+    if (!card || card.animation !== 'shape') continue
+    const bindings = card.bindings || []
+    if (!bindings.length) continue
+    const seen = new Set()
+    const extra = []
+    for (const b of bindings) {
+      if (!b.tag || seen.has(b.tag)) continue
+      seen.add(b.tag)
+      extra.push({
+        tag: b.tag,
+        when: {
+          source: 'quality',
+          type: 'range',
+          cases: [{ min: 192, max: 256, apply: {} }],
+        },
+      })
+    }
+    if (extra.length) card.bindings = [...bindings, ...extra]
+  }
+
   // ─── SVG-фрагменты ───
   // data-tms-meta — авторитет для редактора при загрузке; рантайм игнорирует.
+  // Полный XML attribute-encode (& " < > '), хотя сейчас атрибуты quote'аются
+  // через ", и в JSON.stringify редко встречаются ' и > — но строго по spec'у.
   const escapeAttr = (s) =>
-    String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+    String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
 
   // Линии — первыми (фон), ячейки сверху, чтобы цеплялись к портам
   const lines = linkExports
@@ -485,7 +537,7 @@ export function exportProject(graph, paper = null) {
       // вокруг центра ячейки в её локальных координатах.
       let transform = `translate(${c.x},${c.y})`
       if (c.angle) transform += ` rotate(${c.angle} ${c.width / 2} ${c.height / 2})`
-      return `  <g id="animation-cell-${c.animId}" transform="${transform}" data-tms-stencil="${c.stencilId}" data-tms-meta="${metaAttr}">${inner}</g>`
+      return `  <g id="${outerKeyFor(c.stencilId, c.animId)}" transform="${transform}" data-tms-stencil="${c.stencilId}" data-tms-meta="${metaAttr}">${inner}</g>`
     })
     .join('\n')
 

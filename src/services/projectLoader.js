@@ -77,8 +77,6 @@ export function parseSvgProject(svgText) {
       if (meta.valueTag !== undefined) tms.valueTag = meta.valueTag
       if (meta.voltageSource) tms.voltageSource = meta.voltageSource
       if (meta.switchSources) tms.switchSources = meta.switchSources
-      // Backward-compat: старый формат `switchSource: { tag }` → массив.
-      else if (meta.switchSource?.tag) tms.switchSources = { tags: [meta.switchSource.tag] }
       if (meta.navigation) tms.navigation = meta.navigation
 
       const cellJson = {
@@ -117,11 +115,10 @@ export function parseSvgProject(svgText) {
         source: meta.source,
         target: meta.target,
       }
-      if (meta.voltageSource || meta.switchSources || meta.switchSource) {
+      if (meta.voltageSource || meta.switchSources) {
         link.tms = {}
         if (meta.voltageSource) link.tms.voltageSource = meta.voltageSource
         if (meta.switchSources) link.tms.switchSources = meta.switchSources
-        else if (meta.switchSource?.tag) link.tms.switchSources = { tags: [meta.switchSource.tag] }
       }
       cells.push(link)
     } catch (e) {

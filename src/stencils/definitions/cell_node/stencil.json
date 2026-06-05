@@ -5,6 +5,5 @@
   "shapeFile": "shape.svg",
   "width": 20,
   "height": 20,
-  "ports": [{ "name": "center", "x": 10, "y": 10, "type": "io" }],
-  "animationTemplate": []
+  "ports": [{ "name": "center", "x": 10, "y": 10, "type": "io" }]
 }

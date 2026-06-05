@@ -57,12 +57,10 @@ export function validateStencilJson(path, json) {
     'width',
     'height',
     'minWidth',
-    'resizable',
     'shapeFile',
     'ports',
     'slots',
     'animationTemplate',
-    'defaultText', // cell_text-only
   ])
   for (const key of Object.keys(json)) {
     if (!known.has(key)) {
@@ -100,9 +98,7 @@ const registry = (() => {
   const out = new Map()
 
   for (const [path, json] of Object.entries(jsonModules)) {
-    const folderMatch = path.match(/\/definitions\/([^/]+)\/stencil\.json$/)
-    if (!folderMatch) continue
-    const folder = folderMatch[1]
+    if (!/\/definitions\/[^/]+\/stencil\.json$/.test(path)) continue
 
     if (!json?.id) {
       console.warn(`[stencils] Пропускаю ${path}: отсутствует поле "id"`)
@@ -120,7 +116,6 @@ const registry = (() => {
 
     out.set(json.id, {
       ...json,
-      _folder: folder,
       svgText: svgText || '',
     })
   }

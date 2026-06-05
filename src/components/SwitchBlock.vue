@@ -39,13 +39,13 @@ defineEmits([
   'edit-tag',
 ])
 
-// Единый лейбл — добавление работает одинаково для cell_qw и проводов:
-// одна кнопка «Добавить зависимость», порождает picker switchSources.tags.
-// Кнопка скрывается когда добавлять не от чего (slot пустой + tags пусто).
+// Add-кнопка прячется когда добавлять не от чего (slot пустой + tags пустые) —
+// в этом случае верхний slot-row сам открывает picker. Для wire / standalone
+// switchSources slotInfo не передан, кнопка всегда доступна.
 const addButtonVisible = computed(() => {
-  if (!props.slotInfo) return true // wire / standalone switchSources
-  if (props.slotInfo.value) return true // slot заполнен → можно добавлять зависимости
-  return !!(props.tags && props.tags.length) // sources уже есть
+  if (!props.slotInfo) return true
+  if (props.slotInfo.value) return true
+  return !!(props.tags && props.tags.length)
 })
 
 // AND-подсказка показываем если совокупно > 1 тега.
@@ -55,7 +55,7 @@ const totalTags = computed(() => (props.slotInfo?.value ? 1 : 0) + (props.tags?.
 <template>
   <div class="border border-surface-200 rounded p-3 bg-surface-0">
     <div class="flex items-center gap-2 mb-2">
-      <i class="pi pi-power-off text-cyan-500" aria-hidden="true" />
+      <i class="pi pi-power-off text-cyan-500" />
       <div class="text-xs font-medium text-surface-700">
         {{ title }}
       </div>

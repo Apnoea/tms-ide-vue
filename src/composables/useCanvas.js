@@ -189,9 +189,6 @@ export function useCanvas() {
       )
       selection.value = [...cellItems, ...bridges]
     },
-    setZoomPercent(value) {
-      zoomPercent.value = value
-    },
     setCursorLocal(point) {
       cursorLocal.value = point
     },

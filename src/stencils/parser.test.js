@@ -33,20 +33,22 @@ const stencil = {
 describe('parser.instantiate', () => {
   it('подставляет {slot.X} из slots в bindings', () => {
     const { animations } = instantiate(stencil, 'c1', { onoff: 'PS031VK001.ONOFF' })
-    const card = animations['animation-c1.RZ']
+    const card = animations['animation-cell_test-c1.RZ']
     expect(card).toBeDefined()
     expect(card.bindings[0].tag).toBe('PS031VK001.ONOFF')
   })
 
   it('подставляет {slot.X} в detailTags', () => {
     const { animations } = instantiate(stencil, 'c1', { onoff: 'PS031VK001.ONOFF' })
-    expect(animations['animation-c1.RZ'].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
+    expect(animations['animation-cell_test-c1.RZ'].detailTags).toEqual([
+      { tag: 'PS031VK001.ONOFF' },
+    ])
   })
 
-  it('собирает финальный id="animation-{cellId}{suffix}" в SVG', () => {
+  it('собирает финальный id="animation-{stencilId}-{cellId}{suffix}" в SVG', () => {
     const { svg } = instantiate(stencil, 'c1', { onoff: 'X.Y' })
-    expect(svg).toContain('id="animation-c1.RZ"')
-    expect(svg).toContain('id="animation-c1.RZ-closed"')
+    expect(svg).toContain('id="animation-cell_test-c1.RZ"')
+    expect(svg).toContain('id="animation-cell_test-c1.RZ-closed"')
   })
 
   it('удаляет data-anim-suffix из выходного SVG', () => {
@@ -58,7 +60,7 @@ describe('parser.instantiate', () => {
     // onoff пустой — единственный binding отвалится, карточка не должна попасть
     // в animations (пустой bindings[] в рантайме бессмыслен).
     const { animations } = instantiate(stencil, 'c1', {})
-    expect(animations['animation-c1.RZ']).toBeUndefined()
+    expect(animations['animation-cell_test-c1.RZ']).toBeUndefined()
   })
 
   it('возвращает пустые animations если animationTemplate отсутствует', () => {
@@ -93,7 +95,7 @@ describe('parser.instantiate', () => {
       left: 'OBJ.LEFT',
       right: 'OBJ.RIGHT',
     })
-    const card = animations['animation-c1.A']
+    const card = animations['animation-cell_test-c1.A']
     expect(card.bindings[0].tag).toBe('OBJ.LEFT')
     expect(card.bindings[0].output.text.from).toBe('OBJ.RIGHT')
   })

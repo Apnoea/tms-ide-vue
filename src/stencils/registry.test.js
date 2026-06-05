@@ -29,8 +29,6 @@ describe('validateStencilJson', () => {
         PATH,
         validStencil({
           minWidth: 40,
-          resizable: 'horizontal',
-          defaultText: 'Текст',
           ports: [{ name: 'top', x: 10, y: 0, type: 'io' }],
           slots: [
             {

@@ -27,7 +27,7 @@ defineEmits(['open-tag-picker'])
 <template>
   <div class="border border-surface-200 rounded p-3 bg-surface-0">
     <div class="flex items-center gap-2 mb-2">
-      <i class="pi pi-bell text-amber-500" aria-hidden="true" />
+      <i class="pi pi-bell text-amber-500" />
       <div class="text-xs font-medium text-surface-700">Аварийный сигнал</div>
       <Tag
         v-if="alarmSlot.tagSuffix"

@@ -10,7 +10,7 @@ import { ANIMATION_CLASS_COLORS } from '../constants/animation'
  * управляет включением/выключением — это делает родитель через кнопки add/remove
  * на уровне unified-блока «АНИМАЦИИ».
  *
- * Эмитит intent'ы (openTagPicker/updateRange/applyToAll/remove). Состоянием
+ * Эмитит intent'ы (openTagPicker/updateRange/highlight/remove). Состоянием
  * (объектом voltageSource) владеет родитель — мы только рендерим и зовём.
  */
 defineProps({
@@ -27,7 +27,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
 <template>
   <div class="border border-surface-200 rounded p-3 bg-surface-0">
     <div class="flex items-center gap-2 mb-2">
-      <i class="pi pi-bolt text-yellow-500" aria-hidden="true" />
+      <i class="pi pi-bolt text-yellow-500" />
       <div class="text-xs font-medium text-surface-700">Источник напряжения</div>
       <Button
         v-tooltip.bottom="'Удалить анимацию'"
@@ -57,6 +57,16 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
           >
             {{ voltageSource.tag || '— не выбран —' }}
           </code>
+          <Button
+            v-if="voltageSource.tag"
+            v-tooltip.bottom="'Подсветить на схеме'"
+            icon="pi pi-search-plus"
+            severity="secondary"
+            text
+            size="small"
+            class="!p-1 !w-6 !h-6"
+            @click="$emit('highlight')"
+          />
         </div>
       </div>
 
@@ -95,7 +105,6 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
                   <span
                     class="w-3 h-3 rounded-sm flex-shrink-0 border border-surface-300"
                     :style="{ background: CLASS_COLORS[value] || 'transparent' }"
-                    aria-hidden="true"
                   />
                   <span class="truncate">{{ value }}</span>
                 </span>
@@ -105,7 +114,6 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
                   <span
                     class="w-3 h-3 rounded-sm flex-shrink-0 border border-surface-300"
                     :style="{ background: CLASS_COLORS[option] || 'transparent' }"
-                    aria-hidden="true"
                   />
                   {{ option }}
                 </span>
@@ -114,16 +122,6 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
           </div>
         </div>
       </div>
-
-      <Button
-        label="Подсветить на схеме"
-        icon="pi pi-search-plus"
-        severity="secondary"
-        size="small"
-        class="w-full"
-        :disabled="!voltageSource.tag"
-        @click="$emit('highlight')"
-      />
     </div>
   </div>
 </template>

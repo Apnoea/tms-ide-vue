@@ -26,14 +26,14 @@ const SIM_CYCLE_MS = 1500
  *
  * Возвращает:
  *  • `simulating` — Ref<boolean> для template (`:class`/`:icon`)
- *  • `toggleSimulation` / `startSimulation` / `stopSimulation`
+ *  • `toggleSimulation`
  */
 export function useSimulation() {
   const canvas = useCanvas()
   const toast = useToast()
   const simulating = ref(false)
   let simIntervalId = null
-  let simCssInjected = false
+  const SIM_CSS_ID = 'tms-sim-css'
 
   function pickRandomVoltageClass() {
     // null = пропустить (тег «нейтральный»). Доля null = 1/(N+1).
@@ -49,9 +49,11 @@ export function useSimulation() {
   }
 
   function injectSimulationCss() {
-    if (simCssInjected) return
+    // Проверяем по id, а не флагу — флаг локален к instance композабла,
+    // а после HMR/re-mount instance новый, но <style> в DOM уже есть.
+    if (document.getElementById(SIM_CSS_ID)) return
     const style = document.createElement('style')
-    style.id = 'tms-sim-css'
+    style.id = SIM_CSS_ID
     // Исключения для voltage-stroke селектора:
     // [joint-selector="wrapper"] — у standard.Link широкий невидимый path для
     // хитбокса; без exclusion с !important становится окрашен и толст.
@@ -78,7 +80,6 @@ export function useSimulation() {
 .tms-simulating .animation-off.tms-voltage-fill { fill: ${ANIMATION_OFF_COLOR} !important; }`
     style.textContent = voltageRules + '\n' + boolRules
     document.head.appendChild(style)
-    simCssInjected = true
   }
 
   /** Снимает все sim-классы — voltage с outer-g, animation-hidden/off с descendants. */
@@ -141,9 +142,10 @@ export function useSimulation() {
     }
 
     // Bool-биндинги стенсильного template: для КАЖДОГО binding'а резолвим тег
-    // ({slot.X} → tms.slots[X]), смотрим rolling state. Если тег в false-фазе —
-    // применяем false-классы из биндинга. Несколько биндингов на одном теге
-    // (например .QW + .QW-cross у cell_qw) переключаются согласованно.
+    // ({slot.X} → tms.slots[X]), смотрим rolling state и применяем класс
+    // соответствующего case'а (true или false). Несколько биндингов на одном
+    // теге (например .QW + .QW-cross у cell_qw или .QR-closed + .QR-open у
+    // cell_qr) переключаются согласованно.
     for (const cell of graph.getElements()) {
       const tms = cell.get('tms') || {}
       const stencil = getStencilById(tms.stencilId)
@@ -151,14 +153,16 @@ export function useSimulation() {
       const view = paper.findViewByModel(cell)
       if (!view?.el) continue
       for (const tpl of stencil.animationTemplate) {
-        const targetId = `animation-${cell.id}${tpl.idSuffix || ''}`
+        const targetId = `animation-${stencil.id}-${cell.id}${tpl.idSuffix || ''}`
         const el = view.el.querySelector(`[id="${targetId}"]`)
         if (!el) continue
         for (const binding of tpl.bindings || []) {
           const tag = resolveBindingTag(binding.tag, tms)
           if (!tag) continue
-          if (!boolFalseFor(tag)) continue // true-фаза → пропускаем
-          const cls = binding.when?.cases?.false?.apply?.addClass
+          const cases = binding.when?.cases
+          if (!cases || typeof cases !== 'object') continue
+          const stateKey = boolFalseFor(tag) ? 'false' : 'true'
+          const cls = cases[stateKey]?.apply?.addClass
           if (cls) el.classList.add(cls)
         }
       }
@@ -201,11 +205,13 @@ export function useSimulation() {
     }
   }
 
-  // Cleanup на unmount компонента — освобождаем таймер.
+  // Cleanup на unmount компонента — освобождаем таймер и снимаем sim-классы
+  // с view'ев (иначе классы зависают на cell'ах после HMR / re-mount'а).
   onBeforeUnmount(() => {
     clearInterval(simIntervalId)
     simIntervalId = null
+    if (simulating.value) clearSimClasses()
   })
 
-  return { simulating, startSimulation, stopSimulation, toggleSimulation }
+  return { simulating, toggleSimulation }
 }

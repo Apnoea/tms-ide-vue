@@ -71,7 +71,7 @@ function onKeyDown(event) {
     @mousedown.stop
     @click.stop
   >
-    <i class="pi pi-search text-surface-400 text-xs" aria-hidden="true" />
+    <i class="pi pi-search text-surface-400 text-xs" />
     <InputText
       ref="inputRef"
       v-model="query"

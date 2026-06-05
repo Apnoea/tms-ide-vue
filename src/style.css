@@ -102,31 +102,11 @@ body,
 
 /* PrimeVue Splitter gutter имеет tabindex="0" и рисует focus-ring рядом
    с панелью палитры/инспектора — выглядит как обводка соседнего aside.
-   Сейчас accessibility-keyboard-resize не используется, скрываем кольцо. */
+   Skip-keyboard-resize у нас нет, скрываем кольцо. */
 .p-splitter-gutter:focus,
 .p-splitter-gutter:focus-visible,
 .p-splitterpanel:focus,
 .p-splitterpanel:focus-visible {
-  outline: none !important;
-  box-shadow: none !important;
-}
-
-/* Единый focus-visible-outline в primary-цвете для нативных кнопок (footer help)
-   и карточек палитры (role=button + tabindex). PrimeVue компоненты ведут себя сами. */
-button:focus-visible,
-[role='button'][tabindex]:focus-visible {
-  outline: 2px solid var(--p-primary-500);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-/* Close-кнопки PrimeVue (Toast × и Dialog ×) — у них свой hover/focus-фон,
-   наш общий button:focus-visible тут даёт двойной outline и торчит чёрной
-   рамкой. Гасим прицельно. */
-.p-toast-close-button:focus,
-.p-toast-close-button:focus-visible,
-.p-dialog-close-button:focus,
-.p-dialog-close-button:focus-visible {
   outline: none !important;
   box-shadow: none !important;
 }

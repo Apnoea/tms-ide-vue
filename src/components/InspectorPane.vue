@@ -44,6 +44,11 @@ function isLayoutOnly(stencilId) {
   return LAYOUT_ONLY_STENCILS.has(stencilId)
 }
 
+// Стенсилы с required-слотом .ONOFF, который семантически идентичен выключателю:
+// рендерим в Inspector через SwitchBlock в intrinsic-режиме (с возможностью
+// добавлять родительские switchSources поверх собственного onoff).
+const SWITCH_STENCILS = new Set(['cell_qw', 'cell_qr', 'cell_qk'])
+
 const canvas = useCanvas()
 const project = useProjectStore()
 const ui = useUiStore()
@@ -80,11 +85,12 @@ const details = computed(() => {
       // bell-иконкой, без отдельной строки в «Привязки тегов»). Switch-source для
       // тревоги бессмыслен — кнопку «Выключатель» прячем тоже.
       isAlarm: tms.stencilId === 'cell_alr',
-      // cell_qw — аналогично, через тот же SwitchBlock но в intrinsic-режиме
-      // (removable=false, обёртывает slot.onoff). Switch-source-кнопка
-      // у выключателя дублировала бы тот же .ONOFF, который уже выбран в слоте,
-      // поэтому тоже скрываем (для проводов и других ячеек она остаётся доступной).
-      isSwitch: tms.stencilId === 'cell_qw',
+      // cell_qw / cell_qr / cell_qk — slot.onoff рендерится через SwitchBlock
+      // в intrinsic-режиме (общий «блок выключателя» вместо отдельной строки
+      // в «Привязках тегов»). Switch-source-кнопка у такой ячейки дублировала
+      // бы её собственный .ONOFF, поэтому общий add-flow тоже отдаём через
+      // SwitchBlock (см. onAddSwitchTag).
+      isSwitch: SWITCH_STENCILS.has(tms.stencilId),
       // Слоты для UI: декларация из стенсила + текущее значение из tms.slots.
       // tagSuffix — фильтр для picker'а (показывать только теги с .SUFFIX).
       // tooltip — встроенные правила анимации для этого слота (см. buildSlotTooltip),
@@ -333,11 +339,10 @@ const patchVoltageSource = (patch) => patchTmsField('voltageSource', patch)
 const patchSwitchSources = (patch) => patchTmsField('switchSources', patch)
 
 function addVoltageSource() {
-  // Включение: ставим дефолтные диапазоны и пустой тег (юзер выберет через picker).
-  patchVoltageSource({
-    tag: '',
-    ranges: VOLTAGE_RANGE_DEFAULTS.map((r) => ({ ...r })),
-  })
+  // Сразу picker — onPickTag создаст voltageSource с тегом и дефолтными
+  // диапазонами. Раньше тут была пустая карточка, юзер потом отдельно кликал
+  // «выбрать тег» — лишний шаг.
+  tagPickerOpen.value = true
 }
 
 function removeVoltageSource() {
@@ -345,7 +350,17 @@ function removeVoltageSource() {
 }
 
 function onPickTag(tag) {
-  patchVoltageSource({ tag })
+  // Если voltageSource ещё не существует (add-flow без созданной карточки),
+  // создаём её с дефолтными диапазонами; иначе обновляем только тег.
+  const d = details.value
+  if (d?.voltageSource) {
+    patchVoltageSource({ tag })
+  } else {
+    patchVoltageSource({
+      tag,
+      ranges: VOLTAGE_RANGE_DEFAULTS.map((r) => ({ ...r })),
+    })
+  }
 }
 
 function updateRange(idx, field, value) {
@@ -430,9 +445,10 @@ const multiSwitchTagPickerOpen = ref(false)
 const editingSwitchTagIdx = ref(null)
 
 function addSwitchSources() {
+  // Сразу picker — onPickSwitchTag создаст switchSources с выбранным тегом
+  // (через patchTmsField, который при отсутствии поля создаёт его на лету).
   editingSwitchTagIdx.value = null
-  // Создаём пустой контейнер; picker откроется отдельной кнопкой «+ Выбрать тег».
-  patchSwitchSources({ tags: [] })
+  switchTagPickerOpen.value = true
 }
 
 /**
@@ -517,9 +533,9 @@ function onPickMultiSwitchTag(tag) {
       skipped++
       continue
     }
-    // cell_qw не должен зависеть от своего же тега — слот.onoff уже отвечает
-    // за крестик + animation-off, дубль в switchSources бессмыслен.
-    if (tms.stencilId === 'cell_qw' && tms.slots?.onoff === tag) {
+    // cell_qw / cell_qr / cell_qk не должны зависеть от своего же тега — slot.onoff
+    // уже отвечает за переключение позиции, дубль в switchSources бессмыслен.
+    if (SWITCH_STENCILS.has(tms.stencilId) && tms.slots?.onoff === tag) {
       skipped++
       continue
     }
@@ -708,45 +724,33 @@ const switchPickerTags = computed(() => {
             </p>
           </div>
 
-          <div>
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
-              Привязка к выключателю
+          <!-- Multi-select: голые add-кнопки в том же стиле что single Inspector
+               add-секция. Карточка не рисуется — у выделения нет общего состояния
+               (тег / диапазоны), показывать в карточке нечего. -->
+          <div class="space-y-2">
+            <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
+            <div class="flex flex-col gap-2">
+              <Button
+                label="Выключатель"
+                icon="pi pi-plus"
+                severity="secondary"
+                size="small"
+                outlined
+                :disabled="!project.tags.length"
+                @click="multiSwitchTagPickerOpen = true"
+              />
+              <Button
+                label="Источник напряжения"
+                icon="pi pi-plus"
+                severity="secondary"
+                size="small"
+                outlined
+                :disabled="!project.tags.length"
+                @click="multiVoltageTagPickerOpen = true"
+              />
             </div>
-            <Button
-              label="Привязать выключатель к выделению…"
-              icon="pi pi-power-off"
-              severity="secondary"
-              size="small"
-              class="w-full"
-              :disabled="!project.tags.length"
-              @click="multiSwitchTagPickerOpen = true"
-            />
-            <p v-if="!project.tags.length" class="text-[11px] text-surface-400 mt-1">
+            <p v-if="!project.tags.length" class="text-[11px] text-surface-400">
               Загрузи tag-list, чтобы выбрать тег
-            </p>
-            <p v-else class="text-[11px] text-surface-500 mt-1">
-              При значении тега = false элементы окрасятся в серый (animation-off)
-            </p>
-          </div>
-
-          <div>
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
-              Источник напряжения
-            </div>
-            <Button
-              label="Привязать тег к выделению…"
-              icon="pi pi-bolt"
-              severity="secondary"
-              size="small"
-              class="w-full"
-              :disabled="!project.tags.length"
-              @click="multiVoltageTagPickerOpen = true"
-            />
-            <p v-if="!project.tags.length" class="text-[11px] text-surface-400 mt-1">
-              Загрузи tag-list, чтобы выбрать тег
-            </p>
-            <p v-else class="text-[11px] text-surface-500 mt-1">
-              Привяжет тег и дефолтные диапазоны ко всем выделенным элементам
             </p>
           </div>
 
@@ -940,7 +944,6 @@ const switchPickerTags = computed(() => {
                     v-if="slot.tooltip"
                     v-tooltip.bottom="slot.tooltip"
                     class="pi pi-info-circle text-surface-400 cursor-help text-[11px]"
-                    aria-label="Поведение анимации этого слота"
                   />
                   <!-- tagSuffix-чип — даёт юзеру понимание «этот слот ждёт тег с
  суффиксом .ONOFF» сразу, без открытия picker'а. type
@@ -1015,7 +1018,7 @@ const switchPickerTags = computed(() => {
               <code class="px-2 py-1 bg-surface-100 rounded text-xs font-mono truncate">
                 {{ details.sourceLabel }} · {{ details.sourcePort }}
               </code>
-              <i class="pi pi-arrow-right text-surface-400 text-[10px]" aria-hidden="true" />
+              <i class="pi pi-arrow-right text-surface-400 text-[10px]" />
               <code class="px-2 py-1 bg-surface-100 rounded text-xs font-mono truncate">
                 {{ details.targetLabel }} · {{ details.targetPort }}
               </code>

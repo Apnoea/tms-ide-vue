@@ -62,33 +62,33 @@ describe('exportProject', () => {
     expect(result.svgText).toContain('data-tms-stencil="cell_qw"')
     expect(result.svgText).toContain('data-tms-meta=')
     // Outer-wrapper id и стенсильные карточки — все по cellId
-    expect(result.svgText).toContain('animation-cell-c1')
+    expect(result.svgText).toContain('animation-cell_qw-c1')
 
     const anims = result.animations.animations
-    expect(anims).toHaveProperty('animation-c1.QW')
-    expect(anims).toHaveProperty('animation-c1.QW-cross')
+    expect(anims).toHaveProperty('animation-cell_qw-c1.QW')
+    expect(anims).toHaveProperty('animation-cell_qw-c1.QW-cross')
     // Биндинг тега из slot.onoff — подставлен в шаблоны стенсила
-    expect(anims['animation-c1.QW'].bindings[0].tag).toBe('PS031VK001.ONOFF')
+    expect(anims['animation-cell_qw-c1.QW'].bindings[0].tag).toBe('PS031VK001.ONOFF')
 
     // slot.onoff неявно даёт animation-off биндинг на outer-wrapper:
     // крестик переключается (стенсильный .QW / .QW-cross) И ячейка серая
     // на false без ручного добавления switchSources.
-    expect(anims).toHaveProperty('animation-cell-c1')
-    const outerOff = anims['animation-cell-c1'].bindings.find(
+    expect(anims).toHaveProperty('animation-cell_qw-c1')
+    const outerOff = anims['animation-cell_qw-c1'].bindings.find(
       (b) =>
         b.tag === 'PS031VK001.ONOFF' && b.when?.cases?.false?.apply?.addClass === 'animation-off'
     )
     expect(outerOff).toBeDefined()
     // На .QW animation-off уже эмитится стенсильным шаблоном — outer-merge не
     // нужен (избежать дубля). Проверяем, что биндинг РОВНО один.
-    const vkOffBindings = anims['animation-c1.QW'].bindings.filter(
+    const vkOffBindings = anims['animation-cell_qw-c1.QW'].bindings.filter(
       (b) =>
         b.tag === 'PS031VK001.ONOFF' && b.when?.cases?.false?.apply?.addClass === 'animation-off'
     )
     expect(vkOffBindings).toHaveLength(1)
 
     // detailTags на outer-wrapper — рантайм откроет popup при клике на ячейку
-    expect(anims['animation-cell-c1'].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
+    expect(anims['animation-cell_qw-c1'].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
   })
 
   it('cell_qw без slots: карточки анимаций НЕ эмитятся (нет привязки = нет анимации)', () => {
@@ -96,13 +96,30 @@ describe('exportProject', () => {
       mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 }),
     ])
     const anims = exportProject(graph).animations.animations
-    expect(anims['animation-c1.QW']).toBeUndefined()
-    expect(anims['animation-c1.QW-cross']).toBeUndefined()
+    expect(anims['animation-cell_qw-c1.QW']).toBeUndefined()
+    expect(anims['animation-cell_qw-c1.QW-cross']).toBeUndefined()
     // Без slot.onoff intrinsic-switch не эмитит animation-off
-    expect(anims['animation-cell-c1']).toBeUndefined()
+    expect(anims['animation-cell_qw-c1']).toBeUndefined()
   })
 
-  it('cell_value с valueTag: id и animation key из тега', () => {
+  it('cell_value с дефисом в теге: animId = valueTag целиком (не режется по `-`)', () => {
+    const graph = mockGraph([
+      mockCell({
+        id: 'c1',
+        stencilId: 'cell_value',
+        valueTag: 'MY-TAG.IA',
+        w: 100,
+        h: 18,
+      }),
+    ])
+    const result = exportProject(graph)
+    // shortenId('MY-TAG.IA') split'нул бы по '-' и вернул 'MY' — рантайм не нашёл
+    // бы text-карточку. Для cell_value мы используем valueTag целиком.
+    expect(result.svgText).toContain('animation-cell-MY-TAG.IA')
+    expect(result.animations.animations).toHaveProperty('animation-MY-TAG.IA')
+  })
+
+  it('cell_value с valueTag: id и animation key из тега (рантайм-конвенция, префикс animation-cell-)', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
@@ -113,7 +130,8 @@ describe('exportProject', () => {
       }),
     ])
     const result = exportProject(graph)
-    // outer wrapper использует valueTag как идентификатор (рантайм-конвенция)
+    // outer wrapper использует valueTag как идентификатор (рантайм-конвенция),
+    // префикс animation-cell- сохраняется — cell_value по семантике рантайма.
     expect(result.svgText).toContain('animation-cell-PS031VV001.IA')
     expect(result.animations.animations).toHaveProperty('animation-PS031VV001.IA')
     const card = result.animations.animations['animation-PS031VV001.IA']
@@ -121,7 +139,7 @@ describe('exportProject', () => {
     expect(card.bindings[0].tag).toBe('PS031VV001.IA')
   })
 
-  it('voltageSource на ячейке → карточка animation-cell-{cellId} + merge в стенсильные', () => {
+  it('voltageSource на ячейке → карточка outer + merge в стенсильные', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
@@ -137,10 +155,10 @@ describe('exportProject', () => {
       }),
     ])
     const anims = exportProject(graph).animations.animations
-    expect(anims).toHaveProperty('animation-cell-c1')
-    expect(anims['animation-cell-c1'].bindings[0].tag).toBe('PS031.UA')
+    expect(anims).toHaveProperty('animation-cell_qw-c1')
+    expect(anims['animation-cell_qw-c1'].bindings[0].tag).toBe('PS031.UA')
     // voltage биндинг МЕРЖИТСЯ в .QW / .QW-cross
-    const vkBindings = anims['animation-c1.QW'].bindings
+    const vkBindings = anims['animation-cell_qw-c1.QW'].bindings
     expect(vkBindings.some((b) => b.tag === 'PS031.UA')).toBe(true)
   })
 
@@ -156,7 +174,7 @@ describe('exportProject', () => {
       }),
     ])
     const anims = exportProject(graph).animations.animations
-    const bindings = anims['animation-cell-c1'].bindings
+    const bindings = anims['animation-cell_qw-c1'].bindings
     const offBindings = bindings.filter(
       (b) => b.when?.cases?.false?.apply?.addClass === 'animation-off'
     )
@@ -167,7 +185,7 @@ describe('exportProject', () => {
     // На .QW: 1 стенсильный (slot.onoff) + 2 от switchSources родителей =
     // 3 биндинга animation-off. slot.onoff в outer-merge НЕ задваивается
     // (стенсильный шаблон уже эмитит этот тег прямо в .QW).
-    const vkBindings = anims['animation-c1.QW'].bindings
+    const vkBindings = anims['animation-cell_qw-c1.QW'].bindings
     const vkOff = vkBindings.filter(
       (b) => b.when?.cases?.false?.apply?.addClass === 'animation-off'
     )
@@ -196,7 +214,7 @@ describe('exportProject', () => {
     expect(anims[wireKey].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
   })
 
-  it('navigation: создаёт animation-cell-{id} с полем navigation + round-trip через data-tms-meta', () => {
+  it('navigation: создаёт outer-карточку с полем navigation + round-trip через data-tms-meta', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
@@ -207,8 +225,8 @@ describe('exportProject', () => {
     ])
     const exported = exportProject(graph)
     const anims = exported.animations.animations
-    expect(anims).toHaveProperty('animation-cell-c1')
-    expect(anims['animation-cell-c1'].navigation).toBe('view_substation_a')
+    expect(anims).toHaveProperty('animation-cell_qw-c1')
+    expect(anims['animation-cell_qw-c1'].navigation).toBe('view_substation_a')
 
     // Round-trip: navigation должен попасть в data-tms-meta и восстановиться
     const parsed = parseSvgProject(exported.svgText)
@@ -231,11 +249,88 @@ describe('exportProject', () => {
     ])
     const anims = exportProject(graph).animations.animations
     // shortenId('b1') = 'b1' (без дефисов)
-    expect(anims['animation-cell-b1']).toEqual({
+    expect(anims['animation-cell_bus-b1']).toEqual({
       animation: 'shape',
       bindings: [],
       navigation: 'view_other',
     })
+  })
+
+  it('cell_qr с slot.onoff: .QR-closed (cases.false→hidden) и .QR-open (cases.true→hidden)', () => {
+    const graph = mockGraph([
+      mockCell({
+        id: 'c1',
+        stencilId: 'cell_qr',
+        slots: { onoff: 'TAG.ONOFF' },
+        w: 20,
+        h: 40,
+      }),
+    ])
+    const exported = exportProject(graph)
+    const anims = exported.animations.animations
+
+    // Две карточки на двух SVG-линиях
+    expect(anims).toHaveProperty('animation-cell_qr-c1.QR-closed')
+    expect(anims).toHaveProperty('animation-cell_qr-c1.QR-open')
+
+    // .QR-closed: hidden при value=false
+    const closedBinding = anims['animation-cell_qr-c1.QR-closed'].bindings.find(
+      (b) => b.when?.source === 'value'
+    )
+    expect(closedBinding?.tag).toBe('TAG.ONOFF')
+    expect(closedBinding?.when?.cases?.false?.apply?.addClass).toBe('animation-hidden')
+
+    // .QR-open: hidden при value=true
+    const openBinding = anims['animation-cell_qr-c1.QR-open'].bindings.find(
+      (b) => b.when?.source === 'value'
+    )
+    expect(openBinding?.tag).toBe('TAG.ONOFF')
+    expect(openBinding?.when?.cases?.true?.apply?.addClass).toBe('animation-hidden')
+
+    // В SVG обе линии получили id, по которым их найдёт WebScada
+    expect(exported.svgText).toContain('id="animation-cell_qr-c1.QR-closed"')
+    expect(exported.svgText).toContain('id="animation-cell_qr-c1.QR-open"')
+  })
+
+  it('quality: cell_qk/cell_qr получают good-биндинг для каждого уникального тега', () => {
+    const graph = mockGraph([
+      mockCell({
+        id: 'c1',
+        stencilId: 'cell_qk',
+        switchSources: { tags: ['ОБЩИЙ.ONOFF'] },
+        voltageSource: {
+          tag: 'PS031.UA',
+          ranges: [{ min: 0, max: 5, class: 'animation-low' }],
+        },
+      }),
+    ])
+    const outer = exportProject(graph).animations.animations['animation-cell_qk-c1']
+    const qBindings = outer.bindings.filter((b) => b.when?.source === 'quality')
+    // По одному quality-биндингу на уникальный тег
+    expect(qBindings.map((b) => b.tag).sort()).toEqual(['PS031.UA', 'ОБЩИЙ.ONOFF'].sort())
+    // Good-диапазон 192+, apply пустой (ничего не меняем)
+    for (const b of qBindings) {
+      expect(b.when.type).toBe('range')
+      expect(b.when.cases).toEqual([{ min: 192, max: 256, apply: {} }])
+    }
+  })
+
+  it('quality: остальные стенсилы (cell_qw и т.п.) quality-биндингов НЕ получают', () => {
+    const graph = mockGraph([
+      mockCell({
+        id: 'c1',
+        stencilId: 'cell_qw',
+        slots: { onoff: 'LOCAL.ONOFF' },
+        voltageSource: {
+          tag: 'PS031.UA',
+          ranges: [{ min: 0, max: 5, class: 'animation-low' }],
+        },
+      }),
+    ])
+    const anims = exportProject(graph).animations.animations
+    for (const card of Object.values(anims)) {
+      expect(card.bindings?.every((b) => b.when?.source !== 'quality')).toBe(true)
+    }
   })
 
   it('экспорт + load round-trip: cells сохраняют tms.slots и position', () => {

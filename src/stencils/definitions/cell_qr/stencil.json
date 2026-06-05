@@ -3,6 +3,16 @@
   "label": "Отделитель",
   "category": "Коммутация",
 
+  "slots": [
+    {
+      "key": "onoff",
+      "label": "Основной выключатель",
+      "type": "Boolean",
+      "required": false,
+      "tagSuffix": ".ONOFF"
+    }
+  ],
+
   "shapeFile": "shape.svg",
   "width": 20,
   "height": 40,
@@ -11,5 +21,40 @@
     { "name": "bottom", "x": 10, "y": 40, "type": "io" }
   ],
 
-  "animationTemplate": []
+  "animationTemplate": [
+    {
+      "idSuffix": ".QR-closed",
+      "type": "shape",
+      "bindings": [
+        {
+          "tag": "{slot.onoff}",
+          "when": {
+            "source": "value",
+            "type": "map",
+            "cases": {
+              "false": { "apply": { "addClass": "animation-hidden" } }
+            }
+          }
+        }
+      ],
+      "detailTags": [{ "tag": "{slot.onoff}" }]
+    },
+    {
+      "idSuffix": ".QR-open",
+      "type": "shape",
+      "bindings": [
+        {
+          "tag": "{slot.onoff}",
+          "when": {
+            "source": "value",
+            "type": "map",
+            "cases": {
+              "true": { "apply": { "addClass": "animation-hidden" } }
+            }
+          }
+        }
+      ],
+      "detailTags": [{ "tag": "{slot.onoff}" }]
+    }
+  ]
 }

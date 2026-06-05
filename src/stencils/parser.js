@@ -111,9 +111,10 @@ function hasUnresolved(node) {
  * Карточки/биндинги с неразрешёнными {slot.X} (юзер не выбрал тег) — отбрасываются.
  *
  * @param {object} stencil — определение стенсила (из stencil.json)
- * @param {string} cellId  — id ячейки на холсте, основа SVG-id ('animation-{cellId}.X')
+ * @param {string} cellId  — id ячейки на холсте, входит в SVG-id вместе со stencil.id
  * @param {object} slots   — карта slot.key → выбранный тег (из tms.slots)
- * @returns {Object<string, object>} карточки в формате { 'animation-CELLID[.suffix]': cardConfig }
+ * @returns {Object<string, object>} карточки в формате
+ *   { 'animation-{stencilId}-{cellId}[.suffix]': cardConfig }
  */
 function generateAnimations(stencil, cellId, slots) {
   if (!stencil?.animationTemplate) return {}
@@ -129,7 +130,7 @@ function generateAnimations(stencil, cellId, slots) {
     // тоже не эмитим: пустой bindings[] в рантайме бессмыслен.
     if (bindings.length === 0) continue
 
-    const finalId = `animation-${cellId}${tpl.idSuffix || ''}`
+    const finalId = `animation-${stencil.id}-${cellId}${tpl.idSuffix || ''}`
     const card = { animation: tpl.type, bindings }
     if (tpl.detailTags) {
       const dt = interpolateDeep(tpl.detailTags, slots)
@@ -145,15 +146,16 @@ function generateAnimations(stencil, cellId, slots) {
 }
 
 /**
- * Заменяет data-anim-suffix="..." на id="animation-{cellId}{suffix}" в SVG.
- * Атрибут data-anim-suffix удаляется — итоговый SVG чист и готов к использованию
- * в WebScada-рантайме / Inkscape.
+ * Заменяет data-anim-suffix="..." на id="animation-{stencilId}-{cellId}{suffix}"
+ * в SVG. Атрибут data-anim-suffix удаляется — итоговый SVG чист и готов к
+ * использованию в WebScada-рантайме / Inkscape.
  *
- * @param {string} svgText — содержимое shape.svg
- * @param {string} cellId  — id ячейки, основа для финальных SVG-id'шников
+ * @param {string} svgText   — содержимое shape.svg
+ * @param {string} cellId    — короткий id ячейки на холсте
+ * @param {string} stencilId — id стенсила (входит в префикс)
  * @returns {string} новая SVG-разметка
  */
-function injectIds(svgText, cellId) {
+function injectIds(svgText, cellId, stencilId) {
   if (typeof DOMParser === 'undefined') {
     throw new Error('injectIds: DOMParser недоступен (среда — не браузер?)')
   }
@@ -168,7 +170,7 @@ function injectIds(svgText, cellId) {
   const els = doc.querySelectorAll('[data-anim-suffix]')
   for (const el of els) {
     const suffix = el.getAttribute('data-anim-suffix') || ''
-    el.setAttribute('id', `animation-${cellId}${suffix}`)
+    el.setAttribute('id', `animation-${stencilId}-${cellId}${suffix}`)
     el.removeAttribute('data-anim-suffix')
   }
 
@@ -180,12 +182,12 @@ function injectIds(svgText, cellId) {
  * финальный SVG с проставленными id'шниками.
  *
  * @param {object} stencil — определение стенсила из реестра
- * @param {string} cellId  — id ячейки на холсте (основа для animation-id'ов)
+ * @param {string} cellId  — короткий id ячейки на холсте
  * @param {object} [slots] — карта slot.key → tag из tms.slots (по умолчанию {})
  */
 export function instantiate(stencil, cellId, slots = {}) {
   return {
     animations: generateAnimations(stencil, cellId, slots),
-    svg: stencil.svgText ? injectIds(stencil.svgText, cellId) : null,
+    svg: stencil.svgText ? injectIds(stencil.svgText, cellId, stencil.id) : null,
   }
 }

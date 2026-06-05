@@ -7,9 +7,6 @@
   "width": 80,
   "height": 8,
   "minWidth": 40,
-  "resizable": "horizontal",
 
-  "ports": [],
-
-  "animationTemplate": []
+  "ports": []
 }

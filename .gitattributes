@@ -1,0 +1,16 @@
+# Нормализуем переносы строк: в репозитории всегда LF, в рабочем дереве —
+# нативные для ОС. Убирает шум «LF will be replaced by CRLF» на Windows.
+* text=auto eol=lf
+
+# Бинарные / не текстовые — не трогать.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.bundle binary
+*.zip binary

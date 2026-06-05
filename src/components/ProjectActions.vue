@@ -251,7 +251,6 @@ async function refreshTagList() {
       severity="secondary"
       text
       size="small"
-      aria-label="Открыть"
       @click="openProjectSvg"
     />
     <Button
@@ -260,7 +259,6 @@ async function refreshTagList() {
       severity="secondary"
       text
       size="small"
-      aria-label="Сохранить"
       @click="canvas.exportProject"
     />
 
@@ -273,7 +271,6 @@ async function refreshTagList() {
       :text="tags.length ? true : false"
       size="small"
       :label="tags.length ? undefined : 'Tag-list'"
-      :aria-label="tags.length ? `Tag-list: ${tags.length} тегов` : 'Загрузить tag-list'"
       @click="pickTagList"
     />
     <Button
@@ -284,7 +281,6 @@ async function refreshTagList() {
       text
       rounded
       size="small"
-      aria-label="Обновить tag-list"
       @click="refreshTagList"
     />
     <Button
@@ -295,7 +291,6 @@ async function refreshTagList() {
       text
       rounded
       size="small"
-      aria-label="Сбросить tag-list"
       @click="unloadTagList"
     />
   </div>

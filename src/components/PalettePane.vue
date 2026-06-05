@@ -83,13 +83,11 @@ function onStencilPointerDown(event, stencil) {
 }
 
 /**
- * Tooltip: увеличенное превью SVG + id (внутренний, оператору не нужен в
- * самой плашке, но при наведении удобно увидеть).
+ * Tooltip: только увеличенное превью SVG. id юзер видит прямо в строке
+ * стенсила (под label), поэтому в tooltip его не дублируем.
  */
 function stencilTooltip(stencil) {
-  const value =
-    `<div class="tms-stencil-zoom">${stencil.svgText || ''}</div>` +
-    `<div class="tms-stencil-id">${stencil.id}</div>`
+  const value = `<div class="tms-stencil-zoom">${stencil.svgText || ''}</div>`
   return { value, escape: false, showDelay: 400 }
 }
 </script>
@@ -148,9 +146,6 @@ function stencilTooltip(stencil) {
               :key="stencil.id"
               class="group flex items-center gap-3 p-2 rounded hover:bg-surface-100 cursor-grab active:cursor-grabbing select-none"
               v-tooltip.right="stencilTooltip(stencil)"
-              :aria-label="`Перетащить стенсил ${stencil.label} на холст`"
-              role="button"
-              tabindex="0"
               @pointerdown="onStencilPointerDown($event, stencil)"
             >
               <div
@@ -160,6 +155,9 @@ function stencilTooltip(stencil) {
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-medium text-surface-900 truncate">
                   {{ stencil.label }}
+                </div>
+                <div class="text-[10px] font-mono text-surface-400 truncate">
+                  {{ stencil.id }}
                 </div>
               </div>
             </div>
@@ -189,13 +187,6 @@ function stencilTooltip(stencil) {
   width: 100%;
   height: 100%;
   display: block;
-}
-.tms-stencil-id {
-  margin-top: 4px;
-  text-align: center;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
-  opacity: 0.7;
 }
 /* По дефолту .p-tooltip-text имеет асимметричный padding (4/8) — для
  зум-превью переопределяем на равномерный, иначе сверху «съедается». */

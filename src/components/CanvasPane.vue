@@ -206,14 +206,19 @@ onMounted(async () => {
   // Capture-phase mousedown для resize шины — раньше JointJS, чтобы он не начал drag.
   useEventListener(paperContainer, 'mousedown', bus.onMaybeStartResize, true)
 
-  // ─── Pan vs Lasso на пустой области холста ───
-  // Plain LMB-drag = pan; Alt+LMB-drag = lasso (выделение рамкой).
+  // ─── Pan vs Lasso + reset selection на blank-клике ───
+  // Plain LMB-drag = pan + сброс выделения/подсветки (естественный «выход»).
+  // Alt+LMB-drag = lasso (выделение рамкой), selection не трогаем — юзер
+  // расширяет его рамкой.
   paper.on('blank:pointerdown', (evt) => {
+    hideCellTooltip()
     if (evt.altKey) {
       startLasso(evt)
-    } else {
-      onPanStart(evt)
+      return
     }
+    onPanStart(evt)
+    canvas.clearSelection()
+    if (canvas.highlightedTag.value) canvas.clearHighlightedTag()
   })
   document.addEventListener('mousemove', onPanMove)
   document.addEventListener('mouseup', onPanEnd)
@@ -246,15 +251,6 @@ onMounted(async () => {
       canvas.selectOnly('link', linkView.model.id)
     }
   })
-  paper.on('blank:pointerdown', (evt) => {
-    // Alt-drag запустит lasso, не сбрасываем выделение в этом случае
-    if (evt.altKey) return
-    canvas.clearSelection()
-    // Клик по пустому месту — естественный «выход из подсветки», иначе она
-    // зависает пока юзер не нажмёт Escape или кнопку повторно.
-    if (canvas.highlightedTag.value) canvas.clearHighlightedTag()
-  })
-
   // ─── Multi-drag: при перетаскивании одной из multi-selected ячеек —
   // синхронно сдвигаем все остальные с тем же delta. opt.multiDrag блокирует
   // рекурсию при программном set('position') у соседей.
@@ -285,12 +281,11 @@ onMounted(async () => {
     if (tms.stencilId === 'cell_text') startTextEdit(elementView.model.id)
   })
 
-  // Hover-tooltip: показываем над ячейкой при mouseenter, прячем при leave.
-  // Также скрываем на pointerdown (drag/select), чтобы не висел поверх drag'а.
+  // Hover-tooltip: показываем над ячейкой при mouseenter, прячем при leave
+  // и element:pointerdown. blank:pointerdown сам скрывает tooltip выше.
   paper.on('element:mouseenter', showCellTooltip)
   paper.on('element:mouseleave', hideCellTooltip)
   paper.on('element:pointerdown', hideCellTooltip)
-  paper.on('blank:pointerdown', hideCellTooltip)
 
   // Context menu: правый клик по ячейке / проводу / пустому месту. JointJS
   // сам подавляет нативный browser-контекстменю на своём paper-уровне.
@@ -763,7 +758,7 @@ function createStencilAt(stencilId, x, y, extraTms = null) {
         }))
 
   const tms = { stencilId }
-  if (stencilId === 'cell_text') tms.text = stencil.defaultText ?? 'Текст'
+  if (stencilId === 'cell_text') tms.text = 'Текст'
   if (stencilId === 'cell_value') tms.valueTag = ''
   if (extraTms) Object.assign(tms, extraTms)
 
@@ -829,8 +824,9 @@ const previewStyle = computed(() => {
     topPx = snapToGrid(localY, g) * scale + ty
   }
 
-  // transform: translate3d вместо left/top — браузер композитит на GPU,
-  // не пересчитывает layout/paint при каждом dragover.
+  // left/top:0 — якорь для абсолютно-позиционированного preview-div'а;
+  // реальный сдвиг идёт через translate3d (GPU-композитинг, без re-layout
+  // на каждый dragover).
   return {
     left: '0',
     top: '0',
@@ -1418,7 +1414,6 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
           :severity="simulating ? 'primary' : 'secondary'"
           :text="!simulating"
           size="small"
-          aria-label="Toggle simulation"
           @click="toggleSimulation"
         />
 
@@ -1444,8 +1439,6 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
         ref="paperContainer"
         class="absolute inset-0 bg-white cursor-grab"
         :class="simulating ? 'tms-simulating ring-2 ring-inset ring-emerald-400/60 ' : ''"
-        role="application"
-        aria-label="Холст редактора мнемосхемы"
       ></div>
 
       <!-- Indicator симуляции: PrimeVue Tag в правом верхнем углу холста +
