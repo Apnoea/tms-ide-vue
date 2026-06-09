@@ -292,11 +292,12 @@ describe('exportProject', () => {
     expect(exported.svgText).toContain('id="animation-cell_qr-c1.QR-open"')
   })
 
-  it('quality: cell_qk/cell_qr получают good-биндинг для каждого уникального тега', () => {
+  it('quality: cell_qk/cell_qr получают bad-биндинг ТОЛЬКО на outer для каждого тега', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
         stencilId: 'cell_qk',
+        slots: { onoff: 'LOCAL.ONOFF' },
         switchSources: { tags: ['ОБЩИЙ.ONOFF'] },
         voltageSource: {
           tag: 'PS031.UA',
@@ -304,15 +305,30 @@ describe('exportProject', () => {
         },
       }),
     ])
-    const outer = exportProject(graph).animations.animations['animation-cell_qk-c1']
+    const anims = exportProject(graph).animations.animations
+    const outer = anims['animation-cell_qk-c1']
     const qBindings = outer.bindings.filter((b) => b.when?.source === 'quality')
-    // По одному quality-биндингу на уникальный тег
-    expect(qBindings.map((b) => b.tag).sort()).toEqual(['PS031.UA', 'ОБЩИЙ.ONOFF'].sort())
-    // Good-диапазон 192+, apply пустой (ничего не меняем)
+    expect(qBindings.map((b) => b.tag).sort()).toEqual(
+      ['PS031.UA', 'LOCAL.ONOFF', 'ОБЩИЙ.ONOFF'].sort()
+    )
     for (const b of qBindings) {
       expect(b.when.type).toBe('range')
-      expect(b.when.cases).toEqual([{ min: 192, max: 256, apply: {} }])
+      expect(b.when.cases).toEqual([{ min: 0, max: 191, apply: { addClass: 'animation-off' } }])
     }
+    // Inner-карточки (.QK-closed / .QK-open) quality НЕ должны иметь —
+    // animation-off на outer и так каскадит на все потомки.
+    for (const key of Object.keys(anims)) {
+      if (key === 'animation-cell_qk-c1') continue
+      if (!key.startsWith('animation-cell_qk-c1')) continue
+      const innerQ = (anims[key].bindings || []).filter((b) => b.when?.source === 'quality')
+      expect(innerQ).toEqual([])
+    }
+  })
+
+  it('quality: cell_qk без тегов (голый стенсил) — outer-карточка не создаётся', () => {
+    const graph = mockGraph([mockCell({ id: 'c1', stencilId: 'cell_qk' })])
+    const anims = exportProject(graph).animations.animations
+    expect(anims['animation-cell_qk-c1']).toBeUndefined()
   })
 
   it('quality: остальные стенсилы (cell_qw и т.п.) quality-биндингов НЕ получают', () => {

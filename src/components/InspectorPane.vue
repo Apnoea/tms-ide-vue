@@ -17,6 +17,7 @@ import {
   textCellWidth,
   resolveValueDisplay,
 } from '../stencils/svgInjector'
+import { buildLinkLabel } from '../stencils/linkDefaults'
 import { nplural } from '../utils/plural'
 import TagPickerDialog from './TagPickerDialog.vue'
 import VoltageSourceBlock from './VoltageSourceBlock.vue'
@@ -130,6 +131,7 @@ const details = computed(() => {
       targetPort: target?.port || '—',
       voltageSource: tms.voltageSource || null,
       switchSources: tms.switchSources || null,
+      label: tms.label || '',
     }
   }
 
@@ -574,6 +576,30 @@ watch(
 function toggleNavigationEnabled(value) {
   navigationEnabled.value = value
   if (!value) patchNavigation('')
+}
+
+/**
+ * Лейбл провода — текст вдоль линии (например «Фаза A», номер кабеля).
+ * tms.label — источник правды, link.labels([...]) — derived visual (JointJS
+ * рендерит лейбл в позиции 0.5 по длине пути). Пустая строка стирает оба.
+ */
+function patchLinkLabel(value) {
+  const graph = canvas.graphRef.value
+  const d = details.value
+  if (!graph || !d || d.kind !== 'link') return
+  const link = graph.getCell(d.id)
+  if (!link) return
+  const tms = link.get('tms') || {}
+  const trimmed = String(value || '').trim()
+  if ((tms.label || '') === trimmed) return
+  const next = { ...tms }
+  if (trimmed) next.label = trimmed
+  else delete next.label
+  link.set('tms', next)
+  if (trimmed) link.labels([buildLinkLabel(trimmed)])
+  else link.labels([])
+  canvas.bumpVersion()
+  canvas.requestSnapshot()
 }
 
 function patchNavigation(value) {
@@ -1022,6 +1048,20 @@ const switchPickerTags = computed(() => {
               <code class="px-2 py-1 bg-surface-100 rounded text-xs font-mono truncate">
                 {{ details.targetLabel }} · {{ details.targetPort }}
               </code>
+            </div>
+
+            <div class="space-y-2">
+              <div>
+                <div class="text-[11px] uppercase tracking-wider text-surface-500">Лейбл</div>
+                <div class="text-[11px] text-surface-500">текст вдоль провода</div>
+              </div>
+              <InputText
+                :model-value="details.label"
+                size="small"
+                placeholder="Фаза A"
+                class="w-full !text-xs"
+                @update:model-value="patchLinkLabel"
+              />
             </div>
           </template>
 

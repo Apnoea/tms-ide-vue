@@ -2,6 +2,23 @@ import { getStencilById } from '../stencils/registry'
 import { instantiate } from '../stencils/parser'
 import { buildBusExportSvg, buildTextExportSvg, buildValueExportSvg } from '../stencils/svgInjector'
 import { ANIMATION_CLASS_COLORS, ANIMATION_OFF_COLOR } from '../constants/animation'
+import {
+  LINK_LABEL_FONT_SIZE,
+  LINK_LABEL_FONT_FAMILY,
+  LINK_LABEL_TEXT_COLOR,
+  LINK_LABEL_BG_COLOR,
+  LINK_LABEL_BORDER_COLOR,
+  LINK_LABEL_PAD_X,
+  LINK_LABEL_PAD_Y,
+} from '../stencils/linkDefaults'
+
+// Стенсилы, для которых эмитим quality-биндинги (bad → animation-off). У них
+// shape-template скрывает одно из двух состояний через animation-hidden — при
+// bad-качестве надо отменить скрытие, чтобы юзер видел обе позиции рычага
+// (СКАДА-конвенция «данные ненадёжны → показываем все возможные состояния»).
+// Set на модульном уровне — нужен И в loop'е генерации биндингов, И в CSS-блоке
+// inlineStyles для override'а display:none.
+const QUALITY_STENCILS = new Set(['cell_qk', 'cell_qr'])
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
@@ -305,12 +322,34 @@ export function exportProject(graph, paper = null) {
     const linkTms = link.get('tms') || {}
     const sourceRef = link.get('source')
     const targetRef = link.get('target')
+
+    // Координаты лейбла берём у JointJS через linkView.getLabelCoordinates —
+    // он знает реальную геометрию path'а (с учётом router'а/connector'а) и
+    // умеет интерполировать distance 0..1 в (x,y). Без paper'а (headless) —
+    // лейбл просто не рендерим в SVG (его текст всё равно сохранён в tms.label).
+    let labelCoords = null
+    if (linkTms.label && paper) {
+      const linkView = paper.findViewByModel(link)
+      if (linkView?.getLabelCoordinates) {
+        try {
+          const pt = linkView.getLabelCoordinates({ distance: 0.5 })
+          if (pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)) {
+            labelCoords = { x: pt.x, y: pt.y }
+          }
+        } catch {
+          // ignore — без координат не рендерим
+        }
+      }
+    }
+
     linkExports.push({
       id: wireId,
       linkId: link.id, // JointJS-id для round-trip восстановления редактором
       d: pathD,
       voltageSource: linkTms.voltageSource || null,
       switchSources: linkTms.switchSources || null,
+      label: linkTms.label || null,
+      labelCoords,
       // Endpoint-references для редактора: какие именно ячейки/порты соединены.
       // Эти данные ИЗ source/target в JointJS-модели, не из геометрии пути.
       source: sourceRef ? { id: sourceRef.id, port: sourceRef.port } : null,
@@ -440,46 +479,56 @@ export function exportProject(graph, paper = null) {
     attachDetailTags(l.id, tags)
   }
 
-  // ─── Quality (OPC DA): задекларировать good-диапазон ───
+  // ─── Quality (OPC DA): non-good → animation-off ───
   // У каждого тега в SCADA-payload есть quality (192-255 = good, 64-191 =
-  // uncertain, 0-63 = bad). IDE заявляет «good рассматриваем, ничего не
-  // меняем» (пустой apply); non-good условия пока не описывает.
+  // uncertain, 0-63 = bad). Для cell_qk/cell_qr эмитим один range-кейс
+  // [0, 191] с addClass: animation-off — cell станет серым, юзер видит что
+  // данные ненадёжны. При quality ≥ 192 в этот range не попадёт, animation-off
+  // не накинется (рантайм auto-cleanup'ит классы при выходе из case-диапазона).
+  // WebScada сравнивает inclusive (numValue >= min && numValue <= max), поэтому
+  // max=191 — последнее non-good значение; 192 уже good и не попадает.
+  //
+  // Биндинги кладём ТОЛЬКО на outer-карточку — оттуда CSS-каскад
+  // `.animation-off *:not(text) { stroke }` затемняет ВСЕ stroke-элементы
+  // стенсила (хвосты, контакты, шарнир, рычаги, заземление). Если класть на
+  // inner-карточки (.QK-closed / .QK-open), серым станет только текущий
+  // видимый рычаг — остальной корпус останется чёрным.
+  //
+  // Outer-карточку создаём если её ещё нет (cell без voltage/switch — просто
+  // голый стенсил со slot.onoff). Аналогично navigation-логике выше.
   //
   // Сейчас выпускаем quality только для cell_qk (короткозамыкатель) и cell_qr
   // (отделитель) — пилотные стенсилы. Остальные не трогаем (когда понадобится,
   // расширим QUALITY_STENCILS). text/value-карточки рантайм обрабатывает с
   // собственной quality-семантикой.
-  const QUALITY_STENCILS = new Set(['cell_qk', 'cell_qr'])
-  const cardsForQuality = new Set()
   for (const c of cellExports) {
     if (!QUALITY_STENCILS.has(c.stencilId)) continue
-    const outerKey = outerKeyFor(c.stencilId, c.animId)
-    if (animations[outerKey]) cardsForQuality.add(outerKey)
+    // Собираем уникальные теги из inner-карточек (slot.onoff) + outer (voltage,
+    // switch). Без тегов quality-биндинги бессмысленны — пропускаем.
     const stencilPrefix = innerPrefixFor(c.stencilId, c.animId)
-    for (const key of Object.keys(animations)) {
-      if (key.startsWith(stencilPrefix)) cardsForQuality.add(key)
-    }
-  }
-  for (const key of cardsForQuality) {
-    const card = animations[key]
-    if (!card || card.animation !== 'shape') continue
-    const bindings = card.bindings || []
-    if (!bindings.length) continue
+    const outerKey = outerKeyFor(c.stencilId, c.animId)
     const seen = new Set()
-    const extra = []
-    for (const b of bindings) {
-      if (!b.tag || seen.has(b.tag)) continue
-      seen.add(b.tag)
-      extra.push({
-        tag: b.tag,
+    for (const key of Object.keys(animations)) {
+      if (key !== outerKey && !key.startsWith(stencilPrefix)) continue
+      const card = animations[key]
+      if (card?.animation !== 'shape') continue
+      for (const b of card.bindings || []) {
+        if (b.tag) seen.add(b.tag)
+      }
+    }
+    if (!seen.size) continue
+    if (!animations[outerKey]) animations[outerKey] = { animation: 'shape', bindings: [] }
+    const outer = animations[outerKey]
+    for (const tag of seen) {
+      outer.bindings.push({
+        tag,
         when: {
           source: 'quality',
           type: 'range',
-          cases: [{ min: 192, max: 256, apply: {} }],
+          cases: [{ min: 0, max: 191, apply: { addClass: 'animation-off' } }],
         },
       })
     }
-    if (extra.length) card.bindings = [...bindings, ...extra]
   }
 
   // ─── SVG-фрагменты ───
@@ -494,7 +543,13 @@ export function exportProject(graph, paper = null) {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
 
-  // Линии — первыми (фон), ячейки сверху, чтобы цеплялись к портам
+  // Линии — первыми (фон), ячейки сверху, чтобы цеплялись к портам.
+  // Лейбл (если есть) — <g> с <rect> подложкой и <text> поверх. Ширина rect'а
+  // оценивается по character-count (DOMParser не умеет glyph-metrics);
+  // ~6px/char для sans-serif 10px — кириллица/латиница умещаются с запасом.
+  const escapeXml = (s) =>
+    String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const APPROX_CHAR_WIDTH = 6
   const lines = linkExports
     .map((l) => {
       const meta = {
@@ -504,8 +559,16 @@ export function exportProject(graph, paper = null) {
       }
       if (l.voltageSource) meta.voltageSource = l.voltageSource
       if (l.switchSources) meta.switchSources = l.switchSources
+      if (l.label) meta.label = l.label
       const metaAttr = escapeAttr(JSON.stringify(meta))
-      return `  <path id="${l.id}" d="${l.d}" stroke="#000" stroke-width="2" fill="none" data-tms-meta="${metaAttr}"/>`
+      const pathTag = `  <path id="${l.id}" d="${l.d}" stroke="#000" stroke-width="2" fill="none" data-tms-meta="${metaAttr}"/>`
+      if (!l.label || !l.labelCoords) return pathTag
+      const textWidth = l.label.length * APPROX_CHAR_WIDTH
+      const w = textWidth + LINK_LABEL_PAD_X * 2
+      const h = LINK_LABEL_FONT_SIZE + LINK_LABEL_PAD_Y * 2
+      const rx = 2
+      const labelTag = `  <g data-tms-link-label-of="${l.id}" transform="translate(${l.labelCoords.x},${l.labelCoords.y})"><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${rx}" ry="${rx}" fill="${LINK_LABEL_BG_COLOR}" stroke="${LINK_LABEL_BORDER_COLOR}" stroke-width="1"/><text text-anchor="middle" dominant-baseline="middle" font-size="${LINK_LABEL_FONT_SIZE}" font-family="${LINK_LABEL_FONT_FAMILY}" fill="${LINK_LABEL_TEXT_COLOR}">${escapeXml(l.label)}</text></g>`
+      return `${pathTag}\n${labelTag}`
     })
     .join('\n')
 
@@ -561,6 +624,15 @@ ${Object.entries(ANIMATION_CLASS_COLORS)
     /* animation-off — серый поверх voltage-классов. */
     .animation-off, .animation-off *:not(text) { stroke: ${ANIMATION_OFF_COLOR} !important; }
     .animation-off .tms-voltage-fill, .animation-off.tms-voltage-fill { fill: ${ANIMATION_OFF_COLOR} !important; }
+    /* Quality-stencils: при bad-качестве (animation-off на outer) показываем
+       обе позиции рычага одновременно — отменяем animation-hidden у потомков.
+       Конвенция «данные ненадёжны → не врём про конкретное состояние». */
+${[...QUALITY_STENCILS]
+  .map(
+    (sid) =>
+      `    [data-tms-stencil="${sid}"].animation-off .animation-hidden { display: initial !important; }`
+  )
+  .join('\n')}
     ]]>
   </style>`
 

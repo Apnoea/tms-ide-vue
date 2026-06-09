@@ -110,8 +110,8 @@ src/
 | cell_text  | Текст и значения | Статический лейбл                     |
 | cell_value | Текст и значения | Отображение значения тега             |
 | cell_node  | Текст и значения | Точка соединения (наследует voltage)  |
-| cell_tv2   | Измерения        | Трансформатор напряжения (2ф)         |
-| cell_tv3   | Измерения        | Трансформатор напряжения (3ф)         |
+| cell_tv2   | Трансформаторы   | Трансформатор (2 обмотки)             |
+| cell_tv3   | Трансформаторы   | Трансформатор (3 обмотки)             |
 | cell_qw    | Коммутация       | Выключатель (slot.onoff → off/cross)  |
 | cell_qr    | Коммутация       | Отделитель (slot.onoff → open/closed) |
 | cell_qk    | Коммутация       | Короткозамыкатель (slot.onoff)        |
@@ -132,6 +132,10 @@ src/
   - **Switch source** (bool-биндинг, `false` → `animation-off`)
   - Intrinsic-блоки для cell_alr и для cell_qw / cell_qr / cell_qk
     (SwitchBlock в intrinsic-режиме обёртывает slot.onoff)
+
+При выделении провода — поле **Лейбл** (текст вдоль линии, ~10pt с белой
+подложкой; JointJS labels на позиции 0.5 пути). `tms.label` — источник
+правды, ищется в Ctrl+F.
 
 В multi-select — массовое применение voltage/switch к выделению; `cell_text` /
 `cell_value` автоматически пропускаются.
@@ -170,6 +174,16 @@ CSS в SVG:
 - opt-in класс `.tms-voltage-fill` для заливки маркированных элементов
 - `.animation-off` (slate-500) — поверх voltage-классов
 - `.animation-hidden { display: none }`
+- `[data-tms-stencil="cell_qk"].animation-off .animation-hidden { display: initial }`
+  (то же для `cell_qr`) — при bad-качестве показываем обе позиции рычага
+  одновременно: «данные ненадёжны, не врём про конкретное состояние»
+
+### Quality-биндинги
+
+Для `cell_qk` и `cell_qr` exporter автоматически генерирует биндинг по
+каждому привязанному тегу с `source: 'quality'` и кейсом `[0, 191] →
+addClass: animation-off`. Рантайм при bad/uncertain quality (< 192) красит
+ячейку серым; CSS-override выше показывает обе позиции рычага.
 
 ## Round-trip
 

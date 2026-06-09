@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useEventListener, useResizeObserver } from '@vueuse/core'
-import { dia, shapes } from '@joint/core'
+import { dia, shapes, anchors, connectionPoints } from '@joint/core'
 import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'
 import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
@@ -12,7 +12,7 @@ import { getStencilById } from '../stencils/registry'
 import {
   injectStencilSvg,
   reinjectAllStencils,
-  computeBusPorts,
+  buildPortItems,
   TEXT_FONT_SIZE,
   textCellHeight,
   textCellWidth,
@@ -150,6 +150,11 @@ onMounted(async () => {
     background: { color: '#f8fafc' },
     cellViewNamespace: tmsNamespace,
     interactive: true,
+    // ─── Пороги обнаружения click vs drag ───
+    // Без них любое микро-движение мышью при клике на magnet превращается в
+    // draft-линию (мусор в undo-стек). 4-5px — стандарт UI-индустрии.
+    clickThreshold: 5,
+    magnetThreshold: 4,
     // ─── Конфигурация связей ───
     linkPinning: false, // линии не могут болтаться в воздухе
     // Снэп endpoint'а линии к ближайшему magnet'у в радиусе — пользователю
@@ -158,8 +163,28 @@ onMounted(async () => {
     snapLinks: { radius: 30 },
     // Линия заканчивается ровно в позиции anchor'а порта (центр кружка),
     // а не подгоняется под boundary магнита (тогда был бы offset = portRadius).
-    // Применяется ко ВСЕМ линиям, независимо от source/target — на paper-уровне.
-    defaultConnectionPoint: { name: 'anchor' },
+    // Для cell_node — отдельный случай: anchor стоит на стороне bbox'а
+    // (midSide, см. ниже), но визуально провод тянем дальше — до центра
+    // ячейки, где нарисована точка. Без этого был бы 10px gap между концом
+    // провода (на edge bbox'а) и видимым диском в центре.
+    defaultConnectionPoint: function (line, view) {
+      const stencilId = view?.model?.get?.('tms')?.stencilId
+      if (stencilId === 'cell_node') return view.model.getBBox().center()
+      return connectionPoints.anchor.apply(this, arguments)
+    },
+    // Anchor — точка ВНУТРИ элемента, от которой router строит путь. По дефолту
+    // используем центр магнита (= позиция порта). Для cell_node порт стоит в
+    // центре bbox'а (10,10) — внутри элемента, не на границе. rightAngle с
+    // anchor'ом ВНУТРИ bbox'а всегда заходит в элемент с одной стороны
+    // (визуально «провод приходит слева» независимо от направления source'а).
+    // midSide динамически выбирает середину ближайшей стороны bbox'а — провод
+    // заходит с естественного направления. `this` для anchors.* должен быть
+    // linkView (внутри они дёргают this.paper.findView) — поэтому `apply`.
+    defaultAnchor: function (view) {
+      const stencilId = view?.model?.get?.('tms')?.stencilId
+      const fn = stencilId === 'cell_node' ? anchors.midSide : anchors.center
+      return fn.apply(this, arguments)
+    },
     defaultLink: () => new shapes.standard.Link(LINK_DEFAULTS),
     validateConnection: (sourceView, sourceMagnet, targetView, targetMagnet, _end, linkView) => {
       // запрещаем «на себя» и в воздух (targetMagnet нужен)
@@ -318,9 +343,8 @@ onMounted(async () => {
   const restored = tryRestoreAutosave()
 
   // ─── History: snapshot на «стабильных» событиях ───
-  // Раньше слушали 'change' — JointJS шлёт его десятки раз во время draw'а линии,
-  // дебаунс не всегда схлопывал. Теперь снимаем snapshot только на pointerup
-  // (после действия пользователя) и на add/remove (drop из палитры, удаление).
+  // Только pointerup (после действия) + add/remove. На 'change' JointJS шлёт
+  // десятки событий во время draw'а линии — дебаунс не всегда схлопывает.
   initHistory()
 
   // Drop элемента из палитры (для линий ждём pointerup, т.к. add'ятся в начале draw'а)
@@ -330,7 +354,12 @@ onMounted(async () => {
   })
 
   // Удаление любой ячейки/линии
-  graph.on('remove', () => scheduleSnapshot())
+  graph.on('remove', () => {
+    scheduleSnapshot()
+    // Если hover-tooltip висел над удаляемой ячейкой, без явной зачистки
+    // он остаётся на холсте — сама ячейка пропала, mouseleave не приходит.
+    hideCellTooltip()
+  })
 
   // Pointerup на любой cell-view: конец drag'а ячейки, конец draw'а линии,
   // конец редактирования link-tools.
@@ -358,10 +387,6 @@ onMounted(async () => {
   }
 })
 
-// Толщина линий — статичная. Раньше при выделении делали жирнее,
-// но визуально это сбивает восприятие схемы; теперь полагаемся на Inspector
-// и индикатор «выделено» в canvas info-bar'е.
-
 // ─── Подсветка выделенных элементов ───
 // На каждое изменение selection: откатываем стили всех ранее выделенных линий
 // + снимаем resize-tools с предыдущих шин, затем накладываем выделение на текущие.
@@ -381,10 +406,9 @@ watch(
       const view = paper.findViewByModel(cell)
       view?.el?.classList.add('tms-selected')
     }
-    // Inline-× реализован как HTML-overlay (см. deleteBtnStyle в template).
-    // Раньше использовали JointJS elementTools.Remove, но они кэшируют bbox
-    // после addTools и не пересчитывают положение при cell.resize — × «застревал»
-    // на старой позиции после ресайза cell_text / cell_bus.
+    // Inline-× — HTML-overlay (deleteBtnStyle в template). JointJS
+    // elementTools.Remove кэширует bbox при addTools, не пересчитывает на
+    // cell.resize → × застревал после ресайза cell_text / cell_bus.
   },
   { deep: true }
 )
@@ -694,29 +718,17 @@ function fitToContent() {
     return
   }
 
-  // JointJS сам считает bbox контента и масштабирует/смещает paper так,
-  // чтобы всё уместилось с указанным отступом.
-  // maxScale: 1 — не приближаем больше 100%, чтобы при маленьком контенте
-  // он не растягивался во весь экран; только центрируется.
-  paper.scaleContentToFit({
+  // Нативный JointJS 4 fit-to-content: сам считает bbox, масштабирует И
+  // центрирует через horizontalAlign/verticalAlign. maxScale: 1 — не
+  // приближаем больше 100% (для маленького контента просто центрируется).
+  paper.transformToFitContent({
     padding: 40,
     minScale: MIN_ZOOM,
     maxScale: 1,
+    horizontalAlign: 'middle',
+    verticalAlign: 'middle',
     useModelGeometry: false,
   })
-
-  // После scaleContentToFit контент прижат к верхнему-левому углу с padding'ом.
-  // Если он меньше viewport (хитнули maxScale=1), вокруг остаётся пустое поле справа/снизу.
-  // Доводим до центра: смещаем так, чтобы bbox контента оказался ровно посередине.
-  const bbox = graph.getBBox()
-  if (bbox && paperContainer.value) {
-    const s = paper.scale().sx
-    const paperW = paperContainer.value.clientWidth
-    const paperH = paperContainer.value.clientHeight
-    const tx = (paperW - bbox.width * s) / 2 - bbox.x * s
-    const ty = (paperH - bbox.height * s) / 2 - bbox.y * s
-    paper.translate(tx, ty)
-  }
 
   zoomPercent.value = Math.round(paper.scale().sx * 100)
   canvas.bumpPaperView()
@@ -745,17 +757,7 @@ function createStencilAt(stencilId, x, y, extraTms = null) {
   const finalX = snapToGrid(x - stencil.width / 2, g)
   const finalY = snapToGrid(y - stencil.height / 2, g)
 
-  // Порты — из стенсила, все в группу 'port' с absolute-позиционированием.
-  // Шина — спецслучай: количество и id'ы фиксированы, координаты пересчитываются
-  // при resize. Так подключённые ранее провода переживают изменение ширины.
-  const portItems =
-    stencilId === 'cell_bus'
-      ? computeBusPorts(stencil.width, stencil.height)
-      : (stencil.ports || []).map((p) => ({
-          id: p.name,
-          group: 'port',
-          args: { x: p.x, y: p.y },
-        }))
+  const portItems = buildPortItems(stencil, stencil.width, stencil.height)
 
   const tms = { stencilId }
   if (stencilId === 'cell_text') tms.text = 'Текст'
@@ -1057,8 +1059,9 @@ function performClearCanvas(count) {
 }
 
 // ─── Inline-кнопки overlay'я выделенной ячейки ───
-// HTML-overlay (а не JointJS elementTools.Remove): позиция reactive через
-// computed от graphVersion + paperViewTick + selection.
+// HTML-overlay (а не JointJS elementTools): позиция reactive через computed
+// от graphVersion + paperViewTick + selection. PrimeVue Button rounded small
+// даёт стандартный визуал + v-tooltip directive из коробки.
 //
 // Раскладка (TL/TR/BR от axis-aligned bbox с учётом rotation):
 //   TL — повернуть против часовой
@@ -1069,13 +1072,11 @@ function performClearCanvas(count) {
 // `canTransform=false` в результате — template скрывает две верхние кнопки,
 // оставляя только удаление.
 const overlayBtns = computed(() => {
-  // Touch ref'ы для reactive-зависимости — без чтения computed не пересчитается
-  // при изменении графа / pan'е / zoom'е. Это deliberate side-effect.
   canvas.graphVersion.value
   canvas.paperViewTick.value
   const sel = canvas.selection.value
   if (sel.length !== 1 || sel[0].kind !== 'cell') return null
-  if (textEditing.value) return null // во время инлайн-edit'а оверлей прячем
+  if (textEditing.value) return null
   if (!paper || !graph) return null
   const cell = graph.getCell(sel[0].id)
   if (!cell) return null
@@ -1095,8 +1096,8 @@ const overlayBtns = computed(() => {
   const right = (cx + bbW / 2) * scale + tx
   const top = (cy - bbH / 2) * scale + ty
   const bottom = (cy + bbH / 2) * scale + ty
-  const HALF = 16 // half of 32px кнопок (rounded small)
-  const GAP = 10 // отступ от ячейки чтобы не наезжать на контент
+  const HALF = 16
+  const GAP = 10
   return {
     id: cell.id,
     canTransform: canCellTransform(cell),
@@ -1109,8 +1110,8 @@ const overlayBtns = computed(() => {
 /**
  * Бейджи незаполненных required-слотов. Для КАЖДОЙ ячейки на холсте, у которой
  * стенсил декларирует required-слоты И хотя бы один из них пустой, рендерим
- * жёлтый «!» в левом верхнем углу. Pure-info indicator — клик выделяет ячейку
- * + просит инспектор открыть picker первого пустого required-слота.
+ * жёлтый «!» в правом нижнем углу. Клик выделяет ячейку + просит инспектор
+ * открыть picker первого пустого required-слота.
  *
  * cell_value НЕ обрабатывается: drop-flow для него всегда открывает tag-picker
  * (если tag-list загружен) или вообще не даёт создать ячейку (cancel picker'а
@@ -1135,8 +1136,8 @@ const slotWarnings = computed(() => {
     if (!missing.length) continue
     const pos = cell.get('position')
     const size = cell.get('size')
-    // Бейдж 12px в правом-нижнем углу ячейки, центрирован на угле.
-    // Левый-верхний угол занимает delete-кнопка при selected-состоянии.
+    // Бейдж 12px центрирован на правом-нижнем углу ячейки (delete-кнопка
+    // при selected-state живёт там же, но отдельным overlay'ем).
     out.push({
       cellId: cell.id,
       missingLabels: missing.map((s) => s.label).join(', '),

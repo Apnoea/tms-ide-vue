@@ -46,6 +46,7 @@ export function getCellSearchStrings(cell) {
   const strings = getCellTags(cell)
   if (tms.text) strings.push(String(tms.text))
   if (tms.navigation) strings.push(String(tms.navigation))
+  if (tms.label) strings.push(String(tms.label))
   return strings
 }
 

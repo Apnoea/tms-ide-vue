@@ -1,7 +1,9 @@
+import { shapes } from '@joint/core'
 import { useToast } from 'primevue/usetoast'
 import { getStencilById } from '../stencils/registry'
-import { injectStencilSvg, computeBusPorts } from '../stencils/svgInjector'
+import { injectStencilSvg, buildPortItems } from '../stencils/svgInjector'
 import { TMSStencil } from '../stencils/tmsStencil'
+import { LINK_DEFAULTS, buildLinkLabel } from '../stencils/linkDefaults'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
 import { TOAST_LIFE } from '../constants/toast'
@@ -41,6 +43,7 @@ export function useClipboard({ scheduleSnapshot }) {
       tms: { ...tms },
       position: { x: pos.x, y: pos.y },
       size: { width: size.width, height: size.height },
+      angle: c.angle() || 0,
     }
   }
 
@@ -51,15 +54,17 @@ export function useClipboard({ scheduleSnapshot }) {
     const set = new Set(cellIds)
     const out = []
     for (const link of graph.getLinks()) {
-      const s = link.get('source')?.id
-      const t = link.get('target')?.id
-      if (!s || !t || !set.has(s) || !set.has(t)) continue
+      const src = link.get('source')
+      const tgt = link.get('target')
+      if (!src?.id || !tgt?.id || !set.has(src.id) || !set.has(tgt.id)) continue
       out.push({
-        sourceCellId: s,
-        targetCellId: t,
-        // toJSON сохраняет всё: type, router, attrs, tms (с voltageSource).
-        // На paste'е id обнуляется, source/target.id перевешиваются.
-        json: link.toJSON(),
+        // Только port — сами cell-id'ы переписываются на paste'е через oldToNew.
+        // tms (voltageSource/switchSources) переносим.
+        sourcePort: src.port || undefined,
+        targetPort: tgt.port || undefined,
+        sourceCellId: src.id,
+        targetCellId: tgt.id,
+        tms: link.get('tms') ? JSON.parse(JSON.stringify(link.get('tms'))) : null,
       })
     }
     return out
@@ -87,14 +92,7 @@ export function useClipboard({ scheduleSnapshot }) {
       const finalX = snapToGrid(snap.position.x + offset, g)
       const finalY = snapToGrid(snap.position.y + offset, g)
 
-      const portItems =
-        snap.stencilId === 'cell_bus'
-          ? computeBusPorts(snap.size.width, snap.size.height)
-          : (stencil.ports || []).map((p) => ({
-              id: p.name,
-              group: 'port',
-              args: { x: p.x, y: p.y },
-            }))
+      const portItems = buildPortItems(stencil, snap.size.width, snap.size.height)
 
       // tms копируется полностью включая slots — paste должен сохранять привязки
       // тегов (две копии одного стенсила могут указывать на один и тот же объект,
@@ -102,6 +100,7 @@ export function useClipboard({ scheduleSnapshot }) {
       const cell = new TMSStencil({
         position: { x: finalX, y: finalY },
         size: snap.size,
+        angle: snap.angle || 0,
         tms: { ...snap.tms, stencilId: snap.stencilId },
         ports: { items: portItems },
       })
@@ -114,22 +113,28 @@ export function useClipboard({ scheduleSnapshot }) {
     }
 
     // Восстанавливаем bridge-линии: id ячеек перевешиваем через oldToNew,
-    // port-id'ы остаются те же (новые ячейки того же стенсила имеют такие же порты).
+    // port-id'ы остаются те же (новые ячейки того же стенсила имеют такие же
+    // порты). Конструируем явно через new shapes.standard.Link(LINK_DEFAULTS) —
+    // иначе graph.addCell(jsonSpec) теряет router/connector/attrs (factory
+    // defaultLink на JSON-path не применяется), и линки получаются «голые».
     let linksAdded = 0
     const newLinkItems = []
     for (const linkSnap of snaps.links) {
       const newSrcId = oldToNew.get(linkSnap.sourceCellId)
       const newTgtId = oldToNew.get(linkSnap.targetCellId)
       if (!newSrcId || !newTgtId) continue
-      const linkData = JSON.parse(JSON.stringify(linkSnap.json))
-      delete linkData.id // JointJS назначит новый
-      linkData.source = { ...linkData.source, id: newSrcId }
-      linkData.target = { ...linkData.target, id: newTgtId }
-      const linkModel = graph.addCell(linkData)
-      if (linkModel) {
-        newLinkItems.push({ kind: 'link', id: linkModel.id })
-        linksAdded++
-      }
+      const labelText = linkSnap.tms?.label
+      const linkModel = new shapes.standard.Link({
+        ...LINK_DEFAULTS,
+        source: { id: newSrcId, ...(linkSnap.sourcePort ? { port: linkSnap.sourcePort } : {}) },
+        target: { id: newTgtId, ...(linkSnap.targetPort ? { port: linkSnap.targetPort } : {}) },
+        ...(linkSnap.tms ? { tms: linkSnap.tms } : {}),
+        // labels — derived от tms.label; на paste'е восстанавливаем визуал.
+        ...(labelText ? { labels: [buildLinkLabel(labelText)] } : {}),
+      })
+      graph.addCell(linkModel)
+      newLinkItems.push({ kind: 'link', id: linkModel.id })
+      linksAdded++
     }
 
     if (newCellIds.length) {

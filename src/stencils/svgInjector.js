@@ -39,6 +39,26 @@ export function computeBusPorts(width, height) {
 }
 
 /**
+ * Унифицированный билдер `ports.items` для cell.ports — общий для drag-drop
+ * из палитры, paste и round-trip-load. Шина — спецслучай (см. computeBusPorts).
+ * У остальных — из stencil.ports + опциональный per-port `magnet` ('passive'
+ * для cell_node: можно подключаться К узлу, но не таскать ОТ него — узел не
+ * имеет «направления», это junction-точка).
+ */
+export function buildPortItems(stencil, width, height) {
+  if (stencil.id === 'cell_bus') return computeBusPorts(width, height)
+  return (stencil.ports || []).map((p) => {
+    const item = {
+      id: p.name,
+      group: 'port',
+      args: { x: p.x, y: p.y },
+    }
+    if (p.magnet) item.attrs = { portBody: { magnet: p.magnet } }
+    return item
+  })
+}
+
+/**
  * SVG-строка шины для экспорта: только чёрное тело по реальному размеру,
  * без зелёных resize-хэндлов (они редактор-only). Формат совпадает с тем,
  * что отдаёт parser.instantiate(), поэтому exporter обрабатывает её единообразно.

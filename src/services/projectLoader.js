@@ -3,8 +3,8 @@
 // который пишется в exporter.js. svg-геометрия используется только для transform.
 
 import { getStencilById } from '../stencils/registry'
-import { computeBusPorts } from '../stencils/svgInjector'
-import { LINK_DEFAULTS } from '../stencils/linkDefaults'
+import { buildPortItems } from '../stencils/svgInjector'
+import { LINK_DEFAULTS, buildLinkLabel } from '../stencils/linkDefaults'
 
 /**
  * Парсит SVG-текст и возвращает массив JointJS-cells (включая links),
@@ -57,16 +57,7 @@ export function parseSvgProject(svgText) {
       const width = meta.width ?? stencil.width
       const height = meta.height ?? stencil.height
 
-      // Порты восстанавливаем из определения стенсила. Для шины — динамически
-      // по ширине, для остальных — из stencil.json.
-      const portItems =
-        meta.stencilId === 'cell_bus'
-          ? computeBusPorts(width, height)
-          : (stencil.ports || []).map((p) => ({
-              id: p.name,
-              group: 'port',
-              args: { x: p.x, y: p.y },
-            }))
+      const portItems = buildPortItems(stencil, width, height)
 
       // Собираем tms-payload только из того, что было в meta (не плодим undefined)
       const tms = { stencilId: meta.stencilId }
@@ -115,11 +106,15 @@ export function parseSvgProject(svgText) {
         source: meta.source,
         target: meta.target,
       }
-      if (meta.voltageSource || meta.switchSources) {
+      if (meta.voltageSource || meta.switchSources || meta.label) {
         link.tms = {}
         if (meta.voltageSource) link.tms.voltageSource = meta.voltageSource
         if (meta.switchSources) link.tms.switchSources = meta.switchSources
+        if (meta.label) link.tms.label = meta.label
       }
+      // labels — визуальное представление tms.label; рендерится JointJS по
+      // позиции 0.5 (середина провода). tms.label остаётся источником правды.
+      if (meta.label) link.labels = [buildLinkLabel(meta.label)]
       cells.push(link)
     } catch (e) {
       errors.push(`Парсинг провода: ${e.message}`)
