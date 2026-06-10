@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { exportProject } from './exporter'
 import { parseSvgProject } from './projectLoader'
 
@@ -113,8 +113,8 @@ describe('exportProject', () => {
       }),
     ])
     const result = exportProject(graph)
-    // shortenId('MY-TAG.IA') split'нул бы по '-' и вернул 'MY' — рантайм не нашёл
-    // бы text-карточку. Для cell_value мы используем valueTag целиком.
+    // Naive split-by-dash для 'MY-TAG.IA' дал бы 'MY' — рантайм не нашёл бы
+    // text-карточку. Для cell_value мы используем valueTag целиком без укорачивания.
     expect(result.svgText).toContain('animation-cell-MY-TAG.IA')
     expect(result.animations.animations).toHaveProperty('animation-MY-TAG.IA')
   })
@@ -206,7 +206,7 @@ describe('exportProject', () => {
     })
     const graph = mockGraph([cellA, cellB], [link])
     const anims = exportProject(graph).animations.animations
-    // short-id из link.id 'l1' = 'l1' (нет дефиса для shortenId)
+    // short-id из link.id 'l1' = 'l1' (нет дефисов для разделения по сегментам UUID)
     const wireKey = 'animation-wire-l1'
     expect(anims).toHaveProperty(wireKey)
     expect(anims[wireKey].bindings[0].when.cases.false.apply.addClass).toBe('animation-off')
@@ -248,7 +248,7 @@ describe('exportProject', () => {
       }),
     ])
     const anims = exportProject(graph).animations.animations
-    // shortenId('b1') = 'b1' (без дефисов)
+    // short-id из 'b1' = 'b1' (без дефисов для разделения)
     expect(anims['animation-cell_bus-b1']).toEqual({
       animation: 'shape',
       bindings: [],
@@ -256,7 +256,7 @@ describe('exportProject', () => {
     })
   })
 
-  it('cell_qr с slot.onoff: .QR-closed (cases.false→hidden) и .QR-open (cases.true→hidden)', () => {
+  it('cell_qr с slot.onoff: .closed (cases.false→hidden) и .open (cases.true→hidden)', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
@@ -270,26 +270,26 @@ describe('exportProject', () => {
     const anims = exported.animations.animations
 
     // Две карточки на двух SVG-линиях
-    expect(anims).toHaveProperty('animation-cell_qr-c1.QR-closed')
-    expect(anims).toHaveProperty('animation-cell_qr-c1.QR-open')
+    expect(anims).toHaveProperty('animation-cell_qr-c1.closed')
+    expect(anims).toHaveProperty('animation-cell_qr-c1.open')
 
-    // .QR-closed: hidden при value=false
-    const closedBinding = anims['animation-cell_qr-c1.QR-closed'].bindings.find(
+    // .closed: hidden при value=false
+    const closedBinding = anims['animation-cell_qr-c1.closed'].bindings.find(
       (b) => b.when?.source === 'value'
     )
     expect(closedBinding?.tag).toBe('TAG.ONOFF')
     expect(closedBinding?.when?.cases?.false?.apply?.addClass).toBe('animation-hidden')
 
-    // .QR-open: hidden при value=true
-    const openBinding = anims['animation-cell_qr-c1.QR-open'].bindings.find(
+    // .open: hidden при value=true
+    const openBinding = anims['animation-cell_qr-c1.open'].bindings.find(
       (b) => b.when?.source === 'value'
     )
     expect(openBinding?.tag).toBe('TAG.ONOFF')
     expect(openBinding?.when?.cases?.true?.apply?.addClass).toBe('animation-hidden')
 
     // В SVG обе линии получили id, по которым их найдёт WebScada
-    expect(exported.svgText).toContain('id="animation-cell_qr-c1.QR-closed"')
-    expect(exported.svgText).toContain('id="animation-cell_qr-c1.QR-open"')
+    expect(exported.svgText).toContain('id="animation-cell_qr-c1.closed"')
+    expect(exported.svgText).toContain('id="animation-cell_qr-c1.open"')
   })
 
   it('quality: cell_qk/cell_qr получают bad-биндинг ТОЛЬКО на outer для каждого тега', () => {
@@ -315,7 +315,7 @@ describe('exportProject', () => {
       expect(b.when.type).toBe('range')
       expect(b.when.cases).toEqual([{ min: 0, max: 191, apply: { addClass: 'animation-off' } }])
     }
-    // Inner-карточки (.QK-closed / .QK-open) quality НЕ должны иметь —
+    // Inner-карточки (.closed / .open) quality НЕ должны иметь —
     // animation-off на outer и так каскадит на все потомки.
     for (const key of Object.keys(anims)) {
       if (key === 'animation-cell_qk-c1') continue
@@ -347,6 +347,75 @@ describe('exportProject', () => {
     for (const card of Object.values(anims)) {
       expect(card.bindings?.every((b) => b.when?.source !== 'quality')).toBe(true)
     }
+  })
+
+  it('cell_value: спецсимволы в valueTag (&, <, ") экранируются в SVG id/атрибутах', () => {
+    // Контрфактический valueTag — реальные SCADA-теги такого не содержат, но
+    // защищаем от невалидного XML в случае экзотики (без эскейпа парсер падает
+    // на parsererror, projectLoader не открывает round-trip).
+    const graph = mockGraph([
+      mockCell({
+        id: 'c1',
+        stencilId: 'cell_value',
+        valueTag: 'A&B<C"D',
+        w: 100,
+        h: 18,
+      }),
+    ])
+    const { svgText } = exportProject(graph)
+    // Сырой valueTag в id не остался
+    expect(svgText).not.toContain('id="animation-cell-A&B<C"D"')
+    expect(svgText).not.toContain('id="animation-A&B<C"D"')
+    // Эскейп прошёл
+    expect(svgText).toContain('&amp;')
+    expect(svgText).toContain('&lt;')
+    expect(svgText).toContain('&quot;')
+  })
+
+  it('warnings: два cell_value с одинаковым valueTag → дубль попадает в result.warnings', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const graph = mockGraph([
+      mockCell({ id: 'c1', stencilId: 'cell_value', valueTag: 'PS031.UA' }),
+      mockCell({ id: 'c2', stencilId: 'cell_value', valueTag: 'PS031.UA' }),
+    ])
+    const result = exportProject(graph)
+    expect(result.warnings).toHaveLength(1)
+    expect(result.warnings[0]).toMatch(/PS031\.UA/)
+    expect(warnSpy).toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
+  it('short-id collision: две ячейки с одинаковым первым сегментом UUID получают разные animation-keys', () => {
+    // Контрфактический сценарий: два UUID с совпадающим первым сегментом.
+    // Без uniqueShortId оба свернулись бы в animId='abc12345' и слили бы свои
+    // bindings (LOCAL.A и LOCAL.B) в одну карточку + дубль id в SVG.
+    const graph = mockGraph([
+      mockCell({
+        id: 'abc12345-1111-1111-1111-111111111111',
+        stencilId: 'cell_qw',
+        slots: { onoff: 'LOCAL.A' },
+      }),
+      mockCell({
+        id: 'abc12345-2222-2222-2222-222222222222',
+        stencilId: 'cell_qw',
+        slots: { onoff: 'LOCAL.B' },
+      }),
+    ])
+    const exported = exportProject(graph)
+    const anims = exported.animations.animations
+    // Первая ячейка получает короткий первый сегмент, вторая расширяется.
+    expect(anims['animation-cell_qw-abc12345']).toBeDefined()
+    expect(anims['animation-cell_qw-abc12345-2222']).toBeDefined()
+    // Биндинги НЕ слились в одну карточку
+    const firstTags = anims['animation-cell_qw-abc12345'].bindings.map((b) => b.tag)
+    const secondTags = anims['animation-cell_qw-abc12345-2222'].bindings.map((b) => b.tag)
+    expect(firstTags).toContain('LOCAL.A')
+    expect(firstTags).not.toContain('LOCAL.B')
+    expect(secondTags).toContain('LOCAL.B')
+    expect(secondTags).not.toContain('LOCAL.A')
+    // В SVG id'шники тоже различны (без дубля → валидный SVG)
+    expect(exported.svgText).toContain('id="animation-cell_qw-abc12345"')
+    expect(exported.svgText).toContain('id="animation-cell_qw-abc12345-2222"')
   })
 
   it('экспорт + load round-trip: cells сохраняют tms.slots и position', () => {

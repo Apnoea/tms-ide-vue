@@ -7,7 +7,7 @@
   "width": 20,
   "height": 40,
   "ports": [
-    { "name": "top", "x": 10, "y": 0, "type": "io" },
-    { "name": "bottom", "x": 10, "y": 40, "type": "io" }
+    { "name": "top", "x": 10, "y": 0 },
+    { "name": "bottom", "x": 10, "y": 40 }
   ]
 }

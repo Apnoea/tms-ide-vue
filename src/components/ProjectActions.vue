@@ -72,8 +72,7 @@ async function pickTagList() {
     project.setTags(parsed)
     project.setTagListHandle(fileHandle)
     await idbSet(IDB_HANDLE_KEY, fileHandle)
-    const dir = await fs.getFileDirectory(fileHandle)
-    ui.setLastTagListPickerStartIn(dir ?? fileHandle)
+    ui.setLastTagListPickerStartIn(fileHandle)
 
     toast.add({
       severity: 'success',
@@ -266,9 +265,9 @@ async function refreshTagList() {
 
     <Button
       v-tooltip.bottom="tags.length ? `Tag-list · ${tags.length} тегов` : 'Загрузить tag-list'"
-      :icon="tags.length ? 'pi pi-tags' : 'pi pi-tags'"
+      icon="pi pi-tags"
       :severity="tags.length ? 'secondary' : 'primary'"
-      :text="tags.length ? true : false"
+      :text="!!tags.length"
       size="small"
       :label="tags.length ? undefined : 'Tag-list'"
       @click="pickTagList"

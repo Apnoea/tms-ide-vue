@@ -32,12 +32,12 @@
  *     "shapeFile":   "shape.svg",
  *     "width":       20,
  *     "height":      20,
- *     "ports":       [{ "name": "top", "x": 10, "y": 0, "type": "io" }, ...],
+ *     "ports":       [{ "name": "top", "x": 10, "y": 0 }, ...],
  *
  *     // animationTemplate — список карточек с подстановкой через {slot.KEY}
  *     "animationTemplate": [
  *       {
- *         "idSuffix":   ".QW",                // финальный id = "animation-{cellId}{idSuffix}"
+ *         "idSuffix":   ".QW",                // финальный id = "animation-{stencilId}-{cellId}{idSuffix}"
  *         "type":       "shape",
  *         "bindings":   [{ "tag": "{slot.onoff}", ... }]
  *       }
@@ -48,10 +48,12 @@
  * помечены атрибутом data-anim-suffix:
  *
  *   <g data-anim-suffix="">              ← корень = idSuffix ""
- *     <text data-anim-suffix=".IA">--</text>  ← попадёт в id="animation-{cellId}.IA"
+ *     <text data-anim-suffix=".IA">--</text>  ← попадёт в id="animation-{stencilId}-{cellId}.IA"
  *     ...
  *   </g>
  */
+
+import { innerKey, resolveSlotTemplate, ATTR_SUFFIX } from '../constants/ids'
 
 /**
  * Подставляет {slot.KEY}-переменные в строку. Если ключ отсутствует в slots —
@@ -60,18 +62,12 @@
  *   interpolate('{slot.onoff}', {onoff: 'PS031.ONOFF'})  → 'PS031.ONOFF'
  *   interpolate('{slot.foo}', {})                        → null
  *   interpolate('static-id', {})                         → 'static-id'
+ *
+ * Логика slot-резолва общая с useSimulation — см. resolveSlotTemplate.
  */
 function interpolate(str, slots) {
-  let resolved = true
-  const result = str.replace(/\{slot\.(\w+)\}/g, (_, key) => {
-    const v = slots?.[key]
-    if (v === undefined || v === null || v === '') {
-      resolved = false
-      return ''
-    }
-    return String(v)
-  })
-  return resolved ? result : null
+  const { value, hadUnresolved } = resolveSlotTemplate(str, slots)
+  return hadUnresolved ? null : value
 }
 
 /**
@@ -130,7 +126,7 @@ function generateAnimations(stencil, cellId, slots) {
     // тоже не эмитим: пустой bindings[] в рантайме бессмыслен.
     if (bindings.length === 0) continue
 
-    const finalId = `animation-${stencil.id}-${cellId}${tpl.idSuffix || ''}`
+    const finalId = innerKey(stencil.id, cellId, tpl.idSuffix)
     const card = { animation: tpl.type, bindings }
     if (tpl.detailTags) {
       const dt = interpolateDeep(tpl.detailTags, slots)
@@ -167,11 +163,11 @@ function injectIds(svgText, cellId, stencilId) {
     throw new Error('injectIds: не удалось распарсить shape.svg')
   }
 
-  const els = doc.querySelectorAll('[data-anim-suffix]')
+  const els = doc.querySelectorAll(`[${ATTR_SUFFIX}]`)
   for (const el of els) {
-    const suffix = el.getAttribute('data-anim-suffix') || ''
-    el.setAttribute('id', `animation-${stencilId}-${cellId}${suffix}`)
-    el.removeAttribute('data-anim-suffix')
+    const suffix = el.getAttribute(ATTR_SUFFIX) || ''
+    el.setAttribute('id', innerKey(stencilId, cellId, suffix))
+    el.removeAttribute(ATTR_SUFFIX)
   }
 
   return new XMLSerializer().serializeToString(root)

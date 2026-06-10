@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { getCellSearchStrings, getCellTags, cellHasTag, cellMatchesQuery } from './cellSearch'
+import {
+  getCellSearchStrings,
+  getCellTags,
+  getCellTagsFromTms,
+  cellHasTag,
+  cellMatchesQuery,
+} from './cellSearch'
 
 // Минимальный fake-cell с методом get, имитирующий JointJS API.
 function makeCell(tms) {
@@ -101,5 +107,37 @@ describe('getCellTags / cellHasTag', () => {
     expect(cellHasTag(cell, 'A')).toBe(false) // не substring
     expect(cellHasTag(cell, 'X.ONOFF')).toBe(false)
     expect(cellHasTag(cell, '')).toBe(false)
+  })
+})
+
+describe('getCellTagsFromTms', () => {
+  it('принимает сырой tms-объект без cell-обёртки', () => {
+    const tms = {
+      slots: { onoff: 'X.ONOFF' },
+      voltageSource: { tag: 'V.U' },
+      switchSources: { tags: ['S1', 'S2'] },
+      valueTag: 'VT',
+    }
+    expect(getCellTagsFromTms(tms)).toEqual(['X.ONOFF', 'V.U', 'S1', 'S2', 'VT'])
+  })
+
+  it('null / undefined / пустой объект → []', () => {
+    expect(getCellTagsFromTms(null)).toEqual([])
+    expect(getCellTagsFromTms(undefined)).toEqual([])
+    expect(getCellTagsFromTms({})).toEqual([])
+  })
+
+  it('пустые значения в slots / switchSources.tags фильтруются', () => {
+    expect(
+      getCellTagsFromTms({
+        slots: { a: 'A', b: '', c: null },
+        switchSources: { tags: ['X', '', 'Y'] },
+      })
+    ).toEqual(['A', 'X', 'Y'])
+  })
+
+  it('getCellTags — однострочная обёртка над getCellTagsFromTms', () => {
+    const cell = makeCell({ slots: { onoff: 'A' } })
+    expect(getCellTags(cell)).toEqual(getCellTagsFromTms(cell.get('tms')))
   })
 })

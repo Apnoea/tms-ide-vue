@@ -2,9 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 /**
- * Хранит загруженный tag-list. Раньше тут жили проект + views + стили,
- * но эти фичи пока не используются — оставили только теги.
- *
+ * Хранит загруженный tag-list.
  * tagListHandle нужен чтобы перечитать файл без повторного выбора через picker.
  */
 export const useProjectStore = defineStore('project', () => {

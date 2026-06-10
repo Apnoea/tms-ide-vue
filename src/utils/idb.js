@@ -20,7 +20,12 @@ function openDB() {
       req.result.createObjectStore(STORE)
     }
     req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
+    req.onerror = () => {
+      // Сбрасываем кэш, иначе следующий вызов вернёт ту же реджектнутую
+      // promise и IndexedDB никогда не переоткроется (приватный режим / гонка).
+      dbPromise = null
+      reject(req.error)
+    }
   })
   return dbPromise
 }
@@ -46,6 +51,9 @@ export async function idbSet(key, value) {
       tx.objectStore(STORE).put(value, key)
       tx.oncomplete = () => resolve()
       tx.onerror = () => reject(tx.error)
+      // QuotaExceeded и пр. могут поднять onabort без onerror — без этого
+      // обработчика промис висит вечно.
+      tx.onabort = () => reject(tx.error)
     })
   } catch {
     /* ignore — quota / private mode */
@@ -60,6 +68,7 @@ export async function idbDel(key) {
       tx.objectStore(STORE).delete(key)
       tx.oncomplete = () => resolve()
       tx.onerror = () => reject(tx.error)
+      tx.onabort = () => reject(tx.error)
     })
   } catch {
     /* ignore */

@@ -15,6 +15,8 @@
  *   getCategories()          — список уникальных категорий
  */
 
+import { ATTR_SUFFIX } from '../constants/ids'
+
 const jsonModules = import.meta.glob('./definitions/*/stencil.json', {
   eager: true,
   import: 'default',
@@ -37,9 +39,11 @@ const svgModules = import.meta.glob('./definitions/*/shape.svg', {
  *
  * @param {string} path  Путь к stencil.json (для prefix'а сообщений)
  * @param {object} json  Содержимое stencil.json
+ * @param {string} [svgText]  Содержимое shape.svg для cross-check idSuffix ↔
+ *                            data-anim-suffix. Без него этот шаг пропускается.
  * @returns {string[]}   Массив строк-предупреждений, пустой если всё ок
  */
-export function validateStencilJson(path, json) {
+export function validateStencilJson(path, json, svgText) {
   const issues = []
 
   const required = ['id', 'label', 'category', 'width', 'height', 'shapeFile']
@@ -50,6 +54,9 @@ export function validateStencilJson(path, json) {
   }
 
   // Известные поля верхнего уровня. Опечатки типа `slts` / `slosts` вылавливаем.
+  // Декларативные флаги (quality / intrinsicOnoff / layoutOnly / noRotate) —
+  // источник правды о специальном поведении стенсила: exporter / Inspector /
+  // Canvas читают их через getStencilById, никаких хардкод-Set'ов.
   const known = new Set([
     'id',
     'label',
@@ -61,6 +68,11 @@ export function validateStencilJson(path, json) {
     'ports',
     'slots',
     'animationTemplate',
+    'quality',
+    'intrinsicOnoff',
+    'layoutOnly',
+    'noRotate',
+    'defaults',
   ])
   for (const key of Object.keys(json)) {
     if (!known.has(key)) {
@@ -76,7 +88,10 @@ export function validateStencilJson(path, json) {
     }
   }
 
-  // animationTemplate — каждая карточка должна иметь idSuffix и type
+  // animationTemplate — каждая карточка должна иметь idSuffix и type.
+  // Дополнительно (если передан svgText): каждый непустой idSuffix должен
+  // быть подкреплён `data-anim-suffix=` в SVG, иначе animation-карточка
+  // эмитится для несуществующего элемента — рантайм тихо не находит.
   if (Array.isArray(json.animationTemplate)) {
     for (const [i, tpl] of json.animationTemplate.entries()) {
       if (tpl.idSuffix === undefined) {
@@ -84,6 +99,14 @@ export function validateStencilJson(path, json) {
       }
       if (!tpl.type) {
         issues.push(`[stencils] ${path}: animationTemplate[${i}] без "type"`)
+      }
+      if (svgText && tpl.idSuffix) {
+        if (!svgText.includes(`${ATTR_SUFFIX}="${tpl.idSuffix}"`)) {
+          issues.push(
+            `[stencils] ${path}: animationTemplate[${i}].idSuffix "${tpl.idSuffix}" ` +
+              `не найден в shape.svg (опечатка? карточка повиснет без DOM-таргета)`
+          )
+        }
       }
     }
   }
@@ -98,14 +121,12 @@ const registry = (() => {
   const out = new Map()
 
   for (const [path, json] of Object.entries(jsonModules)) {
-    if (!/\/definitions\/[^/]+\/stencil\.json$/.test(path)) continue
-
+    // Vite glob уже фильтрует пути по `./definitions/*/stencil.json` —
+    // дополнительный regex-guard здесь был бы тавтологией.
     if (!json?.id) {
       console.warn(`[stencils] Пропускаю ${path}: отсутствует поле "id"`)
       continue
     }
-
-    for (const issue of validateStencilJson(path, json)) console.warn(issue)
 
     const svgPath = path.replace('/stencil.json', '/shape.svg')
     const svgText = svgModules[svgPath]
@@ -113,6 +134,9 @@ const registry = (() => {
     if (!svgText) {
       console.warn(`[stencils] У стенсила "${json.id}" не найден shape.svg по пути ${svgPath}`)
     }
+
+    // svgText в validate'е — для cross-check idSuffix ↔ data-anim-suffix.
+    for (const issue of validateStencilJson(path, json, svgText)) console.warn(issue)
 
     out.set(json.id, {
       ...json,
@@ -137,6 +161,16 @@ export function getStencilById(id) {
 // корректной А-Я сортировки). Добавление нового стенсила/категории встаёт в
 // логичную позицию автоматически, без правок этого файла.
 const PINNED_FIRST_CATEGORIES = ['Текст и значения']
+
+/**
+ * Стенсил считается «свитчем» если у него есть слот с key === 'onoff'.
+ * Convention в проекте: ключ `onoff` зарезервирован под булево «вкл/выкл»
+ * (cell_qw / qr / qk / qf). Используется Inspector'ом для рендера через
+ * SwitchBlock + защиты от дублирования self-тега в switchSources.
+ */
+export function isSwitchStencil(stencil) {
+  return !!stencil?.slots?.some((s) => s.key === 'onoff')
+}
 
 export function getCategories() {
   const cats = new Set()

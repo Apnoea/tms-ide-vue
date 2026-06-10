@@ -1,7 +1,23 @@
-import { getStencilById } from '../stencils/registry'
+import { getStencilById, getAllStencils } from '../stencils/registry'
 import { instantiate } from '../stencils/parser'
 import { buildBusExportSvg, buildTextExportSvg, buildValueExportSvg } from '../stencils/svgInjector'
-import { ANIMATION_CLASS_COLORS, ANIMATION_OFF_COLOR } from '../constants/animation'
+import {
+  ANIMATION_CLASS_COLORS,
+  ANIMATION_OFF_COLOR,
+  CLASS_OFF,
+  CLASS_HIDDEN,
+} from '../constants/animation'
+import {
+  outerKey,
+  innerPrefix,
+  wireKey,
+  valueTextKey,
+  ATTR_META,
+  ATTR_STENCIL,
+  ATTR_LINK_LABEL_OF,
+} from '../constants/ids'
+import { SVG_NS, escapeXml, escapeAttr } from '../utils/xml'
+import { getCellTagsFromTms } from '../utils/cellSearch'
 import {
   LINK_LABEL_FONT_SIZE,
   LINK_LABEL_FONT_FAMILY,
@@ -12,37 +28,31 @@ import {
   LINK_LABEL_PAD_Y,
 } from '../stencils/linkDefaults'
 
-// Стенсилы, для которых эмитим quality-биндинги (bad → animation-off). У них
-// shape-template скрывает одно из двух состояний через animation-hidden — при
-// bad-качестве надо отменить скрытие, чтобы юзер видел обе позиции рычага
-// (СКАДА-конвенция «данные ненадёжны → показываем все возможные состояния»).
-// Set на модульном уровне — нужен И в loop'е генерации биндингов, И в CSS-блоке
-// inlineStyles для override'а display:none.
-const QUALITY_STENCILS = new Set(['cell_qk', 'cell_qr'])
-
-const SVG_NS = 'http://www.w3.org/2000/svg'
+// Какие стенсилы получают quality-биндинги и CSS-override для bad-качества —
+// определяется флагом `quality: true` в их stencil.json. См. cell_qk / cell_qr
+// / cell_qf. CSS-override (показ обеих позиций рычага при animation-off) —
+// конвенция «данные ненадёжны → показываем все возможные состояния».
 
 /**
- * Из текущего состояния JointJS-графа собирает два артефакта:
- *  • view.svg        — целостный SVG со всеми ячейками
- *  • animations.json — объединённые карточки всех ячеек
+ * Короткий стабильный id из JointJS-UUID: берём первый сегмент (8 hex ≈ 4B
+ * комбинаций), при коллизии в пределах одного экспорта расширяем следующим
+ * сегментом UUID — и так до полной строки. Защита от тихого слияния двух
+ * cell'ов с одинаковым префиксом UUID в одну animation-карточку.
  *
- * На каждой ячейке должна быть meta `tms = { stencilId, slots? }`,
- * которую CanvasPane проставляет в момент создания ячейки. slots — карта
- * key→tag, заполняется юзером через инспектор.
+ * Стабильно между save/load для несталкивающихся id — тот же UUID даёт тот
+ * же short-id. При коллизии порядок обхода может растянуть второй id чуть
+ * длиннее — это нормально, round-trip держится на полном UUID в data-tms-meta.
  *
- * В выходной SVG зашиваются data-tms-* атрибуты — для round-trip
- * (открыть view.svg обратно в IDE с восстановлением модели).
- *
- * @param {dia.Graph} graph
- * @returns {{ svgText: string, animationsJson: string, animations: object, count: number }}
+ * @param {string} fullId  — JointJS UUID (5 сегментов через '-')
+ * @param {(candidate: string) => boolean} isTaken — занят ли кандидат-id
  */
-/**
- * Короткий стабильный id из JointJS-UUID: первый сегмент (8 hex = 4B комбинаций).
- * Стабильно между save/load — тот же UUID даёт тот же short-id.
- */
-function shortenId(fullId) {
-  return String(fullId).split('-')[0]
+function uniqueShortId(fullId, isTaken) {
+  const segments = String(fullId).split('-')
+  let candidate = segments[0]
+  for (let i = 1; i < segments.length && isTaken(candidate); i++) {
+    candidate = `${candidate}-${segments[i]}`
+  }
+  return candidate
 }
 
 /**
@@ -110,7 +120,7 @@ function buildSwitchCard(ss) {
       when: {
         source: 'value',
         type: 'map',
-        cases: { false: { apply: { addClass: 'animation-off' } } },
+        cases: { false: { apply: { addClass: CLASS_OFF } } },
       },
     })),
   }
@@ -130,23 +140,10 @@ function assignOrMergeAnimation(animations, key, card) {
   }
 }
 
-/**
- * Outer-key и inner-prefix зависят от стенсила. cell_value сохраняет старую
- * рантайм-конвенцию (`animation-cell-{tag}`); остальные используют формат
- * `animation-{stencilId}-{animId}`, чтобы префикс id'шника сразу выдавал тип
- * стенсила в DOM и в animations.json.
- */
-function outerKeyFor(stencilId, animId) {
-  if (stencilId === 'cell_value') return `animation-cell-${animId}`
-  return `animation-${stencilId}-${animId}`
-}
-
-function innerPrefixFor(stencilId, animId) {
-  // cell_value не имеет inner-стенсильных карточек (только outer + text-узел
-  // `animation-{tag}`), но prefix согласован с outerKeyFor для единообразия.
-  if (stencilId === 'cell_value') return `animation-${animId}.`
-  return `animation-${stencilId}-${animId}.`
-}
+// outerKey/innerPrefix теперь живут в constants/ids.js — единственный
+// источник правды для id-формата (используется и парсером, и симуляцией).
+const outerKeyFor = outerKey
+const innerPrefixFor = innerPrefix
 
 /**
  * Дублирует bindings новой карточки во ВСЕ стенсильные shape-карточки того же
@@ -166,10 +163,22 @@ function mergeBindingsIntoStencilCards(animations, stencilId, animId, exceptKey,
 }
 
 /**
+ * Из текущего состояния JointJS-графа собирает два артефакта:
+ *  • view.svg        — целостный SVG со всеми ячейками
+ *  • animations.json — объединённые карточки всех ячеек для WebScada-рантайма
+ *
+ * На каждой ячейке должна быть meta `tms = { stencilId, slots? }` —
+ * CanvasPane проставляет её в момент создания. В выходной SVG зашиваются
+ * data-tms-* атрибуты для round-trip (открыть view.svg обратно в IDE).
+ *
  * @param {dia.Graph} graph
  * @param {dia.Paper} [paper] — если передан, в SVG для линий пишутся РЕАЛЬНЫЕ
  *   ортогональные пути (manhattan-router), как видно на холсте.
  *   Без paper — линии экспортируются как прямые `<line>`.
+ * @returns {{
+ *   svgText: string, animationsJson: string, animations: object,
+ *   count: number, linkCount: number, warnings: string[]
+ * }}
  */
 export function exportProject(graph, paper = null) {
   const elements = graph.getElements()
@@ -178,6 +187,16 @@ export function exportProject(graph, paper = null) {
   const cellExports = []
   const linkExports = []
   const animations = {}
+  // Защита от тихой коллизии short-id (UUID с одинаковым первым сегментом).
+  // uniqueShortId растягивает префикс на следующий сегмент пока outer-key не
+  // станет уникальным. Cell-key и wire-key живут в одном namespace —
+  // `animation-{stencilId}-...` и `animation-wire-...` пересекаться не могут,
+  // но один Set проще двух.
+  const usedOuterKeys = new Set()
+  // Список пред-/предупреждений для caller'а (CanvasPane показывает toast).
+  // Console.warn оставляем для DevTools — но без UI-показа SCADA-инженер бы
+  // их не увидел.
+  const warnings = []
 
   let minX = Infinity
   let minY = Infinity
@@ -198,12 +217,16 @@ export function exportProject(graph, paper = null) {
     const pos = cell.get('position')
     const size = cell.get('size')
 
-    // Для cell_value с тегом animId = САМ ТЕГ целиком, без shortenId. Иначе
-    // valueTag вида 'MY-TAG.IA' (с дефисом) split'нулся бы по '-' и порезался
-    // до 'MY' — рантайм бы не нашёл text-карточку. У остальных — short-id из
-    // UUID cell.id, там дефисы это разделитель сегментов.
+    // Для cell_value с тегом animId = САМ ТЕГ целиком, без укорачивания.
+    // Иначе valueTag вида 'MY-TAG.IA' (с дефисом) split'нулся бы по '-' и
+    // порезался до 'MY' — рантайм бы не нашёл text-карточку. У остальных —
+    // short-id из UUID cell.id с дефолтом на первый сегмент и расширением
+    // при коллизии (uniqueShortId).
     const animId =
-      tms.stencilId === 'cell_value' && tms.valueTag ? tms.valueTag : shortenId(cell.id)
+      tms.stencilId === 'cell_value' && tms.valueTag
+        ? tms.valueTag
+        : uniqueShortId(cell.id, (id) => usedOuterKeys.has(outerKeyFor(tms.stencilId, id)))
+    usedOuterKeys.add(outerKeyFor(tms.stencilId, animId))
 
     // Динамические стенсилы (шина, текст, значение) рендерятся по реальному
     // размеру/контенту и без редактор-only декораций; у остальных — обычный
@@ -219,9 +242,18 @@ export function exportProject(graph, paper = null) {
     } else if (tms.stencilId === 'cell_value') {
       cellSvg = buildValueExportSvg(animId, tms.valueTag || '', size.width, size.height)
       if (tms.valueTag) {
+        // Два cell_value с одинаковым valueTag дали бы одинаковый
+        // `animation-{tag}` text-id — невалидный SVG (duplicate id) и рантайм
+        // обновлял бы только первый из них. Предупреждаем, не молчим.
+        const textKey = valueTextKey(animId)
+        if (animations[textKey]) {
+          const msg = `cell_value: дубль valueTag="${tms.valueTag}" — рантайм обновит только первую ячейку`
+          warnings.push(msg)
+          console.warn(`[Exporter] ${msg}`)
+        }
         // Конвенция WebScada-рантайма: пустой output.text означает «взять
         // значение из binding.tag» (т.е. того же тега, что подписан).
-        animations[`animation-${animId}`] = {
+        animations[textKey] = {
           animation: 'text',
           bindings: [
             {
@@ -277,12 +309,14 @@ export function exportProject(graph, paper = null) {
     let pathD = null
 
     // Если есть paper — забираем реальный путь, как он отрисовался на холсте
-    // (с учётом manhattan-роутинга и обходов ячеек)
+    // (с учётом manhattan-роутинга и обходов ячеек). JointJS 4 standard.Link
+    // имеет два <path> — wrapper (хитбокс) и line (видимая линия), оба с
+    // одинаковым `d`. Берём именно line по `joint-selector="line"` — контракт,
+    // не «по совпадению» (querySelector('path') вернул бы wrapper).
     if (paper) {
       const linkView = paper.findViewByModel(link)
       if (linkView?.el) {
-        const pathEl =
-          linkView.el.querySelector('path.joint-link-line') || linkView.el.querySelector('path')
+        const pathEl = linkView.el.querySelector('path[joint-selector="line"]')
         if (pathEl) {
           pathD = pathEl.getAttribute('d')
           // Заодно собираем bbox по реальной геометрии
@@ -316,8 +350,11 @@ export function exportProject(graph, paper = null) {
 
     // id провода — `animation-wire-{short}`. Стабильный short-id из link.id
     // (тот же UUID между save/load); round-trip держится на data-tms-meta.id
-    // (полный JointJS-uuid линка).
-    const wireId = `animation-wire-${shortenId(link.id)}`
+    // (полный JointJS-uuid линка). uniqueShortId защищает от тихого слияния
+    // двух линков с одинаковым первым сегментом UUID.
+    const wireShort = uniqueShortId(link.id, (id) => usedOuterKeys.has(wireKey(id)))
+    const wireId = wireKey(wireShort)
+    usedOuterKeys.add(wireId)
 
     const linkTms = link.get('tms') || {}
     const sourceRef = link.get('source')
@@ -405,7 +442,7 @@ export function exportProject(graph, paper = null) {
   // эмитит свой animation-off биндинг для slot.onoff в .QW — дубль не нужен,
   // да и CSS-cascade с outer-wrapper всё равно красит вложенные элементы.
   for (const c of cellExports) {
-    if (c.stencilId !== 'cell_qw') continue
+    if (!getStencilById(c.stencilId)?.intrinsicOnoff) continue
     const onoffTag = c.slots?.onoff
     if (!onoffTag) continue
     const card = buildSwitchCard({ tags: [onoffTag] })
@@ -442,10 +479,11 @@ export function exportProject(graph, paper = null) {
 
   // ─── detailTags на outer-wrapper / wire-card ───
   // Рантайм открывает popup с подробностями при клике, читая detailTags
-  // карточки внешней обёртки. У cell_value detailTags исторически ставится
-  // на text-карточку (`animation-{valueTag}`) — там и остаётся. Для всех
-  // остальных собираем все привязанные теги (slots, voltageSource.tag,
-  // switchSources.tags) и кладём на outer-карточку (см. outerKeyFor) / wire.
+  // карточки внешней обёртки. У cell_value detailTags ставится на text-карточку
+  // (`animation-{valueTag}`) — рантайм-конвенция (text-handler находит элемент
+  // по id равному тегу). Для всех остальных собираем все привязанные теги
+  // (slots, voltageSource.tag, switchSources.tags) и кладём на outer-карточку
+  // (см. outerKeyFor) / wire.
   function attachDetailTags(key, tags) {
     if (!tags.length) return
     if (!animations[key]) {
@@ -464,19 +502,15 @@ export function exportProject(graph, paper = null) {
       animations[key].detailTags = [...existing, ...additions]
     }
   }
+  // cellExports / linkExports structurally совместимы с tms-payload
+  // (`slots`, `voltageSource`, `switchSources` на верхнем уровне), так что
+  // тот же getCellTagsFromTms что и для поиска — без дубля сборки тегов.
   for (const c of cellExports) {
-    if (c.stencilId === 'cell_value' || c.stencilId === 'cell_text') continue
-    const tags = []
-    if (c.slots) for (const v of Object.values(c.slots)) if (v) tags.push(v)
-    if (c.voltageSource?.tag) tags.push(c.voltageSource.tag)
-    if (c.switchSources?.tags?.length) tags.push(...c.switchSources.tags)
-    attachDetailTags(outerKeyFor(c.stencilId, c.animId), tags)
+    if (getStencilById(c.stencilId)?.layoutOnly) continue
+    attachDetailTags(outerKeyFor(c.stencilId, c.animId), getCellTagsFromTms(c))
   }
   for (const l of linkExports) {
-    const tags = []
-    if (l.voltageSource?.tag) tags.push(l.voltageSource.tag)
-    if (l.switchSources?.tags?.length) tags.push(...l.switchSources.tags)
-    attachDetailTags(l.id, tags)
+    attachDetailTags(l.id, getCellTagsFromTms(l))
   }
 
   // ─── Quality (OPC DA): non-good → animation-off ───
@@ -491,18 +525,17 @@ export function exportProject(graph, paper = null) {
   // Биндинги кладём ТОЛЬКО на outer-карточку — оттуда CSS-каскад
   // `.animation-off *:not(text) { stroke }` затемняет ВСЕ stroke-элементы
   // стенсила (хвосты, контакты, шарнир, рычаги, заземление). Если класть на
-  // inner-карточки (.QK-closed / .QK-open), серым станет только текущий
-  // видимый рычаг — остальной корпус останется чёрным.
+  // inner-карточки (.closed / .open), серым станет только текущий видимый
+  // рычаг — остальной корпус останется чёрным.
   //
   // Outer-карточку создаём если её ещё нет (cell без voltage/switch — просто
   // голый стенсил со slot.onoff). Аналогично navigation-логике выше.
   //
-  // Сейчас выпускаем quality только для cell_qk (короткозамыкатель) и cell_qr
-  // (отделитель) — пилотные стенсилы. Остальные не трогаем (когда понадобится,
-  // расширим QUALITY_STENCILS). text/value-карточки рантайм обрабатывает с
-  // собственной quality-семантикой.
+  // Выпускаем quality для стенсилов с флагом `quality: true` в stencil.json
+  // (сейчас — cell_qk / cell_qr / cell_qf). text/value-карточки рантайм
+  // обрабатывает с собственной quality-семантикой и сюда не включаются.
   for (const c of cellExports) {
-    if (!QUALITY_STENCILS.has(c.stencilId)) continue
+    if (!getStencilById(c.stencilId)?.quality) continue
     // Собираем уникальные теги из inner-карточек (slot.onoff) + outer (voltage,
     // switch). Без тегов quality-биндинги бессмысленны — пропускаем.
     const stencilPrefix = innerPrefixFor(c.stencilId, c.animId)
@@ -525,7 +558,7 @@ export function exportProject(graph, paper = null) {
         when: {
           source: 'quality',
           type: 'range',
-          cases: [{ min: 0, max: 191, apply: { addClass: 'animation-off' } }],
+          cases: [{ min: 0, max: 191, apply: { addClass: CLASS_OFF } }],
         },
       })
     }
@@ -533,22 +566,13 @@ export function exportProject(graph, paper = null) {
 
   // ─── SVG-фрагменты ───
   // data-tms-meta — авторитет для редактора при загрузке; рантайм игнорирует.
-  // Полный XML attribute-encode (& " < > '), хотя сейчас атрибуты quote'аются
-  // через ", и в JSON.stringify редко встречаются ' и > — но строго по spec'у.
-  const escapeAttr = (s) =>
-    String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&apos;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-
+  // escapeAttr/escapeXml импортируются из utils/xml — один источник правды
+  // для обоих писателей SVG-строк (exporter и svgInjector).
+  //
   // Линии — первыми (фон), ячейки сверху, чтобы цеплялись к портам.
   // Лейбл (если есть) — <g> с <rect> подложкой и <text> поверх. Ширина rect'а
   // оценивается по character-count (DOMParser не умеет glyph-metrics);
   // ~6px/char для sans-serif 10px — кириллица/латиница умещаются с запасом.
-  const escapeXml = (s) =>
-    String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const APPROX_CHAR_WIDTH = 6
   const lines = linkExports
     .map((l) => {
@@ -561,13 +585,16 @@ export function exportProject(graph, paper = null) {
       if (l.switchSources) meta.switchSources = l.switchSources
       if (l.label) meta.label = l.label
       const metaAttr = escapeAttr(JSON.stringify(meta))
-      const pathTag = `  <path id="${l.id}" d="${l.d}" stroke="#000" stroke-width="2" fill="none" data-tms-meta="${metaAttr}"/>`
+      // l.id и l.d сейчас составляются из UUID-производных и сгенерированных
+      // path-данных — symbol-safe, но escapeAttr держит инвариант на случай
+      // если JointJS-расширение когда-то засунет туда что-то экзотическое.
+      const pathTag = `  <path id="${escapeAttr(l.id)}" d="${escapeAttr(l.d)}" stroke="#000" stroke-width="2" fill="none" ${ATTR_META}="${metaAttr}"/>`
       if (!l.label || !l.labelCoords) return pathTag
       const textWidth = l.label.length * APPROX_CHAR_WIDTH
       const w = textWidth + LINK_LABEL_PAD_X * 2
       const h = LINK_LABEL_FONT_SIZE + LINK_LABEL_PAD_Y * 2
       const rx = 2
-      const labelTag = `  <g data-tms-link-label-of="${l.id}" transform="translate(${l.labelCoords.x},${l.labelCoords.y})"><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${rx}" ry="${rx}" fill="${LINK_LABEL_BG_COLOR}" stroke="${LINK_LABEL_BORDER_COLOR}" stroke-width="1"/><text text-anchor="middle" dominant-baseline="middle" font-size="${LINK_LABEL_FONT_SIZE}" font-family="${LINK_LABEL_FONT_FAMILY}" fill="${LINK_LABEL_TEXT_COLOR}">${escapeXml(l.label)}</text></g>`
+      const labelTag = `  <g ${ATTR_LINK_LABEL_OF}="${escapeAttr(l.id)}" transform="translate(${l.labelCoords.x},${l.labelCoords.y})"><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${rx}" ry="${rx}" fill="${LINK_LABEL_BG_COLOR}" stroke="${LINK_LABEL_BORDER_COLOR}" stroke-width="1"/><text text-anchor="middle" dominant-baseline="middle" font-size="${LINK_LABEL_FONT_SIZE}" font-family="${LINK_LABEL_FONT_FAMILY}" fill="${LINK_LABEL_TEXT_COLOR}">${escapeXml(l.label)}</text></g>`
       return `${pathTag}\n${labelTag}`
     })
     .join('\n')
@@ -600,7 +627,9 @@ export function exportProject(graph, paper = null) {
       // вокруг центра ячейки в её локальных координатах.
       let transform = `translate(${c.x},${c.y})`
       if (c.angle) transform += ` rotate(${c.angle} ${c.width / 2} ${c.height / 2})`
-      return `  <g id="${outerKeyFor(c.stencilId, c.animId)}" transform="${transform}" data-tms-stencil="${c.stencilId}" data-tms-meta="${metaAttr}">${inner}</g>`
+      // escapeAttr на outer-id: для cell_value c.animId = valueTag, который
+      // может содержать ", &, < и т.п. — без эскейпа SVG становится невалидным.
+      return `  <g id="${escapeAttr(outerKeyFor(c.stencilId, c.animId))}" transform="${transform}" ${ATTR_STENCIL}="${c.stencilId}" ${ATTR_META}="${metaAttr}">${inner}</g>`
     })
     .join('\n')
 
@@ -609,7 +638,7 @@ export function exportProject(graph, paper = null) {
   // внутри ячеек. animation-off объявлен ПОСЛЕ voltage — перебивает по каскаду.
   const inlineStyles = `  <style>
     <![CDATA[
-    .animation-hidden { display: none; }
+    .${CLASS_HIDDEN} { display: none; }
     /* Stroke красим всем потомкам кроме text — у текста stroke=none по дефолту. */
 ${Object.entries(ANIMATION_CLASS_COLORS)
   .map(([cls, hex]) => `    .${cls}, .${cls} *:not(text) { stroke: ${hex} !important; }`)
@@ -622,15 +651,16 @@ ${Object.entries(ANIMATION_CLASS_COLORS)
   )
   .join('\n')}
     /* animation-off — серый поверх voltage-классов. */
-    .animation-off, .animation-off *:not(text) { stroke: ${ANIMATION_OFF_COLOR} !important; }
-    .animation-off .tms-voltage-fill, .animation-off.tms-voltage-fill { fill: ${ANIMATION_OFF_COLOR} !important; }
+    .${CLASS_OFF}, .${CLASS_OFF} *:not(text) { stroke: ${ANIMATION_OFF_COLOR} !important; }
+    .${CLASS_OFF} .tms-voltage-fill, .${CLASS_OFF}.tms-voltage-fill { fill: ${ANIMATION_OFF_COLOR} !important; }
     /* Quality-stencils: при bad-качестве (animation-off на outer) показываем
        обе позиции рычага одновременно — отменяем animation-hidden у потомков.
        Конвенция «данные ненадёжны → не врём про конкретное состояние». */
-${[...QUALITY_STENCILS]
+${getAllStencils()
+  .filter((s) => s.quality)
   .map(
-    (sid) =>
-      `    [data-tms-stencil="${sid}"].animation-off .animation-hidden { display: initial !important; }`
+    (s) =>
+      `    [${ATTR_STENCIL}="${s.id}"].${CLASS_OFF} .${CLASS_HIDDEN} { display: initial !important; }`
   )
   .join('\n')}
     ]]>
@@ -653,6 +683,7 @@ ${groups}
     animations: animationsObject,
     count: cellExports.length,
     linkCount: linkExports.length,
+    warnings,
   }
 }
 

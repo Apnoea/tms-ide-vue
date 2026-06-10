@@ -8,7 +8,7 @@ import { useToast } from 'primevue/usetoast'
 import { useCanvas } from '../composables/useCanvas'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
-import { getStencilById } from '../stencils/registry'
+import { getStencilById, isSwitchStencil } from '../stencils/registry'
 import {
   injectStencilSvg,
   TEXT_FONT_SIZE,
@@ -27,28 +27,31 @@ import {
   ANIMATION_CLASS_COLORS,
   ANIMATION_CLASS_OPTIONS,
   ANIMATION_OFF_COLOR,
+  CLASS_OFF,
+  CLASS_HIDDEN,
 } from '../constants/animation'
+import { hasSlotPlaceholder } from '../constants/ids'
 import { TOAST_LIFE } from '../constants/toast'
 
 // Дефолтные диапазоны voltage-source. .map(({...r})) на каждое использование —
 // чтобы ячейки не делили один и тот же массив.
+//
+// max-границы укорочены на 0.01: WebScada condition-evaluator inclusive по
+// обоим концам (`>=min && <=max`). При max=4/4/7 значение 4 матчило бы и low,
+// и mid одновременно — итоговый цвет зависел бы от порядка CSS-правил, а не
+// от данных. Та же логика что для quality `[0, 191]` (max=191, не 192).
 const VOLTAGE_RANGE_DEFAULTS = [
-  { min: 0, max: 4, class: 'animation-low' },
-  { min: 4, max: 7, class: 'animation-mid' },
+  { min: 0, max: 3.99, class: 'animation-low' },
+  { min: 4, max: 6.99, class: 'animation-mid' },
   { min: 7, max: 10, class: 'animation-high' },
 ]
 
-// Стенсилы без визуальной реакции на animation-классы — voltage/switch source
-// на них бессмыслен, в multi-select их пропускаем.
-const LAYOUT_ONLY_STENCILS = new Set(['cell_text', 'cell_value'])
+// «Layout-only» стенсилы (флаг `layoutOnly: true` в stencil.json) — без
+// визуальной реакции на animation-классы; voltage/switch source на них
+// бессмыслен, в multi-select их пропускаем.
 function isLayoutOnly(stencilId) {
-  return LAYOUT_ONLY_STENCILS.has(stencilId)
+  return !!getStencilById(stencilId)?.layoutOnly
 }
-
-// Стенсилы с required-слотом .ONOFF, который семантически идентичен выключателю:
-// рендерим в Inspector через SwitchBlock в intrinsic-режиме (с возможностью
-// добавлять родительские switchSources поверх собственного onoff).
-const SWITCH_STENCILS = new Set(['cell_qw', 'cell_qr', 'cell_qk'])
 
 const canvas = useCanvas()
 const project = useProjectStore()
@@ -86,12 +89,12 @@ const details = computed(() => {
       // bell-иконкой, без отдельной строки в «Привязки тегов»). Switch-source для
       // тревоги бессмыслен — кнопку «Выключатель» прячем тоже.
       isAlarm: tms.stencilId === 'cell_alr',
-      // cell_qw / cell_qr / cell_qk — slot.onoff рендерится через SwitchBlock
-      // в intrinsic-режиме (общий «блок выключателя» вместо отдельной строки
-      // в «Привязках тегов»). Switch-source-кнопка у такой ячейки дублировала
-      // бы её собственный .ONOFF, поэтому общий add-flow тоже отдаём через
-      // SwitchBlock (см. onAddSwitchTag).
-      isSwitch: SWITCH_STENCILS.has(tms.stencilId),
+      // Стенсилы со slot.onoff (cell_qw / qr / qk / qf — см. isSwitchStencil
+      // convention в registry) рендерят слот через SwitchBlock в intrinsic-режиме
+      // (общий «блок выключателя» вместо отдельной строки в «Привязках тегов»).
+      // Switch-source-кнопка у такой ячейки дублировала бы её собственный .ONOFF,
+      // поэтому общий add-flow тоже отдаём через SwitchBlock (см. onAddSwitchTag).
+      isSwitch: isSwitchStencil(stencil),
       // Слоты для UI: декларация из стенсила + текущее значение из tms.slots.
       // tagSuffix — фильтр для picker'а (показывать только теги с .SUFFIX).
       // tooltip — встроенные правила анимации для этого слота (см. buildSlotTooltip),
@@ -189,7 +192,7 @@ function openSlotPicker(slot) {
 // К моменту срабатывания canvas.selection уже выставлен на нужную ячейку, и
 // details.slots реактивно обновился — берём из него первый пустой required.
 watch(
-  () => canvas.slotPickRequest.value.tick,
+  () => canvas.slotPickRequest.value,
   () => {
     const d = details.value
     if (!d || d.kind !== 'cell') return
@@ -342,8 +345,7 @@ const patchSwitchSources = (patch) => patchTmsField('switchSources', patch)
 
 function addVoltageSource() {
   // Сразу picker — onPickTag создаст voltageSource с тегом и дефолтными
-  // диапазонами. Раньше тут была пустая карточка, юзер потом отдельно кликал
-  // «выбрать тег» — лишний шаг.
+  // диапазонами (без промежуточной пустой карточки и лишнего клика).
   tagPickerOpen.value = true
 }
 
@@ -535,9 +537,9 @@ function onPickMultiSwitchTag(tag) {
       skipped++
       continue
     }
-    // cell_qw / cell_qr / cell_qk не должны зависеть от своего же тега — slot.onoff
-    // уже отвечает за переключение позиции, дубль в switchSources бессмыслен.
-    if (SWITCH_STENCILS.has(tms.stencilId) && tms.slots?.onoff === tag) {
+    // Свитчи (стенсилы с slot.onoff) не должны зависеть от своего же тега —
+    // slot.onoff уже отвечает за переключение, дубль в switchSources бессмыслен.
+    if (isSwitchStencil(getStencilById(tms.stencilId)) && tms.slots?.onoff === tag) {
       skipped++
       continue
     }
@@ -623,7 +625,7 @@ function patchNavigation(value) {
 // Voltage-палитра + off — те же значения попадают в CSS экспорта/симуляции.
 const BINDING_CLASS_COLORS = {
   ...ANIMATION_CLASS_COLORS,
-  'animation-off': ANIMATION_OFF_COLOR,
+  [CLASS_OFF]: ANIMATION_OFF_COLOR,
 }
 
 /**
@@ -634,7 +636,7 @@ function slotBindingRules(slotKey, animationTemplate) {
   const rules = []
   for (const tpl of animationTemplate || []) {
     for (const binding of tpl.bindings || []) {
-      if (!binding.tag?.includes(`{slot.${slotKey}}`)) continue
+      if (!hasSlotPlaceholder(binding.tag, slotKey)) continue
       const when = binding.when || {}
       if (when.type === 'map' && when.cases) {
         for (const [value, action] of Object.entries(when.cases)) {
@@ -644,7 +646,7 @@ function slotBindingRules(slotKey, animationTemplate) {
             condition: `= ${value}`,
             applyClass: cls,
             color: BINDING_CLASS_COLORS[cls] || null,
-            hidden: cls === 'animation-hidden',
+            hidden: cls === CLASS_HIDDEN,
           })
         }
       } else if (when.type === 'range' && Array.isArray(when.cases)) {
@@ -655,7 +657,7 @@ function slotBindingRules(slotKey, animationTemplate) {
             condition: `в [${range.min}, ${range.max})`,
             applyClass: cls,
             color: BINDING_CLASS_COLORS[cls] || null,
-            hidden: cls === 'animation-hidden',
+            hidden: cls === CLASS_HIDDEN,
           })
         }
       }

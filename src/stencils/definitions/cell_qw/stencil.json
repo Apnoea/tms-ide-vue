@@ -2,6 +2,7 @@
   "id": "cell_qw",
   "label": "Выключатель",
   "category": "Коммутация",
+  "intrinsicOnoff": true,
 
   "slots": [
     {
@@ -17,10 +18,10 @@
   "width": 20,
   "height": 20,
   "ports": [
-    { "name": "top", "x": 10, "y": 0, "type": "io" },
-    { "name": "right", "x": 20, "y": 10, "type": "io" },
-    { "name": "bottom", "x": 10, "y": 20, "type": "io" },
-    { "name": "left", "x": 0, "y": 10, "type": "io" }
+    { "name": "top", "x": 10, "y": 0 },
+    { "name": "right", "x": 20, "y": 10 },
+    { "name": "bottom", "x": 10, "y": 20 },
+    { "name": "left", "x": 0, "y": 10 }
   ],
 
   "animationTemplate": [

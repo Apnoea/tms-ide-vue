@@ -5,38 +5,6 @@ function isFileSystemAccessSupported() {
   return typeof window !== 'undefined' && window.showDirectoryPicker && window.showOpenFilePicker
 }
 
-/**
- * Резолвит startIn-параметр для showOpenFilePicker. Если передан file-handle —
- * пытается достать его родительскую директорию (приятнее открывать picker
- * именно там, а не файл уже выделенным).
- */
-async function resolveStartInForOpenFilePicker(handle) {
-  if (!handle) return null
-  if (handle.kind === 'directory') return handle
-  const dir = await getFileDirectory(handle)
-  return dir ?? handle
-}
-
-export async function getFileDirectory(fileHandle) {
-  try {
-    const root = await navigator.storage.getDirectory()
-    const path = await root.resolve(fileHandle)
-
-    if (!path || path.length === 0) {
-      return null
-    }
-
-    let currentHandle = root
-    for (let i = 0; i < path.length - 1; i++) {
-      currentHandle = await currentHandle.getDirectoryHandle(path[i])
-    }
-    return currentHandle
-  } catch (e) {
-    console.warn('getFileDirectory failed:', e)
-    return null
-  }
-}
-
 export async function selectFile(startInHandle = null, accept = null) {
   if (!isFileSystemAccessSupported()) {
     throw new Error('Браузер не поддерживает File System Access API')
@@ -47,15 +15,9 @@ export async function selectFile(startInHandle = null, accept = null) {
     // accept: [{ description, accept: { mime: [extensions] } }]
     options.types = accept
   }
-  const resolved = await resolveStartInForOpenFilePicker(startInHandle)
-  if (resolved) {
-    try {
-      await resolved.queryPermission({ mode: 'read' })
-      options.startIn = resolved
-    } catch {
-      options.startIn = resolved
-    }
-  }
+  // showOpenFilePicker сам открывает диалог в родительской папке файла, когда
+  // startIn — file handle (или в самой папке если directory handle).
+  if (startInHandle) options.startIn = startInHandle
 
   try {
     const [fileHandle] = await window.showOpenFilePicker(options)

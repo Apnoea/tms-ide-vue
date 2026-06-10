@@ -1,54 +1,207 @@
-// Регрессионный тест к багу «при дублировании есть провода до оригинальных
-// объектов»: новые bridge-линки должны указывать на НОВЫЕ ячейки и сохранять
-// router/connector/attrs из LINK_DEFAULTS (factory defaultLink не работает
-// на JSON-path при graph.addCell).
-import { describe, it, expect } from 'vitest'
+// Покрываем copy/paste-инварианты: bridge-link рефы через oldToNew, angle
+// rotated-ячеек, round-trip tms.label на линке через buildLinkLabel. Plus
+// pair тестов для toast-веток (empty selection / skipped по unknown stencil).
+// JointJS Graph + TMSStencil реальные; useCanvas singleton / useToast / registry
+// mock'аем чтобы не таскать palette-загрузку и tag-list.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { effectScope } from 'vue'
 import { dia, shapes } from '@joint/core'
-import { LINK_DEFAULTS } from '../stencils/linkDefaults'
+import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'
 
-describe('paste bridge-link via new shapes.standard.Link', () => {
-  it('новый линк ссылается на новые ячейки и наследует LINK_DEFAULTS', () => {
-    const g = new dia.Graph({}, { cellNamespace: shapes })
-    g.addCell([
-      new shapes.standard.Rectangle({
-        id: 'A',
-        size: { width: 50, height: 50 },
-        position: { x: 0, y: 0 },
-      }),
-      new shapes.standard.Rectangle({
-        id: 'B',
-        size: { width: 50, height: 50 },
-        position: { x: 100, y: 0 },
-      }),
-      new shapes.standard.Rectangle({
-        id: 'NEW_A',
-        size: { width: 50, height: 50 },
-        position: { x: 200, y: 0 },
-      }),
-      new shapes.standard.Rectangle({
-        id: 'NEW_B',
-        size: { width: 50, height: 50 },
-        position: { x: 300, y: 0 },
-      }),
-    ])
+const mockToast = { add: vi.fn() }
+vi.mock('primevue/usetoast', () => ({ useToast: () => mockToast }))
 
-    // имитация collectBridgeLinkSnaps + pasteSnapshots (новый API)
-    const linkModel = new shapes.standard.Link({
-      ...LINK_DEFAULTS,
-      source: { id: 'NEW_A', port: 'p1' },
-      target: { id: 'NEW_B', port: 'p2' },
-      tms: { voltageSource: { tag: 'V.1' } },
+// Фейковый стенсил для getStencilById — useClipboard сверяется только с
+// наличием объекта + ports (для buildPortItems). 'unknown' → null чтобы
+// триггерить skipped-ветку в pasteSnapshots.
+vi.mock('../stencils/registry', () => ({
+  getStencilById: vi.fn((id) => {
+    if (!id || id === 'unknown') return null
+    return {
+      id,
+      label: 'Test',
+      category: 'Test',
+      width: 20,
+      height: 20,
+      ports: [{ name: 'p1', x: 10, y: 0 }],
+    }
+  }),
+}))
+
+vi.mock('../stencils/svgInjector', () => ({
+  buildPortItems: vi.fn(() => [{ id: 'p1', group: 'port' }]),
+  injectStencilSvg: vi.fn(),
+}))
+
+const mockCanvas = {
+  graphRef: { value: null },
+  paperRef: { value: null },
+  selection: { value: [] },
+  setSelection: vi.fn((items) => {
+    mockCanvas.selection.value = items
+  }),
+}
+vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
+
+import { useClipboard } from './useClipboard'
+
+function withScope(fn) {
+  let result
+  const scope = effectScope()
+  scope.run(() => {
+    result = fn()
+  })
+  return [result, scope]
+}
+
+function makeCell({ x = 0, y = 0, stencilId = 'cell_qw', angle = 0, tms = {} } = {}) {
+  return new TMSStencil({
+    position: { x, y },
+    size: { width: 20, height: 20 },
+    angle,
+    tms: { stencilId, ...tms },
+  })
+}
+
+describe('useClipboard', () => {
+  let scope
+  let scheduleSnapshot
+  let graph
+  let paper
+
+  beforeEach(() => {
+    graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    // findViewByModel → null отключает injectStencilSvg-ветку (мы её замочили в no-op).
+    paper = { options: { gridSize: 1 }, findViewByModel: () => null }
+    mockCanvas.graphRef.value = graph
+    mockCanvas.paperRef.value = paper
+    mockCanvas.selection.value = []
+    mockCanvas.setSelection.mockClear()
+    mockToast.add.mockClear()
+    scheduleSnapshot = vi.fn()
+  })
+
+  afterEach(() => {
+    scope?.stop()
+  })
+
+  function setup() {
+    const [api, s] = withScope(() => useClipboard({ scheduleSnapshot }))
+    scope = s
+    return api
+  }
+
+  it('paste: bridge-link перевешивает source/target на новые ячейки (oldToNew)', () => {
+    const a = makeCell({ x: 0 })
+    const b = makeCell({ x: 100 })
+    const link = new shapes.standard.Link({
+      source: { id: a.id, port: 'p1' },
+      target: { id: b.id, port: 'p1' },
     })
-    g.addCell(linkModel)
+    graph.addCells([a, b, link])
+    mockCanvas.selection.value = [
+      { kind: 'cell', id: a.id },
+      { kind: 'cell', id: b.id },
+    ]
 
-    expect(linkModel.get('source').id).toBe('NEW_A')
-    expect(linkModel.get('target').id).toBe('NEW_B')
-    expect(linkModel.get('source').port).toBe('p1')
-    expect(linkModel.get('target').port).toBe('p2')
-    expect(linkModel.get('router')?.name).toBe(LINK_DEFAULTS.router.name)
-    expect(linkModel.get('connector')?.name).toBe(LINK_DEFAULTS.connector.name)
-    expect(linkModel.get('tms')?.voltageSource?.tag).toBe('V.1')
-    // graph.addCell возвращает граф — id берём с самой модели
-    expect(linkModel.id).toBeDefined()
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+
+    const links = graph.getLinks()
+    expect(links).toHaveLength(2) // оригинал + новый
+    const newLink = links.find((l) => l.id !== link.id)
+    // Новый линк ссылается НЕ на оригиналы (главный регрешн-чек к старому багу)
+    expect(newLink.get('source').id).not.toBe(a.id)
+    expect(newLink.get('target').id).not.toBe(b.id)
+    // Порты сохраняются (oldToNew переписывает только cell-id)
+    expect(newLink.get('source').port).toBe('p1')
+    expect(newLink.get('target').port).toBe('p1')
+    // Новые cell-id'ы реально присутствуют в графе
+    const newCellIds = graph
+      .getElements()
+      .filter((c) => c.id !== a.id && c.id !== b.id)
+      .map((c) => c.id)
+    expect(newCellIds).toContain(newLink.get('source').id)
+    expect(newCellIds).toContain(newLink.get('target').id)
+    expect(scheduleSnapshot).toHaveBeenCalledOnce()
+  })
+
+  it('paste: rotated cell сохраняет angle', () => {
+    const rotated = makeCell({ angle: 90 })
+    graph.addCell(rotated)
+    mockCanvas.selection.value = [{ kind: 'cell', id: rotated.id }]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+
+    const newCell = graph.getElements().find((c) => c.id !== rotated.id)
+    expect(newCell).toBeDefined()
+    expect(newCell.angle()).toBe(90)
+  })
+
+  it('paste: link с tms.label round-trip восстанавливает labels[] через buildLinkLabel', () => {
+    const a = makeCell({ x: 0 })
+    const b = makeCell({ x: 100 })
+    const link = new shapes.standard.Link({
+      source: { id: a.id },
+      target: { id: b.id },
+      tms: { label: 'L1' },
+    })
+    graph.addCells([a, b, link])
+    mockCanvas.selection.value = [
+      { kind: 'cell', id: a.id },
+      { kind: 'cell', id: b.id },
+    ]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+
+    const newLink = graph.getLinks().find((l) => l.id !== link.id)
+    expect(newLink.get('tms')?.label).toBe('L1')
+    // buildLinkLabel сделал JointJS-label, link.labels() вернёт массив длины 1
+    expect(newLink.labels()).toHaveLength(1)
+  })
+
+  it('copySelection: пустое выделение → info-toast, буфер не меняется', () => {
+    mockCanvas.selection.value = []
+    const { copySelection, hasClipboard } = setup()
+    copySelection()
+    expect(hasClipboard()).toBe(false)
+    expect(mockToast.add).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'info', summary: 'Нечего копировать' })
+    )
+  })
+
+  it('paste: ячейка с unknown stencilId → skipped, в граф не добавлена', () => {
+    const ghost = makeCell({ stencilId: 'unknown' })
+    graph.addCell(ghost)
+    mockCanvas.selection.value = [{ kind: 'cell', id: ghost.id }]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+
+    expect(graph.getElements()).toHaveLength(1) // только оригинал
+    expect(scheduleSnapshot).not.toHaveBeenCalled() // newCellIds.length === 0
+    expect(mockToast.add).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'warn', summary: 'Не удалось вставить' })
+    )
+  })
+
+  it('duplicateSelection: одним вызовом snapshot + paste новых ячеек', () => {
+    const a = makeCell({ x: 50 })
+    graph.addCell(a)
+    mockCanvas.selection.value = [{ kind: 'cell', id: a.id }]
+
+    const { duplicateSelection } = setup()
+    duplicateSelection()
+
+    expect(graph.getElements()).toHaveLength(2)
+    expect(mockToast.add).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'success', summary: 'Дублировано' })
+    )
   })
 })

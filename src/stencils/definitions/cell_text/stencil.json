@@ -2,6 +2,9 @@
   "id": "cell_text",
   "label": "Текстовое поле",
   "category": "Текст и значения",
+  "layoutOnly": true,
+  "noRotate": true,
+  "defaults": { "text": "Текст" },
 
   "shapeFile": "shape.svg",
   "width": 100,

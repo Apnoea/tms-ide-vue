@@ -1,7 +1,7 @@
 import { instantiate } from './parser'
 import { getStencilById } from './registry'
-
-const SVG_NS = 'http://www.w3.org/2000/svg'
+import { valueTextKey } from '../constants/ids'
+import { SVG_NS, escapeXml, escapeAttr } from '../utils/xml'
 
 /** Ширина resize-хэндлов шины (см. buildBusContent). */
 const BUS_HANDLE_WIDTH = 6
@@ -160,11 +160,6 @@ export function textCellWidth(text, fontSize, bold = false) {
   return Math.max(24, Math.ceil(w) + TEXT_PADDING_X * 2)
 }
 
-/** Экранирует спецсимволы для вставки текста в XML/SVG-строку. */
-function escapeXml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
 /**
  * SVG-строка текстового поля для экспорта. Текст вертикально по центру,
  * с небольшим отступом слева. Формат как у parser.instantiate().
@@ -191,7 +186,9 @@ export function buildValueExportSvg(animId, valueTag, width = 100, height = 20) 
   const stripe = `<rect x="0" y="0" width="3" height="${height}" fill="#000"/>`
   const bg = `<rect x="3" y="0" width="${Math.max(0, width - 3)}" height="${height}" fill="#fafafa"/>`
   const labelText = `<text x="8" y="${by}" font-size="10" font-family="sans-serif" fill="#71717a">${escapeXml(label)}</text>`
-  const valueText = `<text id="animation-${animId}" x="${width - 32}" y="${by}" text-anchor="end" font-size="12" font-family="sans-serif" font-weight="bold" fill="#18181b">--</text>`
+  // animId для cell_value = tms.valueTag, может содержать ", &, < — escapeAttr
+  // обязателен, иначе невалидный XML и упадёт round-trip projectLoader'ом.
+  const valueText = `<text id="${escapeAttr(valueTextKey(animId))}" x="${width - 32}" y="${by}" text-anchor="end" font-size="12" font-family="sans-serif" font-weight="bold" fill="#18181b">--</text>`
   const unitText = unit
     ? `<text x="${width - 5}" y="${by}" text-anchor="end" font-size="9" font-family="sans-serif" fill="#a1a1aa">${escapeXml(unit)}</text>`
     : ''

@@ -26,10 +26,6 @@ const importFromSvgFn = shallowRef(null)
 // (graph+paper + download) в CanvasPane.
 const exportFn = shallowRef(null)
 
-// fit-to-content (зум-кнопка в footer'е) — функция владельца CanvasPane,
-// дёргается извне.
-const fitToContentFn = shallowRef(null)
-
 const selection = ref([]) // Array<{ kind, id }>
 
 const graphVersion = ref(0)
@@ -58,12 +54,16 @@ const snapshotTick = ref(0)
 // Запрос «открыть picker первого пустого required-слота» — bump'ается клик'ом
 // по жёлтому badge'у на холсте. Inspector watch'ит и сам открывает picker
 // (Canvas не знает про устройство Inspector'а; Inspector не знает про badge).
-const slotPickRequest = ref({ tick: 0, cellId: null })
+// Ячейку Inspector берёт из текущего selection — onSlotBadgeClick перед bump'ом
+// делает selectOnly, так что к моменту watcher'а нужный объект уже выделен.
+const slotPickRequest = ref(0)
 
-// Тег, по которому в данный момент подсвечены элементы (cells + links с
-// matching voltageSource.tag). null = подсветки нет. Кнопка «Подсветить на
-// схеме» в VoltageSourceBlock включает/выключает это значение через toggle:
-// тот же тег второй раз → снимает подсветку.
+// Тег, по которому в данный момент подсвечены элементы. Матчит по любому
+// tag-полю (slots, voltageSource.tag, switchSources.tags, valueTag —
+// см. cellHasTag), не только voltageSource. null = подсветки нет.
+// Кнопка «Подсветить на схеме» в VoltageSourceBlock / SwitchBlock
+// включает/выключает это значение через toggle: тот же тег второй раз
+// → снимает подсветку.
 const highlightedTag = ref(null)
 
 // ─── Ctrl+F поиск по схеме ───
@@ -74,6 +74,36 @@ const highlightedTag = ref(null)
 const searchQuery = ref('')
 const searchMatchIds = ref([])
 const searchCurrentIdx = ref(0)
+// Debounce-задержка между keystroke и фактическим прогоном matcher'а.
+// 120ms — input ощущается мгновенным, но при rapid typing N getCells'ов
+// не запускаются на каждую букву.
+const SEARCH_DEBOUNCE_MS = 120
+let searchDebounceTimer = null
+
+function performSearchMatch(query) {
+  const q = String(query ?? '')
+    .trim()
+    .toLowerCase()
+  const graph = graphRef.value
+  if (!q || !graph) {
+    searchMatchIds.value = []
+    searchCurrentIdx.value = 0
+    return
+  }
+  const matched = []
+  for (const cell of graph.getCells()) {
+    if (cellMatchesQuery(cell, q)) matched.push(cell)
+  }
+  // bbox-кэш: comparator зовётся ~O(n log n) раз — без кэша N getBBox()
+  // на каждое сравнение (cell.getBBox() в JointJS тащит size+position+rotate).
+  const withBBox = matched.map((c) => ({ id: c.id, bbox: c.getBBox() }))
+  withBBox.sort((a, b) => {
+    if (a.bbox.y !== b.bbox.y) return a.bbox.y - b.bbox.y
+    return a.bbox.x - b.bbox.x
+  })
+  searchMatchIds.value = withBBox.map((x) => x.id)
+  searchCurrentIdx.value = 0
+}
 
 const cellsCount = computed(() => {
   graphVersion.value // touch для reactive-зависимости
@@ -143,12 +173,6 @@ export function useCanvas() {
     exportProject() {
       return exportFn.value?.() ?? false
     },
-    setFitToContentFn(fn) {
-      fitToContentFn.value = fn
-    },
-    fitToContent() {
-      return fitToContentFn.value?.() ?? false
-    },
     clearCanvasRefs() {
       graphRef.value = null
       paperRef.value = null
@@ -199,8 +223,8 @@ export function useCanvas() {
       lastSavedAt.value = ts
     },
     slotPickRequest,
-    requestSlotPick(cellId) {
-      slotPickRequest.value = { tick: slotPickRequest.value.tick + 1, cellId }
+    requestSlotPick() {
+      slotPickRequest.value++
     },
     highlightedTag,
     /** Toggle подсветки тега на холсте. Тот же тег → выкл, новый → переключаем. */
@@ -220,28 +244,12 @@ export function useCanvas() {
      * подсветки). Порядок — top→bottom, left→right по bbox.
      */
     runSearch(query) {
-      const q = String(query ?? '')
-        .trim()
-        .toLowerCase()
+      // searchQuery обновляем мгновенно — input v-model видит изменения сразу.
+      // Фактический match-цикл по графу дебаунсим, чтобы не пускать его
+      // на каждую букву при быстром наборе.
       searchQuery.value = query
-      const graph = graphRef.value
-      if (!q || !graph) {
-        searchMatchIds.value = []
-        searchCurrentIdx.value = 0
-        return
-      }
-      const matched = []
-      for (const cell of graph.getCells()) {
-        if (cellMatchesQuery(cell, q)) matched.push(cell)
-      }
-      matched.sort((a, b) => {
-        const ba = a.getBBox()
-        const bb = b.getBBox()
-        if (ba.y !== bb.y) return ba.y - bb.y
-        return ba.x - bb.x
-      })
-      searchMatchIds.value = matched.map((c) => c.id)
-      searchCurrentIdx.value = 0
+      clearTimeout(searchDebounceTimer)
+      searchDebounceTimer = setTimeout(() => performSearchMatch(query), SEARCH_DEBOUNCE_MS)
     },
     /** dir = +1 (next) или -1 (prev). Циклически. No-op если match'ей нет. */
     cycleSearchMatch(dir) {
@@ -250,6 +258,9 @@ export function useCanvas() {
       searchCurrentIdx.value = (searchCurrentIdx.value + dir + n) % n
     },
     clearSearch() {
+      // Гасим pending debounce — иначе он бы дописал результат поверх очистки.
+      clearTimeout(searchDebounceTimer)
+      searchDebounceTimer = null
       searchQuery.value = ''
       searchMatchIds.value = []
       searchCurrentIdx.value = 0

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 40" width="20" height="40">
+  <!--
+    «Автоматический выключатель» — корпус как у cell_qr, плюс утолщённый
+    штрих на рычаге, отличающий QF от QR по ГОСТ. Три состояния по
+    slot.onoff (как у cell_qr/cell_qk):
+      без тега    → видны обе позиции рычага (декларативный обозначатель)
+      ONOFF=true  → виден только вертикальный рычаг (замкнут)
+      ONOFF=false → виден только наклонный рычаг (разомкнут)
+
+    Каждый рычаг — <g data-anim-suffix=".closed/.open"> вокруг ПАРЫ <line> (тонкая
+    линия + утолщённый штрих). Группа = один id = один animation-hidden
+    каскадит на обоих потомков. Если повесить data-anim-suffix на каждый
+    <line> отдельно — получим duplicate id, parser.injectIds проставит один
+    и тот же id двум элементам.
+  -->
+  <g>
+    <!-- Хвосты к портам -->
+    <line x1="10" y1="0"  x2="10" y2="12" stroke="#000" stroke-width="2"/>
+    <line x1="10" y1="28" x2="10" y2="40" stroke="#000" stroke-width="2"/>
+
+    <!-- Верхний контакт (T-перекладина) -->
+    <line x1="6" y1="12" x2="14" y2="12" stroke="#000" stroke-width="2"/>
+
+    <!-- Шарнир (tms-voltage-fill → перекрашивается в симуляции и runtime) -->
+    <circle cx="10" cy="28" r="2" fill="#000" class="tms-voltage-fill" />
+
+    <!-- Замкнутый рычаг (вертикаль) + утолщённый штрих посредине -->
+    <g data-anim-suffix=".closed">
+      <line x1="10" y1="13" x2="10" y2="28" stroke="#000" stroke-width="2"/>
+      <line x1="9"  y1="15" x2="9"  y2="26" stroke="#000" stroke-width="4"/>
+    </g>
+
+    <!-- Разомкнутый рычаг (диагональ) + утолщённый штрих посредине -->
+    <g data-anim-suffix=".open">
+      <line x1="10" y1="28" x2="0" y2="16" stroke="#000" stroke-width="2"/>
+      <line x1="1" y1="19" x2="7" y2="26" stroke="#000" stroke-width="4"/>
+    </g>
+  </g>
+</svg>

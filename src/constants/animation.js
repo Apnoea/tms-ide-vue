@@ -22,3 +22,10 @@ export const ANIMATION_CLASS_OPTIONS = Object.keys(ANIMATION_CLASS_COLORS)
 // .animation-off декларируется ПОСЛЕ voltage-правил). В отличие от opacity 0.4
 // эффект предсказуем независимо от родительских fill/stroke.
 export const ANIMATION_OFF_COLOR = '#64748b'
+
+// Class-name константы wire-protocol'а с WebScada-рантаймом. Литералы не
+// плодим — синхронизировано с CSS в exporter inlineStyles и useSimulation.
+// Voltage-классы (animation-low/-mid/-high) уже фигурируют как ключи
+// ANIMATION_CLASS_COLORS — отдельные константы для них не нужны.
+export const CLASS_OFF = 'animation-off'
+export const CLASS_HIDDEN = 'animation-hidden'

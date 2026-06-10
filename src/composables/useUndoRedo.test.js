@@ -171,6 +171,30 @@ describe('useUndoRedo', () => {
     expect(restoringHistory.value).toBe(false) // снят после
   })
 
+  it('restoreFromHistory: throw в fromJSON → флаг сбрасывается, historyIndex откатывается, повторный undo дёргает тот же snapshot', () => {
+    const api = init()
+    api.scheduleSnapshot()
+    vi.runAllTimers()
+    saveAutosave.mockClear()
+    // fromJSON падает на любой restore — снимок не применяется
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockGraph.fromJSON = vi.fn(() => {
+      throw new Error('fromJSON crashed')
+    })
+    // undo НЕ бросает, проглатывает и логирует
+    expect(() => api.undo()).not.toThrow()
+    expect(warnSpy).toHaveBeenCalled()
+    // Флаг сброшен (try/finally)
+    expect(restoringHistory.value).toBe(false)
+    // saveAutosave не вызван — состояние не изменилось
+    expect(saveAutosave).not.toHaveBeenCalled()
+    // historyIndex не сдвинулся — повторный undo попытается ТОТ ЖЕ снапшот,
+    // не уйдёт глубже в стек (без отката был бы рассинхрон)
+    api.undo()
+    expect(mockGraph.fromJSON).toHaveBeenCalledTimes(2) // оба вызова — на одном и том же индексе
+    warnSpy.mockRestore()
+  })
+
   it('cancelPendingSnapshot гасит отложенный таймер', () => {
     const api = init()
     api.scheduleSnapshot()

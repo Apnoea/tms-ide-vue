@@ -19,12 +19,12 @@
     <circle cx="10" cy="24" r="2" fill="#000" class="tms-voltage-fill"/>
 
     <!-- Замкнутый рычаг (вертикаль от шарнира к T-перекладине) -->
-    <line data-anim-suffix=".QK-closed"
+    <line data-anim-suffix=".closed"
           x1="10" y1="12" x2="10" y2="24"
           stroke="#000" stroke-width="2"/>
 
     <!-- Разомкнутый рычаг (диагональ от шарнира влево-вверх) -->
-    <line data-anim-suffix=".QK-open"
+    <line data-anim-suffix=".open"
           x1="10" y1="24" x2="2" y2="16"
           stroke="#000" stroke-width="2"/>
 

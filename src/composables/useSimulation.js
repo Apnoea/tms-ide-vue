@@ -4,7 +4,10 @@ import {
   ANIMATION_CLASS_COLORS,
   ANIMATION_CLASS_OPTIONS,
   ANIMATION_OFF_COLOR,
+  CLASS_OFF,
+  CLASS_HIDDEN,
 } from '../constants/animation'
+import { innerKey, resolveSlotTemplate } from '../constants/ids'
 import { TOAST_LIFE } from '../constants/toast'
 import { getStencilById } from '../stencils/registry'
 import { useCanvas } from './useCanvas'
@@ -41,11 +44,12 @@ export function useSimulation() {
     return ANIMATION_CLASS_OPTIONS[idx] || null
   }
 
-  /** Резолвит `{slot.X}` → актуальный тег из tms.slots[X], либо raw-tag как есть. */
+  /** Резолвит `{slot.X}` → актуальный тег из tms.slots[X]. Общий шаблонный
+   * резолвер из constants/ids — поведение синхронно с parser-экспортом. */
   function resolveBindingTag(rawTag, tms) {
-    const m = /^\{slot\.(.+)\}$/.exec(rawTag || '')
-    if (!m) return rawTag || null
-    return tms.slots?.[m[1]] || null
+    if (!rawTag) return null
+    const { value, hadUnresolved } = resolveSlotTemplate(rawTag, tms.slots || {})
+    return hadUnresolved ? null : value
   }
 
   function injectSimulationCss() {
@@ -93,10 +97,10 @@ export function useSimulation() {
       for (const cls of ANIMATION_CLASS_OPTIONS) view.el.classList.remove(cls)
       // animation-off от switchSource висит на outer-g (затемнение всей ячейки),
       // от стенсильного template — на внутренних элементах. Чистим оба места.
-      view.el.classList.remove('animation-off')
-      for (const el of view.el.querySelectorAll('.animation-hidden, .animation-off')) {
-        el.classList.remove('animation-hidden')
-        el.classList.remove('animation-off')
+      view.el.classList.remove(CLASS_OFF)
+      for (const el of view.el.querySelectorAll(`.${CLASS_HIDDEN}, .${CLASS_OFF}`)) {
+        el.classList.remove(CLASS_HIDDEN)
+        el.classList.remove(CLASS_OFF)
       }
     }
   }
@@ -144,8 +148,8 @@ export function useSimulation() {
     // Bool-биндинги стенсильного template: для КАЖДОГО binding'а резолвим тег
     // ({slot.X} → tms.slots[X]), смотрим rolling state и применяем класс
     // соответствующего case'а (true или false). Несколько биндингов на одном
-    // теге (например .QW + .QW-cross у cell_qw или .QR-closed + .QR-open у
-    // cell_qr) переключаются согласованно.
+    // теге (например .QW + .QW-cross у cell_qw или .closed + .open у
+    // cell_qr/cell_qk/cell_qf) переключаются согласованно.
     for (const cell of graph.getElements()) {
       const tms = cell.get('tms') || {}
       const stencil = getStencilById(tms.stencilId)
@@ -153,7 +157,7 @@ export function useSimulation() {
       const view = paper.findViewByModel(cell)
       if (!view?.el) continue
       for (const tpl of stencil.animationTemplate) {
-        const targetId = `animation-${stencil.id}-${cell.id}${tpl.idSuffix || ''}`
+        const targetId = innerKey(stencil.id, cell.id, tpl.idSuffix)
         const el = view.el.querySelector(`[id="${targetId}"]`)
         if (!el) continue
         for (const binding of tpl.bindings || []) {
@@ -174,7 +178,7 @@ export function useSimulation() {
       const tags = cell.get('tms')?.switchSources?.tags
       if (!tags?.length) continue
       if (!tags.some((t) => boolFalseFor(t))) continue
-      paper.findViewByModel(cell)?.el?.classList.add('animation-off')
+      paper.findViewByModel(cell)?.el?.classList.add(CLASS_OFF)
     }
   }
 

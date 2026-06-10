@@ -6,7 +6,7 @@
       ONOFF=true  → виден только вертикальный рычаг (замкнут)
       ONOFF=false → виден только наклонный рычаг (разомкнут)
     Логика: каждый рычаг получает свой animation-hidden при противоположном
-    значении тега — см. .QR-closed/.QR-open в stencil.json.
+    значении тега — см. .closed/.open в stencil.json.
   -->
   <g>
     <!-- Хвосты к портам -->
@@ -20,12 +20,12 @@
     <circle cx="10" cy="28" r="2" fill="#000" class="tms-voltage-fill" />
 
     <!-- Замкнутый рычаг (вертикаль от шарнира к T-перекладине) -->
-    <line data-anim-suffix=".QR-closed"
+    <line data-anim-suffix=".closed"
           x1="10" y1="12" x2="10" y2="28"
           stroke="#000" stroke-width="2"/>
 
     <!-- Разомкнутый рычаг (диагональ от шарнира влево-вверх) -->
-    <line data-anim-suffix=".QR-open"
+    <line data-anim-suffix=".open"
           x1="10" y1="28" x2="0" y2="16"
           stroke="#000" stroke-width="2"/>
   </g>

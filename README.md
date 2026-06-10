@@ -66,13 +66,15 @@ src/
 │   ├── fileSystem.js          # File System Access API
 │   └── parsers.js             # tag-list парсер
 ├── constants/
-│   ├── animation.js           # voltage-палитра + ANIMATION_OFF_COLOR
+│   ├── animation.js           # voltage-палитра + CLASS_OFF / CLASS_HIDDEN
+│   ├── ids.js                 # wire-protocol: prefixes / data-attrs / slot resolver
 │   └── toast.js               # стандартные lifetime'ы
 └── utils/
-    ├── cellSearch.js          # collect-strings + match для Ctrl+F
+    ├── cellSearch.js          # getCellTags(FromTms) + match для Ctrl+F
     ├── plural.js              # русские падежи
     ├── bridgeLinks.js         # bridge-link при copy/paste
     ├── grid.js                # snapToGrid
+    ├── xml.js                 # SVG_NS + escapeXml / escapeAttr
     └── idb.js                 # IndexedDB wrapper
 ```
 
@@ -103,20 +105,37 @@ src/
 В `animationTemplate.bindings.tag` — placeholder `{slot.KEY}`. При экспорте
 подставится выбранный тег. Слот без значения → биндинг отбрасывается.
 
+### Декларативные флаги в stencil.json
+
+Спец-поведение стенсила объявляется прямо в его JSON — exporter / Inspector /
+Canvas читают флаги, никаких хардкод-списков в коде:
+
+| Поле                   | Значение                                                                                | Где применяется                             |
+| ---------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `quality: true`        | эмитит range-биндинг `[0,191] → animation-off` на outer                                 | cell_qr / cell_qk / cell_qf                 |
+| `intrinsicOnoff: true` | `slot.onoff` неявно красит outer-wrapper серым на false                                 | cell_qw                                     |
+| `layoutOnly: true`     | без visual-реакции на animation-классы; multi-select пропускает; detailTags не собирает | cell_text / cell_value                      |
+| `noRotate: true`       | оверлей-кнопки rotate не рендерятся                                                     | cell_text / cell_value / cell_bus           |
+| `defaults: { ... }`    | merge в `tms` при создании ячейки                                                       | cell_text (`text`), cell_value (`valueTag`) |
+
+Свойство «is switch» (рендер через SwitchBlock в intrinsic-режиме) выводится
+по convention: стенсил с слотом `key === 'onoff'`. Helper `isSwitchStencil`.
+
 ### Стенсилы
 
-| ID         | Категория        | Назначение                            |
-| ---------- | ---------------- | ------------------------------------- |
-| cell_text  | Текст и значения | Статический лейбл                     |
-| cell_value | Текст и значения | Отображение значения тега             |
-| cell_node  | Текст и значения | Точка соединения (наследует voltage)  |
-| cell_tv2   | Трансформаторы   | Трансформатор (2 обмотки)             |
-| cell_tv3   | Трансформаторы   | Трансформатор (3 обмотки)             |
-| cell_qw    | Коммутация       | Выключатель (slot.onoff → off/cross)  |
-| cell_qr    | Коммутация       | Отделитель (slot.onoff → open/closed) |
-| cell_qk    | Коммутация       | Короткозамыкатель (slot.onoff)        |
-| cell_alr   | Сигналы          | Аварийный сигнал                      |
-| cell_bus   | Шины             | Шина (resizable, динамические порты)  |
+| ID         | Категория        | Назначение                              |
+| ---------- | ---------------- | --------------------------------------- |
+| cell_text  | Текст и значения | Статический лейбл                       |
+| cell_value | Текст и значения | Отображение значения тега               |
+| cell_node  | Текст и значения | Точка соединения (наследует voltage)    |
+| cell_tv2   | Трансформаторы   | Трансформатор (2 обмотки)               |
+| cell_tv3   | Трансформаторы   | Трансформатор (3 обмотки)               |
+| cell_qw    | Коммутация       | Выключатель (slot.onoff → off/cross)    |
+| cell_qr    | Коммутация       | Отделитель (slot.onoff → open/closed)   |
+| cell_qk    | Коммутация       | Короткозамыкатель (slot.onoff)          |
+| cell_qf    | Коммутация       | Автоматический выключатель (slot.onoff) |
+| cell_alr   | Сигналы          | Аварийный сигнал                        |
+| cell_bus   | Шины             | Шина (resizable, динамические порты)    |
 
 `cell_bus`, `cell_text`, `cell_value` рендерятся программно (без `shape.svg`).
 
@@ -130,15 +149,16 @@ src/
 - **Анимации**:
   - **Voltage source** (range-биндинг, классы `animation-low/-mid/-high`)
   - **Switch source** (bool-биндинг, `false` → `animation-off`)
-  - Intrinsic-блоки для cell_alr и для cell_qw / cell_qr / cell_qk
-    (SwitchBlock в intrinsic-режиме обёртывает slot.onoff)
+  - Intrinsic-блоки для cell_alr и для всех switch-стенсилов (cell_qw /
+    cell_qr / cell_qk / cell_qf — convention `slot.key === 'onoff'`).
+    SwitchBlock в intrinsic-режиме обёртывает slot.onoff.
 
 При выделении провода — поле **Лейбл** (текст вдоль линии, ~10pt с белой
 подложкой; JointJS labels на позиции 0.5 пути). `tms.label` — источник
 правды, ищется в Ctrl+F.
 
-В multi-select — массовое применение voltage/switch к выделению; `cell_text` /
-`cell_value` автоматически пропускаются.
+В multi-select — массовое применение voltage/switch к выделению; стенсилы
+с `layoutOnly: true` (cell_text / cell_value) автоматически пропускаются.
 
 ## Поиск (Ctrl+F)
 
@@ -174,16 +194,18 @@ CSS в SVG:
 - opt-in класс `.tms-voltage-fill` для заливки маркированных элементов
 - `.animation-off` (slate-500) — поверх voltage-классов
 - `.animation-hidden { display: none }`
-- `[data-tms-stencil="cell_qk"].animation-off .animation-hidden { display: initial }`
-  (то же для `cell_qr`) — при bad-качестве показываем обе позиции рычага
-  одновременно: «данные ненадёжны, не врём про конкретное состояние»
+- `[data-tms-stencil="..."].animation-off .animation-hidden { display: initial }`
+  — генерится для каждого стенсила с `quality: true` (cell_qk / cell_qr /
+  cell_qf). При bad-качестве показываем обе позиции рычага одновременно:
+  «данные ненадёжны, не врём про конкретное состояние»
 
 ### Quality-биндинги
 
-Для `cell_qk` и `cell_qr` exporter автоматически генерирует биндинг по
-каждому привязанному тегу с `source: 'quality'` и кейсом `[0, 191] →
-addClass: animation-off`. Рантайм при bad/uncertain quality (< 192) красит
-ячейку серым; CSS-override выше показывает обе позиции рычага.
+Для стенсилов с флагом `quality: true` в stencil.json (cell_qk / cell_qr /
+cell_qf) exporter автоматически генерирует биндинг по каждому привязанному
+тегу с `source: 'quality'` и кейсом `[0, 191] → addClass: animation-off`.
+Рантайм при bad/uncertain quality (< 192) красит ячейку серым; CSS-override
+выше показывает обе позиции рычага.
 
 ## Round-trip
 

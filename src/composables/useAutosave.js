@@ -6,6 +6,9 @@ import { useCanvas } from './useCanvas'
 // устаревшие сохранения просто проигнорируются.
 const AUTOSAVE_KEY = 'tms-ide:graph:v1'
 
+// Длительность «✓ Сохранено» flash-индикатора в footer'е.
+const FLASH_DURATION_MS = 1500
+
 /**
  * Автосейв графа в localStorage. Зависит от внешнего флага `restoringHistory`
  * (общего с useUndoRedo) — пока идёт восстановление из истории, сейв не пишем,
@@ -52,7 +55,7 @@ export function useAutosave({ restoringHistory }) {
       canvas.setRecentlySaved(true)
       canvas.setLastSavedAt(Date.now())
       clearTimeout(savedFlashTimer)
-      savedFlashTimer = setTimeout(() => canvas.setRecentlySaved(false), 1500)
+      savedFlashTimer = setTimeout(() => canvas.setRecentlySaved(false), FLASH_DURATION_MS)
     } catch (e) {
       // Quota exceeded — не критично, просто пропускаем сохранение
       console.warn('[Autosave] Запись упала', e)

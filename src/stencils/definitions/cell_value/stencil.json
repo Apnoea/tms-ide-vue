@@ -2,6 +2,9 @@
   "id": "cell_value",
   "label": "Значение тега",
   "category": "Текст и значения",
+  "layoutOnly": true,
+  "noRotate": true,
+  "defaults": { "valueTag": "" },
 
   "shapeFile": "shape.svg",
   "width": 100,

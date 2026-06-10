@@ -5,6 +5,7 @@
 import { getStencilById } from '../stencils/registry'
 import { buildPortItems } from '../stencils/svgInjector'
 import { LINK_DEFAULTS, buildLinkLabel } from '../stencils/linkDefaults'
+import { ATTR_META } from '../constants/ids'
 
 /**
  * Парсит SVG-текст и возвращает массив JointJS-cells (включая links),
@@ -30,9 +31,9 @@ export function parseSvgProject(svgText) {
   const errors = []
 
   // ─── Ячейки: <g> с data-tms-meta ───
-  for (const g of doc.querySelectorAll('g[data-tms-meta]')) {
+  for (const g of doc.querySelectorAll(`g[${ATTR_META}]`)) {
     try {
-      const meta = JSON.parse(g.getAttribute('data-tms-meta'))
+      const meta = JSON.parse(g.getAttribute(ATTR_META))
       if (!meta.id || !meta.stencilId) {
         errors.push('Ячейка без id/stencilId — пропускаю')
         continue
@@ -88,9 +89,9 @@ export function parseSvgProject(svgText) {
   }
 
   // ─── Провода: <path> с data-tms-meta ───
-  for (const p of doc.querySelectorAll('path[data-tms-meta]')) {
+  for (const p of doc.querySelectorAll(`path[${ATTR_META}]`)) {
     try {
-      const meta = JSON.parse(p.getAttribute('data-tms-meta'))
+      const meta = JSON.parse(p.getAttribute(ATTR_META))
       if (!meta.source?.id || !meta.target?.id) {
         errors.push('Провод без source/target — пропускаю')
         continue

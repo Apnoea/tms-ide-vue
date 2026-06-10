@@ -51,11 +51,13 @@ body,
   filter: drop-shadow(0 0 1.5px var(--p-primary-500)) drop-shadow(0 0 3px var(--p-primary-500));
 }
 
-/* Подсветка элементов с matching voltageSource.tag — триггерится кнопкой
-   «Подсветить на схеме» в инспекторе. Один и тот же drop-shadow для ячеек И
-   проводов — визуально консистентно: оба «светятся» primary'м, без замены
-   stroke (чтобы не путать с voltage-цветом). filter применяется к outer-g
-   у view'а — для линии svg-path подсвечивается ореолом вокруг чёрной линии. */
+/* Подсветка элементов с любым tag-полем равным highlightedTag (slots,
+   voltageSource.tag, switchSources.tags, valueTag — см. cellHasTag).
+   Триггерится кнопкой «Подсветить на схеме» в инспекторе. Один и тот же
+   drop-shadow для ячеек И проводов — визуально консистентно: оба «светятся»
+   primary'м, без замены stroke (чтобы не путать с voltage-цветом). filter
+   применяется к outer-g у view'а — для линии svg-path подсвечивается
+   ореолом вокруг чёрной линии. */
 .tms-tag-match {
   filter: drop-shadow(0 0 3px var(--p-primary-500)) drop-shadow(0 0 6px var(--p-primary-500));
 }
@@ -69,9 +71,6 @@ body,
 }
 .tms-search-current {
   filter: drop-shadow(0 0 3px #f97316) drop-shadow(0 0 8px #f97316) drop-shadow(0 0 18px #fb923c); /* orange-500 + дальний orange-400-ореол */
-}
-.joint-link .joint-link-line {
-  transition: stroke-width 0.15s ease-out;
 }
 
 /* draw.io-стиль: порты ячейки скрыты по умолчанию, но «проявляются» в

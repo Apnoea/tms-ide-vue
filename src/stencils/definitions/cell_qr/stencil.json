@@ -2,6 +2,7 @@
   "id": "cell_qr",
   "label": "Отделитель",
   "category": "Коммутация",
+  "quality": true,
 
   "slots": [
     {
@@ -17,13 +18,13 @@
   "width": 20,
   "height": 40,
   "ports": [
-    { "name": "top", "x": 10, "y": 0, "type": "io" },
-    { "name": "bottom", "x": 10, "y": 40, "type": "io" }
+    { "name": "top", "x": 10, "y": 0 },
+    { "name": "bottom", "x": 10, "y": 40 }
   ],
 
   "animationTemplate": [
     {
-      "idSuffix": ".QR-closed",
+      "idSuffix": ".closed",
       "type": "shape",
       "bindings": [
         {
@@ -40,7 +41,7 @@
       "detailTags": [{ "tag": "{slot.onoff}" }]
     },
     {
-      "idSuffix": ".QR-open",
+      "idSuffix": ".open",
       "type": "shape",
       "bindings": [
         {

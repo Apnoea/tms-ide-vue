@@ -79,7 +79,8 @@ let paper = null
 let graph = null
 
 // ─── Zoom & Pan state ───
-// zoomPercent живёт в useCanvas — нужен и status-bar'у в AppFooter
+// zoomPercent живёт в singleton useCanvas (canvas.zoomPercent — общая ссылка,
+// сейчас читается только здесь, но контракт остался открытым для consumer'ов).
 const zoomPercent = canvas.zoomPercent
 const MIN_ZOOM = 0.2
 const MAX_ZOOM = 4
@@ -120,7 +121,7 @@ function prepareMultiDrag(cellId) {
   }
 }
 
-// ─── Resize шины (cell_bus), undo/redo, autosave — вынесены в composables.
+// ─── Resize шины (cell_bus), undo/redo, autosave — живут в composables.
 // onMaybeStartResize вешается на mousedown в onMounted; isResizing() читают
 // hover-tooltip и прочие места, которым нужно подавлять UI пока тянем edge.
 
@@ -328,7 +329,30 @@ onMounted(async () => {
   })
 
   // ─── Graph change tracking (для Inspector computed-ов) ───
-  graph.on('change add remove', () => canvas.bumpVersion())
+  // Во время drag'а ячейки JointJS шлёт `change:position` ~60 раз/сек —
+  // bumpVersion на каждый event запустил бы Inspector.details / slotWarnings /
+  // overlayBtns на каждом mousemove. Подавляем bumpVersion в окне
+  // cell:pointerdown → cell:pointerup и эмитим один bumpVersion на pointerup.
+  // document-level mouseup как fallback — если курсор отпущен вне холста,
+  // cell:pointerup не приходит, флаг бы залип.
+  let isPointerDownOnCell = false
+  paper.on('cell:pointerdown', () => {
+    isPointerDownOnCell = true
+  })
+  const releasePointerDrag = () => {
+    if (!isPointerDownOnCell) return
+    isPointerDownOnCell = false
+    canvas.bumpVersion()
+  }
+  paper.on('cell:pointerup', releasePointerDrag)
+  // document-mouseup fallback — если курсор отпущен вне холста.
+  // useEventListener сам снимает listener на unmount.
+  useEventListener(document, 'mouseup', releasePointerDrag, { capture: true })
+
+  graph.on('change add remove', () => {
+    if (isPointerDownOnCell) return
+    canvas.bumpVersion()
+  })
 
   // Линии — всегда за ячейками, чтобы порты не перекрывались линией в точке anchor.
   graph.on('add', (cell) => {
@@ -368,7 +392,6 @@ onMounted(async () => {
   // Регистрируем функции импорта/экспорта чтобы ProjectActions мог их триггерить
   canvas.setImportFromSvgFn(importFromSvgText)
   canvas.setExportFn(onExport)
-  canvas.setFitToContentFn(fitToContent)
 
   // Сообщаем о восстановлении уже после монтирования (toast service готов)
   if (restored > 0) {
@@ -567,7 +590,6 @@ onBeforeUnmount(() => {
   canvas.clearCanvasRefs()
   canvas.setImportFromSvgFn(null)
   canvas.setExportFn(null)
-  canvas.setFitToContentFn(null)
   paper?.remove()
   paper = null
   graph = null
@@ -760,8 +782,11 @@ function createStencilAt(stencilId, x, y, extraTms = null) {
   const portItems = buildPortItems(stencil, stencil.width, stencil.height)
 
   const tms = { stencilId }
-  if (stencilId === 'cell_text') tms.text = 'Текст'
-  if (stencilId === 'cell_value') tms.valueTag = ''
+  // Стенсильные дефолты — поле `defaults` в stencil.json (cell_text.text,
+  // cell_value.valueTag и т.п.). Canvas ничего не знает про конкретные поля.
+  // structuredClone — иначе вложенные объекты/массивы зашарили бы ссылку из
+  // реестра между всеми ячейками (мутация одной → утечка во все).
+  if (stencil.defaults) Object.assign(tms, structuredClone(stencil.defaults))
   if (extraTms) Object.assign(tms, extraTms)
 
   // cell_text — размер подгоняем под фактический текст, иначе остаётся
@@ -1157,7 +1182,7 @@ const slotWarnings = computed(() => {
  */
 function onSlotBadgeClick(cellId) {
   canvas.selectOnly('cell', cellId)
-  canvas.requestSlotPick(cellId)
+  canvas.requestSlotPick()
 }
 
 function onDeleteSelected() {
@@ -1168,12 +1193,11 @@ function onDeleteSelected() {
 }
 
 // ─── Поворот выделенной ячейки ───
-// Контентозависимые стенсилы (текст, числовое значение, шина) после rotation
-// становятся нечитаемыми / ломаются по resize, поэтому для них трансформ
-// заблокирован — оверлейные кнопки rotate не рендерятся.
-const TRANSFORM_FREE_STENCILS = new Set(['cell_text', 'cell_value', 'cell_bus'])
+// Стенсилы с `noRotate: true` в stencil.json (контент-зависимые: cell_text /
+// cell_value / cell_bus) после rotation становятся нечитаемыми или ломаются
+// по resize — оверлейные кнопки rotate для них не рендерятся.
 function canCellTransform(cell) {
-  return cell && !TRANSFORM_FREE_STENCILS.has(cell.get('tms')?.stencilId)
+  return cell && !getStencilById(cell.get('tms')?.stencilId)?.noRotate
 }
 
 function rotateSelectedBy(delta) {
@@ -1190,8 +1214,8 @@ function rotateSelectedBy(delta) {
 }
 
 // ─── Hover-tooltip над ячейкой ───
-// HTML-плашка с лейблом / тегом / счётчиком анимаций. Debounce 150ms на
-// mouseenter — иначе мерцает при быстром скольжении между ячейками.
+// HTML-плашка с лейблом / тегом / счётчиком анимаций. Debounce HOVER_DELAY_MS
+// (400ms) на mouseenter — иначе мерцает при быстром скольжении между ячейками.
 const cellHoverTooltip = ref(null)
 let hoverShowTimer = null
 const HOVER_DELAY_MS = 400
@@ -1299,6 +1323,17 @@ function onExport() {
     ].join(', '),
     life: TOAST_LIFE.NORMAL,
   })
+
+  // Предупреждения от exporter'а (дубль valueTag и пр.) — отдельным warn-toast'ом,
+  // чтобы SCADA-инженер увидел их без DevTools.
+  if (result.warnings.length) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Экспорт: предупреждения',
+      detail: result.warnings.join('; '),
+      life: TOAST_LIFE.LONG,
+    })
+  }
 }
 
 // ─── Импорт SVG (обратная операция экспорту) ───
@@ -1319,18 +1354,23 @@ function performImportFromSvgText(svgText, sourceLabel = 'SVG') {
     return false
   }
 
-  // Сбрасываем текущее состояние (как clear canvas)
+  // Сбрасываем текущее состояние (как clear canvas).
+  // try/finally — иначе исключение в fromJSON / reinjectAllStencils оставит
+  // restoringHistory=true навсегда (та же гарантия что в useUndoRedo).
   restoringHistory.value = true
   cancelPendingSnapshot()
-  graph.clear()
-  graph.fromJSON({ cells: parsed.cells })
-  // fromJSON использует resetCells — 'add'-event не летит, наш авто-toBack
-  // для линий не срабатывает. Отправляем все провода на задний план явно,
-  // иначе они накроют ячейки/порты.
-  for (const link of graph.getLinks()) link.toBack()
-  reinjectAllStencils(graph, paper)
-  canvas.bumpVersion()
-  restoringHistory.value = false
+  try {
+    graph.clear()
+    graph.fromJSON({ cells: parsed.cells })
+    // fromJSON использует resetCells — 'add'-event не летит, наш авто-toBack
+    // для линий не срабатывает. Отправляем все провода на задний план явно,
+    // иначе они накроют ячейки/порты.
+    for (const link of graph.getLinks()) link.toBack()
+    reinjectAllStencils(graph, paper)
+    canvas.bumpVersion()
+  } finally {
+    restoringHistory.value = false
+  }
 
   // History начинается с восстановленного состояния — undo не должен «возвращать» к старому
   initHistory()

@@ -1,16 +1,18 @@
 /**
- * Все ПРИВЯЗАННЫЕ теги ячейки/линка — slot-значения, voltageSource.tag,
+ * Все ПРИВЯЗАННЫЕ теги из tms-payload — slot-значения, voltageSource.tag,
  * switchSources.tags[], valueTag. БЕЗ text/navigation (это не теги, это
  * payload-поля).
  *
- * Используется eye-подсветкой (exact-match на любой tag-field), а также как
- * базис для search-strings.
+ * Принимает СЫРОЙ tms-объект — общий контракт для cell-обёрток
+ * (см. getCellTags) и для plain-объектов exporter.cellExports (тоже имеют
+ * slots/voltageSource/switchSources на верхнем уровне). Появление нового
+ * tag-поля надо отразить здесь — и поиск, и detailTags подхватят сразу.
  *
- * @param {{ get: (k: string) => any }} cell — JointJS-cell с методом get('tms')
+ * @param {object} tms — tms-payload или structurally-совместимый объект
  * @returns {string[]}
  */
-export function getCellTags(cell) {
-  const tms = cell.get('tms') || {}
+export function getCellTagsFromTms(tms) {
+  if (!tms) return []
   const tags = []
   if (tms.slots) {
     for (const v of Object.values(tms.slots)) {
@@ -23,6 +25,18 @@ export function getCellTags(cell) {
   }
   if (tms.valueTag) tags.push(tms.valueTag)
   return tags
+}
+
+/**
+ * Тонкая обёртка над getCellTagsFromTms для JointJS-cell'ов (читает tms через
+ * cell.get('tms')). Используется eye-подсветкой (exact-match по любому tag-полю),
+ * а также как базис для search-strings.
+ *
+ * @param {{ get: (k: string) => any }} cell — JointJS-cell с методом get('tms')
+ * @returns {string[]}
+ */
+export function getCellTags(cell) {
+  return getCellTagsFromTms(cell.get('tms') || {})
 }
 
 /** Exact-match: содержит ли ячейка/линк указанный тег в любом из tag-полей. */

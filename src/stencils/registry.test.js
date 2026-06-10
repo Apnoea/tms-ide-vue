@@ -29,7 +29,7 @@ describe('validateStencilJson', () => {
         PATH,
         validStencil({
           minWidth: 40,
-          ports: [{ name: 'top', x: 10, y: 0, type: 'io' }],
+          ports: [{ name: 'top', x: 10, y: 0 }],
           slots: [
             {
               key: 'onoff',
@@ -86,6 +86,30 @@ describe('validateStencilJson', () => {
       validStencil({ animationTemplate: [{ idSuffix: '.X' }] })
     )
     expect(issues.some((s) => s.includes('animationTemplate[0] без "type"'))).toBe(true)
+  })
+
+  it('idSuffix без соответствующего data-anim-suffix в shape.svg → issue', () => {
+    const json = validStencil({
+      animationTemplate: [
+        { idSuffix: '.closed', type: 'shape' },
+        { idSuffix: '.open', type: 'shape' },
+      ],
+    })
+    // shape.svg только с одним из двух суффиксов — типичная опечатка после переименования
+    const svg = '<svg><line data-anim-suffix=".closed"/></svg>'
+    const issues = validateStencilJson(PATH, json, svg)
+    expect(issues.some((s) => s.includes('.open') && s.includes('не найден в shape.svg'))).toBe(
+      true
+    )
+    // Существующий суффикс не помечается
+    expect(issues.some((s) => s.includes('.closed') && s.includes('не найден'))).toBe(false)
+  })
+
+  it('cross-check shape.svg пропускается если svgText не передан (backward-compat)', () => {
+    const json = validStencil({
+      animationTemplate: [{ idSuffix: '.X', type: 'shape' }],
+    })
+    expect(validateStencilJson(PATH, json)).toEqual([])
   })
 
   it('animationTemplate с idSuffix="" (root-element) валиден — пустой суффикс это специально', () => {

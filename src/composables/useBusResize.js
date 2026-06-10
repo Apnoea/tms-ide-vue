@@ -61,6 +61,10 @@ export function useBusResize({ scheduleSnapshot }) {
       startHeight: size.height,
       startX: pos.x,
       startMouseX: local.x,
+      // Последняя применённая ширина — guard от полного re-render'а SVG на
+      // каждый mousemove, если ширина после snapToGrid та же что и в прошлом
+      // кадре (mouse дёргается в пределах одного grid-шага).
+      lastWidth: size.width,
     }
     canvas.selectOnly('cell', cell.id)
     document.addEventListener('mousemove', onResizeMove)
@@ -97,6 +101,12 @@ export function useBusResize({ scheduleSnapshot }) {
       newX = activeResize.startX + (activeResize.startWidth - newWidth)
     }
     newX = snapToGrid(newX, g)
+
+    // Width-guard: если шаг snapToGrid дал ту же ширину что в прошлый mousemove,
+    // resize/syncBusPorts/injectStencilSvg повторят ту же работу впустую.
+    // Особенно injectStencilSvg — он полностью перебирает DOM ячейки.
+    if (newWidth === activeResize.lastWidth) return
+    activeResize.lastWidth = newWidth
 
     cell.resize(newWidth, activeResize.startHeight)
     if (activeResize.edge === 'left') {

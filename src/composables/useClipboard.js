@@ -1,3 +1,4 @@
+import { shallowRef } from 'vue'
 import { shapes } from '@joint/core'
 import { useToast } from 'primevue/usetoast'
 import { getStencilById } from '../stencils/registry'
@@ -28,7 +29,10 @@ import { useCanvas } from './useCanvas'
 export function useClipboard({ scheduleSnapshot }) {
   const canvas = useCanvas()
   const toast = useToast()
-  let clipboard = { cells: [], links: [] }
+  // shallowRef — а не обычная let-переменная — нужен для реактивности `hasClipboard()`.
+  // Если буфер не reactive, computed-зависимости (например `ctxItems` в CanvasPane,
+  // решающий показывать ли «Вставить» в context-menu) не пересчитываются на копирование.
+  const clipboard = shallowRef({ cells: [], links: [] })
 
   function snapshotCell(item) {
     const graph = canvas.graphRef.value
@@ -198,7 +202,7 @@ export function useClipboard({ scheduleSnapshot }) {
   function copySelection() {
     const snaps = snapshotSelection('Нечего копировать')
     if (!snaps) return
-    clipboard = snaps
+    clipboard.value = snaps
     toast.add({
       severity: 'success',
       summary: 'Скопировано',
@@ -210,7 +214,7 @@ export function useClipboard({ scheduleSnapshot }) {
   }
 
   function pasteClipboard() {
-    if (!clipboard.cells.length) {
+    if (!clipboard.value.cells.length) {
       toast.add({
         severity: 'info',
         summary: 'Буфер пуст',
@@ -219,7 +223,7 @@ export function useClipboard({ scheduleSnapshot }) {
       })
       return
     }
-    pasteWithToast(clipboard, 'Вставлено', 'Не удалось вставить')
+    pasteWithToast(clipboard.value, 'Вставлено', 'Не удалось вставить')
   }
 
   function duplicateSelection() {
@@ -228,7 +232,7 @@ export function useClipboard({ scheduleSnapshot }) {
   }
 
   function hasClipboard() {
-    return clipboard.cells.length > 0
+    return clipboard.value.cells.length > 0
   }
 
   return { copySelection, pasteClipboard, duplicateSelection, hasClipboard }

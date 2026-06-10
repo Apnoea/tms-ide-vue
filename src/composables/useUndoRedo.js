@@ -67,33 +67,47 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
 
   function undo() {
     if (historyIndex <= 0) return
-    historyIndex--
-    restoreFromHistory()
+    if (restoreFromHistory(historyIndex - 1)) historyIndex--
   }
 
   function redo() {
     if (historyIndex >= history.length - 1) return
-    historyIndex++
-    restoreFromHistory()
+    if (restoreFromHistory(historyIndex + 1)) historyIndex++
   }
 
-  function restoreFromHistory() {
+  /**
+   * Применяет snapshot history[idx] к графу. Возвращает true при успехе,
+   * false если graph/paper не готовы или fromJSON/reinjectAllStencils упали.
+   * Caller (undo/redo) сдвигает historyIndex ТОЛЬКО на успех — иначе стек
+   * разсинхронизировался бы с фактическим состоянием графа.
+   * try/finally гарантирует сброс restoringHistory даже при throw — без него
+   * флаг залип бы навсегда и заблокировал undo / snapshot / autosave.
+   */
+  function restoreFromHistory(idx) {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
-    if (!graph || !paper) return
+    if (!graph || !paper) return false
     restoringHistory.value = true
     clearTimeout(snapshotTimer)
     snapshotTimer = null
 
-    graph.fromJSON(history[historyIndex])
-    reinjectAllStencils(graph, paper)
-    canvas.bumpVersion()
-    canvas.clearSelection()
-    restoringHistory.value = false
-    // После undo/redo состояние изменилось — autosave, чтобы перезагрузка
-    // вкладки давала именно этот результат.
-    saveAutosave()
-    syncAvail()
+    let ok = false
+    try {
+      graph.fromJSON(history[idx])
+      reinjectAllStencils(graph, paper)
+      canvas.bumpVersion()
+      canvas.clearSelection()
+      ok = true
+    } catch (e) {
+      console.warn('[Undo/Redo] restore failed, индекс не сдвигаем', e)
+    } finally {
+      restoringHistory.value = false
+    }
+    if (ok) {
+      saveAutosave()
+      syncAvail()
+    }
+    return ok
   }
 
   /** Снимает pending-snapshot (для performClearCanvas / performImportFromSvgText
