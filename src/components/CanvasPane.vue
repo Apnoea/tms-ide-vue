@@ -6,7 +6,7 @@ import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'
 import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
 import Tag from 'primevue/tag'
-import { useToast } from 'primevue/usetoast'
+import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
 import { getStencilById } from '../stencils/registry'
 import {
@@ -32,9 +32,9 @@ import { useClipboard } from '../composables/useClipboard'
 import { useHotkeys } from '../composables/useHotkeys'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
+import { withRestoreGuard } from '../utils/restoreGuard'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cellHasTag } from '../utils/cellSearch'
-import { TOAST_LIFE } from '../constants/toast'
 import TagPickerDialog from './TagPickerDialog.vue'
 import SearchBar from './SearchBar.vue'
 import ProjectActions from './ProjectActions.vue'
@@ -42,7 +42,7 @@ import ProjectActions from './ProjectActions.vue'
 const project = useProjectStore()
 const ui = useUiStore()
 const canvas = useCanvas()
-const toast = useToast()
+const notify = useNotify()
 const confirm = useConfirm()
 
 // Общий флаг «идёт восстановление графа» — useAutosave и useUndoRedo делят его,
@@ -55,6 +55,60 @@ const { initHistory, scheduleSnapshot, undo, redo, cancelPendingSnapshot } = use
   saveAutosave,
 })
 const bus = useBusResize({ scheduleSnapshot })
+
+// ─── Vue refs / JointJS state ───
+// Объявляем до listeners-блока: useEventListener читает paperContainer как
+// зависимость, а у `const`-ref'а нет hoisting'а (TDZ).
+const paperContainer = ref(null)
+let paper = null
+let graph = null
+
+// ─── Listeners ───
+// useEventListener авто-снимает всё на unmount. Hoisted-функции (onPanMove,
+// onLassoMove, ...) можно ссылать до их объявления — script-setup поднимает
+// `function` declarations к верху scope'а.
+//
+// paperContainer-target: ref наполнится после mount, listener зацепится тогда.
+useEventListener(paperContainer, 'wheel', onWheel, { passive: false })
+useEventListener(paperContainer, 'mousemove', onCanvasMouseMove)
+useEventListener(paperContainer, 'mouseleave', onCanvasMouseLeave)
+// Capture-phase mousedown для resize шины — раньше JointJS, чтобы он не начал drag.
+useEventListener(paperContainer, 'mousedown', bus.onMaybeStartResize, true)
+// Pan / lasso — handlers всегда зарегистрированы, рано выходят при не-активном
+// флаге. Без manual on/off обвязки.
+useEventListener(document, 'mousemove', onPanMove)
+useEventListener(document, 'mouseup', onPanEnd)
+useEventListener(document, 'mousemove', onLassoMove)
+useEventListener(document, 'mouseup', onLassoEnd)
+// Palette-drag — pointermove высокочастотное событие, не хочется получать его
+// 60Hz постоянно. Реактивный target: document когда ui.dragging, иначе null.
+const dragListenerTarget = computed(() => (ui.dragging ? document : null))
+useEventListener(dragListenerTarget, 'pointermove', onDragPointerMove)
+useEventListener(dragListenerTarget, 'pointerup', onDragPointerUp)
+useEventListener(window, 'blur', onDragCancel)
+
+// Перерасчёт размера paper'а при изменении контейнера (drag сплиттера, ресайз
+// окна). Регистрируем здесь, в синхронном setup-скоупе: внутри async onMounted
+// (после await) vueuse не зацепил бы scope-dispose и observer утёк бы на unmount.
+useResizeObserver(paperContainer, () => {
+  if (!paper || !paperContainer.value) return
+  paper.setDimensions(paperContainer.value.clientWidth, paperContainer.value.clientHeight)
+})
+
+// Во время drag'а ячейки JointJS шлёт change:position ~60 раз/сек — bumpVersion
+// на каждый event гонял бы Inspector.details / overlayBtns на каждом mousemove.
+// Подавляем bumpVersion в окне cell:pointerdown → cell:pointerup (флаг ниже),
+// эмитим один на pointerup. Сами cell:pointerdown/up вешаются в onMounted (нужен
+// paper), а document-mouseup — fallback на отпускание вне холста — здесь, в
+// синхронном скоупе: в async onMounted (после await) auto-cleanup не встал бы.
+let isPointerDownOnCell = false
+function releasePointerDrag() {
+  if (!isPointerDownOnCell) return
+  isPointerDownOnCell = false
+  canvas.bumpVersion()
+}
+useEventListener(document, 'mouseup', releasePointerDrag, { capture: true })
+
 const { simulating, toggleSimulation } = useSimulation()
 const { textEditing, textEditValue, textEditorRef, startTextEdit, commitTextEdit, cancelTextEdit } =
   useTextEdit({ scheduleSnapshot })
@@ -72,11 +126,6 @@ useHotkeys({
   duplicateSelection,
   onExport,
 })
-
-// ─── Vue refs / JointJS state ───
-const paperContainer = ref(null)
-let paper = null
-let graph = null
 
 // ─── Zoom & Pan state ───
 // zoomPercent живёт в singleton useCanvas (canvas.zoomPercent — общая ссылка,
@@ -219,19 +268,6 @@ onMounted(async () => {
     },
   })
 
-  // Перерасчёт размера paper'а при изменении контейнера (drag сплиттера, ресайз окна).
-  useResizeObserver(paperContainer, () => {
-    if (!paper || !paperContainer.value) return
-    paper.setDimensions(paperContainer.value.clientWidth, paperContainer.value.clientHeight)
-  })
-
-  // Hook'и paperContainer'а — useEventListener авто-снимает на unmount.
-  useEventListener(paperContainer, 'wheel', onWheel, { passive: false })
-  useEventListener(paperContainer, 'mousemove', onCanvasMouseMove)
-  useEventListener(paperContainer, 'mouseleave', onCanvasMouseLeave)
-  // Capture-phase mousedown для resize шины — раньше JointJS, чтобы он не начал drag.
-  useEventListener(paperContainer, 'mousedown', bus.onMaybeStartResize, true)
-
   // ─── Pan vs Lasso + reset selection на blank-клике ───
   // Plain LMB-drag = pan + сброс выделения/подсветки (естественный «выход»).
   // Alt+LMB-drag = lasso (выделение рамкой), selection не трогаем — юзер
@@ -246,8 +282,6 @@ onMounted(async () => {
     canvas.clearSelection()
     if (canvas.highlightedTag.value) canvas.clearHighlightedTag()
   })
-  document.addEventListener('mousemove', onPanMove)
-  document.addEventListener('mouseup', onPanEnd)
 
   // ─── Selection ───
   // Ctrl/Cmd+click — toggle (multi-select); plain click — replace selection.
@@ -329,25 +363,13 @@ onMounted(async () => {
   })
 
   // ─── Graph change tracking (для Inspector computed-ов) ───
-  // Во время drag'а ячейки JointJS шлёт `change:position` ~60 раз/сек —
-  // bumpVersion на каждый event запустил бы Inspector.details / slotWarnings /
-  // overlayBtns на каждом mousemove. Подавляем bumpVersion в окне
-  // cell:pointerdown → cell:pointerup и эмитим один bumpVersion на pointerup.
-  // document-level mouseup как fallback — если курсор отпущен вне холста,
-  // cell:pointerup не приходит, флаг бы залип.
-  let isPointerDownOnCell = false
+  // Окно подавления bumpVersion при drag'е ячейки: флаг isPointerDownOnCell,
+  // releasePointerDrag и document-mouseup fallback живут в синхронном setup-
+  // скоупе (см. выше). Здесь только paper-события — paper готов лишь в onMounted.
   paper.on('cell:pointerdown', () => {
     isPointerDownOnCell = true
   })
-  const releasePointerDrag = () => {
-    if (!isPointerDownOnCell) return
-    isPointerDownOnCell = false
-    canvas.bumpVersion()
-  }
   paper.on('cell:pointerup', releasePointerDrag)
-  // document-mouseup fallback — если курсор отпущен вне холста.
-  // useEventListener сам снимает listener на unmount.
-  useEventListener(document, 'mouseup', releasePointerDrag, { capture: true })
 
   graph.on('change add remove', () => {
     if (isPointerDownOnCell) return
@@ -395,12 +417,10 @@ onMounted(async () => {
 
   // Сообщаем о восстановлении уже после монтирования (toast service готов)
   if (restored > 0) {
-    toast.add({
-      severity: 'info',
-      summary: 'Автосейв восстановлен',
-      detail: `${nplural(restored, 'ячейка', 'ячейки', 'ячеек')} с прошлой сессии`,
-      life: TOAST_LIFE.NORMAL,
-    })
+    notify.info(
+      'Автосейв восстановлен',
+      `${nplural(restored, 'ячейка', 'ячейки', 'ячеек')} с прошлой сессии`
+    )
     // Центрируем viewport на bbox восстановленного контента — иначе ячейки,
     // нарисованные в прошлой сессии где-нибудь в (500, 800), окажутся за
     // пределами видимой области (paper стартует с translate(0,0)).
@@ -448,40 +468,79 @@ function scheduleUpdatePortProximity() {
   })
 }
 
+// Радиус видимости в клетках: opacity = max(0, 1 - 0.2*cells) → 0 при cells>=5.
+const PORT_PROXIMITY_RANGE_CELLS = 5
+// id'ы ячеек, у которых сейчас выставлен --port-proximity хотя бы на одном порту.
+// Нужен, чтобы при выходе курсора за радиус снять подсветку ОДИН раз, а не
+// сканировать DOM далёких ячеек каждый кадр.
+const proximityActiveCells = new Set()
+
+function clearCellProximity(cell) {
+  const view = paper?.findViewByModel(cell)
+  if (!view?.el) return
+  for (const c of view.el.querySelectorAll('.joint-port')) {
+    c.style.removeProperty('--port-proximity')
+  }
+}
+
 function updatePortProximity() {
   if (!paper || !graph) return
   const cursor = canvas.cursorLocal.value
   const gridSize = paper.options.gridSize || 10
+  const rangePx = PORT_PROXIMITY_RANGE_CELLS * gridSize
+
   for (const cell of graph.getElements()) {
     const ports = cell.get('ports')?.items || []
     if (!ports.length) continue
+
+    const pos = cell.get('position')
+    const size = cell.get('size')
+
+    // Cell-level cull: дистанция от курсора до ближайшей точки bbox ячейки.
+    // Порты лежат внутри bbox, значит дальше неё быть не могут — если bbox за
+    // радиусом, все порты = 0 без единого querySelector. Это убирает обход DOM
+    // для всех далёких ячеек (на схеме курсор обычно над малой областью).
+    let culled = !cursor
+    if (cursor) {
+      const ddx =
+        cursor.x < pos.x ? pos.x - cursor.x : cursor.x > pos.x + size.width ? cursor.x - (pos.x + size.width) : 0
+      const ddy =
+        cursor.y < pos.y ? pos.y - cursor.y : cursor.y > pos.y + size.height ? cursor.y - (pos.y + size.height) : 0
+      culled = Math.sqrt(ddx * ddx + ddy * ddy) >= rangePx
+    }
+    if (culled) {
+      // Гасим только если ячейка была подсвечена — иначе DOM не трогаем вовсе.
+      if (proximityActiveCells.has(cell.id)) {
+        clearCellProximity(cell)
+        proximityActiveCells.delete(cell.id)
+      }
+      continue
+    }
+
     const cellView = paper.findViewByModel(cell)
     if (!cellView?.el) continue
-    const pos = cell.get('position')
+
+    let anySet = false
     for (const port of ports) {
-      // JointJS пишет атрибут `port` на ВНУТРЕННЕМ port-body (например circle),
-      // не на контейнере .joint-port. Поднимаемся до контейнера через closest —
-      // CSS-правило opacity висит на .joint-port (видно/скрыто всё содержимое
-      // включая hit-area).
-      const portBody = cellView.el.querySelector(`[port="${port.id}"]`)
-      const portContainer = portBody?.closest('.joint-port')
+      // JointJS пишет атрибут `port` на ВНУТРЕННЕМ port-body (circle), не на
+      // контейнере .joint-port. Поднимаемся до контейнера через closest — CSS
+      // opacity висит на .joint-port (вся обвязка порта, включая hit-area).
+      const portContainer = cellView.el.querySelector(`[port="${port.id}"]`)?.closest('.joint-port')
       if (!portContainer) continue
-      if (!cursor) {
-        portContainer.style.removeProperty('--port-proximity')
-        continue
-      }
       const px = pos.x + (port.args?.x ?? 0)
       const py = pos.y + (port.args?.y ?? 0)
       const dx = px - cursor.x
       const dy = py - cursor.y
-      const distCells = Math.sqrt(dx * dx + dy * dy) / gridSize
-      const opacity = Math.max(0, 1 - 0.2 * distCells)
+      const opacity = Math.max(0, 1 - 0.2 * (Math.sqrt(dx * dx + dy * dy) / gridSize))
       if (opacity > 0) {
         portContainer.style.setProperty('--port-proximity', opacity.toFixed(2))
+        anySet = true
       } else {
         portContainer.style.removeProperty('--port-proximity')
       }
     }
+    if (anySet) proximityActiveCells.add(cell.id)
+    else proximityActiveCells.delete(cell.id)
   }
 }
 
@@ -574,19 +633,8 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  // useEventListener/useResizeObserver сами снимаются на unmount — не дублируем.
-  // Здесь чистим только document-листенеры, которые вешаются динамически
-  // (pan/resize/lasso/drag) и могут остаться висеть, если unmount случился
-  // прямо во время операции.
-  document.removeEventListener('mousemove', onPanMove)
-  document.removeEventListener('mouseup', onPanEnd)
-  document.removeEventListener('mousemove', onLassoMove)
-  document.removeEventListener('mouseup', onLassoEnd)
-  document.removeEventListener('pointermove', onDragPointerMove)
-  document.removeEventListener('pointerup', onDragPointerUp)
-  window.removeEventListener('blur', onDragCancel)
-  // Resize-listener'ы, snapshot-таймеры, sim-интервал — собираются их
-  // composable'ами через onBeforeUnmount внутри них.
+  // useEventListener / useResizeObserver / composable'ы сами снимают свои
+  // ресурсы — здесь только сбрасываем singleton-ссылки на graph/paper.
   canvas.clearCanvasRefs()
   canvas.setImportFromSvgFn(null)
   canvas.setExportFn(null)
@@ -598,7 +646,13 @@ onBeforeUnmount(() => {
 function onCanvasMouseMove(event) {
   if (!paper) return
   const p = paper.clientToLocalPoint(event.clientX, event.clientY)
-  canvas.setCursorLocal({ x: Math.round(p.x), y: Math.round(p.y) })
+  const nx = Math.round(p.x)
+  const ny = Math.round(p.y)
+  // Гард: sub-pixel дрожание мыши в пределах того же целого пикселя не должно
+  // ни создавать новый объект, ни дёргать cursorLocal-watcher → updatePortProximity.
+  const cur = canvas.cursorLocal.value
+  if (cur && cur.x === nx && cur.y === ny) return
+  canvas.setCursorLocal({ x: nx, y: ny })
 }
 
 function onCanvasMouseLeave() {
@@ -672,8 +726,6 @@ function startLasso(evt) {
   lassoStartLocal = paper.clientToLocalPoint(evt.clientX, evt.clientY)
   lassoStartClient = { x: evt.clientX, y: evt.clientY }
   lassoRect.value = { x: 0, y: 0, w: 0, h: 0 }
-  document.addEventListener('mousemove', onLassoMove)
-  document.addEventListener('mouseup', onLassoEnd)
 }
 
 function onLassoMove(evt) {
@@ -689,8 +741,6 @@ function onLassoMove(evt) {
 function onLassoEnd(evt) {
   if (!lassoActive) return
   lassoActive = false
-  document.removeEventListener('mousemove', onLassoMove)
-  document.removeEventListener('mouseup', onLassoEnd)
 
   const endLocal = paper.clientToLocalPoint(evt.clientX, evt.clientY)
   const x = Math.min(lassoStartLocal.x, endLocal.x)
@@ -865,23 +915,10 @@ const previewStyle = computed(() => {
 })
 
 // ─── Drag из палитры на pointer-events ───
-// PalettePane выставляет ui.dragging на pointerdown. Здесь watch'им это и
-// вешаем document-листенеры — pointermove идёт на полной частоте, превью липнет
-// к курсору без задержки нативного DnD.
-watch(
-  () => ui.dragging,
-  (val) => {
-    if (val) {
-      document.addEventListener('pointermove', onDragPointerMove)
-      document.addEventListener('pointerup', onDragPointerUp)
-      window.addEventListener('blur', onDragCancel)
-    } else {
-      document.removeEventListener('pointermove', onDragPointerMove)
-      document.removeEventListener('pointerup', onDragPointerUp)
-      window.removeEventListener('blur', onDragCancel)
-    }
-  }
-)
+// PalettePane выставляет ui.dragging на pointerdown; реактивный
+// `dragListenerTarget` (см. setup-root) превращается в document на время
+// drag'а — useEventListener сам цепляет/снимает pointermove/pointerup.
+// pointermove идёт на полной частоте, превью липнет к курсору без задержки.
 
 function onDragPointerMove(event) {
   if (!ui.dragging || !paperContainer.value) return
@@ -894,7 +931,7 @@ function onDragPointerMove(event) {
 
 function onDragPointerUp(event) {
   const stencilId = ui.dragging?.stencilId
-  clearPreview() // stopDragging + сброс курсора (watch снимет листенеры)
+  clearPreview() // stopDragging + сброс курсора (dragListenerTarget→null, useEventListener сам отцепит)
   if (!stencilId || !paper || !paperContainer.value) return
 
   // Дроп только если отпустили над холстом (не над палитрой/инспектором/вне окна)
@@ -1065,22 +1102,21 @@ function onClearCanvas(event) {
 }
 
 function performClearCanvas(count) {
-  restoringHistory.value = true
   cancelPendingSnapshot()
-  graph.clear()
-  canvas.bumpVersion()
-  restoringHistory.value = false
+  withRestoreGuard(restoringHistory, () => {
+    graph.clear()
+    canvas.bumpVersion()
+  })
   clearAutosave()
   // Сбрасываем history до текущего пустого состояния
   initHistory()
   canvas.clearSelection()
 
-  toast.add({
-    severity: 'info',
-    summary: 'Холст очищен',
-    detail: `Удалено ${nplural(count, 'элемент', 'элемента', 'элементов')}`,
-    life: TOAST_LIFE.SHORT,
-  })
+  notify.info(
+    'Холст очищен',
+    `Удалено ${nplural(count, 'элемент', 'элемента', 'элементов')}`,
+    TOAST_LIFE.SHORT
+  )
 }
 
 // ─── Inline-кнопки overlay'я выделенной ячейки ───
@@ -1300,12 +1336,7 @@ function onExport() {
   // (с учётом manhattan-роутинга), а не straight-lines.
   const result = exportProject(graph, paper)
   if (result.count === 0) {
-    toast.add({
-      severity: 'warn',
-      summary: 'Экспорт',
-      detail: 'Холст пуст — нечего экспортировать',
-      life: TOAST_LIFE.NORMAL,
-    })
+    notify.warn('Экспорт', 'Холст пуст — нечего экспортировать')
     return
   }
 
@@ -1313,26 +1344,20 @@ function onExport() {
   downloadFile('animations.json', result.animationsJson, 'application/json')
 
   const animCount = Object.keys(result.animations.animations).length
-  toast.add({
-    severity: 'success',
-    summary: 'Экспорт готов',
-    detail: [
+  notify.success(
+    'Экспорт готов',
+    [
       nplural(result.count, 'ячейка', 'ячейки', 'ячеек'),
       nplural(result.linkCount, 'провод', 'провода', 'проводов'),
       `${nplural(animCount, 'карточка', 'карточки', 'карточек')} анимаций`,
     ].join(', '),
-    life: TOAST_LIFE.NORMAL,
-  })
+    TOAST_LIFE.NORMAL
+  )
 
   // Предупреждения от exporter'а (дубль valueTag и пр.) — отдельным warn-toast'ом,
   // чтобы SCADA-инженер увидел их без DevTools.
   if (result.warnings.length) {
-    toast.add({
-      severity: 'warn',
-      summary: 'Экспорт: предупреждения',
-      detail: result.warnings.join('; '),
-      life: TOAST_LIFE.LONG,
-    })
+    notify.warn('Экспорт: предупреждения', result.warnings.join('; '), TOAST_LIFE.LONG)
   }
 }
 
@@ -1345,21 +1370,17 @@ function performImportFromSvgText(svgText, sourceLabel = 'SVG') {
   if (!graph || !paper) return false
   const parsed = parseSvgProject(svgText)
   if (!parsed.ok) {
-    toast.add({
-      severity: 'error',
-      summary: 'Не удалось загрузить',
-      detail: parsed.errors.join('; ') || 'В файле нет ячеек / data-tms-meta',
-      life: TOAST_LIFE.LONG,
-    })
+    notify.error(
+      'Не удалось загрузить',
+      parsed.errors.join('; ') || 'В файле нет ячеек / data-tms-meta'
+    )
     return false
   }
 
-  // Сбрасываем текущее состояние (как clear canvas).
-  // try/finally — иначе исключение в fromJSON / reinjectAllStencils оставит
-  // restoringHistory=true навсегда (та же гарантия что в useUndoRedo).
-  restoringHistory.value = true
+  // Сбрасываем текущее состояние (как clear canvas). withRestoreGuard гарантирует
+  // сброс restoringHistory даже при исключении в fromJSON / reinjectAllStencils.
   cancelPendingSnapshot()
-  try {
+  withRestoreGuard(restoringHistory, () => {
     graph.clear()
     graph.fromJSON({ cells: parsed.cells })
     // fromJSON использует resetCells — 'add'-event не летит, наш авто-toBack
@@ -1368,9 +1389,7 @@ function performImportFromSvgText(svgText, sourceLabel = 'SVG') {
     for (const link of graph.getLinks()) link.toBack()
     reinjectAllStencils(graph, paper)
     canvas.bumpVersion()
-  } finally {
-    restoringHistory.value = false
-  }
+  })
 
   // History начинается с восстановленного состояния — undo не должен «возвращать» к старому
   initHistory()
@@ -1379,12 +1398,11 @@ function performImportFromSvgText(svgText, sourceLabel = 'SVG') {
 
   const cellsAdded = graph.getElements().length
   const linksAdded = graph.getLinks().length
-  toast.add({
-    severity: 'success',
-    summary: `Загружен ${sourceLabel}`,
-    detail: `${nplural(cellsAdded, 'ячейка', 'ячейки', 'ячеек')}, ${nplural(linksAdded, 'провод', 'провода', 'проводов')}${parsed.errors.length ? ` · предупреждений: ${parsed.errors.length}` : ''}`,
-    life: TOAST_LIFE.NORMAL,
-  })
+  notify.success(
+    `Загружен ${sourceLabel}`,
+    `${nplural(cellsAdded, 'ячейка', 'ячейки', 'ячеек')}, ${nplural(linksAdded, 'провод', 'провода', 'проводов')}${parsed.errors.length ? ` · предупреждений: ${parsed.errors.length}` : ''}`,
+    TOAST_LIFE.NORMAL
+  )
   if (parsed.errors.length) {
     console.warn('[Canvas] Импорт SVG с предупреждениями:', parsed.errors)
   }

@@ -4,7 +4,7 @@ import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Tag from 'primevue/tag'
 import ToggleSwitch from 'primevue/toggleswitch'
-import { useToast } from 'primevue/usetoast'
+import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
@@ -31,7 +31,6 @@ import {
   CLASS_HIDDEN,
 } from '../constants/animation'
 import { hasSlotPlaceholder } from '../constants/ids'
-import { TOAST_LIFE } from '../constants/toast'
 
 // Дефолтные диапазоны voltage-source. .map(({...r})) на каждое использование —
 // чтобы ячейки не делили один и тот же массив.
@@ -56,7 +55,7 @@ function isLayoutOnly(stencilId) {
 const canvas = useCanvas()
 const project = useProjectStore()
 const ui = useUiStore()
-const toast = useToast()
+const notify = useNotify()
 
 // Computed-и читают canvas.graphVersion, чтобы пересчитываться при изменениях графа
 // (JointJS-модели не Vue-reactive, ловим через явный version-tick).
@@ -380,12 +379,7 @@ function updateRange(idx, field, value) {
 function toggleVoltageHighlight() {
   const tag = details.value?.voltageSource?.tag
   if (!tag) {
-    toast.add({
-      severity: 'warn',
-      summary: 'Тег не выбран',
-      detail: 'Выберите тег источника, чтобы подсветить элементы с тем же тегом',
-      life: TOAST_LIFE.NORMAL,
-    })
+    notify.warn('Тег не выбран', 'Выберите тег источника, чтобы подсветить элементы с тем же тегом')
     return
   }
   canvas.toggleHighlightedTag(tag)
@@ -416,15 +410,10 @@ function applyTagToSelection({ field, tag, valueFactory, summary, verb }) {
   canvas.bumpVersion()
   canvas.requestSnapshot()
   const count = nplural(applied, 'элемент', 'элемента', 'элементов')
-  toast.add({
-    severity: 'success',
+  notify.success(
     summary,
-    detail:
-      skipped > 0
-        ? `${verb} ${count} · пропущено: ${skipped} (текст/значение)`
-        : `${verb} ${count}`,
-    life: TOAST_LIFE.SHORT,
-  })
+    skipped > 0 ? `${verb} ${count} · пропущено: ${skipped} (текст/значение)` : `${verb} ${count}`
+  )
 }
 
 function onPickMultiVoltageTag(tag) {
@@ -456,7 +445,7 @@ function addSwitchSources() {
 }
 
 /**
- * «+ Добавить тег» из SwitchBlock: для cell_qw smart-flow — если slot.onoff
+ * «+ Добавить тег» из SwitchBlock: для switch-стенсила smart-flow — если slot.onoff
  * ещё пуст, открываем slot picker (фильтр по .ONOFF из stencil-схемы),
  * иначе — switch-tags picker. Для остальных всегда switch-picker.
  */
@@ -554,22 +543,22 @@ function onPickMultiSwitchTag(tag) {
   canvas.bumpVersion()
   canvas.requestSnapshot()
   const count = nplural(applied, 'элемент', 'элемента', 'элементов')
-  toast.add({
-    severity: 'success',
-    summary: 'Выключатель привязан',
-    detail:
-      skipped > 0
-        ? `Привязано к ${count} · пропущено: ${skipped} (текст/значение/свой тег)`
-        : `Привязано к ${count}`,
-    life: TOAST_LIFE.SHORT,
-  })
+  notify.success(
+    'Выключатель привязан',
+    skipped > 0
+      ? `Привязано к ${count} · пропущено: ${skipped} (текст/значение/свой тег)`
+      : `Привязано к ${count}`
+  )
 }
 
 // ─── Hyperlink-навигация: клик в рантайме открывает другую view ───
 // Свич управляет видимостью инпута; пустое значение не пишется, при OFF — чистим.
 const navigationEnabled = ref(false)
+// Источник watch'а — [id, navigation], а не только id: смена ячейки ресинкает
+// тумблер по id, а undo/redo navigation НА ТОЙ ЖЕ выделенной ячейке (id не
+// меняется) ресинкает по самому navigation — иначе тумблер протух бы.
 watch(
-  () => details.value?.id,
+  () => [details.value?.id, details.value?.navigation],
   () => {
     navigationEnabled.value = !!details.value?.navigation
   },
@@ -944,7 +933,7 @@ const switchPickerTags = computed(() => {
 
             <!-- Слоты стенсила: каждый слот = один тег, который попадёт в
  соответствующие bindings шаблона при экспорте.
- cell_alr / cell_qw рендерят свой единственный required-слот в
+ cell_alr / switch-стенсилы (isSwitch) рендерят свой единственный required-слот в
  специальном Alarm/Switch-блоке внутри секции «Анимации» — поэтому
  общий slot-row для них скрываем, чтобы тег не показывался дважды. -->
             <div
@@ -1074,10 +1063,8 @@ const switchPickerTags = computed(() => {
  каждого слота (см. info-icon выше) — read-only блок убран,
  чтобы не засорять панель повторением декларативного поведения. -->
 
-            <!-- A. Аварийный сигнал (cell_alr) / Выключатель (cell_qw):
- обёртки для required-слотов стенсилов (.alr / .onoff). Это
- интрисик-анимация шаблона, не отдельная tms-сущность. -->
-            <!-- A. cell_alr — обёртка required-слота .alr. -->
+            <!-- A. cell_alr — обёртка required-слота .alr. Интринсик-анимация
+                 шаблона, не отдельная tms-сущность. -->
             <AlarmSourceBlock
               v-if="details.isAlarm && details.slots[0]"
               :alarm-slot="details.slots[0]"
@@ -1085,8 +1072,8 @@ const switchPickerTags = computed(() => {
               @open-tag-picker="openSlotPicker(details.slots[0])"
             />
 
-            <!-- B. Привязка к выключателю(ям). Unified block: для cell_qw
-                 включает slot.onoff (intrinsic) + switchSources.tags;
+            <!-- B. Привязка к выключателю(ям). Unified block: для switch-стенсила
+                 (isSwitch) включает slot.onoff (intrinsic) + switchSources.tags;
                  для остальных — только switchSources.tags. -->
             <SwitchBlock
               v-if="details.isSwitch || details.switchSources"
@@ -1117,8 +1104,8 @@ const switchPickerTags = computed(() => {
             />
 
             <!-- Add-кнопки. Выключатель — везде кроме cell_alr (тревога не
-                 поток) и cell_qw (блок уже виден через slot.onoff, add-кнопка
-                 встроена в сам блок). Voltage — везде где нет. -->
+                 поток) и switch-стенсилов (блок уже виден через slot.onoff,
+                 add-кнопка встроена в сам блок). Voltage — везде где нет. -->
             <div
               v-if="
                 (!details.switchSources && !details.isAlarm && !details.isSwitch) ||

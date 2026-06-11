@@ -1,21 +1,15 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { computed } from 'vue'
+import { useTimestamp } from '@vueuse/core'
 import { useCanvas } from '../composables/useCanvas'
 import { useUiStore } from '../stores/useUiStore'
 
 const canvas = useCanvas()
 const ui = useUiStore()
 
-// nowTick — bump раз в секунду для relative time. Альтернатива (watch +
-// setTimeout) сложнее без выигрыша — индикатор и так редко перерисовывается.
-const nowTick = ref(Date.now())
-let tickInterval = null
-onMounted(() => {
-  tickInterval = setInterval(() => (nowTick.value = Date.now()), 1000)
-})
-onBeforeUnmount(() => {
-  if (tickInterval) clearInterval(tickInterval)
-})
+// Bump раз в секунду для relative time. useTimestamp сам ставит/снимает
+// setInterval и auto-disposes на unmount.
+const nowTick = useTimestamp({ interval: 1000 })
 
 const savedAgo = computed(() => {
   const ts = canvas.lastSavedAt.value

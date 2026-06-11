@@ -29,8 +29,15 @@ function isFocusInInput(t) {
  *  Стрелки     — сдвиг выделенных ячеек на gridSize (Shift = ×5)
  *  Del/Bksp    — удалить выделение
  *
- * Все Ctrl-комбинации (кроме Ctrl+F) и стрелки/Del — подавляются при фокусе в
- * input/textarea/contenteditable, чтобы не ломать ввод текста.
+ * Поведение при фокусе в input/textarea/contenteditable:
+ *  • Ctrl+S / Ctrl+O — глобальные команды приложения, работают из любого
+ *    фокуса (как Ctrl+S в десктоп-редакторе). preventDefault обязателен — иначе
+ *    браузер перехватит: Ctrl+S → «Сохранить страницу», Ctrl+O → диалог файла.
+ *  • Ctrl+D — дублировать ячейку из инпута бессмысленно, но браузерную закладку
+ *    давим: preventDefault всегда, сам duplicate — только вне инпута.
+ *  • Ctrl+Z/Y/C/V/A — НЕ перехватываем: это штатная правка текста в поле
+ *    (undo/redo/copy/paste/select-all), ломать её нельзя.
+ *  • Стрелки / Del — не трогаем ввод текста.
  *
  * Зависимости передаются опциями (приходят из composables, которые держит
  * CanvasPane): undo/redo/scheduleSnapshot из useUndoRedo, copy/paste/duplicate
@@ -82,6 +89,29 @@ export function useHotkeys({
       return
     }
 
+    // Глобальные команды приложения — до гварда !inInput, работают из любого
+    // фокуса. preventDefault давит браузерный page-action (Сохранить страницу /
+    // открыть файл), который иначе перехватил бы комбо в инпуте.
+    if (cmd && code === 'KeyS') {
+      event.preventDefault()
+      event.stopPropagation()
+      onExport()
+      return
+    }
+    if (cmd && code === 'KeyO') {
+      event.preventDefault()
+      event.stopPropagation()
+      window.dispatchEvent(new CustomEvent('tms-open-project'))
+      return
+    }
+    // Ctrl+D: браузерную закладку давим всегда, дублируем — только вне инпута.
+    if (cmd && code === 'KeyD') {
+      event.preventDefault()
+      event.stopPropagation()
+      if (!inInput) duplicateSelection()
+      return
+    }
+
     if (cmd && !inInput) {
       if (code === 'KeyZ') {
         event.preventDefault()
@@ -95,18 +125,6 @@ export function useHotkeys({
         redo()
         return
       }
-      if (code === 'KeyS') {
-        event.preventDefault()
-        event.stopPropagation()
-        onExport()
-        return
-      }
-      if (code === 'KeyO') {
-        event.preventDefault()
-        event.stopPropagation()
-        window.dispatchEvent(new CustomEvent('tms-open-project'))
-        return
-      }
       if (code === 'KeyC' && !event.shiftKey) {
         event.preventDefault()
         event.stopPropagation()
@@ -117,12 +135,6 @@ export function useHotkeys({
         event.preventDefault()
         event.stopPropagation()
         pasteClipboard()
-        return
-      }
-      if (code === 'KeyD') {
-        event.preventDefault()
-        event.stopPropagation()
-        duplicateSelection()
         return
       }
       if (code === 'KeyA') {

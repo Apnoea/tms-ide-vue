@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { SVG_NS, escapeXml, escapeAttr } from './xml'
+import { escapeXml, escapeAttr } from './xml'
 
 describe('xml utils', () => {
-  it('SVG_NS — каноничный namespace', () => {
-    expect(SVG_NS).toBe('http://www.w3.org/2000/svg')
-  })
-
   describe('escapeXml', () => {
     it('экранирует &, <, >', () => {
       expect(escapeXml('a & b < c > d')).toBe('a &amp; b &lt; c &gt; d')

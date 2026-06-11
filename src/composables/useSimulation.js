@@ -1,5 +1,5 @@
 import { ref, onBeforeUnmount } from 'vue'
-import { useToast } from 'primevue/usetoast'
+import { useNotify, TOAST_LIFE } from './useNotify'
 import {
   ANIMATION_CLASS_COLORS,
   ANIMATION_CLASS_OPTIONS,
@@ -8,7 +8,6 @@ import {
   CLASS_HIDDEN,
 } from '../constants/animation'
 import { innerKey, resolveSlotTemplate } from '../constants/ids'
-import { TOAST_LIFE } from '../constants/toast'
 import { getStencilById } from '../stencils/registry'
 import { useCanvas } from './useCanvas'
 
@@ -33,7 +32,7 @@ const SIM_CYCLE_MS = 1500
  */
 export function useSimulation() {
   const canvas = useCanvas()
-  const toast = useToast()
+  const notify = useNotify()
   const simulating = ref(false)
   let simIntervalId = null
   const SIM_CSS_ID = 'tms-sim-css'
@@ -202,10 +201,10 @@ export function useSimulation() {
   function toggleSimulation() {
     if (simulating.value) {
       stopSimulation()
-      toast.add({ severity: 'info', summary: 'Симуляция остановлена', life: TOAST_LIFE.SHORT })
+      notify.info('Симуляция остановлена', undefined, TOAST_LIFE.SHORT)
     } else {
       startSimulation()
-      toast.add({ severity: 'info', summary: 'Симуляция запущена', life: TOAST_LIFE.SHORT })
+      notify.info('Симуляция запущена', undefined, TOAST_LIFE.SHORT)
     }
   }
 

@@ -1,7 +1,8 @@
 <script setup>
-import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import { useEventListener } from '@vueuse/core'
 import Button from 'primevue/button'
-import { useToast } from 'primevue/usetoast'
+import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
 import { useUiStore } from '../stores/useUiStore'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -10,13 +11,12 @@ import * as fs from '../services/fileSystem'
 import { parseTagList } from '../services/parsers'
 import { nplural } from '../utils/plural'
 import { idbGet, idbSet, idbDel } from '../utils/idb'
-import { TOAST_LIFE } from '../constants/toast'
 import { useCanvas } from '../composables/useCanvas'
 
 const ui = useUiStore()
 const project = useProjectStore()
 const canvas = useCanvas()
-const toast = useToast()
+const notify = useNotify()
 const confirm = useConfirm()
 const { tags, tagListHandle } = storeToRefs(project)
 
@@ -30,33 +30,18 @@ async function loadParsedTagsFromHandle(handle) {
   if (perm && perm !== 'granted') {
     const next = await handle.requestPermission({ mode: 'read' })
     if (next !== 'granted') {
-      toast.add({
-        severity: 'warn',
-        summary: 'Нет доступа к файлу',
-        detail: 'Браузер отозвал разрешение, выберите файл заново',
-        life: TOAST_LIFE.NORMAL,
-      })
+      notify.warn('Нет доступа к файлу', 'Браузер отозвал разрешение, выберите файл заново')
       return null
     }
   }
   const content = await fs.getFileContentFromHandle(handle)
   if (!content) {
-    toast.add({
-      severity: 'error',
-      summary: 'Tag-list',
-      detail: 'Не удалось прочитать файл',
-      life: TOAST_LIFE.NORMAL,
-    })
+    notify.error('Tag-list', 'Не удалось прочитать файл', TOAST_LIFE.NORMAL)
     return null
   }
   const parsed = parseTagList(content)
   if (parsed.length === 0) {
-    toast.add({
-      severity: 'warn',
-      summary: 'Tag-list',
-      detail: 'Файл пуст или не содержит валидных тегов',
-      life: TOAST_LIFE.NORMAL,
-    })
+    notify.warn('Tag-list', 'Файл пуст или не содержит валидных тегов')
     return null
   }
   return parsed
@@ -74,33 +59,22 @@ async function pickTagList() {
     await idbSet(IDB_HANDLE_KEY, fileHandle)
     ui.setLastTagListPickerStartIn(fileHandle)
 
-    toast.add({
-      severity: 'success',
-      summary: 'Tag-list загружен',
-      detail: `${nplural(parsed.length, 'тег', 'тега', 'тегов')} из ${fileHandle.name}`,
-      life: TOAST_LIFE.NORMAL,
-    })
+    notify.success(
+      'Tag-list загружен',
+      `${nplural(parsed.length, 'тег', 'тега', 'тегов')} из ${fileHandle.name}`,
+      TOAST_LIFE.NORMAL
+    )
   } catch (e) {
     if (e.name === 'AbortError') return
     console.error('[ProjectActions] Ошибка загрузки tag-list:', e)
-    toast.add({
-      severity: 'error',
-      summary: 'Ошибка загрузки tag-list',
-      detail: e.message || String(e),
-      life: TOAST_LIFE.LONG,
-    })
+    notify.error('Ошибка загрузки tag-list', e.message || String(e))
   }
 }
 
 function unloadTagList() {
   project.clearTagList()
   idbDel(IDB_HANDLE_KEY)
-  toast.add({
-    severity: 'info',
-    summary: 'Tag-list сброшен',
-    detail: 'Привязки на холсте сохранены, но выбрать новые теги пока нельзя',
-    life: TOAST_LIFE.NORMAL,
-  })
+  notify.info('Tag-list сброшен', 'Привязки на холсте сохранены, но выбрать новые теги пока нельзя')
 }
 
 // На mount пытаемся восстановить tag-list-handle из IDB. 'granted' permission
@@ -118,33 +92,30 @@ async function tryRestoreTagListHandle() {
       if (parsed.length === 0) return
       project.setTags(parsed)
       project.setTagListHandle(handle)
-      toast.add({
-        severity: 'info',
-        summary: 'Tag-list восстановлен',
-        detail: `${nplural(parsed.length, 'тег', 'тега', 'тегов')} из ${handle.name}`,
-        life: TOAST_LIFE.SHORT,
-      })
+      notify.info(
+        'Tag-list восстановлен',
+        `${nplural(parsed.length, 'тег', 'тега', 'тегов')} из ${handle.name}`,
+        TOAST_LIFE.SHORT
+      )
     } else {
       project.setTagListHandle(handle)
-      toast.add({
-        severity: 'warn',
-        summary: 'Tag-list требует разрешения',
-        detail: `Нажми обновить — браузер запросит доступ к ${handle.name}`,
-        life: TOAST_LIFE.LONG,
-      })
+      notify.warn(
+        'Tag-list требует разрешения',
+        `Нажми обновить — браузер запросит доступ к ${handle.name}`,
+        TOAST_LIFE.LONG
+      )
     }
   } catch (e) {
     console.warn('[ProjectActions] Не удалось восстановить tag-list handle:', e)
   }
 }
 
+// Кастомное событие из CanvasPane (Ctrl+O хоткей) → openProjectSvg.
+// useEventListener авто-снимает на unmount.
+useEventListener(window, 'tms-open-project', () => openProjectSvg())
+
 onMounted(() => {
   tryRestoreTagListHandle()
-  window.addEventListener('tms-open-project', openProjectSvg)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('tms-open-project', openProjectSvg)
 })
 
 // Сигнал из инспектора «Загрузить tag-list…» (см. ui.requestTagListLoad).
@@ -196,6 +167,9 @@ async function openProjectSvg() {
           fileName = f.name
           resolve(await f.text())
         }
+        // Отмена диалога не триггерит onchange — без oncancel промис висел бы
+        // вечно, и внешний try/finally (loading-state) не отработал бы.
+        input.oncancel = () => resolve(null)
         input.click()
       })
       if (!svgText) return
@@ -205,12 +179,7 @@ async function openProjectSvg() {
   } catch (e) {
     if (e.name === 'AbortError') return
     console.error('[ProjectActions] Ошибка загрузки SVG-проекта:', e)
-    toast.add({
-      severity: 'error',
-      summary: 'Ошибка загрузки',
-      detail: e.message || String(e),
-      life: TOAST_LIFE.LONG,
-    })
+    notify.error('Ошибка загрузки', e.message || String(e))
   }
 }
 
@@ -223,20 +192,14 @@ async function refreshTagList() {
     const before = tags.value.length
     project.setTags(parsed)
     const diff = parsed.length - before
-    toast.add({
-      severity: 'success',
-      summary: 'Tag-list обновлён',
-      detail: `${nplural(parsed.length, 'тег', 'тега', 'тегов')}${diff !== 0 ? ` (${diff > 0 ? '+' : ''}${diff})` : ''}`,
-      life: TOAST_LIFE.NORMAL,
-    })
+    notify.success(
+      'Tag-list обновлён',
+      `${nplural(parsed.length, 'тег', 'тега', 'тегов')}${diff !== 0 ? ` (${diff > 0 ? '+' : ''}${diff})` : ''}`,
+      TOAST_LIFE.NORMAL
+    )
   } catch (e) {
     console.error('[ProjectActions] Ошибка рефреша tag-list:', e)
-    toast.add({
-      severity: 'error',
-      summary: 'Не удалось обновить tag-list',
-      detail: e.message || String(e),
-      life: TOAST_LIFE.LONG,
-    })
+    notify.error('Не удалось обновить tag-list', e.message || String(e))
   }
 }
 </script>

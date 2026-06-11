@@ -1,4 +1,5 @@
-import { onBeforeUnmount } from 'vue'
+import { ref, computed } from 'vue'
+import { useEventListener } from '@vueuse/core'
 import { getStencilById } from '../stencils/registry'
 import { injectStencilSvg, busPortX, desiredBusPortCount } from '../stencils/svgInjector'
 import { snapToGrid } from '../utils/grid'
@@ -9,9 +10,11 @@ import { useCanvas } from './useCanvas'
  * порты досоздаются/удаляются под новую длину (BUS_PORT_SPACING). Стенсилы
  * без `data-edge` атрибута игнорируются — функционал узко-целевой.
  *
- * Управление мышью через document-listener'ы (mousemove/mouseup ставятся на
- * start, снимаются на end) — JointJS внутри не получает событий, drag живёт
- * параллельно.
+ * Управление мышью через document-listener'ы (mousemove/mouseup) — JointJS
+ * внутри не получает событий, drag живёт параллельно. Listener'ы навешиваются
+ * через `useEventListener` с реактивным target'ом: dragging=true → target
+ * становится document, listener зацепляется; end-resize → target null,
+ * listener снимается. Auto-cleanup на unmount без явного onBeforeUnmount.
  *
  * Зависит от:
  *  • `scheduleSnapshot` (fn из useUndoRedo) — после end ресайза дебаунс-snapshot.
@@ -25,9 +28,14 @@ import { useCanvas } from './useCanvas'
 export function useBusResize({ scheduleSnapshot }) {
   const canvas = useCanvas()
   let activeResize = null
+  const dragging = ref(false)
+  const dragTarget = computed(() => (dragging.value ? document : null))
+
+  useEventListener(dragTarget, 'mousemove', onResizeMove)
+  useEventListener(dragTarget, 'mouseup', onResizeEnd)
 
   function isResizing() {
-    return activeResize !== null
+    return dragging.value
   }
 
   function onMaybeStartResize(evt) {
@@ -67,8 +75,7 @@ export function useBusResize({ scheduleSnapshot }) {
       lastWidth: size.width,
     }
     canvas.selectOnly('cell', cell.id)
-    document.addEventListener('mousemove', onResizeMove)
-    document.addEventListener('mouseup', onResizeEnd)
+    dragging.value = true
   }
 
   function onResizeMove(evt) {
@@ -170,22 +177,14 @@ export function useBusResize({ scheduleSnapshot }) {
 
   function onResizeEnd() {
     if (!activeResize) return
+    // Snapshot только если ширина реально менялась. Клик по хэндлу без движения
+    // (или дёрганье в пределах одного grid-шага) не должен порождать «пустой»
+    // undo-шаг — onResizeMove обновляет lastWidth лишь на фактическом изменении.
+    const changed = activeResize.lastWidth !== activeResize.startWidth
     activeResize = null
-    document.removeEventListener('mousemove', onResizeMove)
-    document.removeEventListener('mouseup', onResizeEnd)
-    // Порты уже синхронизированы в onResizeMove — здесь только snapshot для undo
-    scheduleSnapshot()
+    dragging.value = false
+    if (changed) scheduleSnapshot()
   }
-
-  // Подстраховка: если компонент демонтировался во время активного drag'а
-  // (HMR, route-change), снимаем document-listener'ы — иначе они переживут
-  // mount/unmount цикл и накапливаются.
-  onBeforeUnmount(() => {
-    if (!activeResize) return
-    activeResize = null
-    document.removeEventListener('mousemove', onResizeMove)
-    document.removeEventListener('mouseup', onResizeEnd)
-  })
 
   return { isResizing, onMaybeStartResize }
 }

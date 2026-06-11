@@ -292,7 +292,7 @@ describe('exportProject', () => {
     expect(exported.svgText).toContain('id="animation-cell_qr-c1.open"')
   })
 
-  it('quality: cell_qk/cell_qr получают bad-биндинг ТОЛЬКО на outer для каждого тега', () => {
+  it('quality: cell_qk получает bad-биндинг ТОЛЬКО на outer для каждого тега', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
@@ -349,10 +349,9 @@ describe('exportProject', () => {
     }
   })
 
-  it('cell_value: спецсимволы в valueTag (&, <, ") экранируются в SVG id/атрибутах', () => {
-    // Контрфактический valueTag — реальные SCADA-теги такого не содержат, но
-    // защищаем от невалидного XML в случае экзотики (без эскейпа парсер падает
-    // на parsererror, projectLoader не открывает round-trip).
+  it('cell_value: спецсимволы в valueTag (&, <, ") не ломают XML — round-trip через projectLoader', () => {
+    // Контрфактический valueTag — реальные SCADA-теги такого не содержат, но без
+    // эскейпа экспорт дал бы невалидный XML и projectLoader упал бы на parsererror.
     const graph = mockGraph([
       mockCell({
         id: 'c1',
@@ -363,13 +362,12 @@ describe('exportProject', () => {
       }),
     ])
     const { svgText } = exportProject(graph)
-    // Сырой valueTag в id не остался
-    expect(svgText).not.toContain('id="animation-cell-A&B<C"D"')
-    expect(svgText).not.toContain('id="animation-A&B<C"D"')
-    // Эскейп прошёл
-    expect(svgText).toContain('&amp;')
-    expect(svgText).toContain('&lt;')
-    expect(svgText).toContain('&quot;')
+    // Реальный round-trip: экспортированный SVG валиден и читается обратно с тем
+    // же тегом (без эскейпа parseSvgProject вернул бы ok=false на parsererror).
+    const parsed = parseSvgProject(svgText)
+    expect(parsed.ok).toBe(true)
+    const cell = parsed.cells.find((c) => c.id === 'c1')
+    expect(cell?.tms.valueTag).toBe('A&B<C"D')
   })
 
   it('warnings: два cell_value с одинаковым valueTag → дубль попадает в result.warnings', () => {

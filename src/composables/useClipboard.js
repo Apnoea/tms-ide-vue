@@ -1,14 +1,13 @@
 import { shallowRef } from 'vue'
 import { shapes } from '@joint/core'
-import { useToast } from 'primevue/usetoast'
 import { getStencilById } from '../stencils/registry'
 import { injectStencilSvg, buildPortItems } from '../stencils/svgInjector'
 import { TMSStencil } from '../stencils/tmsStencil'
 import { LINK_DEFAULTS, buildLinkLabel } from '../stencils/linkDefaults'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
-import { TOAST_LIFE } from '../constants/toast'
 import { useCanvas } from './useCanvas'
+import { useNotify, TOAST_LIFE } from './useNotify'
 
 /**
  * Copy / Paste / Duplicate для cell-выделения + bridge-провода.
@@ -28,11 +27,16 @@ import { useCanvas } from './useCanvas'
  */
 export function useClipboard({ scheduleSnapshot }) {
   const canvas = useCanvas()
-  const toast = useToast()
+  const notify = useNotify()
   // shallowRef — а не обычная let-переменная — нужен для реактивности `hasClipboard()`.
   // Если буфер не reactive, computed-зависимости (например `ctxItems` в CanvasPane,
   // решающий показывать ли «Вставить» в context-menu) не пересчитываются на копирование.
   const clipboard = shallowRef({ cells: [], links: [] })
+  // Сколько раз текущий буфер уже вставляли. Каждый следующий Ctrl+V из одного
+  // буфера сдвигается дальше (offset × N), иначе копии легли бы стопкой в одну
+  // точку. Сбрасывается на copy. Duplicate буфер не трогает — у него всегда
+  // свежий снимок текущего выделения, шаг = 1.
+  let pasteCount = 0
 
   function snapshotCell(item) {
     const graph = canvas.graphRef.value
@@ -74,13 +78,13 @@ export function useClipboard({ scheduleSnapshot }) {
     return out
   }
 
-  function pasteSnapshots(snaps) {
+  function pasteSnapshots(snaps, offsetSteps = 1) {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
     if (!graph || !paper || !snaps.cells.length) {
       return { added: 0, skipped: 0, linksAdded: 0 }
     }
-    const offset = 20
+    const offset = 20 * offsetSteps
     const oldToNew = new Map()
     const newCellIds = []
     let skipped = 0
@@ -165,12 +169,7 @@ export function useClipboard({ scheduleSnapshot }) {
     if (!graph) return null
     const cellSel = canvas.selection.value.filter((s) => s.kind === 'cell')
     if (!cellSel.length) {
-      toast.add({
-        severity: 'info',
-        summary: emptyLabel,
-        detail: 'Выдели хотя бы одну ячейку',
-        life: TOAST_LIFE.SHORT,
-      })
+      notify.info(emptyLabel, 'Выдели хотя бы одну ячейку', TOAST_LIFE.SHORT)
       return null
     }
     return {
@@ -180,22 +179,12 @@ export function useClipboard({ scheduleSnapshot }) {
   }
 
   /** Вставляет snapshots + показывает success/warn toast по результату. */
-  function pasteWithToast(snaps, successLabel, failLabel) {
-    const { added, skipped, linksAdded } = pasteSnapshots(snaps)
+  function pasteWithToast(snaps, successLabel, failLabel, offsetSteps = 1) {
+    const { added, skipped, linksAdded } = pasteSnapshots(snaps, offsetSteps)
     if (added) {
-      toast.add({
-        severity: 'success',
-        summary: successLabel,
-        detail: describePasted(added, linksAdded, skipped),
-        life: TOAST_LIFE.SHORT,
-      })
+      notify.success(successLabel, describePasted(added, linksAdded, skipped))
     } else {
-      toast.add({
-        severity: 'warn',
-        summary: failLabel,
-        detail: 'Не удалось создать копии — стенсилы не найдены в реестре',
-        life: TOAST_LIFE.NORMAL,
-      })
+      notify.warn(failLabel, 'Не удалось создать копии — стенсилы не найдены в реестре')
     }
   }
 
@@ -203,27 +192,22 @@ export function useClipboard({ scheduleSnapshot }) {
     const snaps = snapshotSelection('Нечего копировать')
     if (!snaps) return
     clipboard.value = snaps
-    toast.add({
-      severity: 'success',
-      summary: 'Скопировано',
-      detail: snaps.links.length
+    pasteCount = 0
+    notify.success(
+      'Скопировано',
+      snaps.links.length
         ? `${nplural(snaps.cells.length, 'ячейка', 'ячейки', 'ячеек')} + ${nplural(snaps.links.length, 'провод', 'провода', 'проводов')}`
-        : nplural(snaps.cells.length, 'ячейка', 'ячейки', 'ячеек'),
-      life: TOAST_LIFE.SHORT,
-    })
+        : nplural(snaps.cells.length, 'ячейка', 'ячейки', 'ячеек')
+    )
   }
 
   function pasteClipboard() {
     if (!clipboard.value.cells.length) {
-      toast.add({
-        severity: 'info',
-        summary: 'Буфер пуст',
-        detail: 'Скопируй ячейки через Ctrl+C',
-        life: TOAST_LIFE.SHORT,
-      })
+      notify.info('Буфер пуст', 'Скопируй ячейки через Ctrl+C', TOAST_LIFE.SHORT)
       return
     }
-    pasteWithToast(clipboard.value, 'Вставлено', 'Не удалось вставить')
+    pasteCount++
+    pasteWithToast(clipboard.value, 'Вставлено', 'Не удалось вставить', pasteCount)
   }
 
   function duplicateSelection() {

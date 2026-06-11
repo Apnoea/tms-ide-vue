@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onBeforeUnmount } from 'vue'
+import { useEventListener } from '@vueuse/core'
 import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
 import Toast from 'primevue/toast'
@@ -17,7 +17,7 @@ const ui = useUiStore()
 
 // ? и F1 — открыть справку. Глобальный хоткей, игнорируем фокус в инпуте.
 // F1 нужен потому что `?` на русской раскладке = Shift+, и не сразу очевиден.
-function onGlobalKeyDown(event) {
+useEventListener(window, 'keydown', (event) => {
   if (event.key !== '?' && event.key !== 'F1') return
   const t = event.target
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
@@ -25,12 +25,7 @@ function onGlobalKeyDown(event) {
   }
   event.preventDefault()
   ui.openHelp()
-}
-
-onMounted(() => {
-  window.addEventListener('keydown', onGlobalKeyDown)
 })
-onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeyDown))
 </script>
 
 <template>

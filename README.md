@@ -47,6 +47,7 @@ src/
 │   ├── useUndoRedo.js         # snapshot-стек
 │   ├── useClipboard.js        # copy / paste / duplicate
 │   ├── useHotkeys.js          # единый keydown handler
+│   ├── useNotify.js           # toast.add → notify.success/info/warn/error + TOAST_LIFE
 │   ├── useSimulation.js       # preview-анимация
 │   ├── useTextEdit.js         # inline edit cell_text
 │   └── useBusResize.js        # drag-resize шины
@@ -67,18 +68,18 @@ src/
 │   └── parsers.js             # tag-list парсер
 ├── constants/
 │   ├── animation.js           # voltage-палитра + CLASS_OFF / CLASS_HIDDEN
-│   ├── ids.js                 # wire-protocol: prefixes / data-attrs / slot resolver
-│   └── toast.js               # стандартные lifetime'ы
+│   └── ids.js                 # wire-protocol: prefixes / data-attrs / slot resolver
 └── utils/
     ├── cellSearch.js          # getCellTags(FromTms) + match для Ctrl+F
     ├── plural.js              # русские падежи
     ├── bridgeLinks.js         # bridge-link при copy/paste
     ├── grid.js                # snapToGrid
     ├── xml.js                 # SVG_NS + escapeXml / escapeAttr
+    ├── restoreGuard.js        # withRestoreGuard: try/finally вокруг restoringHistory
     └── idb.js                 # IndexedDB wrapper
 ```
 
-Тесты лежат рядом с модулями (`*.test.js`).
+Тесты лежат рядом с модулями (`*.test.js`); общий helper — `composables/test-utils.js`.
 
 ## Модель стенсила
 

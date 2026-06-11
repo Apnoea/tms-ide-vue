@@ -196,6 +196,21 @@ export function buildValueExportSvg(animId, valueTag, width = 100, height = 20) 
 }
 
 /**
+ * Создаёт SVG-элемент с атрибутами одним вызовом. Значения приводятся к строке;
+ * ключи со значением null/undefined пропускаются (удобно для опциональных атрибутов
+ * вроде font-weight). Третий аргумент, если задан, идёт в textContent.
+ */
+function svgEl(tag, attrs = {}, text) {
+  const el = document.createElementNS(SVG_NS, tag)
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null) continue
+    el.setAttribute(k, String(v))
+  }
+  if (text != null) el.textContent = text
+  return el
+}
+
+/**
  * Динамический контент шины: чёрная полоса в середине + два зелёных
  * resize-хэндла на краях. Размер берётся из cellView.model.size(),
  * пересчитывается каждый раз при injectStencilSvg.
@@ -205,25 +220,18 @@ function buildBusContent(cellView) {
   const hw = BUS_HANDLE_WIDTH
   const overhang = 2 // насколько хэндл выпирает по Y за тело шины
 
-  const out = []
-
-  const body = document.createElementNS(SVG_NS, 'rect')
-  body.setAttribute('x', String(hw))
-  body.setAttribute('y', '0')
-  body.setAttribute('width', String(Math.max(0, width - hw * 2)))
-  body.setAttribute('height', String(height))
-  body.setAttribute('fill', '#000')
-  out.push(body)
+  const out = [svgEl('rect', { x: hw, y: 0, width: Math.max(0, width - hw * 2), height, fill: '#000' })]
 
   for (const edge of ['left', 'right']) {
-    const h = document.createElementNS(SVG_NS, 'rect')
-    h.setAttribute('class', 'tms-resize-handle')
-    h.setAttribute('data-edge', edge)
-    h.setAttribute('x', String(edge === 'left' ? 0 : width - hw))
-    h.setAttribute('y', String(-overhang))
-    h.setAttribute('width', String(hw))
-    h.setAttribute('height', String(height + overhang * 2))
-    h.setAttribute('fill', '#06b6d4') // cyan-500 (= primary темы)
+    const h = svgEl('rect', {
+      class: 'tms-resize-handle',
+      'data-edge': edge,
+      x: edge === 'left' ? 0 : width - hw,
+      y: -overhang,
+      width: hw,
+      height: height + overhang * 2,
+      fill: '#06b6d4', // cyan-500 (= primary темы)
+    })
     h.style.cursor = 'ew-resize'
     out.push(h)
   }
@@ -240,16 +248,21 @@ function buildTextContent(cellView) {
   const tms = cellView.model.get('tms') || {}
   const fontSize = tms.fontSize ?? TEXT_FONT_SIZE
 
-  const t = document.createElementNS(SVG_NS, 'text')
-  t.setAttribute('x', String(TEXT_PADDING_X))
-  t.setAttribute('y', String(height / 2))
-  t.setAttribute('dominant-baseline', 'central')
-  t.setAttribute('font-size', String(fontSize))
-  t.setAttribute('font-family', 'sans-serif')
-  if (tms.bold) t.setAttribute('font-weight', 'bold')
-  t.setAttribute('fill', '#000')
-  t.textContent = tms.text ?? ''
-  return [t]
+  return [
+    svgEl(
+      'text',
+      {
+        x: TEXT_PADDING_X,
+        y: height / 2,
+        'dominant-baseline': 'central',
+        'font-size': fontSize,
+        'font-family': 'sans-serif',
+        'font-weight': tms.bold ? 'bold' : null,
+        fill: '#000',
+      },
+      tms.text ?? ''
+    ),
+  ]
 }
 
 // ─── cell_value: «card с accent-полоской» ───
@@ -283,59 +296,55 @@ function buildValueContent(cellView) {
   // ниже на 2-3px, паддинг VALUE_BASELINE_PAD рассчитан с запасом под них.
   const by = height - VALUE_BASELINE_PAD
 
-  const out = []
-
-  // Stripe-маркер слева
-  const stripe = document.createElementNS(SVG_NS, 'rect')
-  stripe.setAttribute('x', '0')
-  stripe.setAttribute('y', '0')
-  stripe.setAttribute('width', String(VALUE_STRIPE_W))
-  stripe.setAttribute('height', String(height))
-  stripe.setAttribute('fill', VALUE_STRIPE_COLOR)
-  out.push(stripe)
-
-  // Светлый фон (от stripe до правого края). Окраска от voltage-source в
-  // редакторе не применяется (это runtime-only через CSS classes).
-  const bg = document.createElementNS(SVG_NS, 'rect')
-  bg.setAttribute('x', String(VALUE_STRIPE_W))
-  bg.setAttribute('y', '0')
-  bg.setAttribute('width', String(Math.max(0, width - VALUE_STRIPE_W)))
-  bg.setAttribute('height', String(height))
-  bg.setAttribute('fill', VALUE_BG_COLOR)
-  out.push(bg)
-
-  // Label — приглушённый, слева
-  const labelEl = document.createElementNS(SVG_NS, 'text')
-  labelEl.setAttribute('x', String(VALUE_PAD_LEFT))
-  labelEl.setAttribute('y', String(by))
-  labelEl.setAttribute('font-size', '10')
-  labelEl.setAttribute('font-family', 'sans-serif')
-  labelEl.setAttribute('fill', VALUE_LABEL_COLOR)
-  labelEl.textContent = label
-  out.push(labelEl)
-
-  // Value — фокус блока: жирно, near-black, чуть крупнее label/unit
-  const valueEl = document.createElementNS(SVG_NS, 'text')
-  valueEl.setAttribute('x', String(width - VALUE_UNIT_ZONE))
-  valueEl.setAttribute('y', String(by))
-  valueEl.setAttribute('text-anchor', 'end')
-  valueEl.setAttribute('font-size', '12')
-  valueEl.setAttribute('font-family', 'sans-serif')
-  valueEl.setAttribute('font-weight', 'bold')
-  valueEl.setAttribute('fill', VALUE_TEXT_COLOR)
-  valueEl.textContent = '--'
-  out.push(valueEl)
+  const out = [
+    // Stripe-маркер слева
+    svgEl('rect', { x: 0, y: 0, width: VALUE_STRIPE_W, height, fill: VALUE_STRIPE_COLOR }),
+    // Светлый фон (от stripe до правого края). Окраска от voltage-source в
+    // редакторе не применяется (это runtime-only через CSS classes).
+    svgEl('rect', {
+      x: VALUE_STRIPE_W,
+      y: 0,
+      width: Math.max(0, width - VALUE_STRIPE_W),
+      height,
+      fill: VALUE_BG_COLOR,
+    }),
+    // Label — приглушённый, слева
+    svgEl(
+      'text',
+      { x: VALUE_PAD_LEFT, y: by, 'font-size': 10, 'font-family': 'sans-serif', fill: VALUE_LABEL_COLOR },
+      label
+    ),
+    // Value — фокус блока: жирно, near-black, чуть крупнее label/unit
+    svgEl(
+      'text',
+      {
+        x: width - VALUE_UNIT_ZONE,
+        y: by,
+        'text-anchor': 'end',
+        'font-size': 12,
+        'font-family': 'sans-serif',
+        'font-weight': 'bold',
+        fill: VALUE_TEXT_COLOR,
+      },
+      '--'
+    ),
+  ]
 
   if (unit) {
-    const unitEl = document.createElementNS(SVG_NS, 'text')
-    unitEl.setAttribute('x', String(width - VALUE_UNIT_RIGHT_PAD))
-    unitEl.setAttribute('y', String(by))
-    unitEl.setAttribute('text-anchor', 'end')
-    unitEl.setAttribute('font-size', '9')
-    unitEl.setAttribute('font-family', 'sans-serif')
-    unitEl.setAttribute('fill', VALUE_UNIT_COLOR)
-    unitEl.textContent = unit
-    out.push(unitEl)
+    out.push(
+      svgEl(
+        'text',
+        {
+          x: width - VALUE_UNIT_RIGHT_PAD,
+          y: by,
+          'text-anchor': 'end',
+          'font-size': 9,
+          'font-family': 'sans-serif',
+          fill: VALUE_UNIT_COLOR,
+        },
+        unit
+      )
+    )
   }
 
   return out
@@ -371,16 +380,18 @@ export function injectStencilSvg(cellView, stencil) {
 
   // Невидимая hit-area по всему bbox — клик мимо тонких линий всё равно
   // выделяет ячейку. stroke="none" — иначе подхватывает animation-color в симуляции.
-  const hit = document.createElementNS(SVG_NS, 'rect')
-  hit.setAttribute('class', 'tms-hit-area')
-  hit.setAttribute('x', '0')
-  hit.setAttribute('y', '0')
-  hit.setAttribute('width', String(currentSize.width))
-  hit.setAttribute('height', String(currentSize.height))
-  hit.setAttribute('fill', 'transparent')
-  hit.setAttribute('stroke', 'none')
-  hit.setAttribute('pointer-events', 'all')
-  target.appendChild(hit)
+  target.appendChild(
+    svgEl('rect', {
+      class: 'tms-hit-area',
+      x: 0,
+      y: 0,
+      width: currentSize.width,
+      height: currentSize.height,
+      fill: 'transparent',
+      stroke: 'none',
+      'pointer-events': 'all',
+    })
+  )
 
   // Bus/text/value рендерятся программно (размер/контент динамические).
   if (stencil.id === 'cell_bus') {

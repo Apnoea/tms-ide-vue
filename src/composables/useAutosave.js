@@ -1,5 +1,6 @@
 import { onBeforeUnmount } from 'vue'
 import { reinjectAllStencils } from '../stencils/svgInjector'
+import { withRestoreGuard } from '../utils/restoreGuard'
 import { useCanvas } from './useCanvas'
 
 // Версионированный ключ — если в будущем поменяем формат JSON, увеличим v и
@@ -32,17 +33,16 @@ export function useAutosave({ restoringHistory }) {
       if (!raw) return 0
       const json = JSON.parse(raw)
       if (!json?.cells) return 0
-      restoringHistory.value = true
-      graph.fromJSON(json)
-      reinjectAllStencils(graph, paper)
-      // fromJSON делает silent reset — 'add'/'remove' события не летят, поэтому
-      // явно бампаем graphVersion (иначе Inspector/AppFooter в старом состоянии).
-      canvas.bumpVersion()
-      restoringHistory.value = false
-      return graph.getElements().length
+      return withRestoreGuard(restoringHistory, () => {
+        graph.fromJSON(json)
+        reinjectAllStencils(graph, paper)
+        // fromJSON делает silent reset — 'add'/'remove' события не летят, поэтому
+        // явно бампаем graphVersion (иначе Inspector/AppFooter в старом состоянии).
+        canvas.bumpVersion()
+        return graph.getElements().length
+      })
     } catch (e) {
       console.warn('[Autosave] Не удалось восстановить', e)
-      restoringHistory.value = false
       return 0
     }
   }

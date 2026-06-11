@@ -4,7 +4,7 @@
 // JointJS Graph + TMSStencil реальные; useCanvas singleton / useToast / registry
 // mock'аем чтобы не таскать palette-загрузку и tag-list.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { effectScope } from 'vue'
+import { withSetup, makeMockCanvas } from './test-utils'
 import { dia, shapes } from '@joint/core'
 import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'
 
@@ -33,26 +33,15 @@ vi.mock('../stencils/svgInjector', () => ({
   injectStencilSvg: vi.fn(),
 }))
 
-const mockCanvas = {
-  graphRef: { value: null },
-  paperRef: { value: null },
+const mockCanvas = makeMockCanvas({
   selection: { value: [] },
   setSelection: vi.fn((items) => {
     mockCanvas.selection.value = items
   }),
-}
+})
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
 import { useClipboard } from './useClipboard'
-
-function withScope(fn) {
-  let result
-  const scope = effectScope()
-  scope.run(() => {
-    result = fn()
-  })
-  return [result, scope]
-}
 
 function makeCell({ x = 0, y = 0, stencilId = 'cell_qw', angle = 0, tms = {} } = {}) {
   return new TMSStencil({
@@ -86,7 +75,7 @@ describe('useClipboard', () => {
   })
 
   function setup() {
-    const [api, s] = withScope(() => useClipboard({ scheduleSnapshot }))
+    const [api, s] = withSetup(() => useClipboard({ scheduleSnapshot }))
     scope = s
     return api
   }

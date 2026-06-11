@@ -69,8 +69,9 @@ const accordionActive = computed({
 
 // Drag из палитры на pointer-events (не нативный HTML5 DnD): pointermove идёт
 // на полной частоте, поэтому preview на холсте липнет к курсору без задержки.
-// Дальнейший трекинг (move/up/preview/drop) живёт в CanvasPane — он watch'ит
-// ui.dragging и вешает свои document-листенеры. Здесь только инициируем drag.
+// Дальнейший трекинг (move/up/preview/drop) живёт в CanvasPane — он реактивно
+// цепляет document-листенеры по ui.dragging (useEventListener с computed-target).
+// Здесь только инициируем drag.
 function onStencilPointerDown(event, stencil) {
   if (event.button !== 0) return // только ЛКМ
   event.preventDefault()

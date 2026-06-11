@@ -266,8 +266,9 @@ export function exportProject(graph, paper = null) {
       }
     } else {
       // parser.instantiate сделает интерполяцию {slot.X} → tms.slots[X] в
-      // bindings и собёрет SVG с id="animation-{animId}{suffix}". Передаём
-      // КОРОТКИЙ animId — стенсильные карточки тоже короткие (animation-c1.QW).
+      // bindings и соберёт SVG с id="animation-{stencilId}-{animId}{suffix}".
+      // Передаём КОРОТКИЙ animId — id стенсильных карточек короткие
+      // (например animation-cell_qw-c1.QW).
       const inst = instantiate(stencil, animId, tms.slots || {})
       cellSvg = inst.svg
       Object.assign(animations, inst.animations)
@@ -515,7 +516,7 @@ export function exportProject(graph, paper = null) {
 
   // ─── Quality (OPC DA): non-good → animation-off ───
   // У каждого тега в SCADA-payload есть quality (192-255 = good, 64-191 =
-  // uncertain, 0-63 = bad). Для cell_qk/cell_qr эмитим один range-кейс
+  // uncertain, 0-63 = bad). Для стенсилов с флагом quality (cell_qk/qr/qf) эмитим один range-кейс
   // [0, 191] с addClass: animation-off — cell станет серым, юзер видит что
   // данные ненадёжны. При quality ≥ 192 в этот range не попадёт, animation-off
   // не накинется (рантайм auto-cleanup'ит классы при выходе из case-диапазона).

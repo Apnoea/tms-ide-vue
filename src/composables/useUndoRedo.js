@@ -1,5 +1,6 @@
 import { onBeforeUnmount } from 'vue'
 import { reinjectAllStencils } from '../stencils/svgInjector'
+import { withRestoreGuard } from '../utils/restoreGuard'
 import { useCanvas } from './useCanvas'
 
 const HISTORY_LIMIT = 50
@@ -87,21 +88,20 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
     if (!graph || !paper) return false
-    restoringHistory.value = true
     clearTimeout(snapshotTimer)
     snapshotTimer = null
 
     let ok = false
     try {
-      graph.fromJSON(history[idx])
-      reinjectAllStencils(graph, paper)
-      canvas.bumpVersion()
-      canvas.clearSelection()
+      withRestoreGuard(restoringHistory, () => {
+        graph.fromJSON(history[idx])
+        reinjectAllStencils(graph, paper)
+        canvas.bumpVersion()
+        canvas.clearSelection()
+      })
       ok = true
     } catch (e) {
       console.warn('[Undo/Redo] restore failed, индекс не сдвигаем', e)
-    } finally {
-      restoringHistory.value = false
     }
     if (ok) {
       saveAutosave()

@@ -2,7 +2,8 @@
 // игнор битых данных, restoringHistory-флаг во время restore, no-op при
 // его взведённости, clear. Mock'аем JointJS Graph + canvas-singleton.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { ref, effectScope } from 'vue'
+import { ref } from 'vue'
+import { withSetup, makeMockCanvas } from './test-utils'
 
 vi.mock('vue', async () => {
   const actual = await vi.importActual('vue')
@@ -11,13 +12,11 @@ vi.mock('vue', async () => {
 
 vi.mock('../stencils/svgInjector', () => ({ reinjectAllStencils: vi.fn() }))
 
-const mockCanvas = {
-  graphRef: { value: null },
-  paperRef: { value: null },
+const mockCanvas = makeMockCanvas({
   setRecentlySaved: vi.fn(),
   setLastSavedAt: vi.fn(),
   bumpVersion: vi.fn(),
-}
+})
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
 import { useAutosave } from './useAutosave'
@@ -31,15 +30,6 @@ function makeMockGraph(cells = []) {
     fromJSON: vi.fn(),
     getElements: vi.fn(() => cells),
   }
-}
-
-function withSetup(fn) {
-  let result
-  const scope = effectScope()
-  scope.run(() => {
-    result = fn()
-  })
-  return [result, scope]
 }
 
 describe('useAutosave', () => {

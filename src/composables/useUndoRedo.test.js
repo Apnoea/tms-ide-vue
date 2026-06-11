@@ -3,7 +3,8 @@
 // границах. JointJS Graph/Paper мокаем — нам нужны только toJSON/fromJSON +
 // несколько no-op методов.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { ref, effectScope } from 'vue'
+import { ref } from 'vue'
+import { withSetup, makeMockCanvas } from './test-utils'
 
 // onBeforeUnmount вне Vue-component'а ругается warning'ом. effectScope.stop()
 // в нашем тесте делает cleanup сам — Vue-хук не нужен.
@@ -16,13 +17,11 @@ vi.mock('../stencils/svgInjector', () => ({ reinjectAllStencils: vi.fn() }))
 
 // useCanvas — singleton. Стейт переопределяем перед каждым тестом, чтобы
 // не было утечек между case'ами.
-const mockCanvas = {
-  graphRef: { value: null },
-  paperRef: { value: null },
+const mockCanvas = makeMockCanvas({
   setUndoRedoAvail: vi.fn(),
   bumpVersion: vi.fn(),
   clearSelection: vi.fn(),
-}
+})
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
 import { useUndoRedo } from './useUndoRedo'
@@ -40,15 +39,6 @@ function makeMockGraph() {
     }),
     getLastApplied: () => lastApplied,
   }
-}
-
-function withSetup(composableFn) {
-  let result
-  const scope = effectScope()
-  scope.run(() => {
-    result = composableFn()
-  })
-  return [result, scope]
 }
 
 describe('useUndoRedo', () => {
