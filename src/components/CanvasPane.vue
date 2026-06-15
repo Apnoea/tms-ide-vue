@@ -503,9 +503,17 @@ function updatePortProximity() {
     let culled = !cursor
     if (cursor) {
       const ddx =
-        cursor.x < pos.x ? pos.x - cursor.x : cursor.x > pos.x + size.width ? cursor.x - (pos.x + size.width) : 0
+        cursor.x < pos.x
+          ? pos.x - cursor.x
+          : cursor.x > pos.x + size.width
+            ? cursor.x - (pos.x + size.width)
+            : 0
       const ddy =
-        cursor.y < pos.y ? pos.y - cursor.y : cursor.y > pos.y + size.height ? cursor.y - (pos.y + size.height) : 0
+        cursor.y < pos.y
+          ? pos.y - cursor.y
+          : cursor.y > pos.y + size.height
+            ? cursor.y - (pos.y + size.height)
+            : 0
       culled = Math.sqrt(ddx * ddx + ddy * ddy) >= rangePx
     }
     if (culled) {

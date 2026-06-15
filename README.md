@@ -116,7 +116,7 @@ Canvas читают флаги, никаких хардкод-списков в 
 | `quality: true`        | эмитит range-биндинг `[0,191] → animation-off` на outer                                 | cell_qr / cell_qk / cell_qf                 |
 | `intrinsicOnoff: true` | `slot.onoff` неявно красит outer-wrapper серым на false                                 | cell_qw                                     |
 | `layoutOnly: true`     | без visual-реакции на animation-классы; multi-select пропускает; detailTags не собирает | cell_text / cell_value                      |
-| `noRotate: true`       | оверлей-кнопки rotate не рендерятся                                                     | cell_text / cell_value / cell_bus           |
+| `noRotate: true`       | оверлей-кнопки rotate не рендерятся                                                     | cell_text / cell_value / cell_bus / cell_pi |
 | `defaults: { ... }`    | merge в `tms` при создании ячейки                                                       | cell_text (`text`), cell_value (`valueTag`) |
 
 Свойство «is switch» (рендер через SwitchBlock в intrinsic-режиме) выводится
@@ -136,6 +136,7 @@ Canvas читают флаги, никаких хардкод-списков в 
 | cell_qk    | Коммутация       | Короткозамыкатель (slot.onoff)          |
 | cell_qf    | Коммутация       | Автоматический выключатель (slot.onoff) |
 | cell_alr   | Сигналы          | Аварийный сигнал                        |
+| cell_pi    | Измерения        | Счётчик электроэнергии (статичный)      |
 | cell_bus   | Шины             | Шина (resizable, динамические порты)    |
 
 `cell_bus`, `cell_text`, `cell_value` рендерятся программно (без `shape.svg`).

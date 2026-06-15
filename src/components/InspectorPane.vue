@@ -554,11 +554,14 @@ function onPickMultiSwitchTag(tag) {
 // ─── Hyperlink-навигация: клик в рантайме открывает другую view ───
 // Свич управляет видимостью инпута; пустое значение не пишется, при OFF — чистим.
 const navigationEnabled = ref(false)
-// Источник watch'а — [id, navigation], а не только id: смена ячейки ресинкает
-// тумблер по id, а undo/redo navigation НА ТОЙ ЖЕ выделенной ячейке (id не
-// меняется) ресинкает по самому navigation — иначе тумблер протух бы.
+// Источник watch'а — МАССИВ ГЕТТЕРОВ [id, navigation], а не один getter,
+// возвращающий [id, navigation]: одиночный getter отдаёт новый массив каждый
+// раз → Object.is всегда false → callback стрелял бы на каждый bumpVersion
+// (тумблер сбрасывался бы при любом движении ячейки). Массив геттеров даёт
+// поэлементный diff: ресинк только когда реально сменился id (другая ячейка)
+// или navigation (undo/redo на той же ячейке).
 watch(
-  () => [details.value?.id, details.value?.navigation],
+  [() => details.value?.id, () => details.value?.navigation],
   () => {
     navigationEnabled.value = !!details.value?.navigation
   },

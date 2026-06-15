@@ -171,6 +171,23 @@ export function buildTextExportSvg(text, height, { fontSize = TEXT_FONT_SIZE, bo
   return `<svg xmlns="${SVG_NS}"><text class="tms-voltage-fill" x="${TEXT_PADDING_X}" y="${y}" dominant-baseline="central" font-size="${fontSize}" font-family="sans-serif"${weight} fill="#000">${escapeXml(text)}</text></svg>`
 }
 
+// ─── cell_value: «card с accent-полоской» ───
+// Геометрия и цвета — общие для экспорта (buildValueExportSvg) и редактора
+// (buildValueContent), чтобы preview и export не разошлись. Объявлены ВЫШЕ обеих
+// функций, чтобы каждая ссылалась на константу, а не на литерал-двойник.
+// Сетка (width=100, height=20): [0..3] stripe, [3..100] surface-50, x=8 label,
+// baseline y=height-5. UNIT_ZONE=32 — под самый широкий unit «квар» (~22px @9px) + gap.
+const VALUE_STRIPE_W = 3
+const VALUE_BG_COLOR = '#fafafa'
+const VALUE_STRIPE_COLOR = '#000' // нейтральный — не конкурирует с voltage-цветами стенсилов и не выделяется по теме
+const VALUE_LABEL_COLOR = '#71717a' // zinc-500
+const VALUE_TEXT_COLOR = '#18181b' // zinc-900
+const VALUE_UNIT_COLOR = '#a1a1aa' // zinc-400
+const VALUE_PAD_LEFT = 8 // label-start от левого края
+const VALUE_UNIT_RIGHT_PAD = 5 // unit-end от правого края
+const VALUE_UNIT_ZONE = 32 // зарезервировано на unit + gap до value
+const VALUE_BASELINE_PAD = 5 // расстояние от пола ячейки до общей baseline
+
 /**
  * SVG-строка cell_value для экспорта: label + value (динамический) + единица.
  * Value-элемент получает id="animation-{animId}" — рантайм обновляет его
@@ -180,17 +197,15 @@ export function buildTextExportSvg(text, height, { fontSize = TEXT_FONT_SIZE, bo
  */
 export function buildValueExportSvg(animId, valueTag, width = 100, height = 20) {
   const { label, unit } = resolveValueDisplay(valueTag)
-  const by = height - 5
-  // Геометрия и цвета — синхронны с buildValueContent (см. константы VALUE_*).
-  // Меняем здесь — меняй там, иначе editor-preview и export разойдутся.
-  const stripe = `<rect x="0" y="0" width="3" height="${height}" fill="#000"/>`
-  const bg = `<rect x="3" y="0" width="${Math.max(0, width - 3)}" height="${height}" fill="#fafafa"/>`
-  const labelText = `<text x="8" y="${by}" font-size="10" font-family="sans-serif" fill="#71717a">${escapeXml(label)}</text>`
+  const by = height - VALUE_BASELINE_PAD
+  const stripe = `<rect x="0" y="0" width="${VALUE_STRIPE_W}" height="${height}" fill="${VALUE_STRIPE_COLOR}"/>`
+  const bg = `<rect x="${VALUE_STRIPE_W}" y="0" width="${Math.max(0, width - VALUE_STRIPE_W)}" height="${height}" fill="${VALUE_BG_COLOR}"/>`
+  const labelText = `<text x="${VALUE_PAD_LEFT}" y="${by}" font-size="10" font-family="sans-serif" fill="${VALUE_LABEL_COLOR}">${escapeXml(label)}</text>`
   // animId для cell_value = tms.valueTag, может содержать ", &, < — escapeAttr
   // обязателен, иначе невалидный XML и упадёт round-trip projectLoader'ом.
-  const valueText = `<text id="${escapeAttr(valueTextKey(animId))}" x="${width - 32}" y="${by}" text-anchor="end" font-size="12" font-family="sans-serif" font-weight="bold" fill="#18181b">--</text>`
+  const valueText = `<text id="${escapeAttr(valueTextKey(animId))}" x="${width - VALUE_UNIT_ZONE}" y="${by}" text-anchor="end" font-size="12" font-family="sans-serif" font-weight="bold" fill="${VALUE_TEXT_COLOR}">--</text>`
   const unitText = unit
-    ? `<text x="${width - 5}" y="${by}" text-anchor="end" font-size="9" font-family="sans-serif" fill="#a1a1aa">${escapeXml(unit)}</text>`
+    ? `<text x="${width - VALUE_UNIT_RIGHT_PAD}" y="${by}" text-anchor="end" font-size="9" font-family="sans-serif" fill="${VALUE_UNIT_COLOR}">${escapeXml(unit)}</text>`
     : ''
   return `<svg xmlns="${SVG_NS}">${stripe}${bg}${labelText}${valueText}${unitText}</svg>`
 }
@@ -220,7 +235,9 @@ function buildBusContent(cellView) {
   const hw = BUS_HANDLE_WIDTH
   const overhang = 2 // насколько хэндл выпирает по Y за тело шины
 
-  const out = [svgEl('rect', { x: hw, y: 0, width: Math.max(0, width - hw * 2), height, fill: '#000' })]
+  const out = [
+    svgEl('rect', { x: hw, y: 0, width: Math.max(0, width - hw * 2), height, fill: '#000' }),
+  ]
 
   for (const edge of ['left', 'right']) {
     const h = svgEl('rect', {
@@ -265,22 +282,6 @@ function buildTextContent(cellView) {
   ]
 }
 
-// ─── cell_value: «card с accent-полоской» ───
-// Сетка (width=100, height=20): [0..3] stripe, [3..100] surface-50,
-// x=8 label, x=68 value-end, x=95 unit-end, baseline y=height-5.
-// Фиксированные value-end/unit-end — чтобы колонки не разъезжались при стеке.
-// UNIT_ZONE = 32 рассчитано на самый широкий unit «квар» (~22px @9px) + gap.
-const VALUE_STRIPE_W = 3
-const VALUE_BG_COLOR = '#fafafa'
-const VALUE_STRIPE_COLOR = '#000' // нейтральный — не конкурирует с voltage-цветами стенсилов и не выделяется по теме
-const VALUE_LABEL_COLOR = '#71717a' // zinc-500
-const VALUE_TEXT_COLOR = '#18181b' // zinc-900
-const VALUE_UNIT_COLOR = '#a1a1aa' // zinc-400
-const VALUE_PAD_LEFT = 8 // label-start от левого края
-const VALUE_UNIT_RIGHT_PAD = 5 // unit-end от правого края
-const VALUE_UNIT_ZONE = 32 // зарезервировано на unit + gap до value
-const VALUE_BASELINE_PAD = 5 // расстояние от пола ячейки до общей baseline
-
 /**
  * Контент cell_value для редактора: stripe + bg + 3 text-ноды (label, value,
  * unit). Label/unit подбираются по суффиксу tms.valueTag. В редакторе value
@@ -311,7 +312,13 @@ function buildValueContent(cellView) {
     // Label — приглушённый, слева
     svgEl(
       'text',
-      { x: VALUE_PAD_LEFT, y: by, 'font-size': 10, 'font-family': 'sans-serif', fill: VALUE_LABEL_COLOR },
+      {
+        x: VALUE_PAD_LEFT,
+        y: by,
+        'font-size': 10,
+        'font-family': 'sans-serif',
+        fill: VALUE_LABEL_COLOR,
+      },
       label
     ),
     // Value — фокус блока: жирно, near-black, чуть крупнее label/unit

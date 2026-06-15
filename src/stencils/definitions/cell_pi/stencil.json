@@ -1,0 +1,14 @@
+{
+  "id": "cell_pi",
+  "label": "Счётчик электроэнергии",
+  "category": "Измерения",
+  "noRotate": true,
+
+  "shapeFile": "shape.svg",
+  "width": 30,
+  "height": 40,
+  "ports": [
+    { "name": "top", "x": 15, "y": 0 },
+    { "name": "bottom", "x": 15, "y": 40 }
+  ]
+}

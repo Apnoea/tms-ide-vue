@@ -18,9 +18,11 @@
 
 // ─── Префиксы ───────────────────────────────────────────────────────────────
 
-export const ANIM_PREFIX = 'animation-'
-export const WIRE_PREFIX = 'animation-wire-'
-export const CELL_VALUE_PREFIX = 'animation-cell-'
+// Префиксы — без export: наружу торчат только key-билдеры ниже (outerKey /
+// innerPrefix / wireKey / valueTextKey), сами префиксы используются лишь тут.
+const ANIM_PREFIX = 'animation-'
+const WIRE_PREFIX = 'animation-wire-'
+const CELL_VALUE_PREFIX = 'animation-cell-'
 
 // ─── Data-атрибуты (round-trip / контракт editor'а) ─────────────────────────
 
