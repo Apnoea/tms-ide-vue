@@ -75,6 +75,7 @@ src/
     ├── bridgeLinks.js         # bridge-link при copy/paste
     ├── grid.js                # snapToGrid
     ├── xml.js                 # SVG_NS + escapeXml / escapeAttr
+    ├── switchSources.js       # normalizeSwitchSources { or, and } (Параллельно/Последовательно)
     ├── restoreGuard.js        # withRestoreGuard: try/finally вокруг restoringHistory
     └── idb.js                 # IndexedDB wrapper
 ```
@@ -150,7 +151,10 @@ Canvas читают флаги, никаких хардкод-списков в 
 - **Навигация** — свич + поле имени view для hyperlink при клике в рантайме
 - **Анимации**:
   - **Voltage source** (range-биндинг, классы `animation-low/-mid/-high`)
-  - **Switch source** (bool-биндинг, `false` → `animation-off`)
+  - **Switch source** — две секции зависимостей: «Параллельно» (любой замкнут →
+    питание) и «Последовательно» (нужны все). Под напряжением =
+    OR(Параллельно) ∨ AND(Последовательно); экспорт в `shape` либо
+    `multi`-карточку (для OR/смешанного)
   - Intrinsic-блоки для cell_alr и для всех switch-стенсилов (cell_qw /
     cell_qr / cell_qk / cell_qf — convention `slot.key === 'onoff'`).
     SwitchBlock в intrinsic-режиме обёртывает slot.onoff.
@@ -165,7 +169,7 @@ Canvas читают флаги, никаких хардкод-списков в 
 ## Поиск (Ctrl+F)
 
 Плавающий виджет ищет по: всем `slots.*`, `voltageSource.tag`,
-`switchSources.tags[]`, `valueTag`, тексту `cell_text`, `navigation`. Совпадения
+`switchSources` (or + and), `valueTag`, тексту `cell_text`, `navigation`. Совпадения
 подсвечиваются амбер-ореолом, текущее — насыщенный оранжевый, паном
 центрируется в viewport (если за пределами). Enter/F3 — следующее,
 Shift+Enter/F3 — предыдущее, Esc — закрыть.

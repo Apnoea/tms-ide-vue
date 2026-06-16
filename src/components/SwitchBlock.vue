@@ -4,26 +4,28 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 
 /**
- * Унифицированный блок «выключатель». Принимает два независимых источника тегов:
- *  • `slotInfo` — required-слот стенсила (cell_qw's slot.onoff из tms.slots).
- *    Рендерится первой строкой без × (слот обязательный для стенсила).
- *    Назван `slotInfo` (не `slot`) — vue/no-deprecated-slot-attribute.
- *  • `tags` — массив switchSources.tags. Optional. Каждая строка с ×.
+ * Блок «Привязка к выключателю». Два независимых источника:
+ *  • `slotInfo` — required-слот стенсила (cell_qw slot.onoff): своё состояние
+ *    элемента, рендерится первой строкой без ×.
+ *  • Зависимости-выключатели в двух секциях:
+ *     - `parallel` («Параллельно») — питание с любой стороны: достаточно ЛЮБОГО
+ *       замкнутого (OR).
+ *     - `series` («Последовательно») — цепочка в одном вводе: нужны ВСЕ
+ *       замкнутые (AND).
+ *    Под напряжением = (любой parallel замкнут) ИЛИ (все series замкнуты).
  *
- * Можно передавать одно или оба. В runtime семантика идентична: каждый тег =
- * независимый bool-биндинг (false → addClass animation-off). N тегов = AND.
- *
- * Эмиты:
- *   open-slot-picker — клик по slot-row code-инпуту (intrinsic)
- *   open-tag-picker  — «+ Добавить зависимость» (parent решает куда писать)
- *   edit-tag(idx)    — клик по source-row code-инпуту (замена тега по индексу)
- *   remove-tag(idx)  — × на source-row
- *   remove           — × в шапке (удалить switchSources, slot остаётся)
- *   highlight-tag(t) — eye-иконка → подсветить тег на холсте
+ * Эмиты (bucket = 'parallel' | 'series'):
+ *   open-slot-picker          — клик по slot-row (свой тег стенсила)
+ *   open-tag-picker(bucket)   — «Добавить» в секцию
+ *   edit-tag(bucket, idx)     — замена тега по индексу
+ *   remove-tag(bucket, idx)   — × на строке
+ *   remove                    — × в шапке (удалить все зависимости)
+ *   highlight-tag(t)          — подсветить тег на холсте
  */
 const props = defineProps({
-  slotInfo: { type: Object, default: null }, // { label, value, tagSuffix, tooltip }
-  tags: { type: Array, default: null },
+  slotInfo: { type: Object, default: null }, // { label, value, tagSuffix }
+  parallel: { type: Array, default: null },
+  series: { type: Array, default: null },
   tagSuffix: { type: String, default: null },
   removable: { type: Boolean, default: false },
   tagsLoaded: { type: Boolean, default: false },
@@ -33,23 +35,28 @@ const props = defineProps({
 defineEmits([
   'open-slot-picker',
   'open-tag-picker',
+  'edit-tag',
   'remove-tag',
   'remove',
   'highlight-tag',
-  'edit-tag',
 ])
 
-// Add-кнопка прячется когда добавлять не от чего (slot пустой + tags пустые) —
-// в этом случае верхний slot-row сам открывает picker. Для wire / standalone
-// switchSources slotInfo не передан, кнопка всегда доступна.
-const addButtonVisible = computed(() => {
-  if (!props.slotInfo) return true
-  if (props.slotInfo.value) return true
-  return !!(props.tags && props.tags.length)
-})
-
-// AND-подсказка показываем если совокупно > 1 тега.
-const totalTags = computed(() => (props.slotInfo?.value ? 1 : 0) + (props.tags?.length || 0))
+// «Последовательно» выше «Параллельно»: последовательных вводов обычно в разы
+// меньше, держим компактный список наверху.
+const sections = computed(() => [
+  {
+    key: 'series',
+    label: 'Последовательно',
+    hint: 'цепочка одного ввода — нужны все замкнутые',
+    tags: props.series || [],
+  },
+  {
+    key: 'parallel',
+    label: 'Параллельно',
+    hint: 'питание с любой стороны — достаточно любого замкнутого',
+    tags: props.parallel || [],
+  },
+])
 </script>
 
 <template>
@@ -69,7 +76,7 @@ const totalTags = computed(() => (props.slotInfo?.value ? 1 : 0) + (props.tags?.
       />
       <Button
         v-if="removable"
-        v-tooltip.bottom="'Удалить внешние теги'"
+        v-tooltip.bottom="'Удалить все зависимости'"
         icon="pi pi-times"
         severity="secondary"
         text
@@ -80,21 +87,13 @@ const totalTags = computed(() => (props.slotInfo?.value ? 1 : 0) + (props.tags?.
     </div>
 
     <p class="text-[11px] text-surface-500 mb-2 leading-snug">
-      Когда значение тега =
-      <code class="font-mono">false</code>
-      — элемент тускнеет (
+      Под напряжением, если замкнут любой из «Параллельно» ИЛИ все из «Последовательно». Иначе
+      элемент тускнеет (
       <code class="font-mono">animation-off</code>
       ).
-      <template v-if="totalTags > 1">
-        Все теги работают как AND: любой
-        <code class="font-mono">false</code>
-        → элемент серый.
-      </template>
     </p>
 
-    <!-- Slot-row: intrinsic, без × и без info-tooltip — лейбла «Основной
-         выключатель» достаточно, тултип с правилами стенсильного шаблона
-         не нужен (юзеру важен сам тег, не CSS-классы). -->
+    <!-- Slot-row: свой тег стенсила (intrinsic), без × -->
     <div v-if="slotInfo" class="mb-2">
       <div class="text-[11px] text-surface-500 mb-1">
         {{ slotInfo.label || 'Состояние' }}
@@ -124,56 +123,56 @@ const totalTags = computed(() => (props.slotInfo?.value ? 1 : 0) + (props.tags?.
       </div>
     </div>
 
-    <!-- Source-теги (с ×) -->
-    <div v-if="tags && tags.length" class="space-y-1.5">
-      <div v-if="slotInfo" class="text-[11px] text-surface-500">Зависит также от</div>
-      <div v-for="(t, idx) in tags" :key="idx" class="flex items-center gap-2">
-        <code
-          class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
-          :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
-          :title="tagsLoaded ? 'Заменить тег' : 'Загрузи tag-list, чтобы выбрать тег'"
-          @click="tagsLoaded && $emit('edit-tag', idx)"
-        >
-          {{ t || '— пусто —' }}
-        </code>
-        <Button
-          v-if="t"
-          v-tooltip.bottom="'Подсветить на схеме'"
-          icon="pi pi-search-plus"
-          severity="secondary"
-          text
-          size="small"
-          class="!p-1 !w-6 !h-6"
-          @click="$emit('highlight-tag', t)"
-        />
-        <Button
-          v-tooltip.bottom="'Убрать тег'"
-          icon="pi pi-times"
-          severity="secondary"
-          text
-          size="small"
-          class="!p-1 !w-6 !h-6"
-          @click="$emit('remove-tag', idx)"
-        />
+    <!-- Две секции зависимостей: Параллельно (OR) / Последовательно (AND) -->
+    <div v-for="sec in sections" :key="sec.key" class="mb-2">
+      <div class="text-[11px] text-surface-500 mb-1">
+        {{ sec.label }}
+        <span class="text-surface-400">— {{ sec.hint }}</span>
       </div>
+      <div v-if="sec.tags.length" class="space-y-1.5 mb-1.5">
+        <div v-for="(t, idx) in sec.tags" :key="idx" class="flex items-center gap-2">
+          <code
+            class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
+            :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
+            :title="tagsLoaded ? 'Заменить тег' : 'Загрузи tag-list, чтобы выбрать тег'"
+            @click="tagsLoaded && $emit('edit-tag', sec.key, idx)"
+          >
+            {{ t || '— пусто —' }}
+          </code>
+          <Button
+            v-if="t"
+            v-tooltip.bottom="'Подсветить на схеме'"
+            icon="pi pi-search-plus"
+            severity="secondary"
+            text
+            size="small"
+            class="!p-1 !w-6 !h-6"
+            @click="$emit('highlight-tag', t)"
+          />
+          <Button
+            v-tooltip.bottom="'Убрать тег'"
+            icon="pi pi-times"
+            severity="secondary"
+            text
+            size="small"
+            class="!p-1 !w-6 !h-6"
+            @click="$emit('remove-tag', sec.key, idx)"
+          />
+        </div>
+      </div>
+      <Button
+        label="Добавить"
+        icon="pi pi-plus"
+        severity="secondary"
+        size="small"
+        outlined
+        class="w-full"
+        :disabled="!tagsLoaded"
+        @click="$emit('open-tag-picker', sec.key)"
+      />
     </div>
 
-    <!-- Add-button -->
-    <Button
-      v-if="addButtonVisible"
-      label="Добавить зависимость"
-      icon="pi pi-plus"
-      severity="secondary"
-      size="small"
-      outlined
-      class="w-full !mt-2"
-      :disabled="!tagsLoaded"
-      @click="$emit('open-tag-picker')"
-    />
-    <p
-      v-if="addButtonVisible && !tagsLoaded"
-      class="text-[11px] text-surface-400 leading-snug mt-1"
-    >
+    <p v-if="!tagsLoaded" class="text-[11px] text-surface-400 leading-snug mt-1">
       Загрузи tag-list, чтобы выбрать тег.
     </p>
   </div>

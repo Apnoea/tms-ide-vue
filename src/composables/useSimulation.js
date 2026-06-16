@@ -8,6 +8,7 @@ import {
   CLASS_HIDDEN,
 } from '../constants/animation'
 import { innerKey, resolveSlotTemplate } from '../constants/ids'
+import { normalizeSwitchSources } from '../utils/switchSources'
 import { getStencilById } from '../stencils/registry'
 import { useCanvas } from './useCanvas'
 
@@ -170,13 +171,15 @@ export function useSimulation() {
         }
       }
     }
-    // switchSources: outer-g становится off если ХОТЯ БЫ ОДИН тег в false-фазе.
-    // Каждый тег имеет общее состояние со всеми другими его использованиями
-    // (если ОБЩИЙ.ONOFF = off, гасит все ячейки которые от него зависят).
+    // switchSources: каждый тег делит состояние со всеми использованиями
+    // (ОБЩИЙ.ONOFF=off гасит все зависящие ячейки). Энергизация =
+    // (любой «Параллельно» замкнут) ИЛИ (все «Последовательно» замкнуты).
     for (const cell of graph.getCells()) {
-      const tags = cell.get('tms')?.switchSources?.tags
-      if (!tags?.length) continue
-      if (!tags.some((t) => boolFalseFor(t))) continue
+      const { or, and } = normalizeSwitchSources(cell.get('tms')?.switchSources)
+      if (!or.length && !and.length) continue
+      const orLive = or.some((t) => !boolFalseFor(t))
+      const andLive = and.length > 0 && and.every((t) => !boolFalseFor(t))
+      if (orLive || andLive) continue
       paper.findViewByModel(cell)?.el?.classList.add(CLASS_OFF)
     }
   }

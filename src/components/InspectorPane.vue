@@ -19,6 +19,7 @@ import {
 } from '../stencils/svgInjector'
 import { buildLinkLabel } from '../stencils/linkDefaults'
 import { nplural } from '../utils/plural'
+import { normalizeSwitchSources } from '../utils/switchSources'
 import TagPickerDialog from './TagPickerDialog.vue'
 import VoltageSourceBlock from './VoltageSourceBlock.vue'
 import AlarmSourceBlock from './AlarmSourceBlock.vue'
@@ -340,7 +341,6 @@ function patchTmsField(field, patch) {
 }
 
 const patchVoltageSource = (patch) => patchTmsField('voltageSource', patch)
-const patchSwitchSources = (patch) => patchTmsField('switchSources', patch)
 
 function addVoltageSource() {
   // Сразу picker — onPickTag создаст voltageSource с тегом и дефолтными
@@ -426,88 +426,95 @@ function onPickMultiVoltageTag(tag) {
   })
 }
 
-// ─── switchSources: массив bool-тегов → класс animation-off на любой false ───
-// AND-семантика: любой тег false → элемент серый. Под капотом — N независимых
-// биндингов в animations.json, runtime сам применяет «любой false → класс».
+// ─── switchSources: два списка выключателей-зависимостей ───
+// `or` («Параллельно») — достаточно любого замкнутого; `and` («Последовательно»)
+// — нужны все замкнутые. Под напряжением = (любой or замкнут) ИЛИ (все and
+// замкнуты). Экспорт: чистый and → дешёвый shape, иначе → multi-карточка.
 
 const switchTagPickerOpen = ref(false)
 const multiSwitchTagPickerOpen = ref(false)
-// null = режим «добавить новый», число = «заменить тег по индексу».
-// Сбрасываем явно во всех точках открытия picker'а (add-flow); при cancel
-// флаг остаётся протухшим, но следующий open всегда его перезапишет.
-const editingSwitchTagIdx = ref(null)
+// Цель добавления/замены: { bucket: 'parallel'|'series', idx }. idx=null —
+// добавить новый, число — заменить по индексу. bucket=null — пасс (cancel).
+const editingSwitch = ref({ bucket: null, idx: null })
+
+// Канонические списки switchSources текущей ячейки (нормализует старую форму).
+const switchBuckets = computed(() => normalizeSwitchSources(details.value?.switchSources))
+
+const bucketField = (bucket) => (bucket === 'parallel' ? 'or' : 'and')
+
+/** Полная замена switchSources на { or, and }; оба пусты → удаляем источник. */
+function writeSwitchBuckets(buckets) {
+  const graph = canvas.graphRef.value
+  const d = details.value
+  if (!graph || !d) return
+  const cell = graph.getCell(d.id)
+  if (!cell) return
+  const tms = cell.get('tms') || {}
+  const next = buckets.or.length || buckets.and.length ? { or: buckets.or, and: buckets.and } : null
+  cell.set('tms', { ...tms, switchSources: next })
+  canvas.bumpVersion()
+  canvas.requestSnapshot()
+}
 
 function addSwitchSources() {
-  // Сразу picker — onPickSwitchTag создаст switchSources с выбранным тегом
-  // (через patchTmsField, который при отсутствии поля создаёт его на лету).
-  editingSwitchTagIdx.value = null
-  switchTagPickerOpen.value = true
-}
-
-/**
- * «+ Добавить тег» из SwitchBlock: для switch-стенсила smart-flow — если slot.onoff
- * ещё пуст, открываем slot picker (фильтр по .ONOFF из stencil-схемы),
- * иначе — switch-tags picker. Для остальных всегда switch-picker.
- */
-function onAddSwitchTag() {
-  editingSwitchTagIdx.value = null
+  // Создаём пустой switchSources → появляется блок с двумя секциями; дальше
+  // оператор кладёт теги в нужную (Параллельно / Последовательно).
+  const graph = canvas.graphRef.value
   const d = details.value
-  if (d?.isSwitch) {
-    const slot = d.slots?.[0]
-    if (slot && !slot.value) {
-      openSlotPicker(slot)
-      return
-    }
-  }
+  if (!graph || !d) return
+  const cell = graph.getCell(d.id)
+  if (!cell || cell.get('tms')?.switchSources) return
+  cell.set('tms', { ...(cell.get('tms') || {}), switchSources: { or: [], and: [] } })
+  canvas.bumpVersion()
+  canvas.requestSnapshot()
+}
+
+/** «Добавить» в секцию bucket. */
+function onAddSwitchTag(bucket) {
+  editingSwitch.value = { bucket, idx: null }
   switchTagPickerOpen.value = true
 }
 
-/** Клик по тегу-зависимости → открыть picker для замены тега по индексу. */
-function editSwitchTagAt(idx) {
-  editingSwitchTagIdx.value = idx
+/** Клик по тегу-зависимости → замена по индексу в секции bucket. */
+function editSwitchTagAt(bucket, idx) {
+  editingSwitch.value = { bucket, idx }
   switchTagPickerOpen.value = true
 }
 
 function removeSwitchSources() {
-  patchSwitchSources(null)
+  writeSwitchBuckets({ or: [], and: [] })
 }
 
 /**
- * Picker вернул тег. Режим:
- *  • add (editingIdx=null) — append, skip если дубль
- *  • edit (editingIdx=N)   — replace at N, дедупим (если выбран тег равный
- *    другому — оставляем только одну копию, тот же тег = no-op)
- * Дополнительно блокируем выбор основного тега (slot.onoff) в качестве
- * зависимости — picker уже фильтрует, но защищаемся защитно.
+ * Picker вернул тег → пишем в editingSwitch.bucket (add при idx=null, replace
+ * при числе). Дубли в любой из секций игнорируем — один выключатель не может
+ * быть и параллельным, и последовательным вводом. Основной тег стенсила
+ * (slot.onoff) в зависимости не допускаем.
  */
 function onPickSwitchTag(tag) {
   const d = details.value
-  if (d?.isSwitch && d.slots?.[0]?.value === tag) {
-    editingSwitchTagIdx.value = null
-    return
-  }
-  const current = d?.switchSources?.tags || []
-  const idx = editingSwitchTagIdx.value
+  const { bucket, idx } = editingSwitch.value
+  editingSwitch.value = { bucket: null, idx: null }
+  if (!bucket || !tag) return
+  if (d?.isSwitch && d.slots?.[0]?.value === tag) return
+
+  const buckets = normalizeSwitchSources(d?.switchSources)
+  const field = bucketField(bucket)
+  const list = [...buckets[field]]
   if (idx !== null) {
-    editingSwitchTagIdx.value = null
-    if (current[idx] === tag) return
-    const next = current.map((t, i) => (i === idx ? tag : t))
-    // dedupe сохраняя порядок (если выбранный тег уже был — оставляем первое вхождение)
-    const seen = new Set()
-    patchSwitchSources({
-      tags: next.filter((t) => (seen.has(t) ? false : (seen.add(t), true))),
-    })
-    return
+    if (list[idx] === tag) return
+    list[idx] = tag
+  } else {
+    if (buckets.or.includes(tag) || buckets.and.includes(tag)) return
+    list.push(tag)
   }
-  if (current.includes(tag)) return
-  patchSwitchSources({ tags: [...current, tag] })
+  writeSwitchBuckets({ ...buckets, [field]: [...new Set(list)] })
 }
 
-function removeSwitchTagAt(idx) {
-  const current = details.value?.switchSources?.tags || []
-  const next = current.filter((_, i) => i !== idx)
-  if (next.length === 0) patchSwitchSources(null)
-  else patchSwitchSources({ tags: next })
+function removeSwitchTagAt(bucket, idx) {
+  const buckets = normalizeSwitchSources(details.value?.switchSources)
+  const field = bucketField(bucket)
+  writeSwitchBuckets({ ...buckets, [field]: buckets[field].filter((_, i) => i !== idx) })
 }
 
 /** Multi-select: добавить тег в switchSources всех выделенных (не дублируя). */
@@ -532,12 +539,14 @@ function onPickMultiSwitchTag(tag) {
       skipped++
       continue
     }
-    const current = tms.switchSources?.tags || []
-    if (current.includes(tag)) {
+    // Multi-select кладёт в «Параллельно» (or) — самый частый случай массовой
+    // привязки общего/секционного выключателя как альтернативного ввода.
+    const buckets = normalizeSwitchSources(tms.switchSources)
+    if (buckets.or.includes(tag) || buckets.and.includes(tag)) {
       applied++
       continue
     }
-    cell.set('tms', { ...tms, switchSources: { tags: [...current, tag] } })
+    cell.set('tms', { ...tms, switchSources: { or: [...buckets.or, tag], and: buckets.and } })
     applied++
   }
   canvas.bumpVersion()
@@ -697,11 +706,17 @@ const switchPickerTags = computed(() => {
   if (!d) return onoffTags.value
   const excluded = new Set()
   if (d.isSwitch && d.slots?.[0]?.value) excluded.add(d.slots[0].value)
-  const currentTags = d.switchSources?.tags || []
-  const editIdx = editingSwitchTagIdx.value
-  currentTags.forEach((t, i) => {
-    if (i !== editIdx && t) excluded.add(t)
-  })
+  // Исключаем уже привязанные теги (из обеих секций), КРОМЕ редактируемого
+  // сейчас по индексу — его оставляем, чтобы юзер видел текущее значение.
+  const { or, and } = normalizeSwitchSources(d.switchSources)
+  const { bucket, idx } = editingSwitch.value
+  const editField = bucket === 'parallel' ? 'or' : bucket === 'series' ? 'and' : null
+  const excludeList = (list, field) =>
+    list.forEach((t, i) => {
+      if (t && !(field === editField && i === idx)) excluded.add(t)
+    })
+  excludeList(or, 'or')
+  excludeList(and, 'and')
   return onoffTags.value.filter((t) => !excluded.has(t.name))
 })
 </script>
@@ -1081,7 +1096,8 @@ const switchPickerTags = computed(() => {
             <SwitchBlock
               v-if="details.isSwitch || details.switchSources"
               :slot-info="details.isSwitch ? details.slots[0] : null"
-              :tags="details.switchSources?.tags || null"
+              :parallel="switchBuckets.or"
+              :series="switchBuckets.and"
               tag-suffix=".ONOFF"
               :removable="!!details.switchSources"
               :tags-loaded="!!project.tags.length"

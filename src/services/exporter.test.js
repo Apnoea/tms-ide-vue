@@ -214,6 +214,115 @@ describe('exportProject', () => {
     expect(anims[wireKey].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
   })
 
+  it('switchSources or (Параллельно): multi, серый только когда ВСЕ открыты', () => {
+    const graph = mockGraph([
+      mockCell({
+        id: 'b1',
+        stencilId: 'cell_bus',
+        w: 80,
+        h: 8,
+        switchSources: { or: ['BR1.ONOFF', 'BR2.ONOFF'], and: [] },
+      }),
+    ])
+    const card = exportProject(graph).animations.animations['animation-cell_bus-b1']
+    expect(card.animation).toBe('multi')
+    const mc = card.bindings.find((b) => b.multiCondition)?.multiCondition
+    // все «Параллельно» открыты → AND условий «открыт»
+    expect(mc.expression).toBe('(o0 && o1)')
+    expect(mc.conditions.map((c) => c.tag)).toEqual(['BR1.ONOFF', 'BR2.ONOFF'])
+    expect(mc.conditions[0].when).toEqual({ type: 'map', cases: { false: true } })
+    expect(mc.apply.addClass).toBe('animation-off')
+  })
+
+  it('switchSources mixed (Параллельно + Последовательно): (o0) && (a0 || a1)', () => {
+    // Кейс «шина с двух сторон»: путь A = №1&№2 последовательно, путь B = №3.
+    // Жива = №3 ИЛИ (№1 И №2). Серая = №3откр И (№1откр ИЛИ №2откр).
+    const graph = mockGraph([
+      mockCell({
+        id: 'b1',
+        stencilId: 'cell_bus',
+        w: 80,
+        h: 8,
+        switchSources: { or: ['BR3.ONOFF'], and: ['BR1.ONOFF', 'BR2.ONOFF'] },
+      }),
+    ])
+    const card = exportProject(graph).animations.animations['animation-cell_bus-b1']
+    expect(card.animation).toBe('multi')
+    const mc = card.bindings.find((b) => b.multiCondition)?.multiCondition
+    expect(mc.expression).toBe('(o0) && (a0 || a1)')
+    expect(mc.conditions.map((c) => c.tag)).toEqual(['BR3.ONOFF', 'BR1.ONOFF', 'BR2.ONOFF'])
+  })
+
+  it('switchSources or + voltage: один multi-card со слоями (voltage + switch)', () => {
+    const graph = mockGraph([
+      mockCell({
+        id: 'b1',
+        stencilId: 'cell_bus',
+        w: 80,
+        h: 8,
+        voltageSource: { tag: 'PS.UA', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
+        switchSources: { or: ['BR1.ONOFF', 'BR2.ONOFF'], and: [] },
+      }),
+    ])
+    const card = exportProject(graph).animations.animations['animation-cell_bus-b1']
+    expect(card.animation).toBe('multi')
+    const vBind = card.bindings.find((b) => b.multiCondition?.apply?.addClass === 'animation-low')
+    expect(vBind.multiCondition.conditions[0].tag).toBe('PS.UA')
+    expect(vBind.multiCondition.conditions[0].when.type).toBe('range')
+    const orBind = card.bindings.find((b) => b.multiCondition?.expression === '(o0 && o1)')
+    expect(orBind.multiCondition.apply.addClass).toBe('animation-off')
+  })
+
+  it('switchSources and-only (Последовательно) → дешёвый shape, не multi', () => {
+    const graph = mockGraph([
+      mockCell({
+        id: 'b1',
+        stencilId: 'cell_bus',
+        w: 80,
+        h: 8,
+        switchSources: { or: [], and: ['BR1.ONOFF', 'BR2.ONOFF'] },
+      }),
+    ])
+    const card = exportProject(graph).animations.animations['animation-cell_bus-b1']
+    expect(card.animation).toBe('shape')
+    expect(card.bindings).toHaveLength(2)
+  })
+
+  it('switchSources legacy {tags} (без or/and) → shape (backward-compat = AND)', () => {
+    const graph = mockGraph([
+      mockCell({
+        id: 'b1',
+        stencilId: 'cell_bus',
+        w: 80,
+        h: 8,
+        switchSources: { tags: ['A', 'B'] },
+      }),
+    ])
+    const card = exportProject(graph).animations.animations['animation-cell_bus-b1']
+    expect(card.animation).toBe('shape')
+    expect(card.bindings.map((b) => b.tag)).toEqual(['A', 'B'])
+  })
+
+  it('switchSources or/mixed на ПРОВОДЕ → wire-карточка multi (не плоский AND)', () => {
+    // Регрессия: OR/mixed работал на ячейках, а линк флэтил в AND (любой
+    // открыт → серый), игнорируя «Параллельно». Должен быть multi с выражением.
+    const cellA = mockCell({ id: 'a', stencilId: 'cell_qw', x: 0, y: 0 })
+    const cellB = mockCell({ id: 'b', stencilId: 'cell_qw', x: 100, y: 0 })
+    const link = mockLink({
+      id: 'l1',
+      source: { id: 'a', port: 'right' },
+      target: { id: 'b', port: 'left' },
+      tms: { switchSources: { or: ['BR3.ONOFF'], and: ['BR1.ONOFF', 'BR2.ONOFF'] } },
+    })
+    const anims = exportProject(mockGraph([cellA, cellB], [link])).animations.animations
+    const card = anims['animation-wire-l1']
+    expect(card.animation).toBe('multi')
+    const mc = card.bindings.find((b) => b.multiCondition)?.multiCondition
+    expect(mc.expression).toBe('(o0) && (a0 || a1)')
+    expect(mc.conditions.map((c) => c.tag)).toEqual(['BR3.ONOFF', 'BR1.ONOFF', 'BR2.ONOFF'])
+    expect(mc.apply.addClass).toBe('animation-off')
+  })
+
   it('navigation: создаёт outer-карточку с полем navigation + round-trip через data-tms-meta', () => {
     const graph = mockGraph([
       mockCell({

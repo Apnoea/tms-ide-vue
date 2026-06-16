@@ -1,6 +1,8 @@
+import { switchSourceTags } from './switchSources'
+
 /**
  * Все ПРИВЯЗАННЫЕ теги из tms-payload — slot-значения, voltageSource.tag,
- * switchSources.tags[], valueTag. БЕЗ text/navigation (это не теги, это
+ * switchSources (or + and), valueTag. БЕЗ text/navigation (это не теги, это
  * payload-поля).
  *
  * Принимает СЫРОЙ tms-объект — общий контракт для cell-обёрток
@@ -20,9 +22,7 @@ export function getCellTagsFromTms(tms) {
     }
   }
   if (tms.voltageSource?.tag) tags.push(tms.voltageSource.tag)
-  if (tms.switchSources?.tags?.length) {
-    for (const t of tms.switchSources.tags) if (t) tags.push(t)
-  }
+  for (const t of switchSourceTags(tms.switchSources)) if (t) tags.push(t)
   if (tms.valueTag) tags.push(tms.valueTag)
   return tags
 }

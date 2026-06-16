@@ -18,6 +18,7 @@ import {
 } from '../constants/ids'
 import { SVG_NS, escapeXml, escapeAttr } from '../utils/xml'
 import { getCellTagsFromTms } from '../utils/cellSearch'
+import { normalizeSwitchSources, switchSourceTags } from '../utils/switchSources'
 import {
   LINK_LABEL_FONT_SIZE,
   LINK_LABEL_FONT_FAMILY,
@@ -108,14 +109,14 @@ function buildVoltageCard(vs) {
 }
 
 /**
- * Карточка switch-sources: для каждого тега из массива — отдельный bool-биндинг
- * (false → addClass animation-off). N биндингов = AND-семантика «любой false →
- * элемент тускнеет», без runtime-expressions.
+ * Shape-карточка switch: на каждый тег — bool-биндинг (false → animation-off).
+ * Union биндингов = AND «любой false → серый». Для не-multi случая (чистая
+ * цепочка / одиночный параллельный тег). Принимает плоский список тегов.
  */
-function buildSwitchCard(ss) {
+function buildSwitchCard(tags) {
   return {
     animation: 'shape',
-    bindings: ss.tags.map((tag) => ({
+    bindings: tags.map((tag) => ({
       tag,
       when: {
         source: 'value',
@@ -124,6 +125,119 @@ function buildSwitchCard(ss) {
       },
     })),
   }
+}
+
+/** Нужна ли multi-карточка: есть параллельные вводы (OR-агрегация «серый только
+ *  когда все открыты» невыразима union-биндингами) либо смешанные ввод+цепочка.
+ *  Чистая последовательность / одиночный параллельный тег → дешёвый shape. */
+function needsMulti(c) {
+  const { or, and } = normalizeSwitchSources(c.switchSources)
+  return or.length >= 1 && or.length + and.length >= 2
+}
+
+/** Условие «выключатель открыт» (value=false). ConditionEvaluator(map) вернёт
+ *  cases['false']=true → MultiConditionEvaluator трактует результат как true. */
+function openCondition(id, tag) {
+  return { id, tag, source: 'value', when: { type: 'map', cases: { false: true } } }
+}
+
+/**
+ * Outer-карточка типа `multi` для OR-элемента — рантайм-тип с булевым
+ * `expression` по нескольким тегам (единственный способ выразить «серый только
+ * когда ВСЕ открыты», union-биндинги дают AND). Несёт ВСЕ outer-эффекты слоями
+ * (бинды независимы, ActionApplier складывает классы): voltage по диапазонам,
+ * intrinsic onoff, OR-группа, quality. Кладётся на outer-id; на потомков классы
+ * каскадят через CSS, поэтому merge во внутренние shape-карточки не нужен.
+ * Генерируется напрямую из tms (а не конвертацией shape) — только здесь есть
+ * семантика «какие теги образуют OR-группу».
+ */
+function buildMultiCard(c) {
+  const stencil = getStencilById(c.stencilId)
+  const bindings = []
+
+  const vs = c.voltageSource
+  if (vs?.tag && vs.ranges?.length) {
+    for (const r of vs.ranges) {
+      bindings.push({
+        multiCondition: {
+          expression: 'v',
+          conditions: [
+            {
+              id: 'v',
+              tag: vs.tag,
+              source: 'value',
+              when: { type: 'range', cases: [{ min: r.min, max: r.max }] },
+            },
+          ],
+          apply: { addClass: r.class },
+        },
+      })
+    }
+  }
+
+  if (stencil?.intrinsicOnoff && c.slots?.onoff) {
+    bindings.push({
+      multiCondition: {
+        expression: 'o',
+        conditions: [openCondition('o', c.slots.onoff)],
+        apply: { addClass: CLASS_OFF },
+      },
+    })
+  }
+
+  // switchSources: «Параллельно» (or) гасит только когда ВСЕ открыты → AND
+  // условий «открыт»; «Последовательно» (and) гасит когда ЛЮБОЙ открыт → OR.
+  // off = (все or открыты) И (любой and открыт), пустой фактор выпадает.
+  const { or, and } = normalizeSwitchSources(c.switchSources)
+  const conditions = []
+  const factors = []
+  if (or.length) {
+    const ids = or.map((tag, i) => {
+      const id = `o${i}`
+      conditions.push(openCondition(id, tag))
+      return id
+    })
+    factors.push(`(${ids.join(' && ')})`)
+  }
+  if (and.length) {
+    const ids = and.map((tag, i) => {
+      const id = `a${i}`
+      conditions.push(openCondition(id, tag))
+      return id
+    })
+    factors.push(`(${ids.join(' || ')})`)
+  }
+  if (conditions.length) {
+    bindings.push({
+      multiCondition: {
+        expression: factors.join(' && '),
+        conditions,
+        apply: { addClass: CLASS_OFF },
+      },
+    })
+  }
+
+  if (stencil?.quality) {
+    const qTags = [...new Set([vs?.tag, c.slots?.onoff, ...or, ...and].filter(Boolean))]
+    for (const tag of qTags) {
+      bindings.push({
+        multiCondition: {
+          expression: 'q',
+          conditions: [
+            {
+              id: 'q',
+              tag,
+              source: 'quality',
+              when: { type: 'range', cases: [{ min: 0, max: 191 }] },
+            },
+          ],
+          apply: { addClass: CLASS_OFF },
+        },
+      })
+    }
+  }
+
+  return { animation: 'multi', bindings }
 }
 
 /**
@@ -415,22 +529,51 @@ export function exportProject(graph, paper = null) {
   // shape-карточки (чтобы класс ложился и на внутренние группы). На линке —
   // карточка на link.id. При наличии обоих источников bindings мержатся.
   // hasValue — проверка наличия для разных схем (voltageSource={tag}, switchSources={tags[]}).
-  const cellBindingSources = [
-    { field: 'voltageSource', build: buildVoltageCard, hasValue: (v) => !!v?.tag },
-    { field: 'switchSources', build: buildSwitchCard, hasValue: (v) => !!v?.tags?.length },
-  ]
-  for (const { field, build, hasValue } of cellBindingSources) {
-    for (const c of cellExports) {
-      if (!hasValue(c[field])) continue
-      const card = build(c[field])
-      const outerKey = outerKeyFor(c.stencilId, c.animId)
-      assignOrMergeAnimation(animations, outerKey, card)
-      mergeBindingsIntoStencilCards(animations, c.stencilId, c.animId, outerKey, card)
-    }
-    for (const l of linkExports) {
-      if (!hasValue(l[field])) continue
-      assignOrMergeAnimation(animations, l.id, build(l[field]))
-    }
+  // needsMulti-элементы: вся outer-карточка — одна `multi` (voltage + onoff +
+  // switch-выражение + quality слоями). Остальные outer-пассы (shape
+  // voltage/switch, onoff, quality) их пропускают через needsMulti-гард — иначе
+  // shape-бинды подмешались бы в multi, и MultiAnimationHandler их проигнорировал.
+  for (const c of cellExports) {
+    if (!needsMulti(c)) continue
+    animations[outerKeyFor(c.stencilId, c.animId)] = buildMultiCard(c)
+  }
+  // Линки тоже могут иметь OR/mixed switchSources (провод питается с нескольких
+  // сторон). buildMultiCard работает и для линка: stencilId нет → onoff/quality
+  // пропускаются, остаются voltage + switch-выражение.
+  for (const l of linkExports) {
+    if (!needsMulti(l)) continue
+    animations[l.id] = buildMultiCard(l)
+  }
+
+  // Voltage — shape (range → класс). needsMulti пропускаем (voltage уже внутри
+  // multi-карточки).
+  for (const c of cellExports) {
+    if (needsMulti(c) || !c.voltageSource?.tag) continue
+    const outerKey = outerKeyFor(c.stencilId, c.animId)
+    const card = buildVoltageCard(c.voltageSource)
+    assignOrMergeAnimation(animations, outerKey, card)
+    mergeBindingsIntoStencilCards(animations, c.stencilId, c.animId, outerKey, card)
+  }
+  for (const l of linkExports) {
+    if (needsMulti(l) || !l.voltageSource?.tag) continue
+    assignOrMergeAnimation(animations, l.id, buildVoltageCard(l.voltageSource))
+  }
+
+  // switchSources (не-multi): плоский список тегов → shape (любой false → серый).
+  for (const c of cellExports) {
+    if (needsMulti(c)) continue
+    const tags = switchSourceTags(c.switchSources)
+    if (!tags.length) continue
+    const outerKey = outerKeyFor(c.stencilId, c.animId)
+    const card = buildSwitchCard(tags)
+    assignOrMergeAnimation(animations, outerKey, card)
+    mergeBindingsIntoStencilCards(animations, c.stencilId, c.animId, outerKey, card)
+  }
+  for (const l of linkExports) {
+    if (needsMulti(l)) continue
+    const tags = switchSourceTags(l.switchSources)
+    if (!tags.length) continue
+    assignOrMergeAnimation(animations, l.id, buildSwitchCard(tags))
   }
 
   // ─── Intrinsic switch (cell_qw): slot.onoff неявно даёт animation-off ───
@@ -443,10 +586,11 @@ export function exportProject(graph, paper = null) {
   // эмитит свой animation-off биндинг для slot.onoff в .QW — дубль не нужен,
   // да и CSS-cascade с outer-wrapper всё равно красит вложенные элементы.
   for (const c of cellExports) {
+    if (needsMulti(c)) continue
     if (!getStencilById(c.stencilId)?.intrinsicOnoff) continue
     const onoffTag = c.slots?.onoff
     if (!onoffTag) continue
-    const card = buildSwitchCard({ tags: [onoffTag] })
+    const card = buildSwitchCard([onoffTag])
     assignOrMergeAnimation(animations, outerKeyFor(c.stencilId, c.animId), card)
   }
 
@@ -455,6 +599,7 @@ export function exportProject(graph, paper = null) {
   // wire с voltage. Узел получает ту же range-карточку → визуально перекрасится
   // в тот же цвет что и провод в рантайме.
   for (const c of cellExports) {
+    if (needsMulti(c)) continue
     if (c.stencilId !== 'cell_node') continue
     if (c.voltageSource?.tag) continue
     for (const l of linkExports) {
@@ -536,6 +681,7 @@ export function exportProject(graph, paper = null) {
   // (сейчас — cell_qk / cell_qr / cell_qf). text/value-карточки рантайм
   // обрабатывает с собственной quality-семантикой и сюда не включаются.
   for (const c of cellExports) {
+    if (needsMulti(c)) continue
     if (!getStencilById(c.stencilId)?.quality) continue
     // Собираем уникальные теги из inner-карточек (slot.onoff) + outer (voltage,
     // switch). Без тегов quality-биндинги бессмысленны — пропускаем.
