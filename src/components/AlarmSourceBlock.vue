@@ -1,6 +1,4 @@
 <script setup>
-import Tag from 'primevue/tag'
-
 /**
  * Карточка анимации «Аварийный сигнал» для cell_alr. По смыслу аналогична
  * VoltageSourceBlock / SwitchSourceBlock, но обёртывает required-слот стенсила,
@@ -17,7 +15,7 @@ import Tag from 'primevue/tag'
 // Имя prop'а — alarmSlot, а не просто slot: `slot` — зарезервированный атрибут
 // шаблона в Vue 2 (deprecated в Vue 3), eslint-plugin-vue ругается на :slot=…
 defineProps({
-  alarmSlot: { type: Object, required: true }, // { key, label, value, tagSuffix, required }
+  alarmSlot: { type: Object, required: true }, // { key, label, value, required }
   tagsLoaded: { type: Boolean, default: false },
 })
 
@@ -29,20 +27,12 @@ defineEmits(['open-tag-picker'])
     <div class="flex items-center gap-2 mb-2">
       <i class="pi pi-bell text-amber-500" />
       <div class="text-xs font-medium text-surface-700">Аварийный сигнал</div>
-      <Tag
-        v-if="alarmSlot.tagSuffix"
-        v-tooltip.bottom="`Ожидается тег с суффиксом ${alarmSlot.tagSuffix}`"
-        :value="alarmSlot.tagSuffix"
-        severity="secondary"
-        rounded
-        class="ml-auto !font-mono !text-[10px] !py-0"
-      />
     </div>
 
     <p class="text-[11px] text-surface-500 mb-2 leading-snug">
       Когда значение тега =
       <code class="font-mono">true</code>
-      — индикатор аварии виден, иначе скрыт.
+      - индикатор аварии виден, иначе скрыт.
     </p>
 
     <div>
@@ -57,10 +47,7 @@ defineEmits(['open-tag-picker'])
           :title="tagsLoaded ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'"
           @click="tagsLoaded && $emit('open-tag-picker')"
         >
-          {{
-            alarmSlot.value ||
-            (alarmSlot.tagSuffix ? `— выбрать тег ${alarmSlot.tagSuffix} —` : '— не выбран —')
-          }}
+          {{ alarmSlot.value || '- не выбран -' }}
         </code>
       </div>
     </div>

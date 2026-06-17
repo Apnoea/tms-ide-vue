@@ -1,6 +1,7 @@
 import { shallowRef, ref, computed } from 'vue'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cellMatchesQuery } from '../utils/cellSearch'
+import { planWireBridge } from '../utils/wireSplice'
 
 /**
  * Shared singleton-доступ к JointJS-состоянию холста.
@@ -199,6 +200,33 @@ export function useCanvas() {
       selection.value = items.slice()
     },
     clearSelection() {
+      selection.value = []
+    },
+    /**
+     * Удаляет items ({kind,id}) с холста. При удалении РОВНО одного стенсила-
+     * прохода (ровно 2 провода к 2 разным соседям) сращивает провода в один
+     * вместо разрыва: выживший линк перецеливается на дальний конец второго ДО
+     * удаления — иначе каскад JointJS снёс бы оба сегмента. В multi-select
+     * срастание не делаем: туда авто-попадают мостовые провода между ячейками
+     * (computeBridgeLinks), и сохранять нечего. Снапшот/версию дают graph-
+     * листенеры CanvasPane (один debounced шаг undo).
+     */
+    deleteItems(items) {
+      const graph = graphRef.value
+      if (!graph || !items?.length) return
+      if (items.length === 1 && items[0].kind === 'cell') {
+        const el = graph.getCell(items[0].id)
+        const links = el
+          ? graph.getConnectedLinks(el).map((l) => ({
+              id: l.id,
+              source: l.get('source'),
+              target: l.get('target'),
+            }))
+          : []
+        const plan = planWireBridge(links, items[0].id)
+        if (plan) graph.getCell(plan.survivorId)?.set(plan.survivorEnd, plan.endpoint)
+      }
+      for (const item of items) graph.getCell(item.id)?.remove()
       selection.value = []
     },
     /** Выделить все ячейки на холсте + bridge-линии между ними. */

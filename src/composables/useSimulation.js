@@ -172,8 +172,8 @@ export function useSimulation() {
       }
     }
     // switchSources: каждый тег делит состояние со всеми использованиями
-    // (ОБЩИЙ.ONOFF=off гасит все зависящие ячейки). Энергизация =
-    // (любой «Параллельно» замкнут) ИЛИ (все «Последовательно» замкнуты).
+    // (ОБЩИЙ.ONOFF=false гасит все зависящие ячейки). Активен =
+    // (любой «Параллельно» = true) ИЛИ (все «Последовательно» = true).
     for (const cell of graph.getCells()) {
       const { or, and } = normalizeSwitchSources(cell.get('tms')?.switchSources)
       if (!or.length && !and.length) continue

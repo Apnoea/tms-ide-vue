@@ -13,8 +13,8 @@ import { nplural } from '../utils/plural'
  * группировкой опций по prefix'у (всё до первой точки в имени), Listbox'ом
  * и dblclick'ом для быстрого выбора.
  *
- * Caller передаёт уже отфильтрованный массив `tags` (например только .ONOFF
- * для switch-picker'а — фильтр живёт в InspectorPane.onoffTags), и при
+ * Caller передаёт уже отфильтрованный массив `tags` (например только bool-теги
+ * для switch-picker'а — фильтр живёт в InspectorPane.booleanTags), и при
  * закрытии получает обратно строку-имя выбранного тега.
  */
 const props = defineProps({

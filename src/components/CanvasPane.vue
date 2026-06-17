@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useEventListener, useResizeObserver } from '@vueuse/core'
-import { dia, shapes, anchors, connectionPoints } from '@joint/core'
+import { dia, shapes, anchors, connectionPoints, linkTools } from '@joint/core'
 import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'
 import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
@@ -34,7 +34,9 @@ import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
+import { pickPassThroughPorts, spliceRotation } from '../utils/wireSplice'
 import { cellHasTag } from '../utils/cellSearch'
+import { switchSourceTags } from '../utils/switchSources'
 import TagPickerDialog from './TagPickerDialog.vue'
 import SearchBar from './SearchBar.vue'
 import ProjectActions from './ProjectActions.vue'
@@ -144,7 +146,7 @@ let dragSnapshot = null
 
 /**
  * Заменяет выделение на cells + автодобавленные «мостовые» линии между ними.
- * computeBridgeLinks вынесен в utils/bridgeLinks.js — общая логика c useCanvas.
+ * computeBridgeLinks — в utils/bridgeLinks.js, общая логика c useCanvas.
  */
 function selectCellsWithBridges(cellItems) {
   const cellIds = cellItems.map((c) => c.id)
@@ -199,7 +201,23 @@ onMounted(async () => {
     // CSS с !important в style.css переопределяет inline-стиль JointJS.
     background: { color: '#f8fafc' },
     cellViewNamespace: tmsNamespace,
-    interactive: true,
+    // Линки: тащим ТОЛЬКО концы (переанкеринг к порту) и только у ВЫДЕЛЕННОГО
+    // провода. vertices / linkMove выключены — маршрут авто (rightAngle-роутер),
+    // «только порты». validateConnection + linkPinning:false держат конец на
+    // валидном порту. Ячейки — полный интерактив.
+    interactive: (cellView) => {
+      const m = cellView.model
+      if (m.isLink?.()) {
+        return {
+          arrowheadMove: canvas.isSelected(m.id),
+          vertexAdd: false,
+          vertexMove: false,
+          vertexRemove: false,
+          linkMove: false,
+        }
+      }
+      return true
+    },
     // ─── Пороги обнаружения click vs drag ───
     // Без них любое микро-движение мышью при клике на magnet превращается в
     // draft-линию (мусор в undo-стек). 4-5px — стандарт UI-индустрии.
@@ -376,6 +394,10 @@ onMounted(async () => {
     canvas.bumpVersion()
   })
 
+  // Реконнект конца провода (arrowheadMove) меняет source/target — кладём в undo.
+  // scheduleSnapshot сам пропускает во время restore, лишних снимков на загрузке нет.
+  graph.on('change:source change:target', () => scheduleSnapshot())
+
   // Линии — всегда за ячейками, чтобы порты не перекрывались линией в точке anchor.
   graph.on('add', (cell) => {
     if (cell.isLink && cell.isLink()) cell.toBack()
@@ -430,6 +452,27 @@ onMounted(async () => {
   }
 })
 
+// Ручки концов выделенного провода — кружок как у порта, но контрастного цвета
+// (r чуть крупнее для захвата). Рендерятся в слое инструментов ПОВЕРХ
+// порт-magnet'ов, поэтому перетаскивание конца не перебивается созданием нового
+// провода (magnet иначе выигрывает). Тащим ручку → конец переанкерится к порту
+// (arrowheadMove + validateConnection + linkPinning:false держат на валидном порту).
+const ENDPOINT_HANDLE_ATTRS = {
+  r: 5,
+  fill: '#f97316', // orange-500 — отличать от cyan-порта, читается как «тащи меня»
+  stroke: '#ffffff',
+  'stroke-width': 1,
+  cursor: 'move',
+}
+const SourceEndpointHandle = linkTools.SourceArrowhead.extend({
+  tagName: 'circle',
+  attributes: ENDPOINT_HANDLE_ATTRS,
+})
+const TargetEndpointHandle = linkTools.TargetArrowhead.extend({
+  tagName: 'circle',
+  attributes: ENDPOINT_HANDLE_ATTRS,
+})
+
 // ─── Подсветка выделенных элементов ───
 // На каждое изменение selection: откатываем стили всех ранее выделенных линий
 // + снимаем resize-tools с предыдущих шин, затем накладываем выделение на текущие.
@@ -441,13 +484,22 @@ watch(
     // Снимаем класс со всех ранее выделенных
     const root = paper.el
     root.querySelectorAll('.tms-selected').forEach((node) => node.classList.remove('tms-selected'))
+    // Снимаем arrowhead-ручки со всех проводов (навесим заново на выделенные).
+    for (const link of graph?.getLinks() || []) paper.findViewByModel(link)?.removeTools()
 
     if (!Array.isArray(sel) || sel.length === 0) return
     for (const item of sel) {
       const cell = graph?.getCell(item.id)
       if (!cell) continue
       const view = paper.findViewByModel(cell)
-      view?.el?.classList.add('tms-selected')
+      if (!view) continue
+      view.el?.classList.add('tms-selected')
+      // Провод: ручки концов для переанкеринга к другому порту.
+      if (cell.isLink?.()) {
+        view.addTools(
+          new dia.ToolsView({ tools: [new SourceEndpointHandle(), new TargetEndpointHandle()] })
+        )
+      }
     }
     // Inline-× — HTML-overlay (deleteBtnStyle в template). JointJS
     // elementTools.Remove кэширует bbox при addTools, не пересчитывает на
@@ -869,6 +921,7 @@ function createStencilAt(stencilId, x, y, extraTms = null) {
   // injectStencilSvg сам читает cell.id + tms.slots для interpolation.
   const cellView = paper.findViewByModel(cell)
   if (cellView) injectStencilSvg(cellView, stencil)
+  return cell
 }
 
 // ─── Drag-drop из палитры с preview-overlay ───
@@ -876,6 +929,11 @@ function createStencilAt(stencilId, x, y, extraTms = null) {
 // Координаты курсора внутри paperContainer (для позиционирования preview)
 const cursorX = ref(-1000)
 const cursorY = ref(-1000)
+
+// Превью врезки: курсор над проводом стенсилом с ≥2 портами. { angle, cx, cy }
+// в paper-локальных координатах (центр прилипает к ближайшей точке провода,
+// превью поворачивается под угол врезки). null — обычное превью под курсором.
+const splicePreview = ref(null)
 
 const previewVisible = computed(() => ui.dragging !== null && cursorX.value >= 0)
 
@@ -887,11 +945,31 @@ const draggingStencilSvg = computed(() => {
 })
 const previewStyle = computed(() => {
   if (!ui.dragging) return {}
-  // Масштабируем превью под текущий zoom paper'а — иначе при увеличении/уменьшении
-  // холста рамка не совпадает с реальной ячейкой, которая упадёт.
-  const scale = (canvas.zoomPercent.value || 100) / 100
+  canvas.zoomPercent.value // reactive-touch: пересчёт превью при изменении зума
+  // Масштабируем превью под текущий zoom paper'а. Берём ТОЧНЫЙ scale из paper,
+  // а не округлённый zoomPercent — иначе при дробном зуме (177% = 1.7735…) ошибка
+  // cp·(точный−округлённый) растёт с координатой и превью уезжает с провода.
+  const p = canvas.paperRef.value
+  const scale = p ? p.scale().sx : (canvas.zoomPercent.value || 100) / 100
   const w = ui.dragging.width * scale
   const h = ui.dragging.height * scale
+
+  // Режим врезки: центр прилипает к точке на проводе + поворот под углом врезки.
+  // transform-origin по умолчанию center → rotate крутит вокруг центра превью.
+  const sp = splicePreview.value
+  if (sp && p) {
+    const { tx, ty } = p.translate()
+    const leftPx = sp.cx * scale + tx - w / 2
+    const topPx = sp.cy * scale + ty - h / 2
+    return {
+      left: '0',
+      top: '0',
+      width: `${w}px`,
+      height: `${h}px`,
+      transform: `translate3d(${leftPx}px, ${topPx}px, 0) rotate(${sp.angle}deg)`,
+      willChange: 'transform',
+    }
+  }
 
   // Top-left превью под курсором в container-px
   let leftPx = cursorX.value - w / 2
@@ -899,7 +977,6 @@ const previewStyle = computed(() => {
 
   // Снап к сетке: переводим в paper-локальные px, округляем до gridSize,
   // возвращаем обратно. Превью теперь лежит ровно туда, куда упадёт ячейка.
-  const p = canvas.paperRef.value
   if (p) {
     const g = p.options.gridSize
     const { tx, ty } = p.translate()
@@ -935,6 +1012,38 @@ function onDragPointerMove(event) {
   // получится отрицательный X → previewVisible сам спрячет рамку.
   cursorX.value = event.clientX - rect.left
   cursorY.value = event.clientY - rect.top
+
+  updateSplicePreview()
+}
+
+/**
+ * Пересчёт splice-превью: если курсор над проводом стенсилом с ≥2 портами —
+ * вычисляем угол врезки и точку прилипания к проводу. Иначе splicePreview=null
+ * (обычное превью под курсором). Совпадает с логикой drop'а — те же абсолютные
+ * позиции портов в snap-позиции и тот же spliceRotation.
+ */
+function updateSplicePreview() {
+  const id = ui.dragging?.stencilId
+  const stencil = id ? getStencilById(id) : null
+  if (!paper || !stencil || (stencil.ports?.length || 0) < 2) {
+    splicePreview.value = null
+    return
+  }
+  const rect = paperContainer.value.getBoundingClientRect()
+  const point = paper.clientToLocalPoint(cursorX.value + rect.left, cursorY.value + rect.top)
+  const link = findLinkAtPoint(point)
+  const geo = link && wireGeometryAt(link, point)
+  if (!geo) {
+    splicePreview.value = null
+    return
+  }
+  // Абсолютные позиции портов как при drop'е (cell в snap-позиции, angle 0).
+  const g = paper.options.gridSize
+  const tlx = snapToGrid(point.x - stencil.width / 2, g)
+  const tly = snapToGrid(point.y - stencil.height / 2, g)
+  const ports = (stencil.ports || []).map((pt) => ({ id: pt.name, x: tlx + pt.x, y: tly + pt.y }))
+  const angle = stencil.noRotate ? 0 : spliceRotation(ports, geo.wireDir, point, geo.wirePoint)
+  splicePreview.value = { angle, cx: geo.wirePoint.x, cy: geo.wirePoint.y }
 }
 
 function onDragPointerUp(event) {
@@ -963,6 +1072,7 @@ function onDragCancel() {
 function clearPreview() {
   cursorX.value = -1000
   cursorY.value = -1000
+  splicePreview.value = null
   ui.stopDragging()
 }
 
@@ -1035,9 +1145,7 @@ function runOnTarget(target, fn) {
 }
 
 function removeCells(items) {
-  if (!graph) return
-  for (const it of items) graph.getCell(it.id)?.remove()
-  canvas.clearSelection()
+  canvas.deleteItems(items)
 }
 
 /** Показать context-menu для целевого элемента. Также выделяет target,
@@ -1072,7 +1180,146 @@ function placeStencil(stencilId, point) {
     valueTagPickerOpen.value = true
     return
   }
+  // Врезка в провод: drop на линию стенсилом с ≥2 портами разбивает её на два
+  // сегмента с проходом через элемент. Гейт по числу портов — нужен вход+выход.
+  const stencil = getStencilById(stencilId)
+  if ((stencil?.ports?.length || 0) >= 2) {
+    const link = findLinkAtPoint(point)
+    if (link) {
+      const cell = createStencilAt(stencilId, point.x, point.y)
+      if (cell) {
+        spliceCellIntoLink(link, cell, point)
+        return
+      }
+    }
+  }
   createStencilAt(stencilId, point.x, point.y)
+}
+
+// Радиус хит-теста (paper-px) для «drop попал на провод».
+const SPLIT_HIT_RANGE = 10
+
+/**
+ * Провод под точкой (paper-local) в пределах SPLIT_HIT_RANGE. Возвращает null,
+ * если точка над элементом (там обычная укладка поверх, не врезка) или ни один
+ * линк не близко. Висячие концы (без source/target.id) пропускаем.
+ */
+function findLinkAtPoint(point) {
+  if (!paper || !graph) return null
+  if (paper.findViewsFromPoint(point).length) return null
+  let best = null
+  let bestDist = SPLIT_HIT_RANGE
+  for (const link of graph.getLinks()) {
+    if (!link.get('source')?.id || !link.get('target')?.id) continue
+    const view = paper.findViewByModel(link)
+    const cp = view?.getClosestPoint?.(point)
+    if (!cp) continue
+    const d = Math.hypot(cp.x - point.x, cp.y - point.y)
+    if (d < bestDist) {
+      bestDist = d
+      best = link
+    }
+  }
+  return best
+}
+
+// Локальное направление провода в точке (касательная) — по двум точкам на пути
+// рядом с ближайшей. rightAngle-роутер гнёт провод, поэтому сегмент в точке
+// врезки может не совпадать с линией центров ячеек — берём именно сегмент.
+function wireDirAt(linkView, point) {
+  if (!linkView?.getClosestPointLength || !linkView.getPointAtLength || !point) return null
+  const len = linkView.getClosestPointLength(point)
+  if (!Number.isFinite(len)) return null
+  const p1 = linkView.getPointAtLength(Math.max(0, len - 3))
+  const p2 = linkView.getPointAtLength(len + 3)
+  if (!p1 || !p2) return null
+  const dx = p2.x - p1.x
+  const dy = p2.y - p1.y
+  return dx || dy ? { x: dx, y: dy } : null
+}
+
+// Геометрия провода в точке врезки: центры концевых ячеек (a/b), точка на
+// проводе рядом с point (wirePoint) и локальное направление сегмента (wireDir,
+// fallback — линия центров). null, если у провода нет валидных концов-ячеек.
+function wireGeometryAt(link, point) {
+  const srcCell = graph.getCell(link.get('source')?.id)
+  const tgtCell = graph.getCell(link.get('target')?.id)
+  if (!srcCell || !tgtCell) return null
+  const a = srcCell.getBBox().center()
+  const b = tgtCell.getBBox().center()
+  const view = paper.findViewByModel(link)
+  const wirePoint = (point && view?.getClosestPoint?.(point)) || point
+  const wireDir = wireDirAt(view, point) || { x: b.x - a.x, y: b.y - a.y }
+  return { a, b, wirePoint, wireDir }
+}
+
+// Абсолютные позиции портов с учётом поворота ячейки. JointJS вращает порты
+// вокруг центра bbox по часовой (угол в градусах, ось Y вниз).
+function portAbsPositions(cell) {
+  const pos = cell.get('position')
+  const size = cell.get('size')
+  const rad = ((cell.angle() || 0) * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+  const cx = pos.x + size.width / 2
+  const cy = pos.y + size.height / 2
+  return (cell.get('ports')?.items || []).map((it) => {
+    const dx = pos.x + (it.args?.x ?? 0) - cx
+    const dy = pos.y + (it.args?.y ?? 0) - cy
+    return { id: it.id, x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos }
+  })
+}
+
+/**
+ * Разбивает провод на два сегмента с проходом через cell. Исходный линк
+ * переиспользуется как source→cell.in (его tms/voltage/switch сохраняются),
+ * добавляется новый cell.out→target с клоном анимаций. Элемент наследует
+ * voltage/switch провода. Всё синхронно → один шаг undo (debounced snapshot).
+ */
+function spliceCellIntoLink(link, cell, cursor = null) {
+  const tgtRef = link.get('target')
+  // Геометрия сегмента в точке врезки — локальное направление (wireDir) и для
+  // разворота, и для выбора пары портов (линия центров врёт на согнутых проводах).
+  const geo = wireGeometryAt(link, cursor)
+  if (!geo) return
+  const { a, b, wirePoint, wireDir } = geo
+
+  // Авто-ориентация: разворачиваем элемент (если стенсил вращаемый) так, чтобы
+  // пара проходных портов легла вдоль провода. Из двух вариантов выбор по
+  // стороне курсора (см. spliceRotation). cell ещё в angle 0.
+  const stencil = getStencilById(cell.get('tms')?.stencilId)
+  if (stencil && !stencil.noRotate) {
+    const angle = spliceRotation(portAbsPositions(cell), wireDir, cursor, wirePoint)
+    if (angle !== 0) cell.rotate(angle)
+  }
+
+  const picked = pickPassThroughPorts(portAbsPositions(cell), a, b, wireDir)
+  if (!picked) return
+  const { portIn, portOut } = picked
+
+  const linkTms = link.get('tms') || {}
+  const inherited = {}
+  if (linkTms.voltageSource) inherited.voltageSource = structuredClone(linkTms.voltageSource)
+  if (linkTms.switchSources) inherited.switchSources = structuredClone(linkTms.switchSources)
+
+  // Сегмент 1: переиспользуем провод A→cell.in (tms остаётся на нём).
+  link.set('target', { id: cell.id, port: portIn })
+
+  // Сегмент 2: cell.out→B с клоном анимаций провода.
+  const seg2 = new shapes.standard.Link({
+    ...LINK_DEFAULTS,
+    source: { id: cell.id, port: portOut },
+    target: { id: tgtRef.id, ...(tgtRef.port ? { port: tgtRef.port } : {}) },
+    ...(Object.keys(inherited).length ? { tms: structuredClone(inherited) } : {}),
+  })
+  graph.addCell(seg2)
+
+  // Элемент наследует анимации провода (voltage + switch).
+  if (Object.keys(inherited).length) {
+    cell.set('tms', { ...(cell.get('tms') || {}), ...inherited })
+  }
+
+  canvas.selectOnly('cell', cell.id)
 }
 
 function onValueTagPickerSelect(tag) {
@@ -1231,9 +1478,8 @@ function onSlotBadgeClick(cellId) {
 
 function onDeleteSelected() {
   const sel = canvas.selection.value
-  if (sel.length !== 1 || sel[0].kind !== 'cell' || !graph) return
-  graph.getCell(sel[0].id)?.remove()
-  canvas.clearSelection()
+  if (sel.length !== 1 || sel[0].kind !== 'cell') return
+  canvas.deleteItems(sel)
 }
 
 // ─── Поворот выделенной ячейки ───
@@ -1302,19 +1548,13 @@ function doShowCellTooltip(elementView) {
   }
 
   // Алярм/voltage — singular (по одной анимации на ячейку). Switch — массив:
-  // slot.onoff (для cell_qw) + ВСЕ switchSources.tags. Каждый тег = отдельная
+  // slot.onoff (для cell_qw) + ВСЕ switchSources. Каждый тег = отдельная
   // зависимость, в тултипе показываем все, не первый.
-  const slotsDef = stencil.slots || []
-  const slotValue = (suffix) => {
-    const s = slotsDef.find((x) => x.tagSuffix === suffix)
-    return s ? tms.slots?.[s.key] || null : null
-  }
-  const alarmTag = slotValue('.ALR')
+  const alarmTag = tms.slots?.alr || null
   const voltageTag = tms.voltageSource?.tag || null
   const switchTags = []
-  const slotOnoff = slotValue('.ONOFF')
-  if (slotOnoff) switchTags.push(slotOnoff)
-  for (const t of tms.switchSources?.tags || []) {
+  if (tms.slots?.onoff) switchTags.push(tms.slots.onoff)
+  for (const t of switchSourceTags(tms.switchSources)) {
     if (t && !switchTags.includes(t)) switchTags.push(t)
   }
 
@@ -1538,11 +1778,6 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
           class="stencil-thumb absolute inset-1 opacity-70"
           v-html="draggingStencilSvg"
         />
-        <div
-          class="absolute -top-6 left-0 text-xs font-medium text-primary-700 bg-primary-50 px-1.5 py-0.5 rounded"
-        >
-          {{ ui.dragging?.label }}
-        </div>
       </div>
 
       <!-- Edit-in-place для cell_text: прозрачный HTML <input> поверх ячейки.
@@ -1603,7 +1838,7 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
             v-if="cellHoverTooltip.voltageTag"
             class="text-[10px] opacity-75 mt-0.5 flex items-center gap-1 truncate"
           >
-            <i class="pi pi-bolt text-[6px]" />
+            <i class="pi pi-chart-bar text-[6px]" />
             <span class="font-mono truncate">{{ cellHoverTooltip.voltageTag }}</span>
           </div>
         </div>

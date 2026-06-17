@@ -1,7 +1,5 @@
 // XML/SVG-утилиты — единый источник правды для двух мест, которые пишут SVG
-// в виде строк (exporter и svgInjector программные билдеры). Раньше escape-
-// функции жили дублями в обоих файлах, а в exporter ещё и пересоздавались
-// как arrow'ы внутри exportProject на каждый вызов.
+// в виде строк (exporter и svgInjector программные билдеры).
 
 export const SVG_NS = 'http://www.w3.org/2000/svg'
 

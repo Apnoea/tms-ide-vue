@@ -3,7 +3,7 @@ import { shapes } from '@joint/core'
 import { getStencilById } from '../stencils/registry'
 import { injectStencilSvg, buildPortItems } from '../stencils/svgInjector'
 import { TMSStencil } from '../stencils/tmsStencil'
-import { LINK_DEFAULTS, buildLinkLabel } from '../stencils/linkDefaults'
+import { LINK_DEFAULTS } from '../stencils/linkDefaults'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
 import { useCanvas } from './useCanvas'
@@ -131,14 +131,11 @@ export function useClipboard({ scheduleSnapshot }) {
       const newSrcId = oldToNew.get(linkSnap.sourceCellId)
       const newTgtId = oldToNew.get(linkSnap.targetCellId)
       if (!newSrcId || !newTgtId) continue
-      const labelText = linkSnap.tms?.label
       const linkModel = new shapes.standard.Link({
         ...LINK_DEFAULTS,
         source: { id: newSrcId, ...(linkSnap.sourcePort ? { port: linkSnap.sourcePort } : {}) },
         target: { id: newTgtId, ...(linkSnap.targetPort ? { port: linkSnap.targetPort } : {}) },
         ...(linkSnap.tms ? { tms: linkSnap.tms } : {}),
-        // labels — derived от tms.label; на paste'е восстанавливаем визуал.
-        ...(labelText ? { labels: [buildLinkLabel(labelText)] } : {}),
       })
       graph.addCell(linkModel)
       newLinkItems.push({ kind: 'link', id: linkModel.id })

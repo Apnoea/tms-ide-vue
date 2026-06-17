@@ -1,5 +1,5 @@
 // Покрываем copy/paste-инварианты: bridge-link рефы через oldToNew, angle
-// rotated-ячеек, round-trip tms.label на линке через buildLinkLabel. Plus
+// rotated-ячеек, round-trip tms линка (switchSources). Plus
 // pair тестов для toast-веток (empty selection / skipped по unknown stencil).
 // JointJS Graph + TMSStencil реальные; useCanvas singleton / useToast / registry
 // mock'аем чтобы не таскать palette-загрузку и tag-list.
@@ -130,13 +130,13 @@ describe('useClipboard', () => {
     expect(newCell.angle()).toBe(90)
   })
 
-  it('paste: link с tms.label round-trip восстанавливает labels[] через buildLinkLabel', () => {
+  it('paste: tms линка round-trip переносит switchSources на новый линк', () => {
     const a = makeCell({ x: 0 })
     const b = makeCell({ x: 100 })
     const link = new shapes.standard.Link({
       source: { id: a.id },
       target: { id: b.id },
-      tms: { label: 'L1' },
+      tms: { switchSources: { or: ['BR1.ONOFF'], and: [] } },
     })
     graph.addCells([a, b, link])
     mockCanvas.selection.value = [
@@ -149,9 +149,7 @@ describe('useClipboard', () => {
     pasteClipboard()
 
     const newLink = graph.getLinks().find((l) => l.id !== link.id)
-    expect(newLink.get('tms')?.label).toBe('L1')
-    // buildLinkLabel сделал JointJS-label, link.labels() вернёт массив длины 1
-    expect(newLink.labels()).toHaveLength(1)
+    expect(newLink.get('tms')?.switchSources).toEqual({ or: ['BR1.ONOFF'], and: [] })
   })
 
   it('copySelection: пустое выделение → info-toast, буфер не меняется', () => {

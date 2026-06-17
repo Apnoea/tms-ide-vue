@@ -4,7 +4,7 @@
 
 import { getStencilById } from '../stencils/registry'
 import { buildPortItems } from '../stencils/svgInjector'
-import { LINK_DEFAULTS, buildLinkLabel } from '../stencils/linkDefaults'
+import { LINK_DEFAULTS } from '../stencils/linkDefaults'
 import { ATTR_META } from '../constants/ids'
 
 /**
@@ -107,15 +107,11 @@ export function parseSvgProject(svgText) {
         source: meta.source,
         target: meta.target,
       }
-      if (meta.voltageSource || meta.switchSources || meta.label) {
+      if (meta.voltageSource || meta.switchSources) {
         link.tms = {}
         if (meta.voltageSource) link.tms.voltageSource = meta.voltageSource
         if (meta.switchSources) link.tms.switchSources = meta.switchSources
-        if (meta.label) link.tms.label = meta.label
       }
-      // labels — визуальное представление tms.label; рендерится JointJS по
-      // позиции 0.5 (середина провода). tms.label остаётся источником правды.
-      if (meta.label) link.labels = [buildLinkLabel(meta.label)]
       cells.push(link)
     } catch (e) {
       errors.push(`Парсинг провода: ${e.message}`)

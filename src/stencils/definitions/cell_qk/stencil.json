@@ -9,8 +9,7 @@
       "key": "onoff",
       "label": "Основной выключатель",
       "type": "Boolean",
-      "required": false,
-      "tagSuffix": ".ONOFF"
+      "required": false
     }
   ],
 

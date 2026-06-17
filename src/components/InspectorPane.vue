@@ -17,7 +17,6 @@ import {
   textCellWidth,
   resolveValueDisplay,
 } from '../stencils/svgInjector'
-import { buildLinkLabel } from '../stencils/linkDefaults'
 import { nplural } from '../utils/plural'
 import { normalizeSwitchSources } from '../utils/switchSources'
 import TagPickerDialog from './TagPickerDialog.vue'
@@ -53,6 +52,12 @@ function isLayoutOnly(stencilId) {
   return !!getStencilById(stencilId)?.layoutOnly
 }
 
+// Bool-тег по типу из tag-list (Boolean/Bool, регистронезависимо). Булевы слоты
+// (cell_qw / cell_alr / …) и switchSources выбирают только из таких — раньше
+// фильтровали по суффиксу имени (.ONOFF / .ALR), но имя — ненадёжный признак,
+// тип из tag-list'а точнее.
+const isBooleanType = (type) => /^bool/i.test(type || '')
+
 const canvas = useCanvas()
 const project = useProjectStore()
 const ui = useUiStore()
@@ -78,7 +83,7 @@ const details = computed(() => {
       kind: 'cell',
       id: cell.id,
       stencilId: tms.stencilId,
-      stencilLabel: stencil?.label || tms.stencilId || '—',
+      stencilLabel: stencil?.label || tms.stencilId || '-',
       isText: tms.stencilId === 'cell_text',
       text: tms.text ?? '',
       fontSize: tms.fontSize ?? TEXT_FONT_SIZE,
@@ -86,17 +91,17 @@ const details = computed(() => {
       isValue: tms.stencilId === 'cell_value',
       valueTag: tms.valueTag ?? '',
       // cell_alr рендерит свой required-слот через AlarmSourceBlock (с описанием,
-      // bell-иконкой, без отдельной строки в «Привязки тегов»). Switch-source для
-      // тревоги бессмыслен — кнопку «Выключатель» прячем тоже.
+      // bell-иконкой, без отдельной строки в «Привязки тегов»). Булев источник для
+      // тревоги бессмыслен — кнопку «Булев источник» прячем тоже.
       isAlarm: tms.stencilId === 'cell_alr',
       // Стенсилы со slot.onoff (cell_qw / qr / qk / qf — см. isSwitchStencil
       // convention в registry) рендерят слот через SwitchBlock в intrinsic-режиме
-      // (общий «блок выключателя» вместо отдельной строки в «Привязках тегов»).
-      // Switch-source-кнопка у такой ячейки дублировала бы её собственный .ONOFF,
+      // (общий блок «Булев источник» вместо отдельной строки в «Привязках тегов»).
+      // Отдельная add-кнопка у такой ячейки дублировала бы её собственный onoff,
       // поэтому общий add-flow тоже отдаём через SwitchBlock (см. onAddSwitchTag).
       isSwitch: isSwitchStencil(stencil),
       // Слоты для UI: декларация из стенсила + текущее значение из tms.slots.
-      // tagSuffix — фильтр для picker'а (показывать только теги с .SUFFIX).
+      // type — тип тега (Boolean/Float/…); picker фильтрует bool-слоты по нему.
       // tooltip — встроенные правила анимации для этого слота (см. buildSlotTooltip),
       // показываем как HTML-tooltip на info-иконке рядом с лейблом слота.
       slots: slotsDef.map((s) => ({
@@ -104,7 +109,6 @@ const details = computed(() => {
         label: s.label,
         type: s.type,
         required: !!s.required,
-        tagSuffix: s.tagSuffix || null,
         value: slotValues[s.key] || '',
         tooltip: buildSlotTooltip(s.key, stencil?.animationTemplate),
       })),
@@ -123,18 +127,17 @@ const details = computed(() => {
     // Label endpoint'а — стенсильный label, либо id ячейки в fallback.
     const endpointLabel = (c) => {
       const st = c?.get('tms')?.stencilId
-      return (st && getStencilById(st)?.label) || '—'
+      return (st && getStencilById(st)?.label) || '-'
     }
     return {
       kind: 'link',
       id: cell.id,
       sourceLabel: endpointLabel(sourceCell),
-      sourcePort: source?.port || '—',
+      sourcePort: source?.port || '-',
       targetLabel: endpointLabel(targetCell),
-      targetPort: target?.port || '—',
+      targetPort: target?.port || '-',
       voltageSource: tms.voltageSource || null,
       switchSources: tms.switchSources || null,
-      label: tms.label || '',
     }
   }
 
@@ -159,7 +162,7 @@ const selectionBreakdown = computed(() => {
     if (!cell) continue
     const tms = cell.get('tms') || {}
     const stencil = tms.stencilId ? getStencilById(tms.stencilId) : null
-    const label = stencil?.label || tms.stencilId || '—'
+    const label = stencil?.label || tms.stencilId || '-'
     counts.set(label, (counts.get(label) || 0) + 1)
   }
   return [...counts.entries()]
@@ -169,18 +172,12 @@ const selectionBreakdown = computed(() => {
 
 // ─── Удаление ───
 function onDelete() {
-  const graph = canvas.graphRef.value
-  const sel = canvas.selection.value
-  if (!graph || !sel.length) return
-  for (const item of [...sel]) {
-    graph.getCell(item.id)?.remove()
-  }
-  canvas.clearSelection()
+  canvas.deleteItems([...canvas.selection.value])
 }
 
 // ─── Редактирование слотов (привязка тегов) ───
 const slotPickerOpen = ref(false)
-const activeSlot = ref(null) // { key, label, type, tagSuffix }
+const activeSlot = ref(null) // { key, label, type }
 
 function openSlotPicker(slot) {
   activeSlot.value = slot
@@ -232,13 +229,10 @@ function patchSlotTag(key, tag) {
   canvas.requestSnapshot()
 }
 
-// Фильтр тегов по slot.tagSuffix (например .ONOFF). Регистронезависимо.
-const slotPickerTags = computed(() => {
-  const sfx = activeSlot.value?.tagSuffix
-  if (!sfx) return project.tags
-  const re = new RegExp(`${sfx.replace(/\./g, '\\.')}$`, 'i')
-  return project.tags.filter((t) => re.test(t.name))
-})
+// Булев слот → только bool-теги; остальные слоты — весь tag-list.
+const slotPickerTags = computed(() =>
+  isBooleanType(activeSlot.value?.type) ? booleanTags.value : project.tags
+)
 
 // ─── Редактирование текста (стенсил cell_text) ───
 function applyText(newText) {
@@ -285,7 +279,7 @@ function toggleBold() {
   patchTextCell({ bold: !details.value?.bold })
 }
 
-// ─── Источник напряжения ───
+// ─── Диапазоны значений (аналоговый источник: значение тега → класс по диапазону) ───
 const tagPickerOpen = ref(false)
 const multiVoltageTagPickerOpen = ref(false) // для multi-select на lasso
 
@@ -324,20 +318,32 @@ function onPickValueTag(tag) {
 }
 
 /**
- * Базовый патч tms-поля (voltageSource / switchSources) у выделенной ячейки.
- * patch=null — удаляет источник целиком; иначе мержит в существующий объект.
+ * Резолвит выделенную ячейку/линк, отдаёт её tms в `updater(tms)` → новый tms,
+ * пишет его + bumpVersion + requestSnapshot. `updater` возвращает `undefined`,
+ * чтобы ничего не менять (no-op).
  */
-function patchTmsField(field, patch) {
+function mutateSelectedTms(updater) {
   const graph = canvas.graphRef.value
   const d = details.value
   if (!graph || !d) return
   const cell = graph.getCell(d.id)
   if (!cell) return
-  const tms = cell.get('tms') || {}
-  const next = patch === null ? null : { ...(tms[field] || {}), ...patch }
-  cell.set('tms', { ...tms, [field]: next })
+  const next = updater(cell.get('tms') || {})
+  if (next === undefined) return
+  cell.set('tms', next)
   canvas.bumpVersion()
   canvas.requestSnapshot()
+}
+
+/**
+ * Патч tms-поля (voltageSource / switchSources) выделенной ячейки.
+ * patch=null — удаляет источник целиком; иначе мержит в существующий объект.
+ */
+function patchTmsField(field, patch) {
+  mutateSelectedTms((tms) => ({
+    ...tms,
+    [field]: patch === null ? null : { ...(tms[field] || {}), ...patch },
+  }))
 }
 
 const patchVoltageSource = (patch) => patchTmsField('voltageSource', patch)
@@ -421,15 +427,15 @@ function onPickMultiVoltageTag(tag) {
     field: 'voltageSource',
     tag,
     valueFactory: (t) => ({ tag: t, ranges: VOLTAGE_RANGE_DEFAULTS.map((r) => ({ ...r })) }),
-    summary: 'Источник применён',
+    summary: 'Диапазоны применены',
     verb: 'Тег привязан к',
   })
 }
 
-// ─── switchSources: два списка выключателей-зависимостей ───
-// `or` («Параллельно») — достаточно любого замкнутого; `and` («Последовательно»)
-// — нужны все замкнутые. Под напряжением = (любой or замкнут) ИЛИ (все and
-// замкнуты). Экспорт: чистый and → дешёвый shape, иначе → multi-карточка.
+// ─── switchSources: два списка булевых зависимостей ───
+// `or` («Параллельно») — достаточно любого = true; `and` («Последовательно») —
+// нужны все = true. Активен = (любой or = true) ИЛИ (все and = true). Экспорт:
+// чистый and → дешёвый shape, иначе → multi-карточка.
 
 const switchTagPickerOpen = ref(false)
 const multiSwitchTagPickerOpen = ref(false)
@@ -444,29 +450,19 @@ const bucketField = (bucket) => (bucket === 'parallel' ? 'or' : 'and')
 
 /** Полная замена switchSources на { or, and }; оба пусты → удаляем источник. */
 function writeSwitchBuckets(buckets) {
-  const graph = canvas.graphRef.value
-  const d = details.value
-  if (!graph || !d) return
-  const cell = graph.getCell(d.id)
-  if (!cell) return
-  const tms = cell.get('tms') || {}
-  const next = buckets.or.length || buckets.and.length ? { or: buckets.or, and: buckets.and } : null
-  cell.set('tms', { ...tms, switchSources: next })
-  canvas.bumpVersion()
-  canvas.requestSnapshot()
+  mutateSelectedTms((tms) => ({
+    ...tms,
+    switchSources:
+      buckets.or.length || buckets.and.length ? { or: buckets.or, and: buckets.and } : null,
+  }))
 }
 
 function addSwitchSources() {
-  // Создаём пустой switchSources → появляется блок с двумя секциями; дальше
-  // оператор кладёт теги в нужную (Параллельно / Последовательно).
-  const graph = canvas.graphRef.value
-  const d = details.value
-  if (!graph || !d) return
-  const cell = graph.getCell(d.id)
-  if (!cell || cell.get('tms')?.switchSources) return
-  cell.set('tms', { ...(cell.get('tms') || {}), switchSources: { or: [], and: [] } })
-  canvas.bumpVersion()
-  canvas.requestSnapshot()
+  // Пустой switchSources → появляется блок с двумя секциями; дальше оператор
+  // кладёт теги в нужную (Параллельно / Последовательно). Если уже есть — no-op.
+  mutateSelectedTms((tms) =>
+    tms.switchSources ? undefined : { ...tms, switchSources: { or: [], and: [] } }
+  )
 }
 
 /** «Добавить» в секцию bucket. */
@@ -553,7 +549,7 @@ function onPickMultiSwitchTag(tag) {
   canvas.requestSnapshot()
   const count = nplural(applied, 'элемент', 'элемента', 'элементов')
   notify.success(
-    'Выключатель привязан',
+    'Булев тег привязан',
     skipped > 0
       ? `Привязано к ${count} · пропущено: ${skipped} (текст/значение/свой тег)`
       : `Привязано к ${count}`
@@ -581,45 +577,16 @@ function toggleNavigationEnabled(value) {
   if (!value) patchNavigation('')
 }
 
-/**
- * Лейбл провода — текст вдоль линии (например «Фаза A», номер кабеля).
- * tms.label — источник правды, link.labels([...]) — derived visual (JointJS
- * рендерит лейбл в позиции 0.5 по длине пути). Пустая строка стирает оба.
- */
-function patchLinkLabel(value) {
-  const graph = canvas.graphRef.value
-  const d = details.value
-  if (!graph || !d || d.kind !== 'link') return
-  const link = graph.getCell(d.id)
-  if (!link) return
-  const tms = link.get('tms') || {}
-  const trimmed = String(value || '').trim()
-  if ((tms.label || '') === trimmed) return
-  const next = { ...tms }
-  if (trimmed) next.label = trimmed
-  else delete next.label
-  link.set('tms', next)
-  if (trimmed) link.labels([buildLinkLabel(trimmed)])
-  else link.labels([])
-  canvas.bumpVersion()
-  canvas.requestSnapshot()
-}
-
 function patchNavigation(value) {
-  const graph = canvas.graphRef.value
-  const d = details.value
-  if (!graph || !d || d.kind !== 'cell') return
-  const cell = graph.getCell(d.id)
-  if (!cell) return
-  const tms = cell.get('tms') || {}
-  const trimmed = String(value || '').trim()
-  if ((tms.navigation || '') === trimmed) return
-  const next = { ...tms }
-  if (trimmed) next.navigation = trimmed
-  else delete next.navigation
-  cell.set('tms', next)
-  canvas.bumpVersion()
-  canvas.requestSnapshot()
+  if (details.value?.kind !== 'cell') return
+  mutateSelectedTms((tms) => {
+    const trimmed = String(value || '').trim()
+    if ((tms.navigation || '') === trimmed) return undefined
+    const next = { ...tms }
+    if (trimmed) next.navigation = trimmed
+    else delete next.navigation
+    return next
+  })
 }
 
 // Цветовая карта для swatch'ей в подсказке-тултипе слота.
@@ -694,16 +661,16 @@ function buildSlotTooltip(slotKey, animationTemplate) {
   }
 }
 
-// switchSources принимает только bool-теги .ONOFF — эффект «false → затемнение»,
-// аналоговый .UA/.IA бессмысленен. Регистронезависимо (tag-list иногда .OnOff).
-const onoffTags = computed(() => project.tags.filter((t) => /\.ONOFF$/i.test(t.name)))
+// switchSources принимает только bool-теги — эффект «false → затемнение»,
+// для аналогового значения бессмыслен. Фильтр по типу из tag-list'а.
+const booleanTags = computed(() => project.tags.filter((t) => isBooleanType(t.type)))
 
 // Picker для switch-зависимостей исключает уже привязанные теги: основной
 // тег ячейки (slot.onoff у cell_qw) + все теги из switchSources.tags, кроме
 // редактируемого по индексу (его оставляем, чтобы юзер видел текущее значение).
 const switchPickerTags = computed(() => {
   const d = details.value
-  if (!d) return onoffTags.value
+  if (!d) return booleanTags.value
   const excluded = new Set()
   if (d.isSwitch && d.slots?.[0]?.value) excluded.add(d.slots[0].value)
   // Исключаем уже привязанные теги (из обеих секций), КРОМЕ редактируемого
@@ -717,7 +684,7 @@ const switchPickerTags = computed(() => {
     })
   excludeList(or, 'or')
   excludeList(and, 'and')
-  return onoffTags.value.filter((t) => !excluded.has(t.name))
+  return booleanTags.value.filter((t) => !excluded.has(t.name))
 })
 </script>
 
@@ -754,7 +721,7 @@ const switchPickerTags = computed(() => {
               </li>
             </ul>
             <p class="text-[11px] text-surface-500 mt-2">
-              Ячейки можно тащить группой, удалить клавишей Del. Редактирование свойств — только при
+              Ячейки можно тащить группой, удалить клавишей Del. Редактирование свойств - только при
               одном выделенном.
             </p>
           </div>
@@ -766,7 +733,7 @@ const switchPickerTags = computed(() => {
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
             <div class="flex flex-col gap-2">
               <Button
-                label="Выключатель"
+                label="Булев источник"
                 icon="pi pi-plus"
                 severity="secondary"
                 size="small"
@@ -775,7 +742,7 @@ const switchPickerTags = computed(() => {
                 @click="multiSwitchTagPickerOpen = true"
               />
               <Button
-                label="Источник напряжения"
+                label="Диапазоны значений"
                 icon="pi pi-plus"
                 severity="secondary"
                 size="small"
@@ -807,7 +774,7 @@ const switchPickerTags = computed(() => {
           <i class="pi pi-mouse text-3xl mb-3 opacity-60" />
           <div class="text-sm font-medium text-surface-500 mb-1">Ничего не выделено</div>
           <p class="text-[11px] leading-relaxed max-w-[180px]">
-            Кликни по ячейке или проводу на холсте — здесь появятся свойства
+            Кликни по ячейке или проводу на холсте - здесь появятся свойства
           </p>
           <!-- CTA когда tag-list ещё не загружен — без него анимации стенсилов
  не работают, юзеру полезно увидеть кнопку сразу при пустом инспекторе. -->
@@ -898,7 +865,7 @@ const switchPickerTags = computed(() => {
                   "
                   @click="project.tags.length && openValueTagPicker()"
                 >
-                  {{ details.valueTag || '— не выбран —' }}
+                  {{ details.valueTag || '- не выбран -' }}
                 </code>
               </div>
               <Button
@@ -980,19 +947,8 @@ const switchPickerTags = computed(() => {
                     v-tooltip.bottom="slot.tooltip"
                     class="pi pi-info-circle text-surface-400 cursor-help text-[11px]"
                   />
-                  <!-- tagSuffix-чип — даёт юзеру понимание «этот слот ждёт тег с
- суффиксом .ONOFF» сразу, без открытия picker'а. type
- показываем только если суффикса нет (иначе суффикс
- информативнее: type=Boolean без контекста менее полезен). -->
-                  <Tag
-                    v-if="slot.tagSuffix"
-                    v-tooltip.bottom="`Ожидается тег с суффиксом ${slot.tagSuffix}`"
-                    :value="slot.tagSuffix"
-                    severity="secondary"
-                    rounded
-                    class="ml-auto !font-mono !text-[10px] !py-0"
-                  />
-                  <span v-else-if="slot.type" class="text-surface-400 ml-auto font-mono">
+                  <!-- Тип тега, ожидаемого слотом (Boolean/Float/…) — справа от лейбла. -->
+                  <span v-if="slot.type" class="text-surface-400 ml-auto font-mono">
                     {{ slot.type }}
                   </span>
                 </div>
@@ -1008,10 +964,7 @@ const switchPickerTags = computed(() => {
                     "
                     @click="project.tags.length && openSlotPicker(slot)"
                   >
-                    {{
-                      slot.value ||
-                      (slot.tagSuffix ? `— выбрать тег ${slot.tagSuffix} —` : '— не выбран —')
-                    }}
+                    {{ slot.value || '- не выбран -' }}
                   </code>
                   <Button
                     v-if="slot.value"
@@ -1058,28 +1011,13 @@ const switchPickerTags = computed(() => {
                 {{ details.targetLabel }} · {{ details.targetPort }}
               </code>
             </div>
-
-            <div class="space-y-2">
-              <div>
-                <div class="text-[11px] uppercase tracking-wider text-surface-500">Лейбл</div>
-                <div class="text-[11px] text-surface-500">текст вдоль провода</div>
-              </div>
-              <InputText
-                :model-value="details.label"
-                size="small"
-                placeholder="Фаза A"
-                class="w-full !text-xs"
-                @update:model-value="patchLinkLabel"
-              />
-            </div>
           </template>
 
           <div v-if="!details.isText && !details.isValue" class="space-y-2">
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
 
-            <!-- Встроенные анимации стенсила теперь живут в tooltip'е у иконки
- каждого слота (см. info-icon выше) — read-only блок убран,
- чтобы не засорять панель повторением декларативного поведения. -->
+            <!-- Встроенные анимации стенсила показываются в tooltip'е у иконки
+ каждого слота (см. info-icon выше). -->
 
             <!-- A. cell_alr — обёртка required-слота .alr. Интринсик-анимация
                  шаблона, не отдельная tms-сущность. -->
@@ -1090,18 +1028,17 @@ const switchPickerTags = computed(() => {
               @open-tag-picker="openSlotPicker(details.slots[0])"
             />
 
-            <!-- B. Привязка к выключателю(ям). Unified block: для switch-стенсила
-                 (isSwitch) включает slot.onoff (intrinsic) + switchSources.tags;
-                 для остальных — только switchSources.tags. -->
+            <!-- B. Булев источник. Unified block: для switch-стенсила
+                 (isSwitch) включает slot.onoff (intrinsic) + switchSources;
+                 для остальных — только switchSources. -->
             <SwitchBlock
               v-if="details.isSwitch || details.switchSources"
               :slot-info="details.isSwitch ? details.slots[0] : null"
               :parallel="switchBuckets.or"
               :series="switchBuckets.and"
-              tag-suffix=".ONOFF"
               :removable="!!details.switchSources"
               :tags-loaded="!!project.tags.length"
-              title="Привязка к выключателю"
+              title="Булев источник"
               @open-slot-picker="openSlotPicker(details.slots[0])"
               @open-tag-picker="onAddSwitchTag"
               @remove-tag="removeSwitchTagAt"
@@ -1110,7 +1047,7 @@ const switchPickerTags = computed(() => {
               @edit-tag="editSwitchTagAt"
             />
 
-            <!-- C. Источник напряжения. -->
+            <!-- C. Диапазоны значений (аналоговый источник). -->
             <VoltageSourceBlock
               v-if="details.voltageSource"
               :voltage-source="details.voltageSource"
@@ -1122,9 +1059,9 @@ const switchPickerTags = computed(() => {
               @remove="removeVoltageSource"
             />
 
-            <!-- Add-кнопки. Выключатель — везде кроме cell_alr (тревога не
+            <!-- Add-кнопки. Булев источник — везде кроме cell_alr (тревога не
                  поток) и switch-стенсилов (блок уже виден через slot.onoff,
-                 add-кнопка встроена в сам блок). Voltage — везде где нет. -->
+                 add-кнопка встроена в сам блок). Диапазоны — везде где нет. -->
             <div
               v-if="
                 (!details.switchSources && !details.isAlarm && !details.isSwitch) ||
@@ -1134,7 +1071,7 @@ const switchPickerTags = computed(() => {
             >
               <Button
                 v-if="!details.switchSources && !details.isAlarm && !details.isSwitch"
-                label="Выключатель"
+                label="Булев источник"
                 icon="pi pi-plus"
                 severity="secondary"
                 size="small"
@@ -1143,7 +1080,7 @@ const switchPickerTags = computed(() => {
               />
               <Button
                 v-if="!details.voltageSource"
-                label="Источник напряжения"
+                label="Диапазоны значений"
                 icon="pi pi-plus"
                 severity="secondary"
                 size="small"
@@ -1168,7 +1105,7 @@ const switchPickerTags = computed(() => {
       v-model:visible="tagPickerOpen"
       :tags="project.tags"
       :selected="details?.voltageSource?.tag || ''"
-      header="Выберите тег источника напряжения"
+      header="Выберите тег (диапазоны значений)"
       @select="onPickTag"
     />
 
@@ -1183,7 +1120,7 @@ const switchPickerTags = computed(() => {
     <TagPickerDialog
       v-model:visible="multiVoltageTagPickerOpen"
       :tags="project.tags"
-      header="Тег источника для всех выделенных элементов"
+      header="Тег диапазонов для всех выделенных элементов"
       @select="onPickMultiVoltageTag"
     />
 
@@ -1191,14 +1128,14 @@ const switchPickerTags = computed(() => {
       v-model:visible="switchTagPickerOpen"
       :tags="switchPickerTags"
       selected=""
-      header="Добавить тег выключателя (.ONOFF)"
+      header="Добавить булев тег"
       @select="onPickSwitchTag"
     />
 
     <TagPickerDialog
       v-model:visible="multiSwitchTagPickerOpen"
-      :tags="onoffTags"
-      header="Тег выключателя для всех выделенных элементов (.ONOFF)"
+      :tags="booleanTags"
+      header="Булев тег для всех выделенных элементов"
       @select="onPickMultiSwitchTag"
     />
   </aside>

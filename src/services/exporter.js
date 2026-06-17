@@ -14,20 +14,10 @@ import {
   valueTextKey,
   ATTR_META,
   ATTR_STENCIL,
-  ATTR_LINK_LABEL_OF,
 } from '../constants/ids'
-import { SVG_NS, escapeXml, escapeAttr } from '../utils/xml'
+import { SVG_NS, escapeAttr } from '../utils/xml'
 import { getCellTagsFromTms } from '../utils/cellSearch'
 import { normalizeSwitchSources, switchSourceTags } from '../utils/switchSources'
-import {
-  LINK_LABEL_FONT_SIZE,
-  LINK_LABEL_FONT_FAMILY,
-  LINK_LABEL_TEXT_COLOR,
-  LINK_LABEL_BG_COLOR,
-  LINK_LABEL_BORDER_COLOR,
-  LINK_LABEL_PAD_X,
-  LINK_LABEL_PAD_Y,
-} from '../stencils/linkDefaults'
 
 // Какие стенсилы получают quality-биндинги и CSS-override для bad-качества —
 // определяется флагом `quality: true` в их stencil.json. См. cell_qk / cell_qr
@@ -141,6 +131,18 @@ function openCondition(id, tag) {
   return { id, tag, source: 'value', when: { type: 'map', cases: { false: true } } }
 }
 
+/** multi-биндинг с ОДНИМ условием (expression='c'): тег под source/when →
+ *  apply addClass. Для слоёв voltage-range / onoff / quality в multi-карточке. */
+function singleMultiBinding(tag, source, when, addClass) {
+  return {
+    multiCondition: {
+      expression: 'c',
+      conditions: [{ id: 'c', tag, source, when }],
+      apply: { addClass },
+    },
+  }
+}
+
 /**
  * Outer-карточка типа `multi` для OR-элемента — рантайм-тип с булевым
  * `expression` по нескольким тегам (единственный способ выразить «серый только
@@ -158,31 +160,21 @@ function buildMultiCard(c) {
   const vs = c.voltageSource
   if (vs?.tag && vs.ranges?.length) {
     for (const r of vs.ranges) {
-      bindings.push({
-        multiCondition: {
-          expression: 'v',
-          conditions: [
-            {
-              id: 'v',
-              tag: vs.tag,
-              source: 'value',
-              when: { type: 'range', cases: [{ min: r.min, max: r.max }] },
-            },
-          ],
-          apply: { addClass: r.class },
-        },
-      })
+      bindings.push(
+        singleMultiBinding(
+          vs.tag,
+          'value',
+          { type: 'range', cases: [{ min: r.min, max: r.max }] },
+          r.class
+        )
+      )
     }
   }
 
   if (stencil?.intrinsicOnoff && c.slots?.onoff) {
-    bindings.push({
-      multiCondition: {
-        expression: 'o',
-        conditions: [openCondition('o', c.slots.onoff)],
-        apply: { addClass: CLASS_OFF },
-      },
-    })
+    bindings.push(
+      singleMultiBinding(c.slots.onoff, 'value', { type: 'map', cases: { false: true } }, CLASS_OFF)
+    )
   }
 
   // switchSources: «Параллельно» (or) гасит только когда ВСЕ открыты → AND
@@ -220,20 +212,14 @@ function buildMultiCard(c) {
   if (stencil?.quality) {
     const qTags = [...new Set([vs?.tag, c.slots?.onoff, ...or, ...and].filter(Boolean))]
     for (const tag of qTags) {
-      bindings.push({
-        multiCondition: {
-          expression: 'q',
-          conditions: [
-            {
-              id: 'q',
-              tag,
-              source: 'quality',
-              when: { type: 'range', cases: [{ min: 0, max: 191 }] },
-            },
-          ],
-          apply: { addClass: CLASS_OFF },
-        },
-      })
+      bindings.push(
+        singleMultiBinding(
+          tag,
+          'quality',
+          { type: 'range', cases: [{ min: 0, max: 191 }] },
+          CLASS_OFF
+        )
+      )
     }
   }
 
@@ -254,8 +240,8 @@ function assignOrMergeAnimation(animations, key, card) {
   }
 }
 
-// outerKey/innerPrefix теперь живут в constants/ids.js — единственный
-// источник правды для id-формата (используется и парсером, и симуляцией).
+// outerKey/innerPrefix — в constants/ids.js, единственный источник правды для
+// id-формата (используется и парсером, и симуляцией).
 const outerKeyFor = outerKey
 const innerPrefixFor = innerPrefix
 
@@ -475,33 +461,12 @@ export function exportProject(graph, paper = null) {
     const sourceRef = link.get('source')
     const targetRef = link.get('target')
 
-    // Координаты лейбла берём у JointJS через linkView.getLabelCoordinates —
-    // он знает реальную геометрию path'а (с учётом router'а/connector'а) и
-    // умеет интерполировать distance 0..1 в (x,y). Без paper'а (headless) —
-    // лейбл просто не рендерим в SVG (его текст всё равно сохранён в tms.label).
-    let labelCoords = null
-    if (linkTms.label && paper) {
-      const linkView = paper.findViewByModel(link)
-      if (linkView?.getLabelCoordinates) {
-        try {
-          const pt = linkView.getLabelCoordinates({ distance: 0.5 })
-          if (pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)) {
-            labelCoords = { x: pt.x, y: pt.y }
-          }
-        } catch {
-          // ignore — без координат не рендерим
-        }
-      }
-    }
-
     linkExports.push({
       id: wireId,
       linkId: link.id, // JointJS-id для round-trip восстановления редактором
       d: pathD,
       voltageSource: linkTms.voltageSource || null,
       switchSources: linkTms.switchSources || null,
-      label: linkTms.label || null,
-      labelCoords,
       // Endpoint-references для редактора: какие именно ячейки/порты соединены.
       // Эти данные ИЗ source/target в JointJS-модели, не из геометрии пути.
       source: sourceRef ? { id: sourceRef.id, port: sourceRef.port } : null,
@@ -525,55 +490,46 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── Voltage / switch sources ───
-  // На ячейке: карточка на outer wrapper + дубль bindings во все стенсильные
-  // shape-карточки (чтобы класс ложился и на внутренние группы). На линке —
-  // карточка на link.id. При наличии обоих источников bindings мержатся.
-  // hasValue — проверка наличия для разных схем (voltageSource={tag}, switchSources={tags[]}).
-  // needsMulti-элементы: вся outer-карточка — одна `multi` (voltage + onoff +
-  // switch-выражение + quality слоями). Остальные outer-пассы (shape
-  // voltage/switch, onoff, quality) их пропускают через needsMulti-гард — иначе
-  // shape-бинды подмешались бы в multi, и MultiAnimationHandler их проигнорировал.
-  for (const c of cellExports) {
-    if (!needsMulti(c)) continue
-    animations[outerKeyFor(c.stencilId, c.animId)] = buildMultiCard(c)
-  }
-  // Линки тоже могут иметь OR/mixed switchSources (провод питается с нескольких
-  // сторон). buildMultiCard работает и для линка: stencilId нет → onoff/quality
-  // пропускаются, остаются voltage + switch-выражение.
-  for (const l of linkExports) {
-    if (!needsMulti(l)) continue
-    animations[l.id] = buildMultiCard(l)
+  // Карточка на outer-id ячейки (+ merge во внутренние shape-карточки стенсила)
+  // либо на wire-id линка. needsMulti-цели получают одну `multi` (voltage +
+  // onoff + switch + quality слоями); остальные — shape (voltage + switch).
+  // Единый список целей: ячейки (с stencilId/animId для inner-merge) и линки.
+  const bindingTargets = [
+    ...cellExports.map((c) => ({
+      src: c,
+      key: outerKeyFor(c.stencilId, c.animId),
+      stencilId: c.stencilId,
+      animId: c.animId,
+    })),
+    ...linkExports.map((l) => ({ src: l, key: l.id })),
+  ]
+
+  // needsMulti → вся outer-карточка одной `multi` (voltage + onoff + switch +
+  // quality слоями). buildMultiCard работает и для линка (нет stencilId →
+  // onoff/quality пропускаются).
+  for (const t of bindingTargets) {
+    if (needsMulti(t.src)) animations[t.key] = buildMultiCard(t.src)
   }
 
-  // Voltage — shape (range → класс). needsMulti пропускаем (voltage уже внутри
-  // multi-карточки).
-  for (const c of cellExports) {
-    if (needsMulti(c) || !c.voltageSource?.tag) continue
-    const outerKey = outerKeyFor(c.stencilId, c.animId)
-    const card = buildVoltageCard(c.voltageSource)
-    assignOrMergeAnimation(animations, outerKey, card)
-    mergeBindingsIntoStencilCards(animations, c.stencilId, c.animId, outerKey, card)
+  // Кладёт shape-карточку на key + (для ячеек) мержит во внутренние стенсильные.
+  const addShapeCard = (t, card) => {
+    assignOrMergeAnimation(animations, t.key, card)
+    if (t.stencilId) mergeBindingsIntoStencilCards(animations, t.stencilId, t.animId, t.key, card)
   }
-  for (const l of linkExports) {
-    if (needsMulti(l) || !l.voltageSource?.tag) continue
-    assignOrMergeAnimation(animations, l.id, buildVoltageCard(l.voltageSource))
-  }
-
-  // switchSources (не-multi): плоский список тегов → shape (любой false → серый).
-  for (const c of cellExports) {
-    if (needsMulti(c)) continue
-    const tags = switchSourceTags(c.switchSources)
-    if (!tags.length) continue
-    const outerKey = outerKeyFor(c.stencilId, c.animId)
-    const card = buildSwitchCard(tags)
-    assignOrMergeAnimation(animations, outerKey, card)
-    mergeBindingsIntoStencilCards(animations, c.stencilId, c.animId, outerKey, card)
-  }
-  for (const l of linkExports) {
-    if (needsMulti(l)) continue
-    const tags = switchSourceTags(l.switchSources)
-    if (!tags.length) continue
-    assignOrMergeAnimation(animations, l.id, buildSwitchCard(tags))
+  // Не-multi shape-источники. voltage (range → класс) + switch (плоский список,
+  // любой false → серый). needsMulti-цели пропускаем — их эффекты уже в multi.
+  const shapeSources = [
+    { has: (s) => !!s.voltageSource?.tag, build: (s) => buildVoltageCard(s.voltageSource) },
+    {
+      has: (s) => switchSourceTags(s.switchSources).length > 0,
+      build: (s) => buildSwitchCard(switchSourceTags(s.switchSources)),
+    },
+  ]
+  for (const { has, build } of shapeSources) {
+    for (const t of bindingTargets) {
+      if (needsMulti(t.src) || !has(t.src)) continue
+      addShapeCard(t, build(t.src))
+    }
   }
 
   // ─── Intrinsic switch (cell_qw): slot.onoff неявно даёт animation-off ───
@@ -713,14 +669,10 @@ export function exportProject(graph, paper = null) {
 
   // ─── SVG-фрагменты ───
   // data-tms-meta — авторитет для редактора при загрузке; рантайм игнорирует.
-  // escapeAttr/escapeXml импортируются из utils/xml — один источник правды
+  // escapeAttr импортируется из utils/xml — один источник правды
   // для обоих писателей SVG-строк (exporter и svgInjector).
   //
   // Линии — первыми (фон), ячейки сверху, чтобы цеплялись к портам.
-  // Лейбл (если есть) — <g> с <rect> подложкой и <text> поверх. Ширина rect'а
-  // оценивается по character-count (DOMParser не умеет glyph-metrics);
-  // ~6px/char для sans-serif 10px — кириллица/латиница умещаются с запасом.
-  const APPROX_CHAR_WIDTH = 6
   const lines = linkExports
     .map((l) => {
       const meta = {
@@ -730,19 +682,11 @@ export function exportProject(graph, paper = null) {
       }
       if (l.voltageSource) meta.voltageSource = l.voltageSource
       if (l.switchSources) meta.switchSources = l.switchSources
-      if (l.label) meta.label = l.label
       const metaAttr = escapeAttr(JSON.stringify(meta))
       // l.id и l.d сейчас составляются из UUID-производных и сгенерированных
       // path-данных — symbol-safe, но escapeAttr держит инвариант на случай
       // если JointJS-расширение когда-то засунет туда что-то экзотическое.
-      const pathTag = `  <path id="${escapeAttr(l.id)}" d="${escapeAttr(l.d)}" stroke="#000" stroke-width="2" fill="none" ${ATTR_META}="${metaAttr}"/>`
-      if (!l.label || !l.labelCoords) return pathTag
-      const textWidth = l.label.length * APPROX_CHAR_WIDTH
-      const w = textWidth + LINK_LABEL_PAD_X * 2
-      const h = LINK_LABEL_FONT_SIZE + LINK_LABEL_PAD_Y * 2
-      const rx = 2
-      const labelTag = `  <g ${ATTR_LINK_LABEL_OF}="${escapeAttr(l.id)}" transform="translate(${l.labelCoords.x},${l.labelCoords.y})"><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${rx}" ry="${rx}" fill="${LINK_LABEL_BG_COLOR}" stroke="${LINK_LABEL_BORDER_COLOR}" stroke-width="1"/><text text-anchor="middle" dominant-baseline="middle" font-size="${LINK_LABEL_FONT_SIZE}" font-family="${LINK_LABEL_FONT_FAMILY}" fill="${LINK_LABEL_TEXT_COLOR}">${escapeXml(l.label)}</text></g>`
-      return `${pathTag}\n${labelTag}`
+      return `  <path id="${escapeAttr(l.id)}" d="${escapeAttr(l.d)}" stroke="#000" stroke-width="2" fill="none" ${ATTR_META}="${metaAttr}"/>`
     })
     .join('\n')
 

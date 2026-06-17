@@ -8,8 +8,7 @@
       "key": "alr",
       "label": "Состояние аварии",
       "type": "Boolean",
-      "required": true,
-      "tagSuffix": ".ALR"
+      "required": true
     }
   ],
 

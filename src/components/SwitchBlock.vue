@@ -1,18 +1,16 @@
 <script setup>
 import { computed } from 'vue'
 import Button from 'primevue/button'
-import Tag from 'primevue/tag'
 
 /**
- * Блок «Привязка к выключателю». Два независимых источника:
+ * Блок «Булев источник». Два независимых источника:
  *  • `slotInfo` — required-слот стенсила (cell_qw slot.onoff): своё состояние
  *    элемента, рендерится первой строкой без ×.
- *  • Зависимости-выключатели в двух секциях:
- *     - `parallel` («Параллельно») — питание с любой стороны: достаточно ЛЮБОГО
- *       замкнутого (OR).
- *     - `series` («Последовательно») — цепочка в одном вводе: нужны ВСЕ
- *       замкнутые (AND).
- *    Под напряжением = (любой parallel замкнут) ИЛИ (все series замкнуты).
+ *  • Зависимости-теги в двух секциях:
+ *     - `parallel` («Параллельно») — достаточно ЛЮБОГО = true (OR).
+ *     - `series` («Последовательно») — нужны ВСЕ = true (AND).
+ *    Активен = (любой parallel = true) ИЛИ (все series = true); иначе элемент
+ *    тускнеет (animation-off).
  *
  * Эмиты (bucket = 'parallel' | 'series'):
  *   open-slot-picker          — клик по slot-row (свой тег стенсила)
@@ -23,13 +21,12 @@ import Tag from 'primevue/tag'
  *   highlight-tag(t)          — подсветить тег на холсте
  */
 const props = defineProps({
-  slotInfo: { type: Object, default: null }, // { label, value, tagSuffix }
+  slotInfo: { type: Object, default: null }, // { label, value }
   parallel: { type: Array, default: null },
   series: { type: Array, default: null },
-  tagSuffix: { type: String, default: null },
   removable: { type: Boolean, default: false },
   tagsLoaded: { type: Boolean, default: false },
-  title: { type: String, default: 'Выключатель' },
+  title: { type: String, default: 'Булев источник' },
 })
 
 defineEmits([
@@ -41,19 +38,19 @@ defineEmits([
   'highlight-tag',
 ])
 
-// «Последовательно» выше «Параллельно»: последовательных вводов обычно в разы
+// «Последовательно» выше «Параллельно»: последовательных условий обычно в разы
 // меньше, держим компактный список наверху.
 const sections = computed(() => [
   {
     key: 'series',
     label: 'Последовательно',
-    hint: 'цепочка одного ввода — нужны все замкнутые',
+    hint: 'нужны все true (логическое И)',
     tags: props.series || [],
   },
   {
     key: 'parallel',
     label: 'Параллельно',
-    hint: 'питание с любой стороны — достаточно любого замкнутого',
+    hint: 'достаточно любого true (логическое ИЛИ)',
     tags: props.parallel || [],
   },
 ])
@@ -66,14 +63,6 @@ const sections = computed(() => [
       <div class="text-xs font-medium text-surface-700">
         {{ title }}
       </div>
-      <Tag
-        v-if="tagSuffix"
-        v-tooltip.bottom="`Ожидается тег с суффиксом ${tagSuffix}`"
-        :value="tagSuffix"
-        severity="secondary"
-        rounded
-        class="ml-auto !font-mono !text-[10px] !py-0"
-      />
       <Button
         v-if="removable"
         v-tooltip.bottom="'Удалить все зависимости'"
@@ -81,14 +70,14 @@ const sections = computed(() => [
         severity="secondary"
         text
         size="small"
-        :class="['!p-1 !w-6 !h-6', tagSuffix ? '' : 'ml-auto']"
+        class="!p-1 !w-6 !h-6 ml-auto"
         @click="$emit('remove')"
       />
     </div>
 
     <p class="text-[11px] text-surface-500 mb-2 leading-snug">
-      Под напряжением, если замкнут любой из «Параллельно» ИЛИ все из «Последовательно». Иначе
-      элемент тускнеет (
+      Активен, если все теги из «Последовательно» = true ИЛИ любой тег из «Параллельно» = true.
+      Иначе элемент тускнеет (
       <code class="font-mono">animation-off</code>
       ).
     </p>
@@ -97,6 +86,7 @@ const sections = computed(() => [
     <div v-if="slotInfo" class="mb-2">
       <div class="text-[11px] text-surface-500 mb-1">
         {{ slotInfo.label || 'Состояние' }}
+        <span class="text-surface-400">- тег для анимации самого элемента</span>
       </div>
       <div class="flex items-center gap-2">
         <code
@@ -105,10 +95,7 @@ const sections = computed(() => [
           :title="tagsLoaded ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'"
           @click="tagsLoaded && $emit('open-slot-picker')"
         >
-          {{
-            slotInfo.value ||
-            (slotInfo.tagSuffix ? `— выбрать тег ${slotInfo.tagSuffix} —` : '— не выбран —')
-          }}
+          {{ slotInfo.value || '- не выбран -' }}
         </code>
         <Button
           v-if="slotInfo.value"
@@ -127,7 +114,7 @@ const sections = computed(() => [
     <div v-for="sec in sections" :key="sec.key" class="mb-2">
       <div class="text-[11px] text-surface-500 mb-1">
         {{ sec.label }}
-        <span class="text-surface-400">— {{ sec.hint }}</span>
+        <span class="text-surface-400">- {{ sec.hint }}</span>
       </div>
       <div v-if="sec.tags.length" class="space-y-1.5 mb-1.5">
         <div v-for="(t, idx) in sec.tags" :key="idx" class="flex items-center gap-2">
@@ -137,7 +124,7 @@ const sections = computed(() => [
             :title="tagsLoaded ? 'Заменить тег' : 'Загрузи tag-list, чтобы выбрать тег'"
             @click="tagsLoaded && $emit('edit-tag', sec.key, idx)"
           >
-            {{ t || '— пусто —' }}
+            {{ t || '- пусто -' }}
           </code>
           <Button
             v-if="t"

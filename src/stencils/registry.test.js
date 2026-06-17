@@ -36,7 +36,6 @@ describe('validateStencilJson', () => {
               label: 'ВКЛ/ВЫКЛ',
               type: 'Boolean',
               required: true,
-              tagSuffix: '.ONOFF',
             },
           ],
           animationTemplate: [

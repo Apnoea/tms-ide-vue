@@ -29,7 +29,6 @@ const CELL_VALUE_PREFIX = 'animation-cell-'
 export const ATTR_META = 'data-tms-meta'
 export const ATTR_STENCIL = 'data-tms-stencil'
 export const ATTR_SUFFIX = 'data-anim-suffix'
-export const ATTR_LINK_LABEL_OF = 'data-tms-link-label-of'
 
 // ─── ID-генераторы ──────────────────────────────────────────────────────────
 
@@ -65,13 +64,8 @@ export function valueTextKey(valueTag) {
 /**
  * `{slot.X}` в строках binding.tag / detailTags / navigation. Единая регулярка
  * + единая семантика подстановки, чтобы parser (экспорт) и useSimulation
- * (превью) не разошлись по поведению.
- *
- * Раньше:
- *   parser:        /\{slot\.(\w+)\}/g          — inline-substitution
- *   useSimulation: /^\{slot\.(.+)\}$/          — только pure-placeholder
- * Это давало баг: шаблон "PRE{slot.x}POST" экспортировался корректно,
- * а в симуляции возвращался raw → рантайм не находил тег.
+ * (превью) не разошлись по поведению. Поддержана inline-подстановка
+ * ("PRE{slot.x}POST"), не только чистый placeholder.
  */
 const SLOT_PLACEHOLDER_RE = /\{slot\.(\w+)\}/g
 

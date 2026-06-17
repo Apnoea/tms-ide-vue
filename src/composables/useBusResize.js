@@ -1,7 +1,12 @@
 import { ref, computed } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { getStencilById } from '../stencils/registry'
-import { injectStencilSvg, busPortX, desiredBusPortCount } from '../stencils/svgInjector'
+import {
+  injectStencilSvg,
+  busPortX,
+  desiredBusPortCount,
+  BUS_PORT_SPACING,
+} from '../stencils/svgInjector'
 import { snapToGrid } from '../utils/grid'
 import { useCanvas } from './useCanvas'
 
@@ -57,7 +62,6 @@ export function useBusResize({ scheduleSnapshot }) {
   function startBusResize(cell, edge, startClientX) {
     const paper = canvas.paperRef.value
     if (!cell || !paper) return
-    const pos = cell.get('position')
     const size = cell.get('size')
     // Запоминаем paper-X курсора — delta считаем в paper-координатах
     // (zoom-инвариантно, в отличие от client-px).
@@ -67,7 +71,6 @@ export function useBusResize({ scheduleSnapshot }) {
       edge,
       startWidth: size.width,
       startHeight: size.height,
-      startX: pos.x,
       startMouseX: local.x,
       // Последняя применённая ширина — guard от полного re-render'а SVG на
       // каждый mousemove, если ширина после snapToGrid та же что и в прошлом
@@ -87,43 +90,62 @@ export function useBusResize({ scheduleSnapshot }) {
 
     const stencil = getStencilById(cell.get('tms')?.stencilId)
     const minW = stencil?.minWidth ?? 20
-    const g = paper.options.gridSize
 
     const local = paper.clientToLocalPoint(evt.clientX, evt.clientY)
     const dx = local.x - activeResize.startMouseX
-
-    let newWidth, newX
-    if (activeResize.edge === 'right') {
-      newWidth = activeResize.startWidth + dx
-      newX = activeResize.startX
-    } else {
-      // Left edge: ширина и позиция меняются зеркально
-      newWidth = activeResize.startWidth - dx
-      newX = activeResize.startX + dx
-    }
-
-    newWidth = Math.max(minW, snapToGrid(newWidth, g))
-    if (activeResize.edge === 'left') {
-      // Восстанавливаем X так, чтобы правый край оставался на месте после клампа
-      newX = activeResize.startX + (activeResize.startWidth - newWidth)
-    }
-    newX = snapToGrid(newX, g)
+    // Левый хэндл растёт при движении влево (dx<0), правый — вправо (dx>0).
+    const delta = activeResize.edge === 'right' ? dx : -dx
+    // Снап к шагу портов (не к gridSize): один шаг ширины = ровно один слот, и
+    // при левом резайзе сдвиг индексов компенсирует сдвиг origin тютелька-в-тютельку.
+    const newWidth = Math.max(minW, snapToGrid(activeResize.startWidth + delta, BUS_PORT_SPACING))
 
     // Width-guard: если шаг snapToGrid дал ту же ширину что в прошлый mousemove,
     // resize/syncBusPorts/injectStencilSvg повторят ту же работу впустую.
     // Особенно injectStencilSvg — он полностью перебирает DOM ячейки.
     if (newWidth === activeResize.lastWidth) return
-    activeResize.lastWidth = newWidth
 
-    cell.resize(newWidth, activeResize.startHeight)
+    // direction держит противоположный край на месте: 'right' → левый край
+    // фиксирован (рост вправо), 'left' → правый фиксирован (рост влево, позицию
+    // JointJS сдвигает сам — без ручного пересчёта X).
+    cell.resize(newWidth, activeResize.startHeight, { direction: activeResize.edge })
+
+    // При левом резайзе origin уезжает влево → канонические порты сместились бы
+    // вместе с ним и потащили подключённые провода. Сдвигаем порт-рефы линков на
+    // число добавленных/убранных слотов → провода остаются на месте.
     if (activeResize.edge === 'left') {
-      cell.position(newX, cell.get('position').y)
+      // round — на случай легаси-шины с шириной не кратной шагу (первый кадр).
+      const k = Math.round((newWidth - activeResize.lastWidth) / BUS_PORT_SPACING)
+      if (k !== 0) shiftBusLinkPorts(cell, k)
     }
+    activeResize.lastWidth = newWidth
 
     syncBusPorts(cell, newWidth, activeResize.startHeight)
 
     const cellView = paper.findViewByModel(cell)
     if (cellView && stencil) injectStencilSvg(cellView, stencil)
+  }
+
+  /**
+   * Левый резайз сдвигает origin → канонические порты (индекс от левого края)
+   * уезжают вместе с ним и тащат подключённые провода. Чтобы провода стояли,
+   * сдвигаем порт-РЕФЫ линков на `k` слотов: линк на `top_4` → `top_(4+k)`. Сам
+   * порт `top_(4+k)` создаёт `syncBusPorts` на канонической позиции, которая после
+   * сдвига origin совпадает со старой абсолютной → провод на месте. Порты НЕ
+   * пересоздаём (никакого remove/add → провода не теряются, без лага). idx<0
+   * (срез слева за точку подключения) клампим к 0 — провод липнет к новому краю.
+   */
+  function shiftBusLinkPorts(cell, k) {
+    const graph = canvas.graphRef.value
+    if (!graph) return
+    for (const link of graph.getConnectedLinks(cell)) {
+      for (const end of ['source', 'target']) {
+        const ref = link.get(end)
+        if (ref?.id !== cell.id || !ref.port) continue
+        const us = ref.port.indexOf('_')
+        const newIdx = Math.max(0, Number(ref.port.slice(us + 1)) + k)
+        link.prop([end, 'port'], `${ref.port.slice(0, us)}_${newIdx}`)
+      }
+    }
   }
 
   /** id'ы портов шины, к которым подключён хотя бы один провод. */
