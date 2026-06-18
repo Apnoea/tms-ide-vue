@@ -19,7 +19,7 @@ import { nplural } from '../utils/plural'
  */
 const props = defineProps({
   visible: { type: Boolean, required: true },
-  // { name, type }[] из tag-list. Caller предварительно фильтрует по типу/суффиксу.
+  // { name, type }[] из tag-list. Caller предварительно фильтрует по типу.
   tags: { type: Array, default: () => [] },
   // Полное имя текущего тега — preselect'ит соответствующий option при открытии.
   selected: { type: String, default: '' },

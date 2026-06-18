@@ -1,7 +1,7 @@
 <script setup>
 /**
  * Карточка анимации «Аварийный сигнал» для cell_alr. По смыслу аналогична
- * VoltageSourceBlock / SwitchSourceBlock, но обёртывает required-слот стенсила,
+ * VoltageSourceBlock / SwitchBlock, но обёртывает required-слот стенсила,
  * а не отдельную сущность tms.* (вся анимация cell_alr декларативна, в
  * stencil.animationTemplate). Отсюда:
  * • нет кнопки «удалить» — без тега стенсил не функционален, и юзер вообще

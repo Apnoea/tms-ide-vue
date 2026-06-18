@@ -19,7 +19,7 @@ function mockCell({ id, stencilId, x = 0, y = 0, w = 40, h = 40, ...extra }) {
   }
 }
 
-function mockLink({ id, source, target, tms = null }) {
+function mockLink({ id, source, target, tms = null, vertices = null }) {
   return {
     id,
     get(key) {
@@ -28,6 +28,7 @@ function mockLink({ id, source, target, tms = null }) {
       if (key === 'tms') return tms || {}
       return undefined
     },
+    vertices: () => vertices || [],
   }
 }
 
@@ -549,5 +550,32 @@ describe('exportProject', () => {
     expect(cells[0].position).toEqual({ x: 100, y: 200 })
     expect(cells[0].tms.stencilId).toBe('cell_qw')
     expect(cells[0].tms.slots).toEqual({ onoff: 'PS031VK001.ONOFF' })
+  })
+
+  it('экспорт + load round-trip: ручные изломы провода сохраняются', () => {
+    const verts = [
+      { x: 60, y: 40 },
+      { x: 60, y: 120 },
+    ]
+    const graph = mockGraph(
+      [
+        mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 }),
+        mockCell({ id: 'c2', stencilId: 'cell_qw', x: 100, y: 100, w: 20, h: 20 }),
+      ],
+      [
+        mockLink({
+          id: 'l1',
+          source: { id: 'c1', port: 'right' },
+          target: { id: 'c2', port: 'left' },
+          vertices: verts,
+        }),
+      ]
+    )
+    const exported = exportProject(graph)
+    const parsed = parseSvgProject(exported.svgText)
+    expect(parsed.ok).toBe(true)
+    const link = parsed.cells.find((c) => c.type === 'standard.Link')
+    expect(link).toBeTruthy()
+    expect(link.vertices).toEqual(verts)
   })
 })

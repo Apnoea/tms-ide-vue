@@ -6,14 +6,33 @@
 // (стрелка-marker на target, прямой connector) — отличается от того, что
 // рисуется в редакторе при ручной прокладке.
 
+import { routers } from '@joint/core'
+
+/**
+ * rightAngle с привязкой ИЗЛОМОВ к сетке. Базовый rightAngle ставит
+ * соединительный сегмент по середине промежутка между ячейками → координаты
+ * часто «между клетками». Снапим точки маршрута к gridSize: ортогональность
+ * сохраняется (соседние точки делят координату → снапятся одинаково), а концы
+ * (на портах) роутер в маршрут не включает — они остаются на месте.
+ * Регистрируется в paper.options.routerNamespace (CanvasPane), чтобы имя
+ * резолвилось и в редакторе, и при toJSON/fromJSON.
+ */
+export function gridRightAngleRouter(vertices, args, linkView) {
+  const g = linkView?.paper?.options?.gridSize || 10
+  const route = routers.rightAngle.call(this, vertices, args, linkView)
+  return route.map((p) => ({ x: Math.round(p.x / g) * g, y: Math.round(p.y / g) * g }))
+}
+
 export const LINK_DEFAULTS = {
-  // rightAngle (JointJS 4) — anchor-aware orthogonal router. По сравнению с
-  // manhattan не делает зигзаги при выходе из порта в «неудобную» сторону:
-  // ориентируется по позиции anchor'а на границе ячейки. margin=5 — отступ
-  // от bbox ячейки чтобы провод не лип к корпусу.
+  // grid-снапящий rightAngle (см. gridRightAngleRouter). anchor-aware orthogonal
+  // роутер: в отличие от manhattan не зигзагит при выходе из порта в «неудобную»
+  // сторону. margin=10 (= клетка) — отступ от bbox, тоже по сетке.
+  // useVertices=true — иначе rightAngle игнорирует ручные изломы
+  // (linkTools.Vertices) и хэндлы висят в стороне от линии. При
+  // vertices.length===0 роутер идёт коротким путём независимо от флага.
   router: {
-    name: 'rightAngle',
-    args: { margin: 5 },
+    name: 'gridRightAngle',
+    args: { margin: 5, useVertices: true },
   },
   // jumpover — рисует «горб» в местах пересечения с другими линиями. Стандарт
   // на электросхемах: непересекающиеся (просто перекрещивающиеся) провода

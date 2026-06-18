@@ -460,6 +460,7 @@ export function exportProject(graph, paper = null) {
     const linkTms = link.get('tms') || {}
     const sourceRef = link.get('source')
     const targetRef = link.get('target')
+    const vertices = link.vertices?.() || []
 
     linkExports.push({
       id: wireId,
@@ -471,6 +472,9 @@ export function exportProject(graph, paper = null) {
       // Эти данные ИЗ source/target в JointJS-модели, не из геометрии пути.
       source: sourceRef ? { id: sourceRef.id, port: sourceRef.port } : null,
       target: targetRef ? { id: targetRef.id, port: targetRef.port } : null,
+      // Ручные изломы — иначе round-trip перерисовал бы провод по дефолтному
+      // маршруту (геометрия пути в `d` рантайму, изломы редактору).
+      vertices: vertices.length ? vertices.map((v) => ({ x: v.x, y: v.y })) : null,
     })
   }
 
@@ -682,6 +686,7 @@ export function exportProject(graph, paper = null) {
       }
       if (l.voltageSource) meta.voltageSource = l.voltageSource
       if (l.switchSources) meta.switchSources = l.switchSources
+      if (l.vertices) meta.vertices = l.vertices
       const metaAttr = escapeAttr(JSON.stringify(meta))
       // l.id и l.d сейчас составляются из UUID-производных и сгенерированных
       // path-данных — symbol-safe, но escapeAttr держит инвариант на случай

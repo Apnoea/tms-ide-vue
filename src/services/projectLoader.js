@@ -107,6 +107,9 @@ export function parseSvgProject(svgText) {
         source: meta.source,
         target: meta.target,
       }
+      // Ручные изломы: без них gridRightAngle-роутер перерисовал бы провод по
+      // дефолтному маршруту, потеряв правки пользователя.
+      if (Array.isArray(meta.vertices) && meta.vertices.length) link.vertices = meta.vertices
       if (meta.voltageSource || meta.switchSources) {
         link.tms = {}
         if (meta.voltageSource) link.tms.voltageSource = meta.voltageSource

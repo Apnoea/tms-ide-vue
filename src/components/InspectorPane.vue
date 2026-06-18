@@ -53,9 +53,8 @@ function isLayoutOnly(stencilId) {
 }
 
 // Bool-тег по типу из tag-list (Boolean/Bool, регистронезависимо). Булевы слоты
-// (cell_qw / cell_alr / …) и switchSources выбирают только из таких — раньше
-// фильтровали по суффиксу имени (.ONOFF / .ALR), но имя — ненадёжный признак,
-// тип из tag-list'а точнее.
+// (cell_qw / cell_alr / …) и switchSources выбирают только из таких: тип из
+// tag-list'а надёжнее суффикса имени (.ONOFF / .ALR).
 const isBooleanType = (type) => /^bool/i.test(type || '')
 
 const canvas = useCanvas()
@@ -666,8 +665,9 @@ function buildSlotTooltip(slotKey, animationTemplate) {
 const booleanTags = computed(() => project.tags.filter((t) => isBooleanType(t.type)))
 
 // Picker для switch-зависимостей исключает уже привязанные теги: основной
-// тег ячейки (slot.onoff у cell_qw) + все теги из switchSources.tags, кроме
-// редактируемого по индексу (его оставляем, чтобы юзер видел текущее значение).
+// тег ячейки (slot.onoff у cell_qw) + все теги из обеих секций switchSources
+// (or/and), кроме редактируемого по индексу (его оставляем, чтобы юзер видел
+// текущее значение).
 const switchPickerTags = computed(() => {
   const d = details.value
   if (!d) return booleanTags.value
@@ -939,9 +939,8 @@ const switchPickerTags = computed(() => {
                     *
                   </span>
                   <!-- info-иконка с тултипом: правила встроенной анимации стенсила,
- реагирующие на этот слот. Заменяет прежний read-only блок
- «Встроенные анимации» — теперь юзер видит описание только при наведении,
- панель не засоряется. Если у слота нет реактивных правил — иконку не рендерим. -->
+ реагирующие на этот слот (описание по наведению, чтобы не засорять панель).
+ Если у слота нет реактивных правил — иконку не рендерим. -->
                   <i
                     v-if="slot.tooltip"
                     v-tooltip.bottom="slot.tooltip"

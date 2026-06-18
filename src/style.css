@@ -110,6 +110,15 @@ body,
   box-shadow: none !important;
 }
 
+/* Focus-ring PrimeVue-кнопок (Aura рисует его через outline + box-shadow)
+   залипает после клика мышью и читается как «обведённая» кнопка тулбара.
+   Снимаем кольцо у всех кнопок — клавиатурной навигации по тулбару в IDE нет. */
+.p-button:focus,
+.p-button:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 /* PrimeVue tooltip-дефолты в Aura — крупные (padding 0.5-0.75rem, текст 14px).
    В IDE с плотным UI это «вёдра» поверх кнопок. Жмём до уровня системных
    tooltip'ов: 11px текст, минимальный padding, slim arrow. Применяется ко

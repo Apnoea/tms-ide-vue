@@ -161,7 +161,10 @@ export function useHotkeys({
       const step = (event.shiftKey ? 5 : 1) * grid
       const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0
       const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0
-      for (const item of cellSel) graph.getCell(item.id)?.translate(dx, dy)
+      // uiNudge — стрелки сами двигают ВСЁ выделение; помечаем, чтобы multi-drag
+      // change:position-хендлер (CanvasPane) не сдвинул соседей повторно, если в
+      // этот момент зажата ЛКМ на ячейке (activeDragCellId выставлен без drag'а).
+      for (const item of cellSel) graph.getCell(item.id)?.translate(dx, dy, { uiNudge: true })
       scheduleSnapshot()
       return
     }

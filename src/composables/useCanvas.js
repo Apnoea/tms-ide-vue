@@ -224,7 +224,34 @@ export function useCanvas() {
             }))
           : []
         const plan = planWireBridge(links, items[0].id)
-        if (plan) graph.getCell(plan.survivorId)?.set(plan.survivorEnd, plan.endpoint)
+        if (plan) {
+          const survivor = graph.getCell(plan.survivorId)
+          const dropped = graph.getCell(plan.dropId)
+          if (survivor && dropped) {
+            // Сращиваем изломы обоих проводов: иначе выживший линк сохранил бы
+            // только свои, а изломы второго сегмента пропали бы (провод
+            // «спрямлялся» в новый маршрут). Считаем ДО перецеливания/удаления —
+            // пути сегментов ещё на месте. Центр элемента НЕ вставляем: при врезке
+            // элемент садится на ПРЯМОЙ участок (между изломами), его центр лежит
+            // на прямой → лишняя точка, и round-trip врезка→срастание ломался бы.
+            // Геометрическая последовательность a→b:
+            //  • a-сторона = изломы выжившего в порядке a→элемент (реверс, если
+            //    элемент был его source);
+            //  • b-сторона = изломы удаляемого в порядке элемент→b (реверс, если
+            //    элемент был его target).
+            const sv = survivor.vertices() || []
+            const dv = dropped.vertices() || []
+            const aSide = plan.survivorEnd === 'target' ? sv : [...sv].reverse()
+            const dropElemEnd = dropped.get('source')?.id === items[0].id ? 'source' : 'target'
+            const bSide = dropElemEnd === 'source' ? dv : [...dv].reverse()
+            const seq = [...aSide, ...bSide].map((v) => ({ ...v }))
+            // Порядок vertices в линке — source→target. survivorEnd='target' даёт
+            // финальный source=a → последовательность как есть; 'source' даёт
+            // source=b → реверс.
+            survivor.vertices(plan.survivorEnd === 'target' ? seq : seq.reverse())
+          }
+          survivor?.set(plan.survivorEnd, plan.endpoint)
+        }
       }
       for (const item of items) graph.getCell(item.id)?.remove()
       selection.value = []
