@@ -1,9 +1,12 @@
-// Покрываем save/restore инварианты localStorage'а: запись, считывание,
-// игнор битых данных, restoringHistory-флаг во время restore, no-op при
-// его взведённости, clear. Mock'аем JointJS Graph + canvas-singleton.
+// Покрываем project-persist инварианты: save активной формы в IndexedDB,
+// restore проекта (бутстрап пустой формы + чтение существующего проекта),
+// restoringHistory-флаг во время fromJSON, no-op'ы, clear активной формы.
+// Mock'аем JointJS Graph, canvas-singleton и idb (in-memory).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ref } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 import { withSetup, makeMockCanvas } from './test-utils'
+import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 
 vi.mock('vue', async () => {
   const actual = await vi.importActual('vue')
@@ -11,6 +14,18 @@ vi.mock('vue', async () => {
 })
 
 vi.mock('../stencils/svgInjector', () => ({ reinjectAllStencils: vi.fn() }))
+
+// In-memory idb. vi.hoisted — фабрика vi.mock поднимается выше импортов.
+const { idbStore } = vi.hoisted(() => ({ idbStore: new Map() }))
+vi.mock('../utils/idb', () => ({
+  idbGet: vi.fn(async (k) => idbStore.get(k)),
+  idbSet: vi.fn(async (k, v) => {
+    idbStore.set(k, v)
+  }),
+  idbDel: vi.fn(async (k) => {
+    idbStore.delete(k)
+  }),
+}))
 
 const mockCanvas = makeMockCanvas({
   setRecentlySaved: vi.fn(),
@@ -21,7 +36,8 @@ vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
 import { useAutosave } from './useAutosave'
 
-const AUTOSAVE_KEY = 'tms-ide:graph:v1'
+const META_KEY = 'project:meta'
+const formKey = (id) => `project:form:${id}`
 
 function makeMockGraph(cells = []) {
   const state = { cells: cells.map((c) => ({ ...c })) }
@@ -37,8 +53,8 @@ describe('useAutosave', () => {
   let scope
 
   beforeEach(() => {
-    vi.useFakeTimers()
-    localStorage.clear()
+    setActivePinia(createPinia())
+    idbStore.clear()
     restoringHistory = ref(false)
     mockCanvas.graphRef.value = null
     mockCanvas.paperRef.value = { id: 'paper' }
@@ -49,7 +65,6 @@ describe('useAutosave', () => {
 
   afterEach(() => {
     scope?.stop()
-    vi.useRealTimers()
   })
 
   function setup() {
@@ -58,109 +73,120 @@ describe('useAutosave', () => {
     return api
   }
 
-  describe('saveAutosave', () => {
-    it('пишет graph.toJSON() в localStorage под версионированным ключом', () => {
+  describe('saveActiveForm', () => {
+    function seedActiveForm() {
+      useWorkspaceStore().loadForms(
+        [{ id: 'main', name: 'main', graphJson: { cells: [] } }],
+        'main'
+      )
+    }
+
+    it('пишет graph.toJSON() в IndexedDB под ключом активной формы', async () => {
+      seedActiveForm()
       const graph = makeMockGraph([{ id: 'c1' }])
       mockCanvas.graphRef.value = graph
-      const { saveAutosave } = setup()
-      saveAutosave()
-      const stored = JSON.parse(localStorage.getItem(AUTOSAVE_KEY))
-      expect(stored).toEqual({ cells: [{ id: 'c1' }] })
+      const { saveActiveForm } = setup()
+      await saveActiveForm()
+      expect(idbStore.get(formKey('main'))).toEqual({ cells: [{ id: 'c1' }] })
       expect(graph.toJSON).toHaveBeenCalledOnce()
-    })
-
-    it('взводит recentlySaved=true и снимает через 1500ms', () => {
-      mockCanvas.graphRef.value = makeMockGraph()
-      const { saveAutosave } = setup()
-      saveAutosave()
       expect(mockCanvas.setRecentlySaved).toHaveBeenCalledWith(true)
-      vi.advanceTimersByTime(1499)
-      expect(mockCanvas.setRecentlySaved).toHaveBeenCalledTimes(1)
-      vi.advanceTimersByTime(2)
-      expect(mockCanvas.setRecentlySaved).toHaveBeenLastCalledWith(false)
     })
 
-    it('no-op при restoringHistory=true (не задваиваем restore)', () => {
+    it('no-op при restoringHistory=true', async () => {
+      seedActiveForm()
       mockCanvas.graphRef.value = makeMockGraph()
       restoringHistory.value = true
-      const { saveAutosave } = setup()
-      saveAutosave()
-      expect(localStorage.getItem(AUTOSAVE_KEY)).toBeNull()
+      const { saveActiveForm } = setup()
+      await saveActiveForm()
+      expect(idbStore.has(formKey('main'))).toBe(false)
     })
 
-    it('no-op если graphRef.value=null', () => {
-      const { saveAutosave } = setup()
-      saveAutosave()
-      expect(localStorage.getItem(AUTOSAVE_KEY)).toBeNull()
+    it('no-op если graphRef.value=null', async () => {
+      seedActiveForm()
+      const { saveActiveForm } = setup()
+      await saveActiveForm()
+      expect(idbStore.has(formKey('main'))).toBe(false)
+    })
+
+    it('no-op если нет активной формы', async () => {
+      mockCanvas.graphRef.value = makeMockGraph([{ id: 'c1' }])
+      const { saveActiveForm } = setup()
+      await saveActiveForm()
+      expect([...idbStore.keys()]).toEqual([])
     })
   })
 
-  describe('tryRestoreAutosave', () => {
-    it('возвращает 0 если localStorage пуст', () => {
+  describe('restoreProject', () => {
+    it('пустой старт → бутстрап формы main, возвращает 0, пишет meta+форму', async () => {
       mockCanvas.graphRef.value = makeMockGraph()
-      const { tryRestoreAutosave } = setup()
-      expect(tryRestoreAutosave()).toBe(0)
+      const { restoreProject } = setup()
+      const count = await restoreProject()
+      expect(count).toBe(0)
+      expect(idbStore.get(META_KEY)).toEqual({ formIds: ['main'], activeFormId: 'main' })
+      expect(idbStore.get(formKey('main'))).toEqual({ cells: [] })
     })
 
-    it('возвращает 0 на битом JSON, не падая', () => {
-      localStorage.setItem(AUTOSAVE_KEY, '{not-json')
-      mockCanvas.graphRef.value = makeMockGraph()
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      const { tryRestoreAutosave } = setup()
-      expect(tryRestoreAutosave()).toBe(0)
-      expect(warnSpy).toHaveBeenCalled()
-      warnSpy.mockRestore()
-    })
-
-    it('возвращает 0 на JSON без поля cells (не наш формат)', () => {
-      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({ foo: 'bar' }))
-      mockCanvas.graphRef.value = makeMockGraph()
-      const { tryRestoreAutosave } = setup()
-      expect(tryRestoreAutosave()).toBe(0)
-    })
-
-    it('восстанавливает граф, возвращает кол-во элементов, бампает version', () => {
-      const cells = [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }]
-      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({ cells }))
-      const graph = makeMockGraph(cells)
+    it('существующий проект: грузит активную форму, бампает version', async () => {
+      const cellsB = [{ id: 'b1' }]
+      idbStore.set(META_KEY, { formIds: ['a', 'b'], activeFormId: 'b' })
+      idbStore.set(formKey('a'), { cells: [{ id: 'a1' }] })
+      idbStore.set(formKey('b'), { cells: cellsB })
+      const graph = makeMockGraph(cellsB)
       mockCanvas.graphRef.value = graph
-      const { tryRestoreAutosave } = setup()
-      const count = tryRestoreAutosave()
-      expect(count).toBe(3)
-      expect(graph.fromJSON).toHaveBeenCalledWith({ cells })
+      const { restoreProject } = setup()
+      const count = await restoreProject()
+      expect(count).toBe(1)
+      expect(graph.fromJSON).toHaveBeenCalledWith({ cells: cellsB })
       expect(mockCanvas.bumpVersion).toHaveBeenCalledOnce()
     })
 
-    it('взводит restoringHistory=true на время fromJSON, снимает после', () => {
-      const cells = [{ id: 'c1' }]
-      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({ cells }))
-      let flagDuringFromJSON
-      const graph = makeMockGraph(cells)
+    it('взводит restoringHistory на время fromJSON, снимает после', async () => {
+      idbStore.set(META_KEY, { formIds: ['main'], activeFormId: 'main' })
+      idbStore.set(formKey('main'), { cells: [{ id: 'c1' }] })
+      let flagDuring
+      const graph = makeMockGraph([{ id: 'c1' }])
       graph.fromJSON = vi.fn(() => {
-        flagDuringFromJSON = restoringHistory.value
+        flagDuring = restoringHistory.value
       })
       mockCanvas.graphRef.value = graph
-      const { tryRestoreAutosave } = setup()
-      tryRestoreAutosave()
-      expect(flagDuringFromJSON).toBe(true)
+      const { restoreProject } = setup()
+      await restoreProject()
+      expect(flagDuring).toBe(true)
       expect(restoringHistory.value).toBe(false)
     })
 
-    it('возвращает 0 если paper не готов', () => {
+    it('возвращает 0 если paper не готов', async () => {
       mockCanvas.paperRef.value = null
-      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({ cells: [{ id: 'x' }] }))
       mockCanvas.graphRef.value = makeMockGraph()
-      const { tryRestoreAutosave } = setup()
-      expect(tryRestoreAutosave()).toBe(0)
+      const { restoreProject } = setup()
+      expect(await restoreProject()).toBe(0)
     })
   })
 
-  describe('clearAutosave', () => {
-    it('удаляет ключ из localStorage', () => {
-      localStorage.setItem(AUTOSAVE_KEY, '{"cells":[]}')
-      const { clearAutosave } = setup()
-      clearAutosave()
-      expect(localStorage.getItem(AUTOSAVE_KEY)).toBeNull()
+  describe('persistMeta', () => {
+    it('пишет порядок форм и активную в project:meta', async () => {
+      useWorkspaceStore().loadForms(
+        [
+          { id: 'a', name: 'a', graphJson: { cells: [] } },
+          { id: 'b', name: 'b', graphJson: { cells: [] } },
+        ],
+        'b'
+      )
+      const { persistMeta } = setup()
+      await persistMeta()
+      expect(idbStore.get(META_KEY)).toEqual({ formIds: ['a', 'b'], activeFormId: 'b' })
+    })
+  })
+
+  describe('clearActiveForm', () => {
+    it('обнуляет граф активной формы в IndexedDB', async () => {
+      useWorkspaceStore().loadForms(
+        [{ id: 'main', name: 'main', graphJson: { cells: [{ id: 'c1' }] } }],
+        'main'
+      )
+      const { clearActiveForm } = setup()
+      await clearActiveForm()
+      expect(idbStore.get(formKey('main'))).toEqual({ cells: [] })
     })
   })
 })

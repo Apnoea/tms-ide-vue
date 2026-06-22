@@ -14,8 +14,9 @@ const HISTORY_LIMIT = 50
  * Зависит от:
  *  • `restoringHistory` (Ref<boolean>) — общий флаг с useAutosave; пока идёт
  *    restore, новые snapshot'ы не пишем (иначе восстановление ломает историю).
- *  • `saveAutosave` (fn) — после успешного snapshot/restore тут же пишем в
- *    localStorage, чтобы перезагрузка вкладки давала актуальное состояние.
+ *  • `saveAutosave` (fn) — после успешного snapshot/restore сохраняем активную
+ *    форму (в IndexedDB через useAutosave), чтобы перезагрузка давала актуальное
+ *    состояние.
  *
  * После создания composable нужно вызвать `init()` когда graph готов, чтобы
  * стартовая позиция (пустой граф или восстановленный автосейв) попала в стек.

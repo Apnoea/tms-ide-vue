@@ -1,9 +1,9 @@
-// Минимальная key-value обёртка над IndexedDB. Нужна чтобы пережить F5 у того,
-// что не сериализуется в localStorage — а именно FileSystemFileHandle от
-// tag-list файла (см. ProjectActions). Браузер сохраняет handle как ссылку, при
-// загрузке надо проверить и при необходимости запросить permission заново.
+// Минимальная key-value обёртка над IndexedDB. Хранит то, что localStorage не
+// тянет: FileSystemFileHandle tag-list'а (не сериализуется в JSON — браузер
+// держит как ссылку, см. ProjectActions) и проект (формы/мета — крупнее квоты
+// localStorage, см. useAutosave).
 //
-// Пара ~20 строк против полноценного idb-keyval-пакета: для двух-трёх ключей
+// Пара ~20 строк против полноценного idb-keyval-пакета: для нескольких ключей
 // своего достаточно, бандл не раздуваем.
 
 const DB_NAME = 'tms-ide'

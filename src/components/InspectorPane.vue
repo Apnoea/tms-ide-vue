@@ -2,7 +2,9 @@
 import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
+import SelectButton from 'primevue/selectbutton'
 import Tag from 'primevue/tag'
+import ToggleButton from 'primevue/togglebutton'
 import ToggleSwitch from 'primevue/toggleswitch'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
@@ -274,8 +276,8 @@ function applyFontSize(size) {
   patchTextCell({ fontSize: size })
 }
 
-function toggleBold() {
-  patchTextCell({ bold: !details.value?.bold })
+function applyBold(value) {
+  patchTextCell({ bold: value })
 }
 
 // ─── Диапазоны значений (аналоговый источник: значение тега → класс по диапазону) ───
@@ -822,30 +824,30 @@ const switchPickerTags = computed(() => {
                   <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
                     Размер
                   </div>
-                  <div class="flex items-center gap-1">
-                    <Button
-                      v-for="preset in TEXT_SIZE_PRESETS"
-                      :key="preset.size"
-                      :label="preset.label"
-                      size="small"
-                      :severity="details.fontSize === preset.size ? 'primary' : 'secondary'"
-                      :outlined="details.fontSize !== preset.size"
-                      @click="applyFontSize(preset.size)"
-                    />
-                  </div>
+                  <!-- allow-empty=false — один размер всегда активен; клик по
+                       выбранному не снимает выделение (иначе fontSize → undefined). -->
+                  <SelectButton
+                    :model-value="details.fontSize"
+                    :options="TEXT_SIZE_PRESETS"
+                    option-label="label"
+                    option-value="size"
+                    :allow-empty="false"
+                    size="small"
+                    @update:model-value="applyFontSize"
+                  />
                 </div>
                 <div>
                   <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
                     Жирность
                   </div>
-                  <Button
-                    label="B"
+                  <ToggleButton
+                    :model-value="details.bold"
+                    on-label="B"
+                    off-label="B"
                     size="small"
                     class="!font-bold"
-                    :severity="details.bold ? 'primary' : 'secondary'"
-                    :outlined="!details.bold"
-                    title="Жирный"
-                    @click="toggleBold"
+                    v-tooltip.top="'Жирный'"
+                    @update:model-value="applyBold"
                   />
                 </div>
               </div>

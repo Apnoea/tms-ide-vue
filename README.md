@@ -31,6 +31,7 @@ src/
 ├── main.js / App.vue / style.css
 ├── components/
 │   ├── AppFooter.vue
+│   ├── FormsPanel.vue         # список форм проекта (слева, над палитрой)
 │   ├── PalettePane.vue        # палитра стенсилов (слева)
 │   ├── CanvasPane.vue         # JointJS-холст (центр)
 │   ├── InspectorPane.vue      # инспектор (справа)
@@ -43,7 +44,7 @@ src/
 │   └── HelpDialog.vue         # справка по хоткеям
 ├── composables/
 │   ├── useCanvas.js           # singleton graph/paper/selection + search
-│   ├── useAutosave.js         # localStorage autosave
+│   ├── useAutosave.js         # персист проекта (формы) в IndexedDB + restore
 │   ├── useUndoRedo.js         # snapshot-стек
 │   ├── useClipboard.js        # copy / paste / duplicate
 │   ├── useHotkeys.js          # единый keydown handler
@@ -54,7 +55,8 @@ src/
 │   └── useWireSplice.js       # врезка стенсила в провод + превью над проводом
 ├── stores/
 │   ├── useUiStore.js          # dragging, helpOpen, searchOpen, tagListLoadRequest
-│   └── useProjectStore.js     # tag-list + handle
+│   ├── useProjectStore.js     # tag-list + handle
+│   └── useWorkspaceStore.js   # формы проекта + активная форма
 ├── stencils/
 │   ├── registry.js            # авто-сборка через Vite glob
 │   ├── parser.js              # {slot.X} интерполяция + injectIds

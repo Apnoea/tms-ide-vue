@@ -27,6 +27,11 @@ const importFromSvgFn = shallowRef(null)
 // (graph+paper + download) в CanvasPane.
 const exportFn = shallowRef(null)
 
+// Переключение формы: панель форм (сосед по layout) дёргает selectForm(id), а
+// оркестрацию (сохранить текущую → загрузить выбранную + сброс undo) держит
+// CanvasPane (ей доступны graph/paper/undo).
+const selectFormFn = shallowRef(null)
+
 const selection = ref([]) // Array<{ kind, id }>
 
 const graphVersion = ref(0)
@@ -173,6 +178,12 @@ export function useCanvas() {
     },
     exportProject() {
       return exportFn.value?.() ?? false
+    },
+    setSelectFormFn(fn) {
+      selectFormFn.value = fn
+    },
+    selectForm(id) {
+      return selectFormFn.value?.(id)
     },
     clearCanvasRefs() {
       graphRef.value = null

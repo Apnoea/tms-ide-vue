@@ -6,6 +6,7 @@ import Toast from 'primevue/toast'
 import ConfirmPopup from 'primevue/confirmpopup'
 
 import AppFooter from './components/AppFooter.vue'
+import FormsPanel from './components/FormsPanel.vue'
 import PalettePane from './components/PalettePane.vue'
 import CanvasPane from './components/CanvasPane.vue'
 import InspectorPane from './components/InspectorPane.vue'
@@ -40,7 +41,12 @@ useEventListener(window, 'keydown', (event) => {
       state-storage="local"
     >
       <SplitterPanel :size="18" :min-size="12">
-        <PalettePane />
+        <div class="h-full flex flex-col">
+          <FormsPanel />
+          <div class="flex-1 min-h-0">
+            <PalettePane />
+          </div>
+        </div>
       </SplitterPanel>
 
       <SplitterPanel :size="82" :min-size="60">

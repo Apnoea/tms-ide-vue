@@ -21,6 +21,7 @@ import { LINK_DEFAULTS, gridRightAngleRouter } from '../stencils/linkDefaults'
 import { exportProject, downloadFile } from '../services/exporter'
 import { parseSvgProject } from '../services/projectLoader'
 import { useProjectStore } from '../stores/useProjectStore'
+import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from '../composables/useCanvas'
 import { useAutosave } from '../composables/useAutosave'
@@ -42,6 +43,7 @@ import SearchBar from './SearchBar.vue'
 import ProjectActions from './ProjectActions.vue'
 
 const project = useProjectStore()
+const workspace = useWorkspaceStore()
 const ui = useUiStore()
 const canvas = useCanvas()
 const notify = useNotify()
@@ -51,10 +53,12 @@ const confirm = useConfirm()
 // чтобы не зациклиться snapshot → save → restore → snapshot. Также взводится
 // performClearCanvas / performImportFromSvgText на время массовых правок.
 const restoringHistory = ref(false)
-const { tryRestoreAutosave, saveAutosave, clearAutosave } = useAutosave({ restoringHistory })
+const { restoreProject, saveActiveForm, clearActiveForm, persistMeta } = useAutosave({
+  restoringHistory,
+})
 const { initHistory, scheduleSnapshot, undo, redo, cancelPendingSnapshot } = useUndoRedo({
   restoringHistory,
-  saveAutosave,
+  saveAutosave: saveActiveForm,
 })
 const bus = useBusResize({ scheduleSnapshot })
 
@@ -432,12 +436,12 @@ onMounted(async () => {
     if (cell.isLink && cell.isLink()) cell.toBack()
   })
 
-  // Прокидываем graph/paper в composable ДО tryRestoreAutosave — composable'ы
+  // Прокидываем graph/paper в composable ДО restoreProject — composable'ы
   // useAutosave / useUndoRedo читают их через canvas.graphRef.value.
   canvas.setCanvasRefs(graph, paper)
 
-  // ─── Restore из localStorage если есть автосейв ───
-  const restored = tryRestoreAutosave()
+  // ─── Restore проекта из IndexedDB (активная форма → граф) ───
+  const restored = await restoreProject()
 
   // ─── History: snapshot на «стабильных» событиях ───
   // Только pointerup (после действия) + add/remove. На 'change' JointJS шлёт
@@ -465,6 +469,8 @@ onMounted(async () => {
   // Регистрируем функции импорта/экспорта чтобы ProjectActions мог их триггерить
   canvas.setImportFromSvgFn(importFromSvgText)
   canvas.setExportFn(onExport)
+  // Переключение формы — панель форм дёргает через canvas.selectForm.
+  canvas.setSelectFormFn(selectForm)
 
   // Сообщаем о восстановлении уже после монтирования (toast service готов)
   if (restored > 0) {
@@ -755,6 +761,7 @@ onBeforeUnmount(() => {
   canvas.clearCanvasRefs()
   canvas.setImportFromSvgFn(null)
   canvas.setExportFn(null)
+  canvas.setSelectFormFn(null)
   paper?.remove()
   paper = null
   graph = null
@@ -1239,8 +1246,8 @@ function onClearCanvas(event) {
   if (!graph) return
   const count = graph.getElements().length + graph.getLinks().length
   if (count === 0) {
-    // Уже пусто — на всякий случай вытираем autosave и выходим
-    clearAutosave()
+    // Уже пусто — на всякий случай вытираем сейв активной формы и выходим
+    clearActiveForm()
     return
   }
   confirm.require({
@@ -1261,7 +1268,7 @@ function performClearCanvas(count) {
     graph.clear()
     canvas.bumpVersion()
   })
-  clearAutosave()
+  clearActiveForm()
   // Сбрасываем history до текущего пустого состояния
   initHistory()
   canvas.clearSelection()
@@ -1271,6 +1278,27 @@ function performClearCanvas(count) {
     `Удалено ${nplural(count, 'элемент', 'элемента', 'элементов')}`,
     TOAST_LIFE.SHORT
   )
+}
+
+/**
+ * Переключение активной формы (зовётся панелью форм через canvas.selectForm).
+ * Сохраняем текущую форму (старый activeFormId ещё в сторе) → переключаем
+ * указатель + мету → грузим выбранную в граф → сбрасываем undo под новую форму.
+ */
+async function selectForm(id) {
+  if (!graph || !paper || id === workspace.activeFormId) return
+  await saveActiveForm()
+  workspace.setActiveFormId(id)
+  await persistMeta()
+  cancelPendingSnapshot()
+  const json = workspace.getFormGraph(id) || { cells: [] }
+  withRestoreGuard(restoringHistory, () => {
+    graph.fromJSON(json)
+    reinjectAllStencils(graph, paper)
+    canvas.bumpVersion()
+  })
+  initHistory()
+  canvas.clearSelection()
 }
 
 // ─── Inline-кнопки overlay'я выделенной ячейки ───
@@ -1551,7 +1579,7 @@ function performImportFromSvgText(svgText, sourceLabel = 'SVG') {
   // History начинается с восстановленного состояния — undo не должен «возвращать» к старому
   initHistory()
   canvas.clearSelection()
-  saveAutosave()
+  saveActiveForm()
 
   const cellsAdded = graph.getElements().length
   const linksAdded = graph.getLinks().length
