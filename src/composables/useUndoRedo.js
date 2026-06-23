@@ -111,8 +111,8 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
     return ok
   }
 
-  /** Снимает pending-snapshot (для performClearCanvas / performImportFromSvgText
-   * чтобы отложенный таймер не задвоил пустое/новое состояние). */
+  /** Снимает pending-snapshot (для performClearCanvas / переключения форм /
+   * импорта — чтобы отложенный таймер не задвоил пустое/новое состояние). */
   function cancelPendingSnapshot() {
     clearTimeout(snapshotTimer)
     snapshotTimer = null

@@ -219,5 +219,5 @@ export function useSimulation() {
     if (simulating.value) clearSimClasses()
   })
 
-  return { simulating, toggleSimulation }
+  return { simulating, toggleSimulation, stopSimulation }
 }

@@ -20,6 +20,22 @@ const savedAgo = computed(() => {
   const mins = Math.floor(diff / 60)
   return `${mins} мин назад`
 })
+
+// Приоритет состояний: ошибка записи > свежий save-flash > idle.
+const saveStateClass = computed(() =>
+  canvas.saveError.value
+    ? 'text-red-600'
+    : canvas.recentlySaved.value
+      ? 'text-primary-600'
+      : 'text-surface-400'
+)
+const saveStateIcon = computed(() =>
+  canvas.saveError.value
+    ? 'pi-exclamation-triangle'
+    : canvas.recentlySaved.value
+      ? 'pi-check-circle'
+      : 'pi-save'
+)
 </script>
 
 <template>
@@ -28,17 +44,14 @@ const savedAgo = computed(() => {
   >
     <!-- LEFT: file state — save-индикатор. Click → force-save (= экспорт). -->
     <button
-      v-tooltip.top="'Сохранить · Ctrl+S'"
+      v-tooltip.top="'Экспортировать проект · Ctrl+S'"
       type="button"
       class="flex items-center gap-1 transition-colors hover:text-surface-700"
-      :class="canvas.recentlySaved.value ? 'text-primary-600' : 'text-surface-400'"
-      @click="canvas.exportProject"
+      :class="saveStateClass"
+      @click="canvas.exportProjectToFolder"
     >
-      <i
-        class="pi text-[10px]"
-        :class="canvas.recentlySaved.value ? 'pi-check-circle' : 'pi-save'"
-      />
-      <span class="text-[11px]">{{ savedAgo }}</span>
+      <i class="pi text-[10px]" :class="saveStateIcon" />
+      <span class="text-[11px]">{{ canvas.saveError.value ? 'не сохранено' : savedAgo }}</span>
     </button>
 
     <!-- RIGHT: help. -->

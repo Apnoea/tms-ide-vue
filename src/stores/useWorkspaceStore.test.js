@@ -3,20 +3,17 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useWorkspaceStore } from './useWorkspaceStore'
 
 const sample = () => [
-  { id: 'a', name: 'a', graphJson: { cells: [{ id: 'x' }] } },
-  { id: 'b', name: 'b', graphJson: { cells: [] } },
+  { id: 'a', graphJson: { cells: [{ id: 'x' }] } },
+  { id: 'b', graphJson: { cells: [] } },
 ]
 
 describe('useWorkspaceStore', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it('loadForms наполняет список и активную', () => {
+  it('loadForms наполняет список id и активную', () => {
     const ws = useWorkspaceStore()
     ws.loadForms(sample(), 'b')
-    expect(ws.formList).toEqual([
-      { id: 'a', name: 'a' },
-      { id: 'b', name: 'b' },
-    ])
+    expect(ws.formIds).toEqual(['a', 'b'])
     expect(ws.activeFormId).toBe('b')
   })
 

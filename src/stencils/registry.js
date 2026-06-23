@@ -138,6 +138,11 @@ const registry = (() => {
     // svgText в validate'е — для cross-check idSuffix ↔ data-anim-suffix.
     for (const issue of validateStencilJson(path, json, svgText)) console.warn(issue)
 
+    // Два стенсила с одинаковым id — второй молча затёр бы первый. Сигналим.
+    if (out.has(json.id)) {
+      console.warn(`[stencils] Дубль id "${json.id}" (${path}) — предыдущее определение перетёрто`)
+    }
+
     out.set(json.id, {
       ...json,
       svgText: svgText || '',
@@ -153,6 +158,18 @@ export function getAllStencils() {
 
 export function getStencilById(id) {
   return registry.get(id)
+}
+
+/**
+ * Регистрирует стенсил в рантайме (минуя Vite-glob). Нужно при импорте проекта:
+ * бандл-стенсилы из library/ должны попасть в реестр ДО parseSvgProject, иначе
+ * их ячейки выкинутся как «нераспознанные». Запись файлов в definitions/ + reload
+ * делают регистрацию персистентной (после reload их подхватит glob). Транзитная
+ * запись живёт только до reload — дублей id не плодит.
+ */
+export function registerStencil(json, svgText) {
+  if (!json?.id) return
+  registry.set(json.id, { ...json, svgText: svgText || '' })
 }
 
 // Категория «Текст и значения» закреплена ПЕРВОЙ независимо от алфавита: это

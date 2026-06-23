@@ -11,24 +11,32 @@ import { ATTR_META } from '../constants/ids'
  * Парсит SVG-текст и возвращает массив JointJS-cells (включая links),
  * готовый для graph.fromJSON.
  *
- * Возвращает { ok, cells, errors }.
- *  - ok: общий success-флаг (true если хоть что-то распарсилось)
+ * Возвращает { ok, cells, errors, stencilIds }.
+ *  - ok: SVG успешно распарсился. Пустая форма (0 ячеек) — это ok=true: пустая
+ *    схема ≠ битый файл, импорт обязан сохранить её (заготовка / цель навигации).
+ *    ok=false только при реальном сбое парсинга (пустой ввод / parse error).
  *  - cells: массив JointJS-совместимых cell-JSON
  *  - errors: массив warning-строк (для toast'а пользователю)
+ *  - stencilIds: все stencilId, встреченные в meta (включая выкинутые из-за
+ *    незарегистрированного стенсила) — для подсчёта недостающих стенсилов
  */
 export function parseSvgProject(svgText) {
+  if (!svgText || !svgText.trim()) {
+    return { ok: false, cells: [], errors: ['Пустой SVG'], stencilIds: [] }
+  }
   let doc
   try {
     doc = new DOMParser().parseFromString(svgText, 'image/svg+xml')
   } catch (e) {
-    return { ok: false, cells: [], errors: [`SVG не распарсился: ${e.message}`] }
+    return { ok: false, cells: [], errors: [`SVG не распарсился: ${e.message}`], stencilIds: [] }
   }
   if (doc.getElementsByTagName('parsererror').length > 0) {
-    return { ok: false, cells: [], errors: ['SVG не распарсился (parse error)'] }
+    return { ok: false, cells: [], errors: ['SVG не распарсился (parse error)'], stencilIds: [] }
   }
 
   const cells = []
   const errors = []
+  const stencilIds = new Set()
 
   // ─── Ячейки: <g> с data-tms-meta ───
   for (const g of doc.querySelectorAll(`g[${ATTR_META}]`)) {
@@ -49,6 +57,7 @@ export function parseSvgProject(svgText) {
       const x = parseFloat(m[1])
       const y = parseFloat(m[2])
 
+      stencilIds.add(meta.stencilId)
       const stencil = getStencilById(meta.stencilId)
       if (!stencil) {
         errors.push(`Стенсил "${meta.stencilId}" не зарегистрирован — пропускаю`)
@@ -121,5 +130,6 @@ export function parseSvgProject(svgText) {
     }
   }
 
-  return { ok: cells.length > 0, cells, errors }
+  // ok = SVG распарсился (см. docstring). Пустой cells — валидная пустая форма.
+  return { ok: true, cells, errors, stencilIds: [...stencilIds] }
 }

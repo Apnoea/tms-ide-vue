@@ -55,8 +55,8 @@ const sections = [
     title: 'Общее',
     items: [
       { keys: ['?'], keysAlt: ['F1'], desc: 'Эта справка' },
-      { keys: ['Ctrl', 'O'], desc: 'Открыть проект из SVG' },
-      { keys: ['Ctrl', 'S'], desc: 'Сохранить (view.svg + animations.json)' },
+      { keys: ['Ctrl', 'O'], desc: 'Открыть проект (папку)' },
+      { keys: ['Ctrl', 'S'], desc: 'Экспортировать проект (папку)' },
       { keys: ['Ctrl', 'C'], desc: 'Скопировать выделенные ячейки' },
       { keys: ['Ctrl', 'V'], desc: 'Вставить из буфера (со сдвигом)' },
       { keys: ['Ctrl', 'D'], desc: 'Дублировать выделение' },

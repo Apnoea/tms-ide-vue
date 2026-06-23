@@ -435,6 +435,11 @@ export function injectStencilSvg(cellView, stencil) {
  *
  * Angle хранится в `cell.angle()` и JointJS сам применяет его на outer-`<g>`
  * через transform — отдельно тут восстанавливать не нужно.
+ *
+ * Линки уводим назад (`toBack`): `fromJSON` шлёт `reset`, а не `add`, поэтому
+ * add-хендлер с `toBack` не срабатывает. У импортированных проектов z-порядка
+ * нет (parser его не пишет) → без этого провода рисуются поверх ячеек/портов и
+ * ломают интерактив. Для in-app графов z уже верный — повтор безвреден.
  */
 export function reinjectAllStencils(graph, paper) {
   if (!graph || !paper) return
@@ -446,4 +451,5 @@ export function reinjectAllStencils(graph, paper) {
     const cellView = paper.findViewByModel(cell)
     if (cellView) injectStencilSvg(cellView, stencil)
   }
+  for (const link of graph.getLinks()) link.toBack()
 }

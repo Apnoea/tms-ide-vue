@@ -22,8 +22,8 @@ const { tags, tagListHandle } = storeToRefs(project)
 
 const IDB_HANDLE_KEY = 'tagListHandle'
 
-// Ref на кнопку «Открыть» — target для ConfirmPopup.
-const openBtnRef = ref(null)
+// Ref на кнопку «Открыть проект» — target для ConfirmPopup.
+const openProjectBtnRef = ref(null)
 
 async function loadParsedTagsFromHandle(handle) {
   const perm = await handle.queryPermission?.({ mode: 'read' })
@@ -44,24 +44,26 @@ async function loadParsedTagsFromHandle(handle) {
     notify.warn('Tag-list', 'Файл пуст или не содержит валидных тегов')
     return null
   }
-  return parsed
+  return { parsed, content }
 }
 
 async function pickTagList() {
   try {
     const fileHandle = await fs.selectFile(ui.lastTagListPickerStartIn)
     if (!fileHandle) return
-    const parsed = await loadParsedTagsFromHandle(fileHandle)
-    if (!parsed) return
+    const loaded = await loadParsedTagsFromHandle(fileHandle)
+    if (!loaded) return
 
-    project.setTags(parsed)
+    project.setTags(loaded.parsed)
     project.setTagListHandle(fileHandle)
     await idbSet(IDB_HANDLE_KEY, fileHandle)
+    // Сырой текст — с проектом (бандл на экспорте + переживает reload).
+    await idbSet('project:tags', loaded.content)
     ui.setLastTagListPickerStartIn(fileHandle)
 
     notify.success(
       'Tag-list загружен',
-      `${nplural(parsed.length, 'тег', 'тега', 'тегов')} из ${fileHandle.name}`,
+      `${nplural(loaded.parsed.length, 'тег', 'тега', 'тегов')} из ${fileHandle.name}`,
       TOAST_LIFE.NORMAL
     )
   } catch (e) {
@@ -74,6 +76,7 @@ async function pickTagList() {
 function unloadTagList() {
   project.clearTagList()
   idbDel(IDB_HANDLE_KEY)
+  idbDel('project:tags') // иначе теги «вернутся» из проекта на следующем restore
   notify.info('Tag-list сброшен', 'Привязки на холсте сохранены, но выбрать новые теги пока нельзя')
 }
 
@@ -110,9 +113,9 @@ async function tryRestoreTagListHandle() {
   }
 }
 
-// Кастомное событие из CanvasPane (Ctrl+O хоткей) → openProjectSvg.
+// Кастомное событие из CanvasPane (Ctrl+O хоткей) → импорт проекта.
 // useEventListener авто-снимает на unmount.
-useEventListener(window, 'tms-open-project', () => openProjectSvg())
+useEventListener(window, 'tms-open-project', () => openProjectFolder())
 
 onMounted(() => {
   tryRestoreTagListHandle()
@@ -124,13 +127,16 @@ watch(
   () => pickTagList()
 )
 
-async function openProjectSvg() {
+// Импорт проекта-папки (формы + библиотека). Подтверждаем замену текущей
+// работы; picker открывается внутри accept-клика (свежая user-activation для
+// FSA). Оркестрация — в CanvasPane.importProject.
+async function openProjectFolder() {
   const hasContent = canvas.cellsCount.value + canvas.linksCount.value > 0
   if (hasContent) {
     const accepted = await new Promise((resolve) => {
       confirm.require({
-        target: openBtnRef.value?.$el ?? null,
-        message: 'Открыть проект? Текущая работа на холсте будет заменена.',
+        target: openProjectBtnRef.value?.$el ?? null,
+        message: 'Открыть проект? Текущая работа будет заменена.',
         icon: 'pi pi-exclamation-triangle',
         acceptLabel: 'Открыть',
         rejectLabel: 'Отмена',
@@ -143,43 +149,12 @@ async function openProjectSvg() {
     })
     if (!accepted) return
   }
-
   try {
-    let svgText = null
-    let fileName = 'SVG'
-
-    if (typeof window !== 'undefined' && window.showOpenFilePicker) {
-      const handle = await fs.selectFile(null, [
-        { description: 'SVG-проект', accept: { 'image/svg+xml': ['.svg'] } },
-      ])
-      if (!handle) return
-      const file = await handle.getFile()
-      svgText = await file.text()
-      fileName = handle.name
-    } else {
-      svgText = await new Promise((resolve) => {
-        const input = document.createElement('input')
-        input.type = 'file'
-        input.accept = '.svg,image/svg+xml'
-        input.onchange = async () => {
-          const f = input.files?.[0]
-          if (!f) return resolve(null)
-          fileName = f.name
-          resolve(await f.text())
-        }
-        // Отмена диалога не триггерит onchange — без oncancel промис висел бы
-        // вечно, и внешний try/finally (loading-state) не отработал бы.
-        input.oncancel = () => resolve(null)
-        input.click()
-      })
-      if (!svgText) return
-    }
-
-    await canvas.importFromSvg(svgText, fileName)
+    await canvas.importProject()
   } catch (e) {
     if (e.name === 'AbortError') return
-    console.error('[ProjectActions] Ошибка загрузки SVG-проекта:', e)
-    notify.error('Ошибка загрузки', e.message || String(e))
+    console.error('[ProjectActions] Ошибка импорта проекта:', e)
+    notify.error('Ошибка импорта проекта', e.message || String(e))
   }
 }
 
@@ -187,14 +162,15 @@ async function refreshTagList() {
   const handle = tagListHandle.value
   if (!handle) return
   try {
-    const parsed = await loadParsedTagsFromHandle(handle)
-    if (!parsed) return
+    const loaded = await loadParsedTagsFromHandle(handle)
+    if (!loaded) return
     const before = tags.value.length
-    project.setTags(parsed)
-    const diff = parsed.length - before
+    project.setTags(loaded.parsed)
+    await idbSet('project:tags', loaded.content)
+    const diff = loaded.parsed.length - before
     notify.success(
       'Tag-list обновлён',
-      `${nplural(parsed.length, 'тег', 'тега', 'тегов')}${diff !== 0 ? ` (${diff > 0 ? '+' : ''}${diff})` : ''}`,
+      `${nplural(loaded.parsed.length, 'тег', 'тега', 'тегов')}${diff !== 0 ? ` (${diff > 0 ? '+' : ''}${diff})` : ''}`,
       TOAST_LIFE.NORMAL
     )
   } catch (e) {
@@ -207,21 +183,21 @@ async function refreshTagList() {
 <template>
   <div class="flex items-center gap-1">
     <Button
-      ref="openBtnRef"
-      v-tooltip.bottom="'Открыть · Ctrl+O'"
+      ref="openProjectBtnRef"
+      v-tooltip.bottom="'Открыть проект · Ctrl+O'"
       icon="pi pi-folder-open"
       severity="secondary"
       text
       size="small"
-      @click="openProjectSvg"
+      @click="openProjectFolder"
     />
     <Button
-      v-tooltip.bottom="'Сохранить · Ctrl+S'"
+      v-tooltip.bottom="'Экспортировать проект · Ctrl+S'"
       icon="pi pi-download"
       severity="secondary"
       text
       size="small"
-      @click="canvas.exportProject"
+      @click="canvas.exportProjectToFolder"
     />
 
     <span class="text-surface-300 mx-1">|</span>

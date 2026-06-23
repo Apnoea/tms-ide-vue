@@ -43,6 +43,11 @@ export async function idbGet(key) {
   }
 }
 
+/**
+ * Пишет значение. Возвращает true при успехе, false при ошибке (квота /
+ * приватный режим). НЕ бросает — fire-and-forget вызовы не ломаются, а кому
+ * важен результат (autosave-индикатор), проверяет флаг и не врёт «сохранено».
+ */
 export async function idbSet(key, value) {
   try {
     const db = await openDB()
@@ -55,8 +60,9 @@ export async function idbSet(key, value) {
       // обработчика промис висит вечно.
       tx.onabort = () => reject(tx.error)
     })
+    return true
   } catch {
-    /* ignore — quota / private mode */
+    return false // quota / private mode
   }
 }
 

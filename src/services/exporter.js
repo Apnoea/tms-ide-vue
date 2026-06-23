@@ -87,7 +87,7 @@ function buildVoltageCard(vs) {
         when: {
           source: 'value',
           type: 'range',
-          cases: vs.ranges.map((r) => ({
+          cases: (vs.ranges || []).map((r) => ({
             min: r.min,
             max: r.max,
             apply: { addClass: r.class },
@@ -240,8 +240,10 @@ function assignOrMergeAnimation(animations, key, card) {
   }
 }
 
-// outerKey/innerPrefix — в constants/ids.js, единственный источник правды для
-// id-формата (используется и парсером, и симуляцией).
+// Алиасы под импортами outerKey/innerPrefix (constants/ids.js — единый источник
+// id-формата). Нужны из-за шадовинга: ниже в нескольких блоках объявляется
+// локальная `const outerKey = …`, которая перекрыла бы импорт — зовём функцию
+// через *For-алиас, не конфликтуя с локальной переменной.
 const outerKeyFor = outerKey
 const innerPrefixFor = innerPrefix
 
@@ -273,8 +275,8 @@ function mergeBindingsIntoStencilCards(animations, stencilId, animId, exceptKey,
  *
  * @param {dia.Graph} graph
  * @param {dia.Paper} [paper] — если передан, в SVG для линий пишутся РЕАЛЬНЫЕ
- *   ортогональные пути (manhattan-router), как видно на холсте.
- *   Без paper — линии экспортируются как прямые `<line>`.
+ *   ортогональные пути (rightAngle-роутер), как видно на холсте.
+ *   Без paper — линии экспортируются как прямые (fallback, см. ниже).
  * @returns {{
  *   svgText: string, animationsJson: string, animations: object,
  *   count: number, linkCount: number, warnings: string[]
@@ -410,7 +412,7 @@ export function exportProject(graph, paper = null) {
     let pathD = null
 
     // Если есть paper — забираем реальный путь, как он отрисовался на холсте
-    // (с учётом manhattan-роутинга и обходов ячеек). JointJS 4 standard.Link
+    // (с учётом rightAngle-роутинга и изломов). JointJS 4 standard.Link
     // имеет два <path> — wrapper (хитбокс) и line (видимая линия), оба с
     // одинаковым `d`. Берём именно line по `joint-selector="line"` — контракт,
     // не «по совпадению» (querySelector('path') вернул бы wrapper).
@@ -523,7 +525,10 @@ export function exportProject(graph, paper = null) {
   // Не-multi shape-источники. voltage (range → класс) + switch (плоский список,
   // любой false → серый). needsMulti-цели пропускаем — их эффекты уже в multi.
   const shapeSources = [
-    { has: (s) => !!s.voltageSource?.tag, build: (s) => buildVoltageCard(s.voltageSource) },
+    {
+      has: (s) => !!s.voltageSource?.tag && s.voltageSource.ranges?.length > 0,
+      build: (s) => buildVoltageCard(s.voltageSource),
+    },
     {
       has: (s) => switchSourceTags(s.switchSources).length > 0,
       build: (s) => buildSwitchCard(switchSourceTags(s.switchSources)),
@@ -588,7 +593,7 @@ export function exportProject(graph, paper = null) {
   // карточки внешней обёртки. У cell_value detailTags ставится на text-карточку
   // (`animation-{valueTag}`) — рантайм-конвенция (text-handler находит элемент
   // по id равному тегу). Для всех остальных собираем все привязанные теги
-  // (slots, voltageSource.tag, switchSources.tags) и кладём на outer-карточку
+  // (slots, voltageSource.tag, switchSources) и кладём на outer-карточку
   // (см. outerKeyFor) / wire.
   function attachDetailTags(key, tags) {
     if (!tags.length) return
@@ -695,13 +700,14 @@ export function exportProject(graph, paper = null) {
     })
     .join('\n')
 
+  const serializer = new XMLSerializer()
   const groups = cellExports
     .map((c) => {
       const doc = new DOMParser().parseFromString(c.svgContent, 'image/svg+xml')
       const sourceRoot = doc.documentElement
       let inner = ''
       for (const child of Array.from(sourceRoot.children)) {
-        inner += new XMLSerializer().serializeToString(child)
+        inner += serializer.serializeToString(child)
       }
       const meta = {
         id: c.cellId,
@@ -781,19 +787,4 @@ ${groups}
     linkCount: linkExports.length,
     warnings,
   }
-}
-
-/**
- * Создаёт blob и триггерит download через временный <a download>.
- */
-export function downloadFile(filename, content, mimeType = 'text/plain') {
-  const blob = new Blob([content], { type: mimeType })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
 }

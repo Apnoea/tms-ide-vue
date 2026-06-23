@@ -6,13 +6,18 @@ import { parseSvgProject } from './projectLoader'
 // (включая links) пригодную для graph.fromJSON.
 
 describe('parseSvgProject', () => {
-  it('возвращает ok=false на пустом / битом SVG', () => {
-    const empty = parseSvgProject('')
-    expect(empty.ok).toBe(false)
+  it('возвращает ok=false на пустом вводе', () => {
+    expect(parseSvgProject('').ok).toBe(false)
+    expect(parseSvgProject('   ').ok).toBe(false)
+    expect(parseSvgProject(null).ok).toBe(false)
+  })
 
-    const noMeta = parseSvgProject('<svg xmlns="http://www.w3.org/2000/svg"><g/></svg>')
-    expect(noMeta.ok).toBe(false)
-    expect(noMeta.cells).toEqual([])
+  it('валидный SVG без tms-элементов → ok=true, cells пустой (пустая форма ≠ битая)', () => {
+    // Пустая схема — заготовка / цель навигации; импорт обязан её сохранить,
+    // иначе ссылки tms.navigation на эту форму ломаются.
+    const out = parseSvgProject('<svg xmlns="http://www.w3.org/2000/svg"><g/></svg>')
+    expect(out.ok).toBe(true)
+    expect(out.cells).toEqual([])
   })
 
   it('парсит cell_qw с минимальной meta (slot-based)', () => {
@@ -40,7 +45,7 @@ describe('parseSvgProject', () => {
     expect(cell.tms.slots).toEqual({ onoff: 'PS031VK001.ONOFF' })
   })
 
-  it('подтягивает дополнительные tms-поля (text, fontSize, valueTag, voltageSource)', () => {
+  it('подтягивает tms-поля cell_text (text, fontSize, bold)', () => {
     const meta = {
       id: 'c1',
       stencilId: 'cell_text',
@@ -58,6 +63,50 @@ describe('parseSvgProject', () => {
     expect(cell.tms.text).toBe('Hello')
     expect(cell.tms.fontSize).toBe(20)
     expect(cell.tms.bold).toBe(true)
+  })
+
+  it('round-trip angle/navigation/switchSources/voltageSource на ячейке', () => {
+    const meta = {
+      id: 'c1',
+      stencilId: 'cell_qw',
+      width: 20,
+      height: 20,
+      angle: 90,
+      navigation: 'view_other',
+      switchSources: { or: ['A.ONOFF'], and: ['B.ONOFF'] },
+      voltageSource: { tag: 'V.U', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
+    }
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      <g transform="translate(0,0)" data-tms-meta='${JSON.stringify(meta).replace(/"/g, '&quot;')}'/>
+    </svg>`
+    const cell = parseSvgProject(svg).cells[0]
+    expect(cell.angle).toBe(90)
+    expect(cell.tms.navigation).toBe('view_other')
+    expect(cell.tms.switchSources).toEqual({ or: ['A.ONOFF'], and: ['B.ONOFF'] })
+    expect(cell.tms.voltageSource).toEqual({
+      tag: 'V.U',
+      ranges: [{ min: 0, max: 5, class: 'animation-low' }],
+    })
+  })
+
+  it('round-trip vertices/switchSources на проводе', () => {
+    const verts = [
+      { x: 20, y: 0 },
+      { x: 20, y: 40 },
+    ]
+    const meta = {
+      id: 'link-1',
+      source: { id: 'a', port: 'right' },
+      target: { id: 'b', port: 'left' },
+      vertices: verts,
+      switchSources: { or: [], and: ['S.ONOFF'] },
+    }
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      <path d="M 0,0 L 10,10" data-tms-meta='${JSON.stringify(meta).replace(/"/g, '&quot;')}'/>
+    </svg>`
+    const link = parseSvgProject(svg).cells[0]
+    expect(link.vertices).toEqual(verts)
+    expect(link.tms.switchSources).toEqual({ or: [], and: ['S.ONOFF'] })
   })
 
   it('парсит провод <path> с source/target', () => {
@@ -91,6 +140,9 @@ describe('parseSvgProject', () => {
     expect(out.cells).toEqual([])
     expect(out.errors.length).toBeGreaterThan(0)
     expect(out.errors[0]).toMatch(/cell_nonexistent/)
+    // stencilId выкинутой ячейки всё равно попадает в stencilIds — иначе импорт
+    // не смог бы предупредить о недостающем стенсиле.
+    expect(out.stencilIds).toContain('cell_nonexistent')
   })
 
   it('пропускает провод без source/target — пишет в errors', () => {

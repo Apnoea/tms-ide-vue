@@ -21,6 +21,7 @@ vi.mock('../utils/idb', () => ({
   idbGet: vi.fn(async (k) => idbStore.get(k)),
   idbSet: vi.fn(async (k, v) => {
     idbStore.set(k, v)
+    return true
   }),
   idbDel: vi.fn(async (k) => {
     idbStore.delete(k)
@@ -30,11 +31,13 @@ vi.mock('../utils/idb', () => ({
 const mockCanvas = makeMockCanvas({
   setRecentlySaved: vi.fn(),
   setLastSavedAt: vi.fn(),
+  setSaveError: vi.fn(),
   bumpVersion: vi.fn(),
 })
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
 import { useAutosave } from './useAutosave'
+import { idbSet } from '../utils/idb'
 
 const META_KEY = 'project:meta'
 const formKey = (id) => `project:form:${id}`
@@ -60,6 +63,7 @@ describe('useAutosave', () => {
     mockCanvas.paperRef.value = { id: 'paper' }
     mockCanvas.setRecentlySaved.mockClear()
     mockCanvas.setLastSavedAt.mockClear()
+    mockCanvas.setSaveError.mockClear()
     mockCanvas.bumpVersion.mockClear()
   })
 
@@ -75,10 +79,7 @@ describe('useAutosave', () => {
 
   describe('saveActiveForm', () => {
     function seedActiveForm() {
-      useWorkspaceStore().loadForms(
-        [{ id: 'main', name: 'main', graphJson: { cells: [] } }],
-        'main'
-      )
+      useWorkspaceStore().loadForms([{ id: 'main', graphJson: { cells: [] } }], 'main')
     }
 
     it('пишет graph.toJSON() в IndexedDB под ключом активной формы', async () => {
@@ -90,6 +91,16 @@ describe('useAutosave', () => {
       expect(idbStore.get(formKey('main'))).toEqual({ cells: [{ id: 'c1' }] })
       expect(graph.toJSON).toHaveBeenCalledOnce()
       expect(mockCanvas.setRecentlySaved).toHaveBeenCalledWith(true)
+    })
+
+    it('запись в IndexedDB упала → setSaveError(true), НЕ врёт «сохранено»', async () => {
+      seedActiveForm()
+      mockCanvas.graphRef.value = makeMockGraph([{ id: 'c1' }])
+      idbSet.mockResolvedValueOnce(false) // квота / приватный режим
+      const { saveActiveForm } = setup()
+      await saveActiveForm()
+      expect(mockCanvas.setSaveError).toHaveBeenCalledWith(true)
+      expect(mockCanvas.setRecentlySaved).not.toHaveBeenCalled()
     })
 
     it('no-op при restoringHistory=true', async () => {
@@ -167,8 +178,8 @@ describe('useAutosave', () => {
     it('пишет порядок форм и активную в project:meta', async () => {
       useWorkspaceStore().loadForms(
         [
-          { id: 'a', name: 'a', graphJson: { cells: [] } },
-          { id: 'b', name: 'b', graphJson: { cells: [] } },
+          { id: 'a', graphJson: { cells: [] } },
+          { id: 'b', graphJson: { cells: [] } },
         ],
         'b'
       )
@@ -180,13 +191,50 @@ describe('useAutosave', () => {
 
   describe('clearActiveForm', () => {
     it('обнуляет граф активной формы в IndexedDB', async () => {
-      useWorkspaceStore().loadForms(
-        [{ id: 'main', name: 'main', graphJson: { cells: [{ id: 'c1' }] } }],
-        'main'
-      )
+      useWorkspaceStore().loadForms([{ id: 'main', graphJson: { cells: [{ id: 'c1' }] } }], 'main')
       const { clearActiveForm } = setup()
       await clearActiveForm()
       expect(idbStore.get(formKey('main'))).toEqual({ cells: [] })
+    })
+  })
+
+  describe('replaceProject', () => {
+    it('пишет формы + мету + теги в IDB и грузит стор (активна первая)', async () => {
+      const { replaceProject } = setup()
+      await replaceProject(
+        [
+          { id: 'a', graphJson: { cells: [{ id: 'x' }] } },
+          { id: 'b', graphJson: { cells: [] } },
+        ],
+        'TAG1;Bool'
+      )
+      expect(idbStore.get(formKey('a'))).toEqual({ cells: [{ id: 'x' }] })
+      expect(idbStore.get(META_KEY)).toEqual({ formIds: ['a', 'b'], activeFormId: 'a' })
+      expect(idbStore.get('project:tags')).toBe('TAG1;Bool')
+      expect(useWorkspaceStore().activeFormId).toBe('a')
+    })
+
+    it('возвращает true при полной записи', async () => {
+      const { replaceProject } = setup()
+      const ok = await replaceProject([{ id: 'a', graphJson: { cells: [] } }], null)
+      expect(ok).toBe(true)
+      expect(mockCanvas.setSaveError).not.toHaveBeenCalled()
+    })
+
+    it('запись формы упала (квота) → false + setSaveError, стор всё равно загружен', async () => {
+      idbSet.mockResolvedValueOnce(false) // первая форма не записалась
+      const { replaceProject } = setup()
+      const ok = await replaceProject(
+        [
+          { id: 'a', graphJson: { cells: [] } },
+          { id: 'b', graphJson: { cells: [] } },
+        ],
+        null
+      )
+      expect(ok).toBe(false)
+      expect(mockCanvas.setSaveError).toHaveBeenCalledWith(true)
+      // Стор грузится для рабочей сессии несмотря на неполный IDB.
+      expect(useWorkspaceStore().activeFormId).toBe('a')
     })
   })
 })

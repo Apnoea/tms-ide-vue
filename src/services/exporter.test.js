@@ -163,6 +163,31 @@ describe('exportProject', () => {
     expect(vkBindings.some((b) => b.tag === 'PS031.UA')).toBe(true)
   })
 
+  it('voltageSource с tag но без ranges → не падает, voltage-карточка не создаётся', () => {
+    const graph = mockGraph([
+      mockCell({ id: 'c1', stencilId: 'cell_bus', w: 80, h: 8, voltageSource: { tag: 'X' } }),
+    ])
+    // Главное — экспорт не бросает TypeError на vs.ranges.map.
+    const anims = exportProject(graph).animations.animations
+    // Без ranges range-биндинга нет (карточка либо отсутствует, либо без voltage-tag).
+    const card = anims['animation-cell_bus-c1']
+    expect(card?.bindings?.some((b) => b.tag === 'X')).not.toBe(true)
+  })
+
+  it('voltageSource с пустым ranges → не падает, voltage-карточка не создаётся', () => {
+    const graph = mockGraph([
+      mockCell({
+        id: 'c1',
+        stencilId: 'cell_bus',
+        w: 80,
+        h: 8,
+        voltageSource: { tag: 'X', ranges: [] },
+      }),
+    ])
+    const anims = exportProject(graph).animations.animations
+    expect(anims['animation-cell_bus-c1']?.bindings?.some((b) => b.tag === 'X')).not.toBe(true)
+  })
+
   it('cell_qw: slot.onoff + switchSources родителей → N+1 независимых биндингов', () => {
     // Типичный кейс: свой выключатель + общий по ПС + секционный. Все три тега
     // независимы; любой false → ячейка серая (AND через несколько биндингов).
@@ -171,7 +196,7 @@ describe('exportProject', () => {
         id: 'c1',
         stencilId: 'cell_qw',
         slots: { onoff: 'LOCAL.ONOFF' },
-        switchSources: { tags: ['ОБЩИЙ.ONOFF', 'SECTION.ONOFF'] },
+        switchSources: { and: ['ОБЩИЙ.ONOFF', 'SECTION.ONOFF'] },
       }),
     ])
     const anims = exportProject(graph).animations.animations
@@ -203,7 +228,7 @@ describe('exportProject', () => {
       id: 'l1',
       source: { id: 'a', port: 'right' },
       target: { id: 'b', port: 'left' },
-      tms: { switchSources: { tags: ['PS031VK001.ONOFF'] } },
+      tms: { switchSources: { and: ['PS031VK001.ONOFF'] } },
     })
     const graph = mockGraph([cellA, cellB], [link])
     const anims = exportProject(graph).animations.animations
@@ -287,21 +312,6 @@ describe('exportProject', () => {
     const card = exportProject(graph).animations.animations['animation-cell_bus-b1']
     expect(card.animation).toBe('shape')
     expect(card.bindings).toHaveLength(2)
-  })
-
-  it('switchSources legacy {tags} (без or/and) → shape (backward-compat = AND)', () => {
-    const graph = mockGraph([
-      mockCell({
-        id: 'b1',
-        stencilId: 'cell_bus',
-        w: 80,
-        h: 8,
-        switchSources: { tags: ['A', 'B'] },
-      }),
-    ])
-    const card = exportProject(graph).animations.animations['animation-cell_bus-b1']
-    expect(card.animation).toBe('shape')
-    expect(card.bindings.map((b) => b.tag)).toEqual(['A', 'B'])
   })
 
   it('switchSources or/mixed на ПРОВОДЕ → wire-карточка multi (не плоский AND)', () => {
@@ -408,7 +418,7 @@ describe('exportProject', () => {
         id: 'c1',
         stencilId: 'cell_qk',
         slots: { onoff: 'LOCAL.ONOFF' },
-        switchSources: { tags: ['ОБЩИЙ.ONOFF'] },
+        switchSources: { and: ['ОБЩИЙ.ONOFF'] },
         voltageSource: {
           tag: 'PS031.UA',
           ranges: [{ min: 0, max: 5, class: 'animation-low' }],

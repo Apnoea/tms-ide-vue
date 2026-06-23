@@ -18,19 +18,19 @@ import { planWireBridge } from '../utils/wireSplice'
 const graphRef = shallowRef(null)
 const paperRef = shallowRef(null)
 
-// CanvasPane регистрирует свою функцию импорта SVG → граф через setImportFromSvgFn.
-// Внешним компонентам (ProjectActions) удобно дёргать importFromSvg(text) без знания
-// о деталях. Если CanvasPane не смонтирован — no-op.
-const importFromSvgFn = shallowRef(null)
-
-// Аналогично для экспорта — кнопка живёт в ProjectActions, но логика
-// (graph+paper + download) в CanvasPane.
-const exportFn = shallowRef(null)
-
 // Переключение формы: панель форм (сосед по layout) дёргает selectForm(id), а
 // оркестрацию (сохранить текущую → загрузить выбранную + сброс undo) держит
 // CanvasPane (ей доступны graph/paper/undo).
 const selectFormFn = shallowRef(null)
+
+// Импорт проекта (папка): кнопка в ProjectActions дёргает importProject, а
+// оркестрацию (read folder → формы в IDB → POST стенсилов → reload/apply)
+// держит CanvasPane.
+const importProjectFn = shallowRef(null)
+
+// Экспорт проекта (папка): кнопка в ProjectActions дёргает exportProjectToFolder,
+// оркестрацию (прогон форм через paper → бандл → FSA-запись) держит CanvasPane.
+const projectExportFn = shallowRef(null)
 
 const selection = ref([]) // Array<{ kind, id }>
 
@@ -48,8 +48,11 @@ const cursorLocal = ref(null)
 // Индикаторы для footer'а.
 // recentlySaved — короткий «flash» на 1.5 сек после сохранения (зелёная галочка).
 // lastSavedAt — timestamp последнего успешного autosave'а (для «N сек назад»).
+// saveError — последняя запись в IndexedDB упала (квота / приватный режим):
+// футер показывает «не сохранено», чтобы юзер не закрыл вкладку с потерей данных.
 const recentlySaved = ref(false)
 const lastSavedAt = ref(0)
+const saveError = ref(false)
 const canUndo = ref(false)
 const canRedo = ref(false)
 
@@ -65,7 +68,7 @@ const snapshotTick = ref(0)
 const slotPickRequest = ref(0)
 
 // Тег, по которому в данный момент подсвечены элементы. Матчит по любому
-// tag-полю (slots, voltageSource.tag, switchSources.tags, valueTag —
+// tag-полю (slots, voltageSource.tag, switchSources, valueTag —
 // см. cellHasTag), не только voltageSource. null = подсветки нет.
 // Кнопка «Подсветить на схеме» в VoltageSourceBlock / SwitchBlock
 // включает/выключает это значение через toggle: тот же тег второй раз
@@ -159,6 +162,7 @@ export function useCanvas() {
     linksCount,
     recentlySaved,
     lastSavedAt,
+    saveError,
     canUndo,
     canRedo,
     snapshotTick,
@@ -167,23 +171,23 @@ export function useCanvas() {
       graphRef.value = graph
       paperRef.value = paper
     },
-    setImportFromSvgFn(fn) {
-      importFromSvgFn.value = fn
-    },
-    importFromSvg(text, sourceLabel) {
-      return importFromSvgFn.value?.(text, sourceLabel) ?? false
-    },
-    setExportFn(fn) {
-      exportFn.value = fn
-    },
-    exportProject() {
-      return exportFn.value?.() ?? false
-    },
     setSelectFormFn(fn) {
       selectFormFn.value = fn
     },
     selectForm(id) {
       return selectFormFn.value?.(id)
+    },
+    setImportProjectFn(fn) {
+      importProjectFn.value = fn
+    },
+    importProject() {
+      return importProjectFn.value?.()
+    },
+    setProjectExportFn(fn) {
+      projectExportFn.value = fn
+    },
+    exportProjectToFolder() {
+      return projectExportFn.value?.()
     },
     clearCanvasRefs() {
       graphRef.value = null
@@ -287,6 +291,9 @@ export function useCanvas() {
     },
     setLastSavedAt(ts) {
       lastSavedAt.value = ts
+    },
+    setSaveError(value) {
+      saveError.value = value
     },
     slotPickRequest,
     requestSlotPick() {

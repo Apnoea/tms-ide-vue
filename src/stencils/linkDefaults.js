@@ -26,7 +26,7 @@ export function gridRightAngleRouter(vertices, args, linkView) {
 export const LINK_DEFAULTS = {
   // grid-снапящий rightAngle (см. gridRightAngleRouter). anchor-aware orthogonal
   // роутер: в отличие от manhattan не зигзагит при выходе из порта в «неудобную»
-  // сторону. margin=10 (= клетка) — отступ от bbox, тоже по сетке.
+  // сторону. margin=5 — отступ маршрута от bbox ячейки.
   // useVertices=true — иначе rightAngle игнорирует ручные изломы
   // (linkTools.Vertices) и хэндлы висят в стороне от линии. При
   // vertices.length===0 роутер идёт коротким путём независимо от флага.

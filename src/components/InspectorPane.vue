@@ -375,10 +375,15 @@ function onPickTag(tag) {
 
 function updateRange(idx, field, value) {
   const vs = details.value?.voltageSource
-  if (!vs) return
-  const ranges = vs.ranges.map((r, i) =>
-    i === idx ? { ...r, [field]: field === 'class' ? value : Number(value) } : r
-  )
+  if (!vs?.ranges) return
+  // min/max — числа; нечисловой ввод (пустая строка, '3,99', буквы) дал бы NaN,
+  // который молча сломал бы диапазон при экспорте → игнорируем правку.
+  let parsed = value
+  if (field !== 'class') {
+    parsed = Number(value)
+    if (!Number.isFinite(parsed)) return
+  }
+  const ranges = vs.ranges.map((r, i) => (i === idx ? { ...r, [field]: parsed } : r))
   patchVoltageSource({ ranges })
 }
 

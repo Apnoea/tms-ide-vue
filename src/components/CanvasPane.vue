@@ -8,7 +8,7 @@ import ContextMenu from 'primevue/contextmenu'
 import Tag from 'primevue/tag'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
-import { getStencilById } from '../stencils/registry'
+import { getStencilById, registerStencil } from '../stencils/registry'
 import {
   injectStencilSvg,
   reinjectAllStencils,
@@ -18,8 +18,16 @@ import {
   textCellWidth,
 } from '../stencils/svgInjector'
 import { LINK_DEFAULTS, gridRightAngleRouter } from '../stencils/linkDefaults'
-import { exportProject, downloadFile } from '../services/exporter'
+import { exportProject } from '../services/exporter'
 import { parseSvgProject } from '../services/projectLoader'
+import {
+  readProjectFolder,
+  pickOutputFolder,
+  writeProjectFolder,
+  collectUsedStencilIds,
+  rememberProjectDir,
+  getWritableProjectDir,
+} from '../services/projectIO'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useUiStore } from '../stores/useUiStore'
@@ -51,11 +59,20 @@ const confirm = useConfirm()
 
 // Общий флаг «идёт восстановление графа» — useAutosave и useUndoRedo делят его,
 // чтобы не зациклиться snapshot → save → restore → snapshot. Также взводится
-// performClearCanvas / performImportFromSvgText на время массовых правок.
+// при массовых правках графа (performClearCanvas, переключение/импорт форм).
 const restoringHistory = ref(false)
-const { restoreProject, saveActiveForm, clearActiveForm, persistMeta } = useAutosave({
-  restoringHistory,
-})
+const {
+  restoreProject,
+  saveActiveForm,
+  clearActiveForm,
+  persistMeta,
+  replaceProject,
+  readTagsText,
+} = useAutosave({ restoringHistory })
+
+// Флаг «идёт экспорт проекта» — на время прогона форм через живой paper
+// показываем оверлей (формы мелькают на холсте).
+const exportingProject = ref(false)
 const { initHistory, scheduleSnapshot, undo, redo, cancelPendingSnapshot } = useUndoRedo({
   restoringHistory,
   saveAutosave: saveActiveForm,
@@ -115,7 +132,7 @@ function releasePointerDrag() {
 }
 useEventListener(document, 'mouseup', releasePointerDrag, { capture: true })
 
-const { simulating, toggleSimulation } = useSimulation()
+const { simulating, toggleSimulation, stopSimulation } = useSimulation()
 const { textEditing, textEditValue, textEditorRef, startTextEdit, commitTextEdit, cancelTextEdit } =
   useTextEdit({ scheduleSnapshot })
 const { copySelection, pasteClipboard, duplicateSelection, hasClipboard } = useClipboard({
@@ -130,8 +147,30 @@ const {
   updateSplicePreview,
   clearSplicePreview,
 } = useWireSplice()
+
+// Проектные операции (selectForm / importProject / exportProjectToFolder) мутируют
+// один и тот же граф/стор через серии await'ов. Параллельный запуск рассинхронил бы
+// их: оверлей экспорта накрывает только canvas, а FormsPanel в соседней панели
+// остаётся кликабельной — клик по форме во время медленной FSA-записи влез бы в
+// selectForm поверх цикла экспорта. Гоняем все три через общий busy-флаг — взаимное
+// исключение на уровне логики, не UI. (Функции — hoisted declarations, ссылки стабильны.)
+let projectBusy = false
+const withProjectBusy =
+  (fn) =>
+  async (...args) => {
+    if (projectBusy) return
+    projectBusy = true
+    try {
+      return await fn(...args)
+    } finally {
+      projectBusy = false
+    }
+  }
+const guardedSelectForm = withProjectBusy(selectForm)
+const guardedImportProject = withProjectBusy(importProject)
+const guardedExport = withProjectBusy(exportProjectToFolder)
+
 // useHotkeys навешивает window-keydown listener (через useEventListener — auto-cleanup).
-// onExport объявлен ниже как function declaration, поэтому ссылка стабильна.
 useHotkeys({
   undo,
   redo,
@@ -139,12 +178,12 @@ useHotkeys({
   copySelection,
   pasteClipboard,
   duplicateSelection,
-  onExport,
+  onExport: guardedExport,
 })
 
 // ─── Zoom & Pan state ───
-// zoomPercent живёт в singleton useCanvas (canvas.zoomPercent — общая ссылка,
-// сейчас читается только здесь, но контракт остался открытым для consumer'ов).
+// zoomPercent живёт в singleton useCanvas — общая ссылка, чтобы зум читался без
+// prop-drilling из любого компонента/композабла.
 const zoomPercent = canvas.zoomPercent
 const MIN_ZOOM = 0.2
 const MAX_ZOOM = 4
@@ -466,11 +505,13 @@ onMounted(async () => {
   // конец редактирования link-tools.
   paper.on('cell:pointerup', () => scheduleSnapshot())
 
-  // Регистрируем функции импорта/экспорта чтобы ProjectActions мог их триггерить
-  canvas.setImportFromSvgFn(importFromSvgText)
-  canvas.setExportFn(onExport)
+  // Регистрируем проектные операции чтобы ProjectActions мог их триггерить.
   // Переключение формы — панель форм дёргает через canvas.selectForm.
-  canvas.setSelectFormFn(selectForm)
+  canvas.setSelectFormFn(guardedSelectForm)
+  // Импорт проекта — ProjectActions дёргает через canvas.importProject.
+  canvas.setImportProjectFn(guardedImportProject)
+  // Экспорт проекта — ProjectActions дёргает через canvas.exportProjectToFolder.
+  canvas.setProjectExportFn(guardedExport)
 
   // Сообщаем о восстановлении уже после монтирования (toast service готов)
   if (restored > 0) {
@@ -567,8 +608,9 @@ watch(
     // Inline-× — HTML-overlay (deleteBtnStyle в template). JointJS
     // elementTools.Remove кэширует bbox при addTools, не пересчитывает на
     // cell.resize → × застревал после ресайза cell_text / cell_bus.
-  },
-  { deep: true }
+  }
+  // deep НЕ нужен: selection всегда ЗАМЕНЯЕТСЯ новым массивом (selectOnly/
+  // setSelection/toggle/clear), ref-сравнения достаточно — дип-обход был впустую.
 )
 
 // ─── Proximity-подсветка портов ───
@@ -672,7 +714,7 @@ watch(() => canvas.cursorLocal.value, scheduleUpdatePortProximity)
 // ─── Подсветка элементов по тегу (кнопка «Подсветить на схеме»). ───
 // Watch на canvas.highlightedTag: на set/change перерисовываем класс
 // tms-tag-match у всех cells/links с любым tag-полем == tag (см. cellHasTag —
-// slots, voltageSource.tag, switchSources.tags, valueTag). Подсветка
+// slots, voltageSource.tag, switchSources, valueTag). Подсветка
 // сохраняется через selection-change и pan/zoom (чисто визуальный overlay).
 watch(
   () => canvas.highlightedTag.value,
@@ -759,9 +801,9 @@ onBeforeUnmount(() => {
   // useEventListener / useResizeObserver / composable'ы сами снимают свои
   // ресурсы — здесь только сбрасываем singleton-ссылки на graph/paper.
   canvas.clearCanvasRefs()
-  canvas.setImportFromSvgFn(null)
-  canvas.setExportFn(null)
   canvas.setSelectFormFn(null)
+  canvas.setImportProjectFn(null)
+  canvas.setProjectExportFn(null)
   paper?.remove()
   paper = null
   graph = null
@@ -1285,12 +1327,19 @@ function performClearCanvas(count) {
  * Сохраняем текущую форму (старый activeFormId ещё в сторе) → переключаем
  * указатель + мету → грузим выбранную в граф → сбрасываем undo под новую форму.
  */
+// Реентри и пересечение с импортом/экспортом отсекает общий busy-флаг
+// (withProjectBusy на guardedSelectForm) — здесь только сама логика переключения.
 async function selectForm(id) {
   if (!graph || !paper || id === workspace.activeFormId) return
+  // Гасим pending snapshot ПЕРВОЙ строкой, до любого await: иначе таймер формы A
+  // выстрелит во время await saveActiveForm/persistMeta — уже после
+  // setActiveFormId(B), пока в графе ещё A — и запишет граф A под ключ B.
+  // Сама правка A не теряется: saveActiveForm ниже её персистит.
+  cancelPendingSnapshot()
+  if (simulating.value) stopSimulation() // симуляция не должна тащиться на новую форму
   await saveActiveForm()
   workspace.setActiveFormId(id)
   await persistMeta()
-  cancelPendingSnapshot()
   const json = workspace.getFormGraph(id) || { cells: [] }
   withRestoreGuard(restoringHistory, () => {
     graph.fromJSON(json)
@@ -1299,6 +1348,202 @@ async function selectForm(id) {
   })
   initHistory()
   canvas.clearSelection()
+}
+
+/**
+ * Импорт проекта из папки (зовётся ProjectActions через canvas.importProject).
+ * Читаем папку → парсим формы → заменяем проект в IndexedDB → если в бандле есть
+ * стенсилы, шлём их в dev-плагин (он пишет в definitions/ → Vite авто-reload, на
+ * ребуте restoreProject поднимет всё из IDB). Стенсилов нет → применяем активную
+ * форму сразу. Предупреждаем о стенсилах, которых нет ни в базе, ни в бандле.
+ */
+async function importProject() {
+  if (!graph || !paper) return
+  const data = await readProjectFolder()
+  if (!data) return
+  rememberProjectDir(data.dirHandle) // «сохранить туда же» для последующего Ctrl+S
+
+  // Бандл-стенсилы, которых нет в базе, регистрируем в рантайме ДО парсинга —
+  // иначе parseSvgProject выкинет их ячейки. Список фиксируем здесь (после
+  // регистрации getStencilById вернёт их) — он же идёт в POST для записи файлов.
+  // Уже имеющиеся в базе НЕ трогаем: перезапись через JSON.stringify сбила бы
+  // рукописное форматирование committed-файлов → git-шум, семантика и так на месте.
+  const newStencils = data.stencils.filter((s) => !getStencilById(s.id))
+  for (const s of newStencils) registerStencil(s.stencilJson, s.shapeSvg)
+
+  const forms = []
+  const usedStencilIds = new Set()
+  let skipped = 0
+  for (const f of data.forms) {
+    const parsed = parseSvgProject(f.svgText)
+    for (const id of parsed.stencilIds) usedStencilIds.add(id)
+    // Пропускаем только битый SVG. Пустая форма (parsed.ok, 0 ячеек) валидна —
+    // сохраняем как цель навигации/заготовку, иначе рвутся ссылки tms.navigation.
+    if (!parsed.ok) {
+      skipped++
+      continue
+    }
+    forms.push({ id: f.id, graphJson: { cells: parsed.cells } })
+  }
+  if (!forms.length) {
+    notify.error('Импорт проекта', 'Не найдено валидных форм')
+    return
+  }
+
+  const persisted = await replaceProject(forms, data.tagsText)
+
+  // Стенсилы, на которые ссылаются формы (по meta SVG), но которых нет ни в базе,
+  // ни в бандле — отрисовать их нечем, предупреждаем.
+  const importedIds = new Set(data.stencils.map((s) => s.id))
+  const missing = [...usedStencilIds].filter((id) => !getStencilById(id) && !importedIds.has(id))
+  if (missing.length) notify.warn('Не хватает стенсилов', missing.join(', '))
+
+  // Грузит активную форму в граф. Стенсилы (включая бандл-новые) уже в рантайм-
+  // реестре, поэтому рисуем сразу — reload, если случится, лишь переподнимет то
+  // же самое из IDB.
+  const applyActiveForm = () => {
+    if (simulating.value) stopSimulation()
+    cancelPendingSnapshot()
+    const activeJson = workspace.getFormGraph(workspace.activeFormId) || { cells: [] }
+    withRestoreGuard(restoringHistory, () => {
+      graph.fromJSON(activeJson)
+      reinjectAllStencils(graph, paper)
+      canvas.bumpVersion()
+    })
+    initHistory()
+    canvas.clearSelection()
+  }
+  const okMsg =
+    `${forms.length} ${nplural(forms.length, 'форма', 'формы', 'форм')}` +
+    (skipped ? `, пропущено ${skipped}` : '')
+
+  // Запись в IDB упала (квота) — стор загружен, сессия рабочая, но reload потеряет
+  // часть форм. Рисуем активную для текущей сессии, не врём про успех и НЕ пишем
+  // стенсилы (их reload подхватил бы вместе с уже неполным проектом).
+  if (!persisted) {
+    applyActiveForm()
+    notify.error(
+      'Проект сохранён не полностью',
+      'Хранилище переполнено — после перезагрузки часть форм может пропасть'
+    )
+    return
+  }
+
+  // Новые стенсилы пишем в definitions/ (dev-плагин) — reload сделает рантайм-
+  // регистрацию персистентной. Уже имеющиеся в POST не попадают (отфильтрованы выше).
+  if (newStencils.length) {
+    let written = false
+    try {
+      const res = await fetch('/__stencils/import', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(newStencils),
+      })
+      written = res.ok
+    } catch {
+      written = false
+    }
+    if (written) {
+      // Файлы записаны в definitions/ — на диске для будущих сессий (glob их
+      // подхватит). Vite обычно делает full-reload (restoreProject поднимет всё
+      // из IDB), но НЕ ждём его: стенсилы уже в рантайм-реестре, рисуем форму
+      // сразу. Холст корректен, даже если reload не придёт (HMR-патч).
+      applyActiveForm()
+      notify.success('Проект импортирован', okMsg)
+    } else {
+      // dev-плагин недоступен/ошибка: формы применяем, но ячейки на новые
+      // стенсилы не отрисуются (см. предупреждение о недостающих стенсилах).
+      applyActiveForm()
+      notify.warn(
+        'Проект импортирован без новых стенсилов',
+        'Не удалось записать стенсилы (dev-плагин).'
+      )
+    }
+  } else {
+    applyActiveForm()
+    notify.success('Проект импортирован', okMsg)
+  }
+}
+
+/**
+ * Экспорт проекта в папку (зовётся ProjectActions через canvas.exportProjectToFolder).
+ * Геометрию провода exporter берёт из отрисованного paper, а на нём живёт только
+ * активная форма → прогоняем каждую форму через живой граф (под restoreGuard, без
+ * autosave/undo), снимаем view.svg+animations.json, затем возвращаем исходную
+ * форму. Стенсилы — used из реестра (GC); теги — из бандла проекта (IDB).
+ */
+async function exportProjectToFolder() {
+  if (!graph || !paper) return
+  if (textEditing.value) commitTextEdit() // не потерять незакоммиченную правку текста
+  // Сохраняем в запомненную папку проекта; нет/нет доступа → спрашиваем picker.
+  const dirHandle = (await getWritableProjectDir()) || (await pickOutputFolder())
+  if (!dirHandle) return
+
+  const originalActive = workspace.activeFormId
+  exportingProject.value = true
+  // Гасим отложенный snapshot: иначе его таймер выстрелит во время цикла (между
+  // await'ами restoringHistory снят), а в графе уже чужая форма → autosave
+  // запишет её JSON под ключ активной. fromJSON в цикле под guard'ом новых не
+  // планирует, так что одного сброса здесь достаточно.
+  cancelPendingSnapshot()
+  try {
+    await saveActiveForm() // зафиксировать текущую форму перед прогоном
+    const formsOut = []
+    const graphs = []
+
+    for (const id of [...workspace.formIds]) {
+      const json = workspace.getFormGraph(id) || { cells: [] }
+      graphs.push(json)
+      withRestoreGuard(restoringHistory, () => {
+        graph.fromJSON(json)
+        reinjectAllStencils(graph, paper)
+      })
+      await nextTick() // дать paper отрисовать линии (exporter читает их DOM-путь)
+      const result = exportProject(graph, paper)
+      formsOut.push({ id, viewSvg: result.svgText, animationsJson: result.animationsJson })
+    }
+
+    // Используемые стенсилы из реестра (def→stencil.json без svgText, svgText→shape.svg).
+    const stencils = collectUsedStencilIds(graphs)
+      .map((sid) => {
+        const def = getStencilById(sid)
+        if (!def) return null
+        const { svgText, ...stencilJson } = def
+        return { id: sid, stencilJson, shapeSvg: svgText || '' }
+      })
+      .filter(Boolean)
+
+    const tagsText = await readTagsText()
+    await writeProjectFolder(dirHandle, { forms: formsOut, stencils, tagsText })
+    rememberProjectDir(dirHandle) // следующий Ctrl+S — сюда же
+
+    notify.success(
+      'Проект экспортирован',
+      `${formsOut.length} ${nplural(formsOut.length, 'форма', 'формы', 'форм')}, ` +
+        `${stencils.length} ${nplural(stencils.length, 'стенсил', 'стенсила', 'стенсилов')}`
+    )
+  } catch (e) {
+    if (e?.name !== 'AbortError') {
+      console.error('[Export] Ошибка экспорта проекта:', e)
+      notify.error('Ошибка экспорта проекта', e.message || String(e))
+    }
+  } finally {
+    // Возвращаем исходную активную форму на холст — в finally, чтобы при ошибке
+    // посреди прогона холст не остался на чужой форме (рассинхрон со стором).
+    // graph/paper могли занулиться, если компонент размонтировался во время await.
+    // initHistory НЕ зовём: восстанавливаем тот же JSON, что был до экспорта
+    // (промежуточные fromJSON шли под restoreGuard, снапшотов не писали), поэтому
+    // undo-стек остаётся валидным — сбрасывать его означало бы потерять историю.
+    if (graph && paper) {
+      const activeJson = workspace.getFormGraph(originalActive) || { cells: [] }
+      withRestoreGuard(restoringHistory, () => {
+        graph.fromJSON(activeJson)
+        reinjectAllStencils(graph, paper)
+        canvas.bumpVersion()
+      })
+    }
+    exportingProject.value = false
+  }
 }
 
 // ─── Inline-кнопки overlay'я выделенной ячейки ───
@@ -1513,101 +1758,6 @@ function hideCellTooltip() {
   clearTimeout(hoverShowTimer)
   cellHoverTooltip.value = null
 }
-
-function onExport() {
-  if (!graph) return
-
-  // Передаём paper в exporter — он по нему достанет реальные SVG-пути линий
-  // (с учётом manhattan-роутинга), а не straight-lines.
-  const result = exportProject(graph, paper)
-  if (result.count === 0) {
-    notify.warn('Экспорт', 'Холст пуст — нечего экспортировать')
-    return
-  }
-
-  downloadFile('view.svg', result.svgText, 'image/svg+xml')
-  downloadFile('animations.json', result.animationsJson, 'application/json')
-
-  const animCount = Object.keys(result.animations.animations).length
-  notify.success(
-    'Экспорт готов',
-    [
-      nplural(result.count, 'ячейка', 'ячейки', 'ячеек'),
-      nplural(result.linkCount, 'провод', 'провода', 'проводов'),
-      `${nplural(animCount, 'карточка', 'карточки', 'карточек')} анимаций`,
-    ].join(', '),
-    TOAST_LIFE.NORMAL
-  )
-
-  // Предупреждения от exporter'а (дубль valueTag и пр.) — отдельным warn-toast'ом,
-  // чтобы SCADA-инженер увидел их без DevTools.
-  if (result.warnings.length) {
-    notify.warn('Экспорт: предупреждения', result.warnings.join('; '), TOAST_LIFE.LONG)
-  }
-}
-
-// ─── Импорт SVG (обратная операция экспорту) ───
-// Считывает data-tms-meta JSON-атрибуты с ячеек и проводов, реконструирует
-// граф через graph.fromJSON, перерисовывает SVG-содержимое стенсилов.
-// Заменяет текущее состояние холста; если на холсте есть элементы — confirm.
-
-function performImportFromSvgText(svgText, sourceLabel = 'SVG') {
-  if (!graph || !paper) return false
-  const parsed = parseSvgProject(svgText)
-  if (!parsed.ok) {
-    notify.error(
-      'Не удалось загрузить',
-      parsed.errors.join('; ') || 'В файле нет ячеек / data-tms-meta'
-    )
-    return false
-  }
-
-  // Сбрасываем текущее состояние (как clear canvas). withRestoreGuard гарантирует
-  // сброс restoringHistory даже при исключении в fromJSON / reinjectAllStencils.
-  cancelPendingSnapshot()
-  withRestoreGuard(restoringHistory, () => {
-    graph.clear()
-    graph.fromJSON({ cells: parsed.cells })
-    // fromJSON использует resetCells — 'add'-event не летит, наш авто-toBack
-    // для линий не срабатывает. Отправляем все провода на задний план явно,
-    // иначе они накроют ячейки/порты.
-    for (const link of graph.getLinks()) link.toBack()
-    reinjectAllStencils(graph, paper)
-    canvas.bumpVersion()
-  })
-
-  // History начинается с восстановленного состояния — undo не должен «возвращать» к старому
-  initHistory()
-  canvas.clearSelection()
-  saveActiveForm()
-
-  const cellsAdded = graph.getElements().length
-  const linksAdded = graph.getLinks().length
-  notify.success(
-    `Загружен ${sourceLabel}`,
-    `${nplural(cellsAdded, 'ячейка', 'ячейки', 'ячеек')}, ${nplural(linksAdded, 'провод', 'провода', 'проводов')}${parsed.errors.length ? ` · предупреждений: ${parsed.errors.length}` : ''}`,
-    TOAST_LIFE.NORMAL
-  )
-  if (parsed.errors.length) {
-    console.warn('[Canvas] Импорт SVG с предупреждениями:', parsed.errors)
-  }
-  // После замены графа — центрируем viewport на bbox нового контента
-  // (то же что кнопка «100%»). Иначе бы текущий pan/zoom от старой схемы
-  // мог увести загруженную схему за пределы видимой области.
-  fitToContent()
-  return true
-}
-
-/**
- * Внешний entry point: заменяет состояние холста на распарсенный из SVG граф.
- * Подтверждение у юзера (при непустом холсте) — ответственность caller'а
- * (ProjectActions спрашивает ConfirmPopup'ом ДО открытия нативного file-picker'а,
- * чтобы попап вылетал чётко у кнопки Open, а не через минуту после клика).
- */
-function importFromSvgText(svgText, sourceLabel = 'SVG') {
-  if (!graph) return false
-  return performImportFromSvgText(svgText, sourceLabel)
-}
 </script>
 
 <template>
@@ -1684,6 +1834,18 @@ function importFromSvgText(svgText, sourceLabel = 'SVG') {
         class="absolute inset-0 bg-white cursor-grab"
         :class="simulating ? 'tms-simulating ring-2 ring-inset ring-emerald-400/60 ' : ''"
       ></div>
+
+      <!-- Оверлей на время экспорта проекта: формы по очереди грузятся в живой
+ paper (нужен exporter'у для геометрии), холст мелькает — прячем процесс. -->
+      <div
+        v-if="exportingProject"
+        class="absolute inset-0 z-20 flex items-center justify-center bg-surface-0/70 backdrop-blur-sm cursor-wait"
+      >
+        <div class="flex items-center gap-2 text-sm text-surface-600">
+          <i class="pi pi-spin pi-spinner" />
+          Экспорт проекта…
+        </div>
+      </div>
 
       <!-- Indicator симуляции: PrimeVue Tag в правом верхнем углу холста +
  зелёная inset-рамка вокруг paper'а (см. ring-* в paperContainer).

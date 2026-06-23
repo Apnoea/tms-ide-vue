@@ -100,7 +100,7 @@ describe('useClipboard', () => {
     const links = graph.getLinks()
     expect(links).toHaveLength(2) // оригинал + новый
     const newLink = links.find((l) => l.id !== link.id)
-    // Новый линк ссылается НЕ на оригиналы (главный регрешн-чек к старому багу)
+    // Новый линк ссылается НЕ на оригиналы, а на клоны ячеек — суть теста
     expect(newLink.get('source').id).not.toBe(a.id)
     expect(newLink.get('target').id).not.toBe(b.id)
     // Порты сохраняются (oldToNew переписывает только cell-id)

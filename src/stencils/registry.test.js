@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validateStencilJson } from './registry'
+import { validateStencilJson, registerStencil, getStencilById } from './registry'
 
 // Минимальный валидный stencil — все required-поля. Используем как baseline,
 // в каждом тесте только модифицируем нужное (валидный + 1 issue = чёткое
@@ -104,7 +104,7 @@ describe('validateStencilJson', () => {
     expect(issues.some((s) => s.includes('.closed') && s.includes('не найден'))).toBe(false)
   })
 
-  it('cross-check shape.svg пропускается если svgText не передан (backward-compat)', () => {
+  it('cross-check shape.svg пропускается если svgText не передан (svgText опционален)', () => {
     const json = validStencil({
       animationTemplate: [{ idSuffix: '.X', type: 'shape' }],
     })
@@ -112,9 +112,8 @@ describe('validateStencilJson', () => {
   })
 
   it('animationTemplate с idSuffix="" (root-element) валиден — пустой суффикс это специально', () => {
-    // idSuffix === '' тоже валиден (root-anim-target, например cell_alr раньше
-    // использовал ".ALR", но для cell-уровневых биндингов suffix может быть ''
-    // → id="animation-{cellId}"). Защита от undefined проверена выше.
+    // idSuffix === '' валиден: для cell-уровневых биндингов суффикс пустой
+    // → id="animation-{cellId}" без хвоста. Защита от undefined проверена выше.
     const issues = validateStencilJson(
       PATH,
       validStencil({ animationTemplate: [{ idSuffix: '', type: 'shape' }] })
@@ -136,5 +135,21 @@ describe('validateStencilJson', () => {
     for (const issue of issues) {
       expect(issue).toContain('my/custom/path.json')
     }
+  })
+})
+
+describe('registerStencil', () => {
+  it('добавляет стенсил в реестр со встроенным svgText (доступен через getStencilById)', () => {
+    const id = 'cell_runtime_test'
+    expect(getStencilById(id)).toBeUndefined()
+    registerStencil({ id, label: 'RT', category: 'Тест', width: 20, height: 20 }, '<g/>')
+    const s = getStencilById(id)
+    expect(s.label).toBe('RT')
+    expect(s.svgText).toBe('<g/>')
+  })
+
+  it('без id ничего не регистрирует (no-op)', () => {
+    registerStencil({ label: 'нет id' }, '<g/>')
+    expect(getStencilById(undefined)).toBeUndefined()
   })
 })

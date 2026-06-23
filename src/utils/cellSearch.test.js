@@ -26,10 +26,10 @@ describe('getCellSearchStrings', () => {
     expect(strings).toContain('PS031VK001.ALR')
   })
 
-  it('подхватывает voltageSource.tag, switchSources.tags[], valueTag', () => {
+  it('подхватывает voltageSource.tag, switchSources, valueTag', () => {
     const cell = makeCell({
       voltageSource: { tag: 'PS031TN001.U' },
-      switchSources: { tags: ['ОБЩИЙ.ONOFF', 'LOCAL.ONOFF'] },
+      switchSources: { and: ['ОБЩИЙ.ONOFF', 'LOCAL.ONOFF'] },
       valueTag: 'PS031TN001.UA',
     })
     const strings = getCellSearchStrings(cell)
@@ -84,7 +84,7 @@ describe('getCellTags / cellHasTag', () => {
     const cell = makeCell({
       slots: { onoff: 'A.ONOFF', alr: 'A.ALR' },
       voltageSource: { tag: 'A.U' },
-      switchSources: { tags: ['B.ONOFF', 'C.ONOFF'] },
+      switchSources: { and: ['B.ONOFF', 'C.ONOFF'] },
       valueTag: 'A.IA',
     })
     expect(getCellTags(cell).sort()).toEqual(
@@ -100,7 +100,7 @@ describe('getCellTags / cellHasTag', () => {
   it('cellHasTag exact-match по любому tag-полю', () => {
     const cell = makeCell({
       slots: { onoff: 'A.ONOFF' },
-      switchSources: { tags: ['B.ONOFF'] },
+      switchSources: { and: ['B.ONOFF'] },
     })
     expect(cellHasTag(cell, 'A.ONOFF')).toBe(true)
     expect(cellHasTag(cell, 'B.ONOFF')).toBe(true)
@@ -115,7 +115,7 @@ describe('getCellTagsFromTms', () => {
     const tms = {
       slots: { onoff: 'X.ONOFF' },
       voltageSource: { tag: 'V.U' },
-      switchSources: { tags: ['S1', 'S2'] },
+      switchSources: { and: ['S1', 'S2'] },
       valueTag: 'VT',
     }
     expect(getCellTagsFromTms(tms)).toEqual(['X.ONOFF', 'V.U', 'S1', 'S2', 'VT'])
@@ -127,11 +127,11 @@ describe('getCellTagsFromTms', () => {
     expect(getCellTagsFromTms({})).toEqual([])
   })
 
-  it('пустые значения в slots / switchSources.tags фильтруются', () => {
+  it('пустые значения в slots / switchSources фильтруются', () => {
     expect(
       getCellTagsFromTms({
         slots: { a: 'A', b: '', c: null },
-        switchSources: { tags: ['X', '', 'Y'] },
+        switchSources: { and: ['X', '', 'Y'] },
       })
     ).toEqual(['A', 'X', 'Y'])
   })

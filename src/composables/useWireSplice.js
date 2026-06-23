@@ -133,6 +133,10 @@ export function useWireSplice() {
     const origVertices = link.vertices() || []
     const seg1Vertices = []
     const seg2Vertices = []
+    // distributed=false → linkView недоступен, распределить по длине нельзя.
+    // Тогда НЕ перезаписываем изломы линка ниже: оставляем их все на сегменте 1,
+    // чтобы не потерять ручные изломы пользователя (хуже петля, чем потеря).
+    let distributed = false
     if (origVertices.length && view?.getClosestPointLength) {
       const splitLen = view.getClosestPointLength(wirePoint)
       for (const v of origVertices) {
@@ -142,6 +146,7 @@ export function useWireSplice() {
           : seg2Vertices
         ).push({ ...v })
       }
+      distributed = true
     }
 
     // Авто-ориентация: разворачиваем элемент (если стенсил вращаемый) так, чтобы
@@ -177,9 +182,10 @@ export function useWireSplice() {
     if (linkTms.switchSources) inherited.switchSources = structuredClone(linkTms.switchSources)
 
     // Сегмент 1: переиспользуем провод A→cell.in (tms остаётся на нём). Изломы —
-    // только те, что были до точки врезки.
+    // только те, что были до точки врезки. Если распределить не удалось, исходные
+    // изломы не трогаем (остаются на этом сегменте) — не теряем правки.
     link.set('target', { id: cell.id, port: portIn })
-    link.vertices(seg1Vertices)
+    if (distributed) link.vertices(seg1Vertices)
 
     // Сегмент 2: cell.out→B с клоном анимаций провода и изломами после врезки.
     const seg2 = new shapes.standard.Link({
@@ -191,9 +197,11 @@ export function useWireSplice() {
     })
     graph.addCell(seg2)
 
-    // Элемент наследует анимации провода (voltage + switch).
+    // Элемент наследует анимации провода (voltage + switch), но собственная
+    // конфигурация ячейки приоритетнее — это явный выбор пользователя, наследуем
+    // только то, чего у элемента ещё нет.
     if (Object.keys(inherited).length) {
-      cell.set('tms', { ...(cell.get('tms') || {}), ...inherited })
+      cell.set('tms', { ...inherited, ...(cell.get('tms') || {}) })
     }
 
     canvas.selectOnly('cell', cell.id)
