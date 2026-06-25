@@ -14,10 +14,10 @@ import Button from 'primevue/button'
  *
  * Эмиты (bucket = 'parallel' | 'series'):
  *   open-slot-picker          — клик по slot-row (свой тег стенсила)
- *   open-tag-picker(bucket)   — «Добавить» в секцию
+ *   open-tag-picker(bucket)   — клик по пустому полю-тегу секции (добавить)
  *   edit-tag(bucket, idx)     — замена тега по индексу
  *   remove-tag(bucket, idx)   — × на строке
- *   remove                    — × в шапке (удалить все зависимости)
+ *   remove                    — × в шапке: очистить все зависимости (виден при непустом)
  *   highlight-tag(t)          — подсветить тег на холсте
  */
 const props = defineProps({
@@ -58,7 +58,7 @@ const sections = computed(() => [
 
 <template>
   <div class="border border-surface-200 rounded p-3 bg-surface-0">
-    <div class="flex items-center gap-2 mb-2">
+    <div class="flex items-center gap-2 mb-2 min-h-6">
       <i class="pi pi-power-off text-cyan-500" />
       <div class="text-xs font-medium text-surface-700">
         {{ title }}
@@ -116,7 +116,7 @@ const sections = computed(() => [
         {{ sec.label }}
         <span class="text-surface-400">- {{ sec.hint }}</span>
       </div>
-      <div v-if="sec.tags.length" class="space-y-1.5 mb-1.5">
+      <div class="space-y-1.5">
         <div v-for="(t, idx) in sec.tags" :key="idx" class="flex items-center gap-2">
           <code
             class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
@@ -146,17 +146,19 @@ const sections = computed(() => [
             @click="$emit('remove-tag', sec.key, idx)"
           />
         </div>
+        <!-- Добавить тег: пустое поле-тег (как в «Диапазонах значений») —
+             клик открывает picker для этой секции. -->
+        <div class="flex items-center gap-2">
+          <code
+            class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
+            :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
+            :title="tagsLoaded ? 'Добавить тег' : 'Загрузи tag-list, чтобы выбрать тег'"
+            @click="tagsLoaded && $emit('open-tag-picker', sec.key)"
+          >
+            - не выбран -
+          </code>
+        </div>
       </div>
-      <Button
-        label="Добавить"
-        icon="pi pi-plus"
-        severity="secondary"
-        size="small"
-        outlined
-        class="w-full"
-        :disabled="!tagsLoaded"
-        @click="$emit('open-tag-picker', sec.key)"
-      />
     </div>
 
     <p v-if="!tagsLoaded" class="text-[11px] text-surface-400 leading-snug mt-1">

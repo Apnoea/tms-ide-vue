@@ -1,7 +1,7 @@
 import { onBeforeUnmount } from 'vue'
 import { reinjectAllStencils } from '../stencils/svgInjector'
 import { withRestoreGuard } from '../utils/restoreGuard'
-import { idbGet, idbSet } from '../utils/idb'
+import { idbGet, idbSet, idbDel } from '../utils/idb'
 import { parseTagList } from '../services/parsers'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -153,6 +153,16 @@ export function useAutosave({ restoringHistory }) {
     return idbGet(TAGS_KEY)
   }
 
+  /** Запись graphJson формы по id (создание / переименование). */
+  function persistForm(id, json) {
+    return idbSet(formKey(id), json)
+  }
+
+  /** Удалить форму из IDB по id. */
+  function removeFormPersist(id) {
+    return idbDel(formKey(id))
+  }
+
   onBeforeUnmount(() => clearTimeout(savedFlashTimer))
 
   return {
@@ -162,5 +172,7 @@ export function useAutosave({ restoringHistory }) {
     persistMeta,
     replaceProject,
     readTagsText,
+    persistForm,
+    removeFormPersist,
   }
 }

@@ -73,19 +73,15 @@ body,
   filter: drop-shadow(0 0 3px #f97316) drop-shadow(0 0 8px #f97316) drop-shadow(0 0 18px #fb923c); /* orange-500 + дальний orange-400-ореол */
 }
 
-/* draw.io-стиль: порты ячейки скрыты по умолчанию, но «проявляются» в
-   зависимости от расстояния до курсора (см. updatePortProximity в CanvasPane).
-   JS пишет --port-proximity (0..1) на каждый .joint-port, CSS читает через
-   var(). Selected override'ит к 1 — у выделенной ячейки все порты видны
-   полностью независимо от курсора. Hover-override НЕ ставим: курсор уже
-   подсвечивает ближайшие порты через proximity, и при двух эффектах сразу
-   юзер не понимает что отвечает за подсветку.
-   JointJS magnet-логика во время drag-линии работает по событиям, а не по
-   opacity, поэтому скрытые порты остаются функциональны для рисования связей. */
+/* draw.io-стиль: порты ячейки скрыты по умолчанию и проявляются при наведении
+   на ячейку (или когда она выделена) — наводишь на элемент, видишь куда тянуть
+   провод. JointJS magnet-логика во время drag-линии работает по событиям, а не
+   по opacity, поэтому скрытые порты остаются функциональны для рисования связей. */
 .joint-element .joint-port {
-  opacity: var(--port-proximity, 0);
-  transition: opacity 0.06s linear;
+  opacity: 0;
+  transition: opacity 0.08s linear;
 }
+.joint-element:hover .joint-port,
 .joint-element.tms-selected .joint-port {
   opacity: 1;
 }

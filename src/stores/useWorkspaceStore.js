@@ -40,6 +40,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return forms.get(id) ?? null
   }
 
+  /** Записать graphJson произвольной формы (для авто-фикса nav-ссылок при rename). */
+  function setFormGraph(id, graphJson) {
+    if (forms.has(id)) forms.set(id, graphJson)
+  }
+
   /** Сделать форму активной (переключение). Несуществующий id игнорируем. */
   function setActiveFormId(id) {
     if (forms.has(id)) activeFormId.value = id
@@ -50,13 +55,53 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (forms.has(activeFormId.value)) forms.set(activeFormId.value, { cells: [] })
   }
 
+  function hasForm(id) {
+    return forms.has(id)
+  }
+
+  /** Создать пустую форму. false — id уже занят. Активную не меняет. */
+  function addForm(id, graphJson = { cells: [] }) {
+    if (forms.has(id)) return false
+    forms.set(id, graphJson)
+    syncList()
+    return true
+  }
+
+  /** Удалить форму. Если удалили активную — активной станет первая оставшаяся.
+   *  Возвращает новый activeFormId (вызывающий грузит его граф в холст). */
+  function removeForm(id) {
+    if (!forms.has(id)) return activeFormId.value
+    forms.delete(id)
+    if (activeFormId.value === id) activeFormId.value = forms.keys().next().value ?? null
+    syncList()
+    return activeFormId.value
+  }
+
+  /** Переименовать форму (id = имя везде). Порядок форм сохраняем. false —
+   *  oldId нет / newId занят / совпадают. Граф формы не трогаем — только ключ. */
+  function renameForm(oldId, newId) {
+    if (!forms.has(oldId) || forms.has(newId) || oldId === newId) return false
+    // Пересобираем Map с переименованным ключом, сохраняя исходный порядок.
+    const entries = Array.from(forms.entries(), ([k, v]) => [k === oldId ? newId : k, v])
+    forms.clear()
+    for (const [k, v] of entries) forms.set(k, v)
+    if (activeFormId.value === oldId) activeFormId.value = newId
+    syncList()
+    return true
+  }
+
   return {
     formIds,
     activeFormId,
     loadForms,
     updateActiveGraph,
     getFormGraph,
+    setFormGraph,
     setActiveFormId,
     clearActiveForm,
+    hasForm,
+    addForm,
+    removeForm,
+    renameForm,
   }
 })

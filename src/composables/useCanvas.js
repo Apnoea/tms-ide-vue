@@ -32,6 +32,12 @@ const importProjectFn = shallowRef(null)
 // оркестрацию (прогон форм через paper → бандл → FSA-запись) держит CanvasPane.
 const projectExportFn = shallowRef(null)
 
+// CRUD форм (панель форм дёргает): создать пустую / удалить / переименовать.
+// Оркестрацию (стор + IDB + перезагрузка холста) держит useProject в CanvasPane.
+const createFormFn = shallowRef(null)
+const deleteFormFn = shallowRef(null)
+const renameFormFn = shallowRef(null)
+
 const selection = ref([]) // Array<{ kind, id }>
 
 const graphVersion = ref(0)
@@ -188,6 +194,20 @@ export function useCanvas() {
     },
     exportProjectToFolder() {
       return projectExportFn.value?.()
+    },
+    setFormCrudFns({ createForm, deleteForm, renameForm }) {
+      createFormFn.value = createForm
+      deleteFormFn.value = deleteForm
+      renameFormFn.value = renameForm
+    },
+    createForm() {
+      return createFormFn.value?.()
+    },
+    deleteForm(id) {
+      return deleteFormFn.value?.(id)
+    },
+    renameForm(oldId, newId) {
+      return renameFormFn.value?.(oldId, newId)
     },
     clearCanvasRefs() {
       graphRef.value = null

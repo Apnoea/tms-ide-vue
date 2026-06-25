@@ -186,6 +186,7 @@ async function refreshTagList() {
       ref="openProjectBtnRef"
       v-tooltip.bottom="'Открыть проект · Ctrl+O'"
       icon="pi pi-folder-open"
+      label="Открыть"
       severity="secondary"
       text
       size="small"
@@ -194,13 +195,14 @@ async function refreshTagList() {
     <Button
       v-tooltip.bottom="'Экспортировать проект · Ctrl+S'"
       icon="pi pi-download"
+      label="Экспорт"
       severity="secondary"
       text
       size="small"
       @click="canvas.exportProjectToFolder"
     />
 
-    <span class="text-surface-300 mx-1">|</span>
+    <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
 
     <Button
       v-tooltip.bottom="tags.length ? `Tag-list · ${tags.length} тегов` : 'Загрузить tag-list'"

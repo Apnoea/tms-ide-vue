@@ -6,16 +6,15 @@ import { ANIMATION_CLASS_COLORS } from '../constants/animation'
 
 /**
  * Карточка анимации «Диапазоны значений» в инспекторе (аналоговый источник:
- * значение тега → класс по диапазону). Рендерится только когда voltageSource
- * установлен (родитель проверяет !== null). Сам компонент НЕ управляет
- * включением/выключением — это делает родитель через кнопки add/remove
- * на уровне unified-блока «АНИМАЦИИ».
+ * значение тега → класс по диапазону). Виден всегда; `voltageSource === null` —
+ * пустое состояние (тег не выбран, порогов нет). Объект создаётся лениво в
+ * родителе при выборе тега, очищается через × (× виден только при непустом).
  *
  * Эмитит intent'ы (openTagPicker/updateRange/highlight/remove). Состоянием
  * (объектом voltageSource) владеет родитель — мы только рендерим и зовём.
  */
 defineProps({
-  voltageSource: { type: Object, required: true }, // { tag, ranges }
+  voltageSource: { type: Object, default: null }, // { tag, ranges } | null
   tagsLoaded: { type: Boolean, default: false },
   classOptions: { type: Array, default: () => [] },
 })
@@ -27,11 +26,12 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
 
 <template>
   <div class="border border-surface-200 rounded p-3 bg-surface-0">
-    <div class="flex items-center gap-2 mb-2">
+    <div class="flex items-center gap-2 mb-2 min-h-6">
       <i class="pi pi-chart-bar text-yellow-500" />
       <div class="text-xs font-medium text-surface-700">Диапазоны значений</div>
       <Button
-        v-tooltip.bottom="'Удалить анимацию'"
+        v-if="voltageSource"
+        v-tooltip.bottom="'Очистить'"
         icon="pi pi-times"
         severity="secondary"
         text
@@ -56,10 +56,10 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
             :title="tagsLoaded ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'"
             @click="tagsLoaded && $emit('open-tag-picker')"
           >
-            {{ voltageSource.tag || '- не выбран -' }}
+            {{ voltageSource?.tag || '- не выбран -' }}
           </code>
           <Button
-            v-if="voltageSource.tag"
+            v-if="voltageSource?.tag"
             v-tooltip.bottom="'Подсветить на схеме'"
             icon="pi pi-search-plus"
             severity="secondary"
@@ -71,7 +71,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
         </div>
       </div>
 
-      <div>
+      <div v-if="voltageSource?.tag">
         <div class="text-[11px] text-surface-500 mb-1">Диапазоны</div>
         <div class="space-y-1">
           <div

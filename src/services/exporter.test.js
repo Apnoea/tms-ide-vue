@@ -503,6 +503,21 @@ describe('exportProject', () => {
     warnSpy.mockRestore()
   })
 
+  it('дубль valueTag → уникальные outer-id (валидный SVG), второй с суффиксом', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const graph = mockGraph([
+      mockCell({ id: 'c1', stencilId: 'cell_value', valueTag: 'PS031.UA' }),
+      mockCell({ id: 'c2', stencilId: 'cell_value', valueTag: 'PS031.UA' }),
+    ])
+    const { svgText } = exportProject(graph)
+    // Базовый outer-id — ровно один раз (без duplicate-id в SVG).
+    const base = (svgText.match(/id="animation-cell-PS031\.UA"/g) || []).length
+    expect(base).toBe(1)
+    // Второй cell_value получил уникальный суффикс.
+    expect(svgText).toContain('animation-cell-PS031.UA__2')
+    warnSpy.mockRestore()
+  })
+
   it('short-id collision: две ячейки с одинаковым первым сегментом UUID получают разные animation-keys', () => {
     // Контрфактический сценарий: два UUID с совпадающим первым сегментом.
     // Без uniqueShortId оба свернулись бы в animId='abc12345' и слили бы свои
@@ -587,5 +602,47 @@ describe('exportProject', () => {
     const link = parsed.cells.find((c) => c.type === 'standard.Link')
     expect(link).toBeTruthy()
     expect(link.vertices).toEqual(verts)
+  })
+
+  it('битый линк (endpoint без size) не роняет экспорт — провод пропускается', () => {
+    // Ячейка без size: getEndpointPos возвращает null (а не падает на size.width)
+    // → линк пропускается, экспорт формы не рушится.
+    const broken = {
+      id: 'b1',
+      get(key) {
+        if (key === 'tms') return { stencilId: 'cell_node' }
+        if (key === 'position') return { x: 0, y: 0 }
+        return undefined // size отсутствует
+      },
+    }
+    const good = mockCell({ id: 'g1', stencilId: 'cell_node', x: 100, y: 0, w: 20, h: 20 })
+    const link = mockLink({ id: 'L1', source: { id: 'b1' }, target: { id: 'g1' } })
+    // broken — только endpoint (не в elements), иначе цикл по ячейкам сам бы упал.
+    const graph = {
+      getElements: () => [good],
+      getLinks: () => [link],
+      getCell: (id) => (id === 'b1' ? broken : [good, link].find((c) => c.id === id)),
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    let result
+    expect(() => (result = exportProject(graph))).not.toThrow()
+    const parsed = parseSvgProject(result.svgText)
+    expect(parsed.cells.filter((c) => c.type === 'standard.Link')).toHaveLength(0)
+    warn.mockRestore()
+  })
+
+  it('линк с ненайденным портом → центр ячейки + console.warn, линк экспортируется', () => {
+    const a = mockCell({ id: 'a1', stencilId: 'cell_node', x: 0, y: 0, w: 20, h: 20 })
+    const b = mockCell({ id: 'b1', stencilId: 'cell_node', x: 100, y: 0, w: 20, h: 20 })
+    // port 'ghost' нет в items (у mockCell ports не заданы) → fallback в центр + warn.
+    const link = mockLink({ id: 'L1', source: { id: 'a1', port: 'ghost' }, target: { id: 'b1' } })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = exportProject(mockGraph([a, b], [link]))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Порт "ghost" не найден'))
+    const parsed = parseSvgProject(result.svgText)
+    expect(parsed.cells.filter((c) => c.type === 'standard.Link')).toHaveLength(1)
+    warn.mockRestore()
   })
 })

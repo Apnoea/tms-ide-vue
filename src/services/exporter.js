@@ -56,6 +56,8 @@ function getEndpointPos(end, graph) {
   if (!cell) return null
 
   const pos = cell.get('position')
+  if (!pos) return null // битая ячейка без позиции — линк пропустим (не роняем экспорт)
+
   if (end.port) {
     const ports = cell.get('ports')?.items || []
     const port = ports.find((p) => p.id === end.port)
@@ -65,9 +67,13 @@ function getEndpointPos(end, graph) {
         y: pos.y + (port.args?.y ?? 0),
       }
     }
+    // Порт не найден (рассинхрон портов после ресайза шины и т.п.) — уходим в
+    // центр ячейки, но сигналим: тихий сдвиг провода заметить трудно.
+    console.warn(`[Export] Порт "${end.port}" не найден у ячейки ${end.id} — провод уходит в центр`)
   }
   // fallback: центр ячейки
   const size = cell.get('size')
+  if (!size) return null
   return {
     x: pos.x + size.width / 2,
     y: pos.y + size.height / 2,
@@ -319,15 +325,25 @@ export function exportProject(graph, paper = null) {
     const pos = cell.get('position')
     const size = cell.get('size')
 
-    // Для cell_value с тегом animId = САМ ТЕГ целиком, без укорачивания.
-    // Иначе valueTag вида 'MY-TAG.IA' (с дефисом) split'нулся бы по '-' и
-    // порезался до 'MY' — рантайм бы не нашёл text-карточку. У остальных —
-    // short-id из UUID cell.id с дефолтом на первый сегмент и расширением
-    // при коллизии (uniqueShortId).
-    const animId =
-      tms.stencilId === 'cell_value' && tms.valueTag
-        ? tms.valueTag
-        : uniqueShortId(cell.id, (id) => usedOuterKeys.has(outerKeyFor(tms.stencilId, id)))
+    // Для cell_value с тегом animId = САМ ТЕГ целиком, без укорачивания: рантайм
+    // находит text-узел по id == тег. Иначе short-id из UUID cell.id (uniqueShortId
+    // с расширением при коллизии). При ДУБЛЕ valueTag даём уникальный суффикс —
+    // SVG обязан иметь уникальные id (иначе невалидный документ); по «чистому» тегу
+    // рантайм обновит только первую ячейку, о чём предупреждаем.
+    let animId
+    if (tms.stencilId === 'cell_value' && tms.valueTag) {
+      animId = tms.valueTag
+      if (usedOuterKeys.has(outerKeyFor('cell_value', animId))) {
+        const msg = `cell_value: дубль valueTag="${tms.valueTag}" — рантайм обновит только первую ячейку`
+        warnings.push(msg)
+        console.warn(`[Exporter] ${msg}`)
+        let n = 2
+        while (usedOuterKeys.has(outerKeyFor('cell_value', `${tms.valueTag}__${n}`))) n++
+        animId = `${tms.valueTag}__${n}`
+      }
+    } else {
+      animId = uniqueShortId(cell.id, (id) => usedOuterKeys.has(outerKeyFor(tms.stencilId, id)))
+    }
     usedOuterKeys.add(outerKeyFor(tms.stencilId, animId))
 
     // Динамические стенсилы (шина, текст, значение) рендерятся по реальному
@@ -344,25 +360,12 @@ export function exportProject(graph, paper = null) {
     } else if (tms.stencilId === 'cell_value') {
       cellSvg = buildValueExportSvg(animId, tms.valueTag || '', size.width, size.height)
       if (tms.valueTag) {
-        // Два cell_value с одинаковым valueTag дали бы одинаковый
-        // `animation-{tag}` text-id — невалидный SVG (duplicate id) и рантайм
-        // обновлял бы только первый из них. Предупреждаем, не молчим.
-        const textKey = valueTextKey(animId)
-        if (animations[textKey]) {
-          const msg = `cell_value: дубль valueTag="${tms.valueTag}" — рантайм обновит только первую ячейку`
-          warnings.push(msg)
-          console.warn(`[Exporter] ${msg}`)
-        }
-        // Конвенция WebScada-рантайма: пустой output.text означает «взять
-        // значение из binding.tag» (т.е. того же тега, что подписан).
-        animations[textKey] = {
+        // text-id = animation-{animId}; animId дедуплицирован выше → ключ уникален
+        // даже при двух cell_value с одним valueTag. Конвенция WebScada-рантайма:
+        // пустой output.text = «взять значение из binding.tag» (того же тега).
+        animations[valueTextKey(animId)] = {
           animation: 'text',
-          bindings: [
-            {
-              tag: tms.valueTag,
-              output: { text: {}, decimals: 2 },
-            },
-          ],
+          bindings: [{ tag: tms.valueTag, output: { text: {}, decimals: 2 } }],
           detailTags: [{ tag: tms.valueTag }],
         }
       }
@@ -442,7 +445,10 @@ export function exportProject(graph, paper = null) {
     if (!pathD) {
       const source = getEndpointPos(link.get('source'), graph)
       const target = getEndpointPos(link.get('target'), graph)
-      if (!source || !target) continue
+      if (!source || !target) {
+        console.warn(`[Export] Линк ${link.id}: не вычислить геометрию endpoint'а — пропускаю`)
+        continue
+      }
       pathD = `M ${source.x},${source.y} L ${target.x},${target.y}`
 
       minX = Math.min(minX, source.x, target.x)
