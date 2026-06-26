@@ -257,8 +257,7 @@ export function useProject({
       canvas.clearSelection()
     }
     const okMsg =
-      `${forms.length} ${nplural(forms.length, 'форма', 'формы', 'форм')}` +
-      (skipped ? `, пропущено ${skipped}` : '')
+      nplural(forms.length, 'форма', 'формы', 'форм') + (skipped ? `, пропущено ${skipped}` : '')
 
     // Запись в IDB упала (квота) — стор загружен, сессия рабочая, но reload потеряет
     // часть форм. Рисуем активную для текущей сессии, не врём про успех и НЕ пишем
@@ -364,8 +363,8 @@ export function useProject({
 
       notify.success(
         'Проект экспортирован',
-        `${formsOut.length} ${nplural(formsOut.length, 'форма', 'формы', 'форм')}, ` +
-          `${stencils.length} ${nplural(stencils.length, 'стенсил', 'стенсила', 'стенсилов')}`
+        `${nplural(formsOut.length, 'форма', 'формы', 'форм')}, ` +
+          nplural(stencils.length, 'стенсил', 'стенсила', 'стенсилов')
       )
     } catch (e) {
       if (e?.name !== 'AbortError') {
@@ -394,10 +393,9 @@ export function useProject({
   }
 
   // Проектные операции мутируют один граф/стор через серии await'ов. Параллельный
-  // запуск рассинхронил бы их (оверлей экспорта накрывает только canvas, FormsPanel
-  // в соседней панели остаётся кликабельной → клик по форме во время FSA-записи влез
-  // бы в один граф). Гоняем все три через общий busy-флаг — исключение на уровне
-  // логики, не UI.
+  // запуск рассинхронил бы их (оверлей экспорта накрывает только canvas, а вкладки
+  // форм над холстом остаются кликабельными → клик по форме во время FSA-записи влез
+  // бы в один граф). Гоняем все через общий busy-флаг — исключение на уровне логики, не UI.
   let projectBusy = false
   const withProjectBusy =
     (fn) =>

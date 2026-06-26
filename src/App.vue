@@ -1,12 +1,10 @@
 <script setup>
 import { useEventListener } from '@vueuse/core'
-import Splitter from 'primevue/splitter'
-import SplitterPanel from 'primevue/splitterpanel'
 import Toast from 'primevue/toast'
 import ConfirmPopup from 'primevue/confirmpopup'
 
-import AppFooter from './components/AppFooter.vue'
-import FormsPanel from './components/FormsPanel.vue'
+import StatusBar from './components/StatusBar.vue'
+import FormTabs from './components/FormTabs.vue'
 import PalettePane from './components/PalettePane.vue'
 import CanvasPane from './components/CanvasPane.vue'
 import InspectorPane from './components/InspectorPane.vue'
@@ -30,57 +28,40 @@ useEventListener(window, 'keydown', (event) => {
 </script>
 
 <template>
-  <div class="h-screen flex flex-col bg-surface-0 text-surface-900">
-    <!-- Внешний splitter управляет только палитрой vs остальной частью.
-         Внутренний — canvas vs inspector. Так resize правого gutter'а не
-         сдвигает палитру (баг 3-панельного PrimeVue Splitter с state-storage). -->
-    <Splitter
-      class="flex-1 min-h-0 !border-0 !rounded-none"
-      :gutter-size="6"
-      state-key="tms-ide:splitter-outer:v1"
-      state-storage="local"
-    >
-      <SplitterPanel :size="18" :min-size="12">
-        <div class="h-full flex flex-col">
-          <FormsPanel />
-          <div class="flex-1 min-h-0">
-            <PalettePane />
-          </div>
-        </div>
-      </SplitterPanel>
+  <div class="h-screen flex flex-col bg-surface-100 text-surface-900">
+    <!-- Верхняя полоса (h-10): лого │ вкладки форм │ статус (save + F1). Вкладки
+         отдельной строкой над карточками — чтобы активная вкладка вливалась
+         флэром в холст ниже. -->
+    <div class="flex items-stretch gap-2 px-2">
+      <div class="w-[400px] shrink-0 flex items-center gap-2 px-2">
+        <i class="pi pi-sitemap text-primary-500" />
+        <span class="text-sm font-bold tracking-tight">TMS IDE</span>
+      </div>
+      <div class="flex-1 min-w-0">
+        <FormTabs />
+      </div>
+      <div class="w-[400px] shrink-0 flex items-center px-2">
+        <StatusBar />
+      </div>
+    </div>
 
-      <SplitterPanel :size="82" :min-size="60">
-        <Splitter
-          class="h-full !border-0 !rounded-none"
-          :gutter-size="6"
-          state-key="tms-ide:splitter-inner:v1"
-          state-storage="local"
-        >
-          <SplitterPanel :size="73" :min-size="40">
-            <CanvasPane />
-          </SplitterPanel>
-          <SplitterPanel :size="27" :min-size="15">
-            <InspectorPane />
-          </SplitterPanel>
-        </Splitter>
-      </SplitterPanel>
-    </Splitter>
-
-    <AppFooter />
+    <!-- Карточки: палитра/инспектор по 400px, холст — остальное. Без ресайза.
+         Без pt — вкладки примыкают к холст-карточке вплотную. Бордера нет —
+         отделяет от общего surface-100 тень (shadow-md), как у хрома. -->
+    <div class="flex-1 min-h-0 flex gap-2 px-2 pb-2">
+      <div class="w-[400px] shrink-0 rounded-lg overflow-hidden shadow-md">
+        <PalettePane />
+      </div>
+      <div class="flex-1 min-w-0 rounded-lg overflow-hidden shadow-md">
+        <CanvasPane />
+      </div>
+      <div class="w-[400px] shrink-0 rounded-lg overflow-hidden shadow-md">
+        <InspectorPane />
+      </div>
+    </div>
 
     <Toast position="bottom-right" />
     <ConfirmPopup />
     <HelpDialog />
   </div>
 </template>
-
-<style>
-/* Сплиттер PrimeVue по умолчанию ставит border-radius и фон — снимаем,
-   чтобы вписывался в общий фрейм IDE без визуальных «коробочек». */
-.p-splitter {
-  background: transparent !important;
-}
-.p-splitter > .p-splitterpanel {
-  overflow: hidden;
-}
-</style>

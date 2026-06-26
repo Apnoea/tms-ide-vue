@@ -1,4 +1,8 @@
 <script setup>
+/**
+ * Статус-полоса (верх справа, над инспектором): индикатор сохранения (клик —
+ * экспорт) + справка по хоткеям.
+ */
 import { computed } from 'vue'
 import { useTimestamp } from '@vueuse/core'
 import { useCanvas } from '../composables/useCanvas'
@@ -39,12 +43,10 @@ const saveStateIcon = computed(() =>
 </script>
 
 <template>
-  <footer
-    class="px-4 py-1.5 border-t border-surface-200 bg-surface-0 flex items-center gap-3 text-xs text-surface-500 font-mono"
-  >
-    <!-- LEFT: file state — save-индикатор. Click → force-save (= экспорт). -->
+  <div class="flex items-center justify-end gap-3 w-full text-xs text-surface-500 font-mono">
+    <!-- Save-индикатор. Click → force-save (= экспорт). -->
     <button
-      v-tooltip.top="'Экспортировать проект · Ctrl+S'"
+      v-tooltip.bottom="'Экспортировать проект · Ctrl+S'"
       type="button"
       class="flex items-center gap-1 transition-colors hover:text-surface-700"
       :class="saveStateClass"
@@ -54,15 +56,15 @@ const saveStateIcon = computed(() =>
       <span class="text-[11px]">{{ canvas.saveError.value ? 'не сохранено' : savedAgo }}</span>
     </button>
 
-    <!-- RIGHT: help. -->
+    <!-- Справка по хоткеям. -->
     <button
-      v-tooltip.top="'Горячие клавиши · ? или F1'"
+      v-tooltip.bottom="'Горячие клавиши · ? или F1'"
       type="button"
-      class="ml-auto flex items-center gap-1 text-surface-400 hover:text-surface-700 transition-colors"
+      class="flex items-center gap-1 text-surface-400 hover:text-surface-700 transition-colors"
       @click="ui.openHelp"
     >
       <i class="pi pi-question-circle text-sm" />
       <kbd class="px-1 py-0.5 bg-surface-100 rounded text-[10px] font-mono">F1</kbd>
     </button>
-  </footer>
+  </div>
 </template>

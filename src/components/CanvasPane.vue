@@ -84,8 +84,8 @@ useEventListener(paperContainer, 'mousedown', bus.onMaybeStartResize, true)
 // Pan/lasso/palette-drag слушают свои document/window-события сами
 // (usePan/useLasso/usePaletteDrag).
 
-// Перерасчёт размера paper'а при изменении контейнера (drag сплиттера, ресайз
-// окна). Регистрируем здесь, в синхронном setup-скоупе: внутри async onMounted
+// Перерасчёт размера paper'а при изменении контейнера (ресайз окна).
+// Регистрируем здесь, в синхронном setup-скоупе: внутри async onMounted
 // (после await) vueuse не зацепил бы scope-dispose и observer утёк бы на unmount.
 useResizeObserver(paperContainer, () => {
   if (!paper || !paperContainer.value) return
@@ -234,8 +234,8 @@ const GRID_COLOR = '#e2e8f0' // slate-200
 onMounted(async () => {
   if (!paperContainer.value) return
 
-  // Ждём, пока Splitter PrimeVue распределит размеры по панелям —
-  // иначе clientWidth/Height окажутся слишком маленькими на момент создания paper'а.
+  // Ждём, пока flex-лейаут проставит размеры карточки — иначе clientWidth/Height
+  // окажутся слишком маленькими на момент создания paper'а.
   await nextTick()
 
   graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
@@ -513,7 +513,7 @@ onMounted(async () => {
   canvas.setImportProjectFn(guardedImportProject)
   // Экспорт проекта — ProjectActions дёргает через canvas.exportProjectToFolder.
   canvas.setProjectExportFn(guardedExport)
-  // CRUD форм — FormsPanel дёргает через canvas.createForm/deleteForm/renameForm.
+  // CRUD форм — FormTabs дёргает через canvas.createForm/deleteForm/renameForm.
   canvas.setFormCrudFns({
     createForm: guardedCreateForm,
     deleteForm: guardedDeleteForm,
@@ -1083,14 +1083,33 @@ function performClearCanvas(count) {
 
       <!-- Empty canvas hint — показываем когда нет ячеек и не идёт drag.
  Двухшаговый чек-лист: tag-list → стенсил. Первый шаг отмечается ✓
- когда теги загружены, чтобы юзер видел прогресс. -->
+ когда теги загружены (без tag-list'а анимации стенсилов не работают). -->
       <div
         v-if="canvas.cellsCount.value === 0 && !ui.dragging"
         class="absolute inset-0 flex items-center justify-center pointer-events-none"
       >
         <div class="text-center text-surface-400 px-4">
-          <div class="text-sm font-medium text-surface-500">Пустой холст</div>
-          <p class="text-xs mt-1">Перетащи стенсил из палитры слева</p>
+          <div class="text-sm font-medium text-surface-500 mb-3">Пустой холст</div>
+          <ul class="inline-block text-left text-xs space-y-1.5">
+            <li class="flex items-center gap-2">
+              <i
+                :class="
+                  project.tags.length
+                    ? 'pi pi-check-circle text-emerald-500'
+                    : 'pi pi-circle text-surface-300'
+                "
+              />
+              <span
+                :class="project.tags.length ? 'text-surface-400 line-through' : 'text-surface-600'"
+              >
+                Загрузите tag-list (кнопка в тулбаре)
+              </span>
+            </li>
+            <li class="flex items-center gap-2">
+              <i class="pi pi-circle text-surface-300" />
+              <span class="text-surface-600">Перетащите стенсил из палитры слева</span>
+            </li>
+          </ul>
         </div>
       </div>
     </div>

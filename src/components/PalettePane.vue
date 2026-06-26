@@ -94,8 +94,8 @@ function stencilTooltip(stencil) {
 </script>
 
 <template>
-  <aside class="h-full flex flex-col bg-surface-50 border-r border-surface-200">
-    <div class="min-h-16 px-4 py-3 border-b border-surface-200 flex items-center">
+  <aside class="h-full flex flex-col bg-surface-50">
+    <div class="min-h-16 px-4 py-3 border-b border-surface-200 bg-surface-0 flex items-center">
       <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Палитра</h2>
     </div>
 
@@ -107,6 +107,11 @@ function stencilTooltip(stencil) {
           size="small"
           class="w-full"
           placeholder="Поиск по названию или id..."
+        />
+        <InputIcon
+          v-if="search"
+          class="pi pi-times cursor-pointer hover:text-surface-700"
+          @click="search = ''"
         />
       </IconField>
     </div>
@@ -198,7 +203,7 @@ function stencilTooltip(stencil) {
 /* PrimeVue Accordion-дефолты в Aura — слишком жирные border/padding для
  узкой колонки палитры. Сжимаем: тонкая нижняя линия между панелями,
  компактные паддинги, header с прозрачным background чтобы вписаться
- в общий surface-50 фон aside'а. */
+ в общий фон aside'а. */
 .tms-palette-accordion .p-accordionheader {
   padding: 0.5rem 0.5rem;
   background: transparent;

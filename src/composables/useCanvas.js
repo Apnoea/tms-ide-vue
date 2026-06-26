@@ -7,7 +7,7 @@ import { planWireBridge } from '../utils/wireSplice'
  * Shared singleton-доступ к JointJS-состоянию холста.
  *
  * CanvasPane при монтировании регистрирует graph/paper через setCanvasRefs,
- * остальные компоненты (Inspector, AppFooter) читают их через useCanvas().
+ * остальные компоненты (Inspector, StatusBar) читают их через useCanvas().
  *
  * Selection — массив { kind: 'cell'|'link', id }. Пустой массив = ничего не выделено.
  * singleSelection — удобный computed для single-mode компонентов: возвращает item
@@ -51,11 +51,11 @@ const paperViewTick = ref(0)
 const zoomPercent = ref(100)
 // { x, y } в paper-локальных координатах либо null когда курсор вне холста
 const cursorLocal = ref(null)
-// Индикаторы для footer'а.
+// Индикаторы сохранения для статус-полосы.
 // recentlySaved — короткий «flash» на 1.5 сек после сохранения (зелёная галочка).
 // lastSavedAt — timestamp последнего успешного autosave'а (для «N сек назад»).
 // saveError — последняя запись в IndexedDB упала (квота / приватный режим):
-// футер показывает «не сохранено», чтобы юзер не закрыл вкладку с потерей данных.
+// статус-полоса показывает «не сохранено», чтобы юзер не закрыл вкладку с потерей данных.
 const recentlySaved = ref(false)
 const lastSavedAt = ref(0)
 const saveError = ref(false)

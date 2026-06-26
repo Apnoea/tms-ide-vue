@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import Button from 'primevue/button'
+import Badge from 'primevue/badge'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
 import { useUiStore } from '../stores/useUiStore'
@@ -10,7 +11,7 @@ import { storeToRefs } from 'pinia'
 import * as fs from '../services/fileSystem'
 import { parseTagList } from '../services/parsers'
 import { nplural } from '../utils/plural'
-import { idbGet, idbSet, idbDel } from '../utils/idb'
+import { idbGet, idbSet } from '../utils/idb'
 import { useCanvas } from '../composables/useCanvas'
 
 const ui = useUiStore()
@@ -18,12 +19,15 @@ const project = useProjectStore()
 const canvas = useCanvas()
 const notify = useNotify()
 const confirm = useConfirm()
-const { tags, tagListHandle } = storeToRefs(project)
+const { tags } = storeToRefs(project)
 
 const IDB_HANDLE_KEY = 'tagListHandle'
 
 // Ref на кнопку «Открыть проект» — target для ConfirmPopup.
 const openProjectBtnRef = ref(null)
+// Идёт импорт проекта (read-folder → parse → запись в IDB): спиннер на «Открыть»
+// + дизейбл проектных кнопок, чтобы не запустить вторую операцию поверх.
+const importing = ref(false)
 
 async function loadParsedTagsFromHandle(handle) {
   const perm = await handle.queryPermission?.({ mode: 'read' })
@@ -55,7 +59,6 @@ async function pickTagList() {
     if (!loaded) return
 
     project.setTags(loaded.parsed)
-    project.setTagListHandle(fileHandle)
     await idbSet(IDB_HANDLE_KEY, fileHandle)
     // Сырой текст — с проектом (бандл на экспорте + переживает reload).
     await idbSet('project:tags', loaded.content)
@@ -73,16 +76,10 @@ async function pickTagList() {
   }
 }
 
-function unloadTagList() {
-  project.clearTagList()
-  idbDel(IDB_HANDLE_KEY)
-  idbDel('project:tags') // иначе теги «вернутся» из проекта на следующем restore
-  notify.info('Tag-list сброшен', 'Привязки на холсте сохранены, но выбрать новые теги пока нельзя')
-}
-
-// На mount пытаемся восстановить tag-list-handle из IDB. 'granted' permission
-// → автоматически подгружаем; 'prompt' → ставим handle + просим нажать refresh
-// (requestPermission требует user-gesture).
+// На mount пытаемся восстановить tag-list из запомненного file-handle (IDB).
+// 'granted' permission → подгружаем автоматически; иначе (browser сбросил доступ)
+// — просим выбрать файл заново кнопкой «Tag-list» (requestPermission требует
+// user-gesture, отдельной кнопки обновления у нас нет).
 async function tryRestoreTagListHandle() {
   const handle = await idbGet(IDB_HANDLE_KEY)
   if (!handle) return
@@ -94,17 +91,15 @@ async function tryRestoreTagListHandle() {
       const parsed = parseTagList(content)
       if (parsed.length === 0) return
       project.setTags(parsed)
-      project.setTagListHandle(handle)
       notify.info(
         'Tag-list восстановлен',
         `${nplural(parsed.length, 'тег', 'тега', 'тегов')} из ${handle.name}`,
         TOAST_LIFE.SHORT
       )
     } else {
-      project.setTagListHandle(handle)
       notify.warn(
         'Tag-list требует разрешения',
-        `Нажми обновить — браузер запросит доступ к ${handle.name}`,
+        `Нажмите «Tag-list» и выберите файл заново, чтобы дать доступ к ${handle.name}`,
         TOAST_LIFE.LONG
       )
     }
@@ -149,33 +144,15 @@ async function openProjectFolder() {
     })
     if (!accepted) return
   }
+  importing.value = true
   try {
     await canvas.importProject()
   } catch (e) {
     if (e.name === 'AbortError') return
     console.error('[ProjectActions] Ошибка импорта проекта:', e)
     notify.error('Ошибка импорта проекта', e.message || String(e))
-  }
-}
-
-async function refreshTagList() {
-  const handle = tagListHandle.value
-  if (!handle) return
-  try {
-    const loaded = await loadParsedTagsFromHandle(handle)
-    if (!loaded) return
-    const before = tags.value.length
-    project.setTags(loaded.parsed)
-    await idbSet('project:tags', loaded.content)
-    const diff = loaded.parsed.length - before
-    notify.success(
-      'Tag-list обновлён',
-      `${nplural(loaded.parsed.length, 'тег', 'тега', 'тегов')}${diff !== 0 ? ` (${diff > 0 ? '+' : ''}${diff})` : ''}`,
-      TOAST_LIFE.NORMAL
-    )
-  } catch (e) {
-    console.error('[ProjectActions] Ошибка рефреша tag-list:', e)
-    notify.error('Не удалось обновить tag-list', e.message || String(e))
+  } finally {
+    importing.value = false
   }
 }
 </script>
@@ -190,6 +167,8 @@ async function refreshTagList() {
       severity="secondary"
       text
       size="small"
+      :loading="importing"
+      :disabled="importing"
       @click="openProjectFolder"
     />
     <Button
@@ -199,39 +178,22 @@ async function refreshTagList() {
       severity="secondary"
       text
       size="small"
+      :disabled="importing"
       @click="canvas.exportProjectToFolder"
     />
 
     <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
 
     <Button
-      v-tooltip.bottom="tags.length ? `Tag-list · ${tags.length} тегов` : 'Загрузить tag-list'"
+      v-tooltip.bottom="tags.length ? 'Заменить tag-list' : 'Загрузить tag-list'"
       icon="pi pi-tags"
       :severity="tags.length ? 'secondary' : 'primary'"
       :text="!!tags.length"
+      label="Tag-list"
       size="small"
-      :label="tags.length ? undefined : 'Tag-list'"
+      :disabled="importing"
       @click="pickTagList"
     />
-    <Button
-      v-if="tagListHandle"
-      v-tooltip.bottom="'Перечитать tag-list'"
-      icon="pi pi-refresh"
-      severity="secondary"
-      text
-      rounded
-      size="small"
-      @click="refreshTagList"
-    />
-    <Button
-      v-if="tags.length"
-      v-tooltip.bottom="'Сбросить tag-list'"
-      icon="pi pi-times"
-      severity="secondary"
-      text
-      rounded
-      size="small"
-      @click="unloadTagList"
-    />
+    <Badge v-if="tags.length" :value="tags.length" severity="secondary" size="small" />
   </div>
 </template>

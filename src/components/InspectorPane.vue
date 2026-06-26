@@ -33,7 +33,7 @@ import {
   CLASS_OFF,
   CLASS_HIDDEN,
 } from '../constants/animation'
-import { hasSlotPlaceholder } from '../constants/ids'
+import { hasSlotPlaceholder, outerKey } from '../constants/ids'
 
 // Дефолтные диапазоны voltage-source. .map(({...r})) на каждое использование —
 // чтобы ячейки не делили один и тот же массив.
@@ -93,6 +93,14 @@ const details = computed(() => {
       bold: !!tms.bold,
       isValue: tms.stencilId === 'cell_value',
       valueTag: tms.valueTag ?? '',
+      // id outer-карточки в animations.json/SVG. animId = short-id из UUID (первый
+      // сегмент, как в exporter.uniqueShortId без коллизии); cell_value — сам valueTag.
+      exportId: outerKey(
+        tms.stencilId,
+        tms.stencilId === 'cell_value' && tms.valueTag
+          ? tms.valueTag
+          : String(cell.id).split('-')[0]
+      ),
       // cell_alr рендерит свой required-слот через AlarmSourceBlock (с описанием,
       // bell-иконкой, без отдельной строки в «Привязки тегов»). Булев источник для
       // тревоги бессмыслен — кнопку «Булев источник» прячем тоже.
@@ -767,8 +775,8 @@ const switchPickerTags = computed(() => {
 </script>
 
 <template>
-  <aside class="h-full flex flex-col bg-surface-50 border-l border-surface-200">
-    <div class="min-h-16 px-4 py-3 border-b border-surface-200 flex items-center">
+  <aside class="h-full flex flex-col bg-surface-50">
+    <div class="min-h-16 px-4 py-3 border-b border-surface-200 bg-surface-0 flex items-center">
       <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Инспектор</h2>
     </div>
 
@@ -859,6 +867,11 @@ const switchPickerTags = computed(() => {
               </div>
               <div class="text-[11px] text-surface-500 font-mono">
                 {{ details.stencilId }}
+              </div>
+              <!-- id outer-карточки в animations.json / экспортном SVG (тот же, что
+                   эмитит exporter; точная подстановка short-id см. constants/ids). -->
+              <div class="text-[11px] text-surface-400 font-mono break-all">
+                {{ details.exportId }}
               </div>
             </div>
 

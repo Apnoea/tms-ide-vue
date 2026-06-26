@@ -176,10 +176,6 @@ export function useHotkeys({
     event.preventDefault()
     event.stopPropagation()
     canvas.deleteItems([...sel])
-    // PrimeVue Splitter gutter ловит keydown и оставляет фокус на gutter'е —
-    // явно blurим, иначе следующий Del «съест» ячейку, по которой кликнул юзер.
-    const active = document.activeElement
-    if (active && active !== document.body && typeof active.blur === 'function') active.blur()
   }
 
   useEventListener(window, 'keydown', onKeyDown)

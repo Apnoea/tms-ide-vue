@@ -15,7 +15,7 @@ import { ref } from 'vue'
 export const useWorkspaceStore = defineStore('workspace', () => {
   // id → graphJson. Приватная, не возвращаем наружу — не state Pinia.
   const forms = new Map()
-  const formIds = ref([]) // порядок форм для панели (FormsPanel)
+  const formIds = ref([]) // порядок форм для вкладок (FormTabs)
   const activeFormId = ref(null)
 
   function syncList() {

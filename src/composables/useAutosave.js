@@ -17,7 +17,7 @@ const formKey = (id) => `project:form:${id}`
 // Дефолтная форма при пустом старте (проекта в IDB ещё нет).
 const DEFAULT_FORM_ID = 'main'
 
-// Длительность «✓ Сохранено» flash-индикатора в footer'е.
+// Длительность «✓ Сохранено» flash-индикатора в статус-полосе.
 const FLASH_DURATION_MS = 1500
 
 /**
@@ -33,7 +33,7 @@ export function useAutosave({ restoringHistory }) {
   const canvas = useCanvas()
   const workspace = useWorkspaceStore()
   const project = useProjectStore()
-  // Таймер flash-индикатора «✓ Сохранено» в footer'е (1.5 сек после save).
+  // Таймер flash-индикатора «✓ Сохранено» в статус-полосе (1.5 сек после save).
   let savedFlashTimer = null
 
   /**
@@ -100,7 +100,7 @@ export function useAutosave({ restoringHistory }) {
     const ok = await idbSet(formKey(id), json)
     if (!ok) {
       // Запись упала (квота / приватный режим) — не зажигаем «✓ Сохранено»,
-      // а помечаем ошибку: футер покажет «не сохранено».
+      // а помечаем ошибку: статус-полоса покажет «не сохранено».
       canvas.setSaveError(true)
       return
     }
@@ -144,7 +144,7 @@ export function useAutosave({ restoringHistory }) {
       ok = (await idbSet(TAGS_KEY, tagsText)) && ok
       project.setTags(parseTagList(tagsText))
     }
-    if (!ok) canvas.setSaveError(true) // футер покажет «не сохранено»
+    if (!ok) canvas.setSaveError(true) // статус-полоса покажет «не сохранено»
     return ok
   }
 

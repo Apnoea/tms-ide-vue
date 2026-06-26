@@ -95,17 +95,6 @@ body,
   display: block;
 }
 
-/* PrimeVue Splitter gutter имеет tabindex="0" и рисует focus-ring рядом
-   с панелью палитры/инспектора — выглядит как обводка соседнего aside.
-   Skip-keyboard-resize у нас нет, скрываем кольцо. */
-.p-splitter-gutter:focus,
-.p-splitter-gutter:focus-visible,
-.p-splitterpanel:focus,
-.p-splitterpanel:focus-visible {
-  outline: none !important;
-  box-shadow: none !important;
-}
-
 /* Focus-ring PrimeVue-кнопок (Aura рисует его через outline + box-shadow)
    залипает после клика мышью и читается как «обведённая» кнопка тулбара.
    Снимаем кольцо у всех кнопок — клавиатурной навигации по тулбару в IDE нет. */
