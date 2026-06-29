@@ -836,24 +836,65 @@ const switchPickerTags = computed(() => {
       </template>
 
       <template v-else-if="!details">
-        <div class="flex flex-col items-center text-center text-surface-400 py-10">
-          <i class="pi pi-mouse text-3xl mb-3 opacity-60" />
-          <div class="text-sm font-medium text-surface-500 mb-1">Ничего не выделено</div>
-          <p class="text-[11px] leading-relaxed max-w-[180px]">
-            Кликни по ячейке или проводу на холсте - здесь появятся свойства
-          </p>
-          <!-- CTA когда tag-list ещё не загружен — без него анимации стенсилов
+        <div>
+          <div class="flex flex-col items-center text-center text-surface-400 pb-6 pt-8">
+            <i class="pi pi-mouse text-3xl mb-3 opacity-60" />
+            <div class="text-sm font-medium text-surface-500 mb-1">Ничего не выделено</div>
+            <p class="text-[11px] leading-relaxed max-w-[180px]">
+              Кликни по ячейке или проводу на холсте — здесь появятся свойства
+            </p>
+            <!-- CTA когда tag-list ещё не загружен — без него анимации стенсилов
  не работают, юзеру полезно увидеть кнопку сразу при пустом инспекторе. -->
-          <Button
-            v-if="!project.tags.length"
-            label="Загрузить tag-list…"
-            icon="pi pi-upload"
-            severity="secondary"
-            size="small"
-            outlined
-            class="mt-4"
-            @click="ui.requestTagListLoad"
-          />
+            <Button
+              v-if="!project.tags.length"
+              label="Загрузить tag-list…"
+              icon="pi pi-upload"
+              severity="secondary"
+              size="small"
+              outlined
+              class="mt-4"
+              @click="ui.requestTagListLoad"
+            />
+          </div>
+
+          <!-- Холостой инспектор не простаивает: сводка активной формы + базовые
+               хоткеи сразу под подсказкой; свободное место уходит вниз. -->
+          <div class="space-y-4 border-t border-surface-200 pt-4 text-[11px]">
+            <div>
+              <div class="mb-2 uppercase tracking-wider text-surface-400">Сводка формы</div>
+              <div class="flex flex-col gap-1 text-surface-600">
+                <div class="flex justify-between">
+                  <span>Ячейки</span>
+                  <span class="font-mono">{{ canvas.cellsCount.value }}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span>Провода</span>
+                  <span class="font-mono">{{ canvas.linksCount.value }}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span>Теги в tag-list</span>
+                  <span class="font-mono">{{ project.tags.length }}</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div class="mb-2 uppercase tracking-wider text-surface-400">Подсказки</div>
+              <ul class="flex flex-col gap-2 text-surface-500">
+                <li class="flex items-center gap-2">
+                  <i class="pi pi-arrows-alt !text-[10px] text-surface-400" />
+                  Перетащи стенсил из палитры на холст
+                </li>
+                <li class="flex items-center gap-2">
+                  <kbd class="rounded bg-surface-100 px-1 py-0.5 font-mono text-[10px]">Ctrl+F</kbd>
+                  поиск по тегам
+                </li>
+                <li class="flex items-center gap-2">
+                  <kbd class="rounded bg-surface-100 px-1 py-0.5 font-mono text-[10px]">?</kbd>
+                  справка по хоткеям
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
       </template>
 

@@ -5,6 +5,7 @@ import ConfirmPopup from 'primevue/confirmpopup'
 
 import StatusBar from './components/StatusBar.vue'
 import FormTabs from './components/FormTabs.vue'
+import ProjectActions from './components/ProjectActions.vue'
 import PalettePane from './components/PalettePane.vue'
 import CanvasPane from './components/CanvasPane.vue'
 import InspectorPane from './components/InspectorPane.vue'
@@ -29,13 +30,16 @@ useEventListener(window, 'keydown', (event) => {
 
 <template>
   <div class="h-screen flex flex-col bg-surface-100 text-surface-900">
-    <!-- Верхняя полоса (h-10): лого │ вкладки форм │ статус (save + F1). Вкладки
-         отдельной строкой над карточками — чтобы активная вкладка вливалась
-         флэром в холст ниже. -->
+    <!-- Верхняя полоса (h-10): лого + Открыть/Экспорт │ вкладки форм │ справка.
+         Открыть/Экспорт — проектного уровня, поэтому в топ-баре, а не в тулбаре
+         холста. Вкладки отдельной строкой над карточками — чтобы активная вкладка
+         вливалась флэром в холст ниже. -->
     <div class="flex items-stretch gap-2 px-2">
       <div class="w-[400px] shrink-0 flex items-center gap-2 px-2">
-        <i class="pi pi-sitemap text-primary-500" />
+        <i class="pi pi-sitemap text-primary-500 shrink-0" />
         <span class="text-sm font-bold tracking-tight">TMS IDE</span>
+        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+        <ProjectActions />
       </div>
       <div class="flex-1 min-w-0">
         <FormTabs />

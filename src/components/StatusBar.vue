@@ -1,70 +1,24 @@
 <script setup>
 /**
- * Статус-полоса (верх справа, над инспектором): индикатор сохранения (клик —
- * экспорт) + справка по хоткеям.
+ * Статус-полоса (верх справа, над инспектором): справка по хоткеям. Индикатор
+ * автосейва — отдельным элементом на холсте (SaveIndicator, слева-снизу).
  */
-import { computed } from 'vue'
-import { useTimestamp } from '@vueuse/core'
-import { useCanvas } from '../composables/useCanvas'
 import { useUiStore } from '../stores/useUiStore'
 
-const canvas = useCanvas()
 const ui = useUiStore()
-
-// Bump раз в секунду для relative time. useTimestamp сам ставит/снимает
-// setInterval и auto-disposes на unmount.
-const nowTick = useTimestamp({ interval: 1000 })
-
-const savedAgo = computed(() => {
-  const ts = canvas.lastSavedAt.value
-  if (!ts) return '—'
-  const diff = Math.max(0, Math.floor((nowTick.value - ts) / 1000))
-  if (diff < 5) return 'только что'
-  if (diff < 60) return `${diff} сек назад`
-  const mins = Math.floor(diff / 60)
-  return `${mins} мин назад`
-})
-
-// Приоритет состояний: ошибка записи > свежий save-flash > idle.
-const saveStateClass = computed(() =>
-  canvas.saveError.value
-    ? 'text-red-600'
-    : canvas.recentlySaved.value
-      ? 'text-primary-600'
-      : 'text-surface-400'
-)
-const saveStateIcon = computed(() =>
-  canvas.saveError.value
-    ? 'pi-exclamation-triangle'
-    : canvas.recentlySaved.value
-      ? 'pi-check-circle'
-      : 'pi-save'
-)
 </script>
 
 <template>
-  <div class="flex items-center justify-end gap-3 w-full text-xs text-surface-500 font-mono">
-    <!-- Save-индикатор. Click → force-save (= экспорт). -->
-    <button
-      v-tooltip.bottom="'Экспортировать проект · Ctrl+S'"
-      type="button"
-      class="flex items-center gap-1 transition-colors hover:text-surface-700"
-      :class="saveStateClass"
-      @click="canvas.exportProjectToFolder"
-    >
-      <i class="pi text-[10px]" :class="saveStateIcon" />
-      <span class="text-[11px]">{{ canvas.saveError.value ? 'не сохранено' : savedAgo }}</span>
-    </button>
-
+  <div class="flex w-full items-center justify-end">
     <!-- Справка по хоткеям. -->
     <button
       v-tooltip.bottom="'Горячие клавиши · ? или F1'"
       type="button"
-      class="flex items-center gap-1 text-surface-400 hover:text-surface-700 transition-colors"
+      class="flex items-center gap-1 text-surface-400 transition-colors hover:text-surface-700"
       @click="ui.openHelp"
     >
       <i class="pi pi-question-circle text-sm" />
-      <kbd class="px-1 py-0.5 bg-surface-100 rounded text-[10px] font-mono">F1</kbd>
+      <kbd class="rounded bg-surface-100 px-1 py-0.5 font-mono text-[10px]">F1</kbd>
     </button>
   </div>
 </template>

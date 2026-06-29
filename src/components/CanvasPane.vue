@@ -33,8 +33,9 @@ import { withRestoreGuard } from '../utils/restoreGuard'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cellHasTag } from '../utils/cellSearch'
 import TagPickerDialog from './TagPickerDialog.vue'
+import TagListControl from './TagListControl.vue'
+import SaveIndicator from './SaveIndicator.vue'
 import SearchBar from './SearchBar.vue'
-import ProjectActions from './ProjectActions.vue'
 
 const project = useProjectStore()
 const ui = useUiStore()
@@ -841,7 +842,7 @@ function performClearCanvas(count) {
       <div class="flex items-center gap-2">
         <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Холст</h2>
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
-        <ProjectActions />
+        <TagListControl />
       </div>
       <div class="flex items-center gap-2">
         <Button
@@ -866,7 +867,7 @@ function performClearCanvas(count) {
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
 
         <Button
-          v-tooltip.bottom="'Подогнать (до 100%)'"
+          v-tooltip.bottom="'Вписать в экран (до 100%)'"
           :label="`${zoomPercent}%`"
           icon="pi pi-arrows-alt"
           severity="secondary"
@@ -1068,6 +1069,9 @@ function performClearCanvas(count) {
           {{ canvas.selectionLabel.value }}
         </span>
       </div>
+
+      <!-- Индикатор автосейва — слева-снизу (симметрично координатам справа). -->
+      <SaveIndicator />
 
       <!-- Lasso overlay (Alt+LMB drag): рамка выделения, координаты в container-px -->
       <div

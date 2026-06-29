@@ -1,126 +1,28 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+/**
+ * Проектный I/O в топ-баре: «Открыть» (импорт папки проекта через FSA) и
+ * «Экспорт» (запись в папку проекта). Tag-list — отдельный контрол у холста
+ * (TagListControl). Оркестрация импорта/экспорта — в CanvasPane через canvas.* .
+ */
+import { ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import Button from 'primevue/button'
-import Badge from 'primevue/badge'
-import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
-import { useUiStore } from '../stores/useUiStore'
-import { useProjectStore } from '../stores/useProjectStore'
-import { storeToRefs } from 'pinia'
-import * as fs from '../services/fileSystem'
-import { parseTagList } from '../services/parsers'
-import { nplural } from '../utils/plural'
-import { idbGet, idbSet } from '../utils/idb'
+import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 
-const ui = useUiStore()
-const project = useProjectStore()
 const canvas = useCanvas()
 const notify = useNotify()
 const confirm = useConfirm()
-const { tags } = storeToRefs(project)
 
-const IDB_HANDLE_KEY = 'tagListHandle'
-
-// Ref на кнопку «Открыть проект» — target для ConfirmPopup.
+// Ref на кнопку «Открыть» — target для ConfirmPopup замены проекта.
 const openProjectBtnRef = ref(null)
-// Идёт импорт проекта (read-folder → parse → запись в IDB): спиннер на «Открыть»
-// + дизейбл проектных кнопок, чтобы не запустить вторую операцию поверх.
+// Идёт импорт (read-folder → parse → запись в IDB): спиннер + дизейбл, чтобы не
+// запустить вторую операцию поверх.
 const importing = ref(false)
 
-async function loadParsedTagsFromHandle(handle) {
-  const perm = await handle.queryPermission?.({ mode: 'read' })
-  if (perm && perm !== 'granted') {
-    const next = await handle.requestPermission({ mode: 'read' })
-    if (next !== 'granted') {
-      notify.warn('Нет доступа к файлу', 'Браузер отозвал разрешение, выберите файл заново')
-      return null
-    }
-  }
-  const content = await fs.getFileContentFromHandle(handle)
-  if (!content) {
-    notify.error('Tag-list', 'Не удалось прочитать файл', TOAST_LIFE.NORMAL)
-    return null
-  }
-  const parsed = parseTagList(content)
-  if (parsed.length === 0) {
-    notify.warn('Tag-list', 'Файл пуст или не содержит валидных тегов')
-    return null
-  }
-  return { parsed, content }
-}
-
-async function pickTagList() {
-  try {
-    const fileHandle = await fs.selectFile(ui.lastTagListPickerStartIn)
-    if (!fileHandle) return
-    const loaded = await loadParsedTagsFromHandle(fileHandle)
-    if (!loaded) return
-
-    project.setTags(loaded.parsed)
-    await idbSet(IDB_HANDLE_KEY, fileHandle)
-    // Сырой текст — с проектом (бандл на экспорте + переживает reload).
-    await idbSet('project:tags', loaded.content)
-    ui.setLastTagListPickerStartIn(fileHandle)
-
-    notify.success(
-      'Tag-list загружен',
-      `${nplural(loaded.parsed.length, 'тег', 'тега', 'тегов')} из ${fileHandle.name}`,
-      TOAST_LIFE.NORMAL
-    )
-  } catch (e) {
-    if (e.name === 'AbortError') return
-    console.error('[ProjectActions] Ошибка загрузки tag-list:', e)
-    notify.error('Ошибка загрузки tag-list', e.message || String(e))
-  }
-}
-
-// На mount пытаемся восстановить tag-list из запомненного file-handle (IDB).
-// 'granted' permission → подгружаем автоматически; иначе (browser сбросил доступ)
-// — просим выбрать файл заново кнопкой «Tag-list» (requestPermission требует
-// user-gesture, отдельной кнопки обновления у нас нет).
-async function tryRestoreTagListHandle() {
-  const handle = await idbGet(IDB_HANDLE_KEY)
-  if (!handle) return
-  try {
-    const perm = await handle.queryPermission?.({ mode: 'read' })
-    if (perm === 'granted') {
-      const content = await fs.getFileContentFromHandle(handle)
-      if (!content) return
-      const parsed = parseTagList(content)
-      if (parsed.length === 0) return
-      project.setTags(parsed)
-      notify.info(
-        'Tag-list восстановлен',
-        `${nplural(parsed.length, 'тег', 'тега', 'тегов')} из ${handle.name}`,
-        TOAST_LIFE.SHORT
-      )
-    } else {
-      notify.warn(
-        'Tag-list требует разрешения',
-        `Нажмите «Tag-list» и выберите файл заново, чтобы дать доступ к ${handle.name}`,
-        TOAST_LIFE.LONG
-      )
-    }
-  } catch (e) {
-    console.warn('[ProjectActions] Не удалось восстановить tag-list handle:', e)
-  }
-}
-
 // Кастомное событие из CanvasPane (Ctrl+O хоткей) → импорт проекта.
-// useEventListener авто-снимает на unmount.
 useEventListener(window, 'tms-open-project', () => openProjectFolder())
-
-onMounted(() => {
-  tryRestoreTagListHandle()
-})
-
-// Сигнал из инспектора «Загрузить tag-list…» (см. ui.requestTagListLoad).
-watch(
-  () => ui.tagListLoadRequest,
-  () => pickTagList()
-)
 
 // Импорт проекта-папки (формы + библиотека). Подтверждаем замену текущей
 // работы; picker открывается внутри accept-клика (свежая user-activation для
@@ -171,29 +73,17 @@ async function openProjectFolder() {
       :disabled="importing"
       @click="openProjectFolder"
     />
+    <!-- Экспорт — главное действие (вывод проекта): лёгкий primary-акцент
+         (cyan-текст) против серого «Открыть». -->
     <Button
       v-tooltip.bottom="'Экспортировать проект · Ctrl+S'"
       icon="pi pi-download"
       label="Экспорт"
-      severity="secondary"
+      severity="primary"
       text
       size="small"
       :disabled="importing"
       @click="canvas.exportProjectToFolder"
     />
-
-    <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
-
-    <Button
-      v-tooltip.bottom="tags.length ? 'Заменить tag-list' : 'Загрузить tag-list'"
-      icon="pi pi-tags"
-      :severity="tags.length ? 'secondary' : 'primary'"
-      :text="!!tags.length"
-      label="Tag-list"
-      size="small"
-      :disabled="importing"
-      @click="pickTagList"
-    />
-    <Badge v-if="tags.length" :value="tags.length" severity="secondary" size="small" />
   </div>
 </template>

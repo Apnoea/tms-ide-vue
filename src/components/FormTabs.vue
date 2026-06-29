@@ -78,8 +78,12 @@ function confirmDelete(event, id) {
         v-if="id !== workspace.activeFormId"
         class="absolute inset-x-0 top-0 bottom-1 rounded-lg bg-surface-200/70 opacity-0 transition-opacity group-hover:opacity-100"
       ></span>
-      <!-- favicon-заглушка (форма) — для браузер-вкладочного вида -->
-      <i class="relative z-10 pi pi-file !text-[10px] text-surface-400 shrink-0" />
+      <!-- favicon-заглушка (форма) — для браузер-вкладочного вида. У активной —
+           cyan-акцент, усиливает фокус. -->
+      <i
+        class="relative z-10 pi pi-file !text-[10px] shrink-0"
+        :class="id === workspace.activeFormId ? 'text-primary-500' : 'text-surface-400'"
+      />
       <InputText
         v-if="editingId === id"
         :ref="setRenameInput"
@@ -156,9 +160,7 @@ function confirmDelete(event, id) {
   background: radial-gradient(circle at top right, transparent 7.5px, var(--p-surface-0) 8px);
 }
 
-/* Вертикальный разделитель слева (в середине гэпа). У вкладок (tms-tab-divider)
- прячется при ховере самой вкладки и предыдущей — рядом остаётся только подсветка.
- У «+» (tms-add-divider) постоянный, по ховеру не прячется. Сдвиг вверх на 2px
+/* Вертикальный разделитель слева (в середине гэпа). Сдвиг вверх на 2px
  компенсирует pb-1 ячейки — линия по центру контента, а не геометрии. */
 .tms-tab-divider::before,
 .tms-add-divider::before {
@@ -172,8 +174,12 @@ function confirmDelete(event, id) {
   background: var(--p-surface-300);
   transition: opacity 0.15s;
 }
+/* Прячем разделитель при ховере ВКЛАДКИ: свой (tms-tab-divider:hover) и у соседа
+ справа (.group:hover + …, будь то вкладка или «+»). При ховере самой «+»
+ разделитель остаётся — нет правила tms-add-divider:hover. */
 .tms-tab-divider:hover::before,
-.group:hover + .tms-tab-divider::before {
+.group:hover + .tms-tab-divider::before,
+.group:hover + .tms-add-divider::before {
   opacity: 0;
 }
 </style>

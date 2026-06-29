@@ -30,12 +30,14 @@ npm run knip      # неиспользуемые экспорты
 src/
 ├── main.js / App.vue / style.css
 ├── components/
-│   ├── StatusBar.vue          # индикатор сохранения + F1 (верх справа)
+│   ├── StatusBar.vue          # справка F1 (верх справа)
 │   ├── FormTabs.vue           # вкладки форм (браузер-стиль, над холстом)
 │   ├── PalettePane.vue        # палитра стенсилов (слева)
 │   ├── CanvasPane.vue         # JointJS-холст (центр)
 │   ├── InspectorPane.vue      # инспектор (справа)
-│   ├── ProjectActions.vue     # открыть/экспортировать проект + tag-list
+│   ├── ProjectActions.vue     # открыть/экспортировать проект (топ-бар)
+│   ├── TagListControl.vue     # загрузка tag-list + счётчик (тулбар холста)
+│   ├── SaveIndicator.vue      # индикатор автосейва (слева-снизу холста)
 │   ├── SearchBar.vue          # плавающий Ctrl+F-поиск
 │   ├── VoltageSourceBlock.vue # карточка «Диапазоны значений» (аналог. источник)
 │   ├── SwitchBlock.vue        # карточка «Булев источник» (intrinsic + зависимости)

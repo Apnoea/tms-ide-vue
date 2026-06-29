@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
@@ -15,6 +15,23 @@ import { useUiStore } from '../stores/useUiStore'
 const ui = useUiStore()
 
 const search = ref('')
+// Поиск свёрнут в иконку; по клику разворачивается в поле ввода (collapsible).
+const searchOpen = ref(false)
+const searchInput = ref(null)
+
+async function openSearch() {
+  searchOpen.value = true
+  await nextTick()
+  searchInput.value?.$el?.focus()
+}
+function closeSearch() {
+  search.value = ''
+  searchOpen.value = false
+}
+// По blur схлопываем только пустое поле — иначе активный фильтр потерялся бы.
+function onSearchBlur() {
+  if (!search.value.trim()) searchOpen.value = false
+}
 
 const allCategories = computed(() => getCategories())
 
@@ -95,25 +112,47 @@ function stencilTooltip(stencil) {
 
 <template>
   <aside class="h-full flex flex-col bg-surface-50">
-    <div class="min-h-16 px-4 py-3 border-b border-surface-200 bg-surface-0 flex items-center">
-      <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Палитра</h2>
-    </div>
-
-    <div class="px-2 pt-2">
-      <IconField>
-        <InputIcon class="pi pi-search" />
-        <InputText
-          v-model="search"
-          size="small"
-          class="w-full"
-          placeholder="Поиск по названию или id..."
-        />
-        <InputIcon
-          v-if="search"
-          class="pi pi-times cursor-pointer hover:text-surface-700"
-          @click="search = ''"
-        />
-      </IconField>
+    <div
+      class="min-h-16 px-4 py-3 border-b border-surface-200 bg-surface-0 flex items-center gap-3"
+    >
+      <h2 class="shrink-0 text-sm font-semibold text-surface-900 uppercase tracking-wide">
+        Палитра
+      </h2>
+      <!-- Поиск свёрнут в иконку, по клику плавно разворачивается в поле (анимация
+           ширины). Поле рендерится всегда; в свёрнутом виде сжато до лупы и
+           прозрачно (без рамки/фона) — выглядит как иконка. -->
+      <div class="flex flex-1 justify-end">
+        <div
+          class="overflow-hidden transition-[width] duration-200 ease-out"
+          :class="searchOpen ? 'w-full' : 'w-8'"
+        >
+          <IconField class="w-full">
+            <InputIcon
+              v-tooltip.bottom="'Поиск стенсилов'"
+              class="pi pi-search cursor-pointer"
+              @click="openSearch"
+            />
+            <InputText
+              ref="searchInput"
+              v-model="search"
+              size="small"
+              class="w-full"
+              :class="
+                searchOpen ? '' : '!border-transparent !bg-transparent !shadow-none cursor-pointer'
+              "
+              placeholder="Поиск по названию или id..."
+              @focus="searchOpen = true"
+              @blur="onSearchBlur"
+              @keyup.esc="closeSearch"
+            />
+            <InputIcon
+              v-if="search"
+              class="pi pi-times cursor-pointer hover:text-surface-700"
+              @click="closeSearch"
+            />
+          </IconField>
+        </div>
+      </div>
     </div>
 
     <div class="flex-1 p-2 overflow-auto">
