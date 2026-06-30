@@ -1,11 +1,10 @@
 import { ref, onBeforeUnmount } from 'vue'
 import { useNotify, TOAST_LIFE } from './useNotify'
 import {
-  ANIMATION_CLASS_COLORS,
   ANIMATION_CLASS_OPTIONS,
-  ANIMATION_OFF_COLOR,
   CLASS_OFF,
   CLASS_HIDDEN,
+  buildVoltageCssRules,
 } from '../constants/animation'
 import { innerKey, resolveSlotTemplate } from '../constants/ids'
 import { normalizeSwitchSources } from '../utils/switchSources'
@@ -58,31 +57,17 @@ export function useSimulation() {
     if (document.getElementById(SIM_CSS_ID)) return
     const style = document.createElement('style')
     style.id = SIM_CSS_ID
-    // Исключения для voltage-stroke селектора:
-    // [joint-selector="wrapper"] — у standard.Link широкий невидимый path для
-    // хитбокса; без exclusion с !important становится окрашен и толст.
-    // .tms-hit-area — наш прозрачный rect-хитбокс у каждой ячейки; без
-    // exclusion рисует зелёную «рамку» у стенсилов без своей rect-обёртки.
-    const voltageRules = Object.entries(ANIMATION_CLASS_COLORS)
-      .map(
-        ([cls, hex]) => `
-.tms-simulating .${cls},
-.tms-simulating .${cls} *:not(text):not([joint-selector="wrapper"]):not(.tms-hit-area) { stroke: ${hex} !important; }
-.tms-simulating .${cls} .tms-voltage-fill,
-.tms-simulating .${cls}.tms-voltage-fill { fill: ${hex} !important; }`
-      )
-      .join('\n')
-    // Boolean false-classes — те же что навешивает WebScada-рантайм при value=false.
-    // animation-off перебивает voltage-классы серым stroke'ом (descendant-схема
-    // с теми же исключениями для wrapper/hit-area, что и у voltage). В отличие
-    // от opacity 0.4 эффект чистый — voltage-цвет не «просвечивает» под dim'ом.
-    const boolRules = `
-.tms-simulating .animation-hidden { display: none !important; }
-.tms-simulating .animation-off,
-.tms-simulating .animation-off *:not(text):not([joint-selector="wrapper"]):not(.tms-hit-area) { stroke: ${ANIMATION_OFF_COLOR} !important; }
-.tms-simulating .animation-off .tms-voltage-fill,
-.tms-simulating .animation-off.tms-voltage-fill { fill: ${ANIMATION_OFF_COLOR} !important; }`
-    style.textContent = voltageRules + '\n' + boolRules
+    // Те же voltage/off-правила, что эмитит exporter, но scope'нуты под
+    // .tms-simulating и с доп. исключениями для живого DOM редактора:
+    // [joint-selector="wrapper"] — широкий невидимый hit-path standard.Link
+    // (без exclusion с !important красится и толстеет); .tms-hit-area — наш
+    // прозрачный rect-хитбокс ячейки (иначе зелёная «рамка» у стенсилов без
+    // своей rect-обёртки). animation-hidden гасим отдельно (в экспорте — без !important).
+    const voltageOffCss = buildVoltageCssRules({
+      scope: '.tms-simulating ',
+      strokeExtra: ':not([joint-selector="wrapper"]):not(.tms-hit-area)',
+    }).join('\n')
+    style.textContent = `.tms-simulating .${CLASS_HIDDEN} { display: none !important; }\n${voltageOffCss}`
     document.head.appendChild(style)
   }
 

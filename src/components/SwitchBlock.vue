@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import Button from 'primevue/button'
+import TagField from './TagField.vue'
 
 /**
  * Блок «Булев источник». Два независимых источника:
@@ -88,26 +89,13 @@ const sections = computed(() => [
         {{ slotInfo.label || 'Состояние' }}
         <span class="text-surface-400">- тег для анимации самого элемента</span>
       </div>
-      <div class="flex items-center gap-2">
-        <code
-          class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
-          :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
-          :title="tagsLoaded ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'"
-          @click="tagsLoaded && $emit('open-slot-picker')"
-        >
-          {{ slotInfo.value || '- не выбран -' }}
-        </code>
-        <Button
-          v-if="slotInfo.value"
-          v-tooltip.bottom="'Подсветить на схеме'"
-          icon="pi pi-search-plus"
-          severity="secondary"
-          text
-          size="small"
-          class="!p-1 !w-6 !h-6"
-          @click="$emit('highlight-tag', slotInfo.value)"
-        />
-      </div>
+      <TagField
+        :value="slotInfo.value || ''"
+        :can-pick="tagsLoaded"
+        highlightable
+        @pick="$emit('open-slot-picker')"
+        @highlight="$emit('highlight-tag', slotInfo.value)"
+      />
     </div>
 
     <!-- Две секции зависимостей: Параллельно (OR) / Последовательно (AND) -->
@@ -117,47 +105,31 @@ const sections = computed(() => [
         <span class="text-surface-400">- {{ sec.hint }}</span>
       </div>
       <div class="space-y-1.5">
-        <div v-for="(t, idx) in sec.tags" :key="idx" class="flex items-center gap-2">
-          <code
-            class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
-            :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
-            :title="tagsLoaded ? 'Заменить тег' : 'Загрузи tag-list, чтобы выбрать тег'"
-            @click="tagsLoaded && $emit('edit-tag', sec.key, idx)"
-          >
-            {{ t || '- пусто -' }}
-          </code>
-          <Button
-            v-if="t"
-            v-tooltip.bottom="'Подсветить на схеме'"
-            icon="pi pi-search-plus"
-            severity="secondary"
-            text
-            size="small"
-            class="!p-1 !w-6 !h-6"
-            @click="$emit('highlight-tag', t)"
-          />
-          <Button
-            v-tooltip.bottom="'Убрать тег'"
-            icon="pi pi-times"
-            severity="secondary"
-            text
-            size="small"
-            class="!p-1 !w-6 !h-6"
-            @click="$emit('remove-tag', sec.key, idx)"
-          />
-        </div>
-        <!-- Добавить тег: пустое поле-тег (как в «Диапазонах значений») —
-             клик открывает picker для этой секции. -->
-        <div class="flex items-center gap-2">
-          <code
-            class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
-            :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
-            :title="tagsLoaded ? 'Добавить тег' : 'Загрузи tag-list, чтобы выбрать тег'"
-            @click="tagsLoaded && $emit('open-tag-picker', sec.key)"
-          >
-            - не выбран -
-          </code>
-        </div>
+        <TagField
+          v-for="(t, idx) in sec.tags"
+          :key="idx"
+          :value="t || ''"
+          :can-pick="tagsLoaded"
+          empty-label="- пусто -"
+          pick-label="Заменить тег"
+          highlightable
+          removable
+          @pick="$emit('edit-tag', sec.key, idx)"
+          @highlight="$emit('highlight-tag', t)"
+          @remove="$emit('remove-tag', sec.key, idx)"
+        />
+        <!-- Добавить тег: пунктирная кнопка-«добавить» (явный affordance vs
+             поля-значения с цельным бордером) — клик открывает picker секции. -->
+        <button
+          type="button"
+          class="flex w-full items-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700"
+          :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
+          v-tooltip.bottom="tagsLoaded ? 'Добавить тег' : 'Загрузи tag-list, чтобы выбрать тег'"
+          @click="tagsLoaded && $emit('open-tag-picker', sec.key)"
+        >
+          <i class="pi pi-plus !text-[10px]" />
+          добавить тег
+        </button>
       </div>
     </div>
 

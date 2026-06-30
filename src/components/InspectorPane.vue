@@ -23,6 +23,7 @@ import {
 import { nplural } from '../utils/plural'
 import { normalizeSwitchSources } from '../utils/switchSources'
 import TagPickerDialog from './TagPickerDialog.vue'
+import TagField from './TagField.vue'
 import VoltageSourceBlock from './VoltageSourceBlock.vue'
 import AlarmSourceBlock from './AlarmSourceBlock.vue'
 import SwitchBlock from './SwitchBlock.vue'
@@ -33,7 +34,7 @@ import {
   CLASS_OFF,
   CLASS_HIDDEN,
 } from '../constants/animation'
-import { hasSlotPlaceholder, outerKey } from '../constants/ids'
+import { hasSlotPlaceholder, previewOuterKey } from '../constants/ids'
 
 // Дефолтные диапазоны voltage-source. .map(({...r})) на каждое использование —
 // чтобы ячейки не делили один и тот же массив.
@@ -93,14 +94,8 @@ const details = computed(() => {
       bold: !!tms.bold,
       isValue: tms.stencilId === 'cell_value',
       valueTag: tms.valueTag ?? '',
-      // id outer-карточки в animations.json/SVG. animId = short-id из UUID (первый
-      // сегмент, как в exporter.uniqueShortId без коллизии); cell_value — сам valueTag.
-      exportId: outerKey(
-        tms.stencilId,
-        tms.stencilId === 'cell_value' && tms.valueTag
-          ? tms.valueTag
-          : String(cell.id).split('-')[0]
-      ),
+      // id outer-карточки в animations.json/SVG (тот же, что эмитит exporter).
+      exportId: previewOuterKey(tms.stencilId, cell.id, tms.valueTag),
       // cell_alr рендерит свой required-слот через AlarmSourceBlock (с описанием,
       // bell-иконкой, без отдельной строки в «Привязки тегов»). Булев источник для
       // тревоги бессмыслен — кнопку «Булев источник» прячем тоже.
@@ -132,23 +127,10 @@ const details = computed(() => {
   }
 
   if (sel.kind === 'link') {
-    const source = cell.get('source')
-    const target = cell.get('target')
-    const sourceCell = source?.id ? graph.getCell(source.id) : null
-    const targetCell = target?.id ? graph.getCell(target.id) : null
     const tms = cell.get('tms') || {}
-    // Label endpoint'а — стенсильный label, либо id ячейки в fallback.
-    const endpointLabel = (c) => {
-      const st = c?.get('tms')?.stencilId
-      return (st && getStencilById(st)?.label) || '-'
-    }
     return {
       kind: 'link',
       id: cell.id,
-      sourceLabel: endpointLabel(sourceCell),
-      sourcePort: source?.port || '-',
-      targetLabel: endpointLabel(targetCell),
-      targetPort: target?.port || '-',
       voltageSource: tms.voltageSource || null,
       switchSources: tms.switchSources || null,
     }
@@ -776,7 +758,7 @@ const switchPickerTags = computed(() => {
 
 <template>
   <aside class="h-full flex flex-col bg-surface-50">
-    <div class="min-h-16 px-4 py-3 border-b border-surface-200 bg-surface-0 flex items-center">
+    <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
       <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Инспектор</h2>
     </div>
 
@@ -861,7 +843,7 @@ const switchPickerTags = computed(() => {
                хоткеи сразу под подсказкой; свободное место уходит вниз. -->
           <div class="space-y-4 border-t border-surface-200 pt-4 text-[11px]">
             <div>
-              <div class="mb-2 uppercase tracking-wider text-surface-400">Сводка формы</div>
+              <div class="mb-2 uppercase tracking-wider text-surface-500">Сводка формы</div>
               <div class="flex flex-col gap-1 text-surface-600">
                 <div class="flex justify-between">
                   <span>Ячейки</span>
@@ -878,7 +860,7 @@ const switchPickerTags = computed(() => {
               </div>
             </div>
             <div>
-              <div class="mb-2 uppercase tracking-wider text-surface-400">Подсказки</div>
+              <div class="mb-2 uppercase tracking-wider text-surface-500">Подсказки</div>
               <ul class="flex flex-col gap-2 text-surface-500">
                 <li class="flex items-center gap-2">
                   <i class="pi pi-arrows-alt !text-[10px] text-surface-400" />
@@ -911,7 +893,7 @@ const switchPickerTags = computed(() => {
               </div>
               <!-- id outer-карточки в animations.json / экспортном SVG (тот же, что
                    эмитит exporter; точная подстановка short-id см. constants/ids). -->
-              <div class="text-[11px] text-surface-400 font-mono break-all">
+              <div class="text-[11px] text-surface-500 font-mono break-all">
                 {{ details.exportId }}
               </div>
             </div>
@@ -968,18 +950,11 @@ const switchPickerTags = computed(() => {
               <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
                 Тег значения
               </div>
-              <div class="flex items-center gap-2">
-                <code
-                  class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
-                  :class="project.tags.length ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
-                  :title="
-                    project.tags.length ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'
-                  "
-                  @click="project.tags.length && openValueTagPicker()"
-                >
-                  {{ details.valueTag || '- не выбран -' }}
-                </code>
-              </div>
+              <TagField
+                :value="details.valueTag || ''"
+                :can-pick="!!project.tags.length"
+                @pick="openValueTagPicker"
+              />
               <Button
                 v-if="!project.tags.length"
                 label="Загрузить tag-list…"
@@ -1074,30 +1049,14 @@ const switchPickerTags = computed(() => {
                     {{ slot.type }}
                   </span>
                 </div>
-                <div class="flex items-center gap-2">
-                  <code
-                    class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
-                    :class="[
-                      project.tags.length ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
-                      slot.required && !slot.value ? 'border border-amber-500/40' : '',
-                    ]"
-                    :title="
-                      project.tags.length ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'
-                    "
-                    @click="project.tags.length && openSlotPicker(slot)"
-                  >
-                    {{ slot.value || '- не выбран -' }}
-                  </code>
-                  <Button
-                    v-if="slot.value"
-                    icon="pi pi-times"
-                    severity="secondary"
-                    text
-                    size="small"
-                    title="Очистить"
-                    @click="patchSlotTag(slot.key, '')"
-                  />
-                </div>
+                <TagField
+                  :value="slot.value || ''"
+                  :can-pick="!!project.tags.length"
+                  :warn="slot.required && !slot.value"
+                  :removable="!!slot.value"
+                  @pick="openSlotPicker(slot)"
+                  @remove="patchSlotTag(slot.key, '')"
+                />
               </div>
               <Button
                 v-if="!project.tags.length"
@@ -1116,22 +1075,6 @@ const switchPickerTags = computed(() => {
             <div>
               <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Связь</div>
               <div class="font-medium text-surface-900">Провод</div>
-            </div>
-
-            <div
-              class="grid gap-x-2 gap-y-1 items-center"
-              style="grid-template-columns: 1fr auto 1fr"
-            >
-              <div class="text-[11px] uppercase tracking-wider text-surface-500">Источник</div>
-              <div></div>
-              <div class="text-[11px] uppercase tracking-wider text-surface-500">Цель</div>
-              <code class="px-2 py-1 bg-surface-100 rounded text-xs font-mono truncate">
-                {{ details.sourceLabel }} · {{ details.sourcePort }}
-              </code>
-              <i class="pi pi-arrow-right text-surface-400 text-[10px]" />
-              <code class="px-2 py-1 bg-surface-100 rounded text-xs font-mono truncate">
-                {{ details.targetLabel }} · {{ details.targetPort }}
-              </code>
             </div>
           </template>
 

@@ -42,6 +42,7 @@ src/
 │   ├── VoltageSourceBlock.vue # карточка «Диапазоны значений» (аналог. источник)
 │   ├── SwitchBlock.vue        # карточка «Булев источник» (intrinsic + зависимости)
 │   ├── AlarmSourceBlock.vue   # карточка cell_alr
+│   ├── TagField.vue           # единое поле-тег (чип) для блоков инспектора
 │   ├── TagPickerDialog.vue    # picker тегов
 │   └── HelpDialog.vue         # справка по хоткеям
 ├── composables/
@@ -87,6 +88,7 @@ src/
     ├── plural.js              # русские падежи
     ├── bridgeLinks.js         # bridge-link при copy/paste
     ├── grid.js                # snapToGrid
+    ├── paperGeom.js           # projectToScreen (model→screen для overlay)
     ├── xml.js                 # SVG_NS + escapeXml / escapeAttr
     ├── switchSources.js       # normalizeSwitchSources { or, and } (Параллельно/Последовательно)
     ├── wireSplice.js          # врезка (pickPassThroughPorts/spliceRotation) + срастание (planWireBridge)

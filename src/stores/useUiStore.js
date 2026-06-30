@@ -14,7 +14,7 @@ export const useUiStore = defineStore('ui', () => {
   const searchOpen = ref(false)
 
   // Сигнал-счётчик «открой tag-list-picker» из не-header контекста (например,
-  // кнопка в инспекторе). ProjectActions watch'ит счётчик и вызывает pickTagList.
+  // кнопка в инспекторе). TagListControl watch'ит счётчик и вызывает pickTagList.
   // Счётчик, а не boolean — повторный запрос подряд тоже триггерит.
   const tagListLoadRequest = ref(0)
   function requestTagListLoad() {

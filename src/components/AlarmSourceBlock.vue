@@ -12,6 +12,8 @@
  * Когда true → видим. Это поведение зашито в stencil.json — здесь просто
  * напоминаем юзеру одной строкой описания.
  */
+import TagField from './TagField.vue'
+
 // Имя prop'а — alarmSlot, а не просто slot: `slot` — зарезервированный атрибут
 // шаблона в Vue 2 (deprecated в Vue 3), eslint-plugin-vue ругается на :slot=…
 defineProps({
@@ -37,19 +39,12 @@ defineEmits(['open-tag-picker'])
 
     <div>
       <div class="text-[11px] text-surface-500 mb-1">Тег</div>
-      <div class="flex items-center gap-2">
-        <code
-          class="flex-1 px-2 py-1 bg-surface-100 hover:bg-surface-200 rounded text-xs font-mono truncate transition-colors"
-          :class="[
-            tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
-            alarmSlot.required && !alarmSlot.value ? 'border border-amber-500/40' : '',
-          ]"
-          :title="tagsLoaded ? 'Выбрать тег' : 'Загрузи tag-list, чтобы выбрать тег'"
-          @click="tagsLoaded && $emit('open-tag-picker')"
-        >
-          {{ alarmSlot.value || '- не выбран -' }}
-        </code>
-      </div>
+      <TagField
+        :value="alarmSlot.value || ''"
+        :can-pick="tagsLoaded"
+        :warn="alarmSlot.required && !alarmSlot.value"
+        @pick="$emit('open-tag-picker')"
+      />
     </div>
   </div>
 </template>

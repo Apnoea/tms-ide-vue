@@ -81,8 +81,10 @@ function confirmDelete(event, id) {
       <!-- favicon-заглушка (форма) — для браузер-вкладочного вида. У активной —
            cyan-акцент, усиливает фокус. -->
       <i
-        class="relative z-10 pi pi-file !text-[10px] shrink-0"
+        class="relative z-10 pi pi-file !text-[10px] shrink-0 cursor-pointer"
         :class="id === workspace.activeFormId ? 'text-primary-500' : 'text-surface-400'"
+        @click="canvas.selectForm(id)"
+        @dblclick="startRename(id)"
       />
       <InputText
         v-if="editingId === id"

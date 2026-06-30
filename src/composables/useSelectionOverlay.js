@@ -1,6 +1,7 @@
 import { computed } from 'vue'
 import { useCanvas } from './useCanvas'
 import { getStencilById } from '../stencils/registry'
+import { projectToScreen } from '../utils/paperGeom'
 
 /**
  * HTML-overlay одиночной выделенной ячейки: кнопки rotate-ccw / rotate-cw /
@@ -30,18 +31,17 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing }) {
     if (!cell) return null
     const pos = cell.get('position')
     const size = cell.get('size')
-    const scale = paper.scale().sx
-    const { tx, ty } = paper.translate()
     const angle = (cell.angle() || 0) % 360
     const rot90 = angle === 90 || angle === 270
     const bbW = rot90 ? size.height : size.width
     const bbH = rot90 ? size.width : size.height
     const cx = pos.x + size.width / 2
     const cy = pos.y + size.height / 2
-    const left = (cx - bbW / 2) * scale + tx
-    const right = (cx + bbW / 2) * scale + tx
-    const top = (cy - bbH / 2) * scale + ty
-    const bottom = (cy + bbH / 2) * scale + ty
+    // Углы visual-AABB в экранных координатах.
+    const tl = projectToScreen(paper, cx - bbW / 2, cy - bbH / 2)
+    const br = projectToScreen(paper, cx + bbW / 2, cy + bbH / 2)
+    const { x: left, y: top } = tl
+    const { x: right, y: bottom } = br
     const HALF = 16
     const GAP = 10
     return {

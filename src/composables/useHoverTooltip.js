@@ -1,7 +1,8 @@
 import { ref } from 'vue'
 import { useCanvas } from './useCanvas'
 import { getStencilById } from '../stencils/registry'
-import { outerKey } from '../constants/ids'
+import { previewOuterKey } from '../constants/ids'
+import { projectToScreen } from '../utils/paperGeom'
 
 // Debounce на mouseenter — иначе плашка мерцает при быстром скольжении мыши
 // между ячейками.
@@ -36,28 +37,21 @@ export function useHoverTooltip({ suppress } = {}) {
 
     const pos = cell.get('position')
     const size = cell.get('size')
-    const scale = paper.scale().sx
-    const { tx, ty } = paper.translate()
 
     // Anchor: top-right ячейки в container-px. Нижний-правый угол плашки
     // прижимаем к anchor'у (transform translate(-100%, -100%)) с зазором 4px.
-    const anchorX = (pos.x + size.width) * scale + tx
-    const anchorY = pos.y * scale + ty - 4
-
-    // id outer-карточки в animations.json. animId — первый сегмент UUID (как в
-    // exporter.uniqueShortId без коллизии); cell_value использует сам valueTag.
-    const animId =
-      tms.stencilId === 'cell_value' && tms.valueTag ? tms.valueTag : String(cell.id).split('-')[0]
+    const anchor = projectToScreen(paper, pos.x + size.width, pos.y)
 
     cellHoverTooltip.value = {
       style: {
-        left: `${anchorX}px`,
-        top: `${anchorY}px`,
+        left: `${anchor.x}px`,
+        top: `${anchor.y - 4}px`,
         transform: 'translate(-100%, -100%)',
       },
       stencilLabel: stencil.label,
       stencilId: tms.stencilId,
-      exportId: outerKey(tms.stencilId, animId),
+      // id outer-карточки в animations.json (тот же, что эмитит exporter).
+      exportId: previewOuterKey(tms.stencilId, cell.id, tms.valueTag),
     }
   }
 

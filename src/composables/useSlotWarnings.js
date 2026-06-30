@@ -1,6 +1,7 @@
 import { computed } from 'vue'
 import { useCanvas } from './useCanvas'
 import { getStencilById } from '../stencils/registry'
+import { projectToScreen } from '../utils/paperGeom'
 
 /**
  * Бейджи незаполненных required-слотов на холсте. Для каждой ячейки, чей стенсил
@@ -47,14 +48,15 @@ export function useSlotWarnings() {
     canvas.paperViewTick.value
     const paper = canvas.paperRef.value
     if (!paper) return []
-    const scale = paper.scale().sx
-    const { tx, ty } = paper.translate()
-    return slotWarningCells.value.map((w) => ({
-      cellId: w.cellId,
-      missingLabels: w.missingLabels,
-      // Бейдж 12px центрирован на углу (delete-overlay при selected живёт там же).
-      style: { left: `${w.mx * scale + tx - 6}px`, top: `${w.my * scale + ty - 6}px` },
-    }))
+    return slotWarningCells.value.map((w) => {
+      const p = projectToScreen(paper, w.mx, w.my)
+      return {
+        cellId: w.cellId,
+        missingLabels: w.missingLabels,
+        // Бейдж 12px центрирован на углу (delete-overlay при selected живёт там же).
+        style: { left: `${p.x - 6}px`, top: `${p.y - 6}px` },
+      }
+    })
   })
 
   function onSlotBadgeClick(cellId) {

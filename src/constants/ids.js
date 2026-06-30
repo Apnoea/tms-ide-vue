@@ -38,6 +38,17 @@ export function outerKey(stencilId, animId) {
   return `${ANIM_PREFIX}${stencilId}-${animId}`
 }
 
+/**
+ * Outer-key для UI-превью (Inspector / hover-tooltip): тот же id, что эмитит
+ * exporter, но animId упрощён — первый сегмент UUID без коллизийного расширения
+ * (`exporter.uniqueShortId` добавляет его при совпадении префиксов). cell_value
+ * использует сам valueTag. Один источник, чтобы превью и экспорт не разъехались.
+ */
+export function previewOuterKey(stencilId, cellId, valueTag) {
+  const animId = stencilId === 'cell_value' && valueTag ? valueTag : String(cellId).split('-')[0]
+  return outerKey(stencilId, animId)
+}
+
 /** Inner-key стенсильной карточки (outer + suffix из data-anim-suffix). */
 export function innerKey(stencilId, animId, suffix) {
   return `${outerKey(stencilId, animId)}${suffix || ''}`

@@ -1,6 +1,6 @@
 // Минимальная key-value обёртка над IndexedDB. Хранит то, что localStorage не
 // тянет: FileSystemFileHandle tag-list'а (не сериализуется в JSON — браузер
-// держит как ссылку, см. ProjectActions) и проект (формы/мета — крупнее квоты
+// держит как ссылку, см. TagListControl) и проект (формы/мета — крупнее квоты
 // localStorage, см. useAutosave).
 //
 // Пара ~20 строк против полноценного idb-keyval-пакета: для нескольких ключей

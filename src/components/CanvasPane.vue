@@ -168,6 +168,8 @@ useHotkeys({
 const zoomPercent = canvas.zoomPercent
 const MIN_ZOOM = 0.2
 const MAX_ZOOM = 4
+// Шаг зума кнопками тулбара (крупнее колеса 0.9/1.1 — клик должен ощутимо двигать).
+const ZOOM_STEP = 1.2
 
 // Pan — в usePan (свои document move/up). onPanStart дёргаем из blank:pointerdown.
 const { onPanStart, isPanning } = usePan(paperContainer)
@@ -764,6 +766,29 @@ function onWheel(event) {
   canvas.bumpPaperView()
 }
 
+// Зум кнопками +/− из тулбара: центрируем на середине вьюпорта (у кнопки нет
+// позиции курсора, в отличие от onWheel). Та же «сохраняем точку под якорем»
+// арифметика, что в onWheel, но якорь — геометрический центр контейнера.
+function zoomByStep(factor) {
+  if (!paper || !paperContainer.value) return
+  const scale = paper.scale().sx
+  const newScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale * factor))
+  if (newScale === scale) return
+  const rect = paperContainer.value.getBoundingClientRect()
+  const cx = rect.left + rect.width / 2
+  const cy = rect.top + rect.height / 2
+  const localBefore = paper.clientToLocalPoint(cx, cy)
+  paper.scale(newScale, newScale)
+  const localAfter = paper.clientToLocalPoint(cx, cy)
+  const { tx, ty } = paper.translate()
+  paper.translate(
+    tx + (localAfter.x - localBefore.x) * newScale,
+    ty + (localAfter.y - localBefore.y) * newScale
+  )
+  zoomPercent.value = Math.round(newScale * 100)
+  canvas.bumpPaperView()
+}
+
 function fitToContent() {
   if (!paper || !graph) return
 
@@ -837,7 +862,7 @@ function performClearCanvas(count) {
 <template>
   <section class="h-full flex flex-col bg-surface-100">
     <div
-      class="min-h-16 px-4 py-3 border-b border-surface-200 bg-surface-0 flex items-center justify-between gap-2"
+      class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center justify-between gap-2"
     >
       <div class="flex items-center gap-2">
         <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Холст</h2>
@@ -866,16 +891,40 @@ function performClearCanvas(count) {
 
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
 
-        <Button
-          v-tooltip.bottom="'Вписать в экран (до 100%)'"
-          :label="`${zoomPercent}%`"
-          icon="pi pi-arrows-alt"
-          severity="secondary"
-          text
-          size="small"
-          class="!font-mono"
-          @click="fitToContent"
-        />
+        <div class="flex items-center">
+          <Button
+            v-tooltip.bottom="'Уменьшить'"
+            icon="pi pi-minus"
+            severity="secondary"
+            text
+            size="small"
+            :disabled="zoomPercent <= 20"
+            @click="zoomByStep(1 / ZOOM_STEP)"
+          />
+          <!-- Центр группы — текущий масштаб, клик вписывает в экран. Фикс-ширина,
+               чтобы +/− не дёргались при смене числа. Колесо тоже зумит (в тултипе). -->
+          <Button
+            v-tooltip.bottom="'Вписать в экран (до 100%) · колесо — зум'"
+            :label="`${zoomPercent}%`"
+            severity="secondary"
+            text
+            size="small"
+            class="!font-mono !min-w-[3.25rem] !justify-center"
+            @click="fitToContent"
+          />
+          <Button
+            v-tooltip.bottom="'Увеличить'"
+            icon="pi pi-plus"
+            severity="secondary"
+            text
+            size="small"
+            :disabled="zoomPercent >= 400"
+            @click="zoomByStep(ZOOM_STEP)"
+          />
+        </div>
+
+        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+
         <Button
           v-tooltip.bottom="simulating ? 'Остановить симуляцию' : 'Запустить симуляцию'"
           :icon="simulating ? 'pi pi-pause-circle' : 'pi pi-play-circle'"
@@ -1093,7 +1142,8 @@ function performClearCanvas(count) {
         class="absolute inset-0 flex items-center justify-center pointer-events-none"
       >
         <div class="text-center text-surface-400 px-4">
-          <div class="text-sm font-medium text-surface-500 mb-3">Пустой холст</div>
+          <i class="pi pi-sitemap block text-4xl text-surface-300 mb-3" />
+          <div class="text-sm font-medium text-surface-600 mb-3">Пустой холст</div>
           <ul class="inline-block text-left text-xs space-y-1.5">
             <li class="flex items-center gap-2">
               <i

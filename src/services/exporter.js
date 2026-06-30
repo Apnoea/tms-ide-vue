@@ -1,12 +1,7 @@
 import { getStencilById, getAllStencils } from '../stencils/registry'
 import { instantiate } from '../stencils/parser'
 import { buildBusExportSvg, buildTextExportSvg, buildValueExportSvg } from '../stencils/svgInjector'
-import {
-  ANIMATION_CLASS_COLORS,
-  ANIMATION_OFF_COLOR,
-  CLASS_OFF,
-  CLASS_HIDDEN,
-} from '../constants/animation'
+import { CLASS_OFF, CLASS_HIDDEN, buildVoltageCssRules } from '../constants/animation'
 import {
   outerKey,
   innerPrefix,
@@ -744,23 +739,15 @@ export function exportProject(graph, paper = null) {
   // Инлайн-стили — рантайм только навешивает классы, CSS должен быть в SVG.
   // Descendant-селектор `* { stroke }` нужен из-за inline presentation-атрибутов
   // внутри ячеек. animation-off объявлен ПОСЛЕ voltage — перебивает по каскаду.
+  // voltage по диапазонам (stroke + opt-in fill) + animation-off серым поверх.
+  // Чистый SVG: без scope и без live-DOM исключений (см. buildVoltageCssRules).
+  const voltageCss = buildVoltageCssRules()
+    .map((r) => `    ${r}`)
+    .join('\n')
   const inlineStyles = `  <style>
     <![CDATA[
     .${CLASS_HIDDEN} { display: none; }
-    /* Stroke красим всем потомкам кроме text — у текста stroke=none по дефолту. */
-${Object.entries(ANIMATION_CLASS_COLORS)
-  .map(([cls, hex]) => `    .${cls}, .${cls} *:not(text) { stroke: ${hex} !important; }`)
-  .join('\n')}
-    /* Fill — opt-in через .tms-voltage-fill, чтобы не закрывать инфо-элементы. */
-${Object.entries(ANIMATION_CLASS_COLORS)
-  .map(
-    ([cls, hex]) =>
-      `    .${cls} .tms-voltage-fill, .${cls}.tms-voltage-fill { fill: ${hex} !important; }`
-  )
-  .join('\n')}
-    /* animation-off — серый поверх voltage-классов. */
-    .${CLASS_OFF}, .${CLASS_OFF} *:not(text) { stroke: ${ANIMATION_OFF_COLOR} !important; }
-    .${CLASS_OFF} .tms-voltage-fill, .${CLASS_OFF}.tms-voltage-fill { fill: ${ANIMATION_OFF_COLOR} !important; }
+${voltageCss}
     /* Quality-stencils: при bad-качестве (animation-off на outer) показываем
        обе позиции рычага одновременно — отменяем animation-hidden у потомков.
        Конвенция «данные ненадёжны → не врём про конкретное состояние». */

@@ -35,7 +35,7 @@ useEventListener(window, 'keydown', (event) => {
          холста. Вкладки отдельной строкой над карточками — чтобы активная вкладка
          вливалась флэром в холст ниже. -->
     <div class="flex items-stretch gap-2 px-2">
-      <div class="w-[400px] shrink-0 flex items-center gap-2 px-2">
+      <div class="w-[380px] shrink-0 flex items-center gap-2 px-2">
         <i class="pi pi-sitemap text-primary-500 shrink-0" />
         <span class="text-sm font-bold tracking-tight">TMS IDE</span>
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
@@ -44,22 +44,22 @@ useEventListener(window, 'keydown', (event) => {
       <div class="flex-1 min-w-0">
         <FormTabs />
       </div>
-      <div class="w-[400px] shrink-0 flex items-center px-2">
+      <div class="w-[420px] shrink-0 flex items-center px-2">
         <StatusBar />
       </div>
     </div>
 
-    <!-- Карточки: палитра/инспектор по 400px, холст — остальное. Без ресайза.
+    <!-- Карточки: палитра 380px / инспектор 420px, холст — остальное. Без ресайза.
          Без pt — вкладки примыкают к холст-карточке вплотную. Бордера нет —
          отделяет от общего surface-100 тень (shadow-md), как у хрома. -->
     <div class="flex-1 min-h-0 flex gap-2 px-2 pb-2">
-      <div class="w-[400px] shrink-0 rounded-lg overflow-hidden shadow-md">
+      <div class="w-[380px] shrink-0 rounded-lg overflow-hidden shadow-md">
         <PalettePane />
       </div>
       <div class="flex-1 min-w-0 rounded-lg overflow-hidden shadow-md">
         <CanvasPane />
       </div>
-      <div class="w-[400px] shrink-0 rounded-lg overflow-hidden shadow-md">
+      <div class="w-[420px] shrink-0 rounded-lg overflow-hidden shadow-md">
         <InspectorPane />
       </div>
     </div>

@@ -84,6 +84,10 @@ export function useHotkeys({
 
     if (code === 'Escape') {
       if (inInput) return
+      // Открыт модальный диалог (tag-picker / справка) — Esc закрывает его сам
+      // (PrimeVue close-on-escape); выделение и подсветку на холсте не трогаем,
+      // иначе один Esc и закрыл бы диалог, и сбросил selection.
+      if (document.querySelector('.p-dialog-mask')) return
       if (canvas.highlightedTag.value) canvas.clearHighlightedTag()
       if (canvas.selection.value.length) canvas.clearSelection()
       return

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, ref } from 'vue'
-import { useLocalStorage } from '@vueuse/core'
+import { onClickOutside, useLocalStorage } from '@vueuse/core'
 import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
@@ -18,6 +18,7 @@ const search = ref('')
 // Поиск свёрнут в иконку; по клику разворачивается в поле ввода (collapsible).
 const searchOpen = ref(false)
 const searchInput = ref(null)
+const searchBox = ref(null)
 
 async function openSearch() {
   searchOpen.value = true
@@ -28,10 +29,13 @@ function closeSearch() {
   search.value = ''
   searchOpen.value = false
 }
-// По blur схлопываем только пустое поле — иначе активный фильтр потерялся бы.
-function onSearchBlur() {
+// Схлопываем только пустое поле — с текстом оставляем (фильтр активен).
+function collapseIfEmpty() {
   if (!search.value.trim()) searchOpen.value = false
 }
+// Клик вне поиска (в т.ч. по холсту, где JointJS гасит blur через preventDefault) —
+// сворачиваем пустое поле: onClickOutside слушает document и ловит такой клик.
+onClickOutside(searchBox, collapseIfEmpty)
 
 const allCategories = computed(() => getCategories())
 
@@ -112,9 +116,7 @@ function stencilTooltip(stencil) {
 
 <template>
   <aside class="h-full flex flex-col bg-surface-50">
-    <div
-      class="min-h-16 px-4 py-3 border-b border-surface-200 bg-surface-0 flex items-center gap-3"
-    >
+    <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center gap-3">
       <h2 class="shrink-0 text-sm font-semibold text-surface-900 uppercase tracking-wide">
         Палитра
       </h2>
@@ -123,6 +125,7 @@ function stencilTooltip(stencil) {
            прозрачно (без рамки/фона) — выглядит как иконка. -->
       <div class="flex flex-1 justify-end">
         <div
+          ref="searchBox"
           class="overflow-hidden transition-[width] duration-200 ease-out"
           :class="searchOpen ? 'w-full' : 'w-8'"
         >
@@ -142,7 +145,7 @@ function stencilTooltip(stencil) {
               "
               placeholder="Поиск по названию или id..."
               @focus="searchOpen = true"
-              @blur="onSearchBlur"
+              @blur="collapseIfEmpty"
               @keyup.esc="closeSearch"
             />
             <InputIcon
@@ -201,7 +204,7 @@ function stencilTooltip(stencil) {
                 <div class="text-sm font-medium text-surface-900 truncate">
                   {{ stencil.label }}
                 </div>
-                <div class="text-[10px] font-mono text-surface-400 truncate">
+                <div class="text-[10px] font-mono text-surface-500 truncate">
                   {{ stencil.id }}
                 </div>
               </div>
@@ -261,5 +264,10 @@ function stencilTooltip(stencil) {
 }
 .tms-palette-accordion .p-accordionpanel + .p-accordionpanel {
   border-top: 1px solid var(--p-surface-200);
+}
+/* У раскрытой панели разделитель снизу убираем (он же — border-top следующей):
+ линия под контентом открытой категории выглядела бы лишним «нижним бордером». */
+.tms-palette-accordion .p-accordionpanel:has([aria-expanded='true']) + .p-accordionpanel {
+  border-top: 0;
 }
 </style>

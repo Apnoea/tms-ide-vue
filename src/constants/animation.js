@@ -29,3 +29,27 @@ export const ANIMATION_OFF_COLOR = '#64748b'
 // ANIMATION_CLASS_COLORS — отдельные константы для них не нужны.
 export const CLASS_OFF = 'animation-off'
 export const CLASS_HIDDEN = 'animation-hidden'
+
+/**
+ * CSS-правила voltage/off для outer-g: stroke по всем потомкам кроме text +
+ * opt-in fill (`.tms-voltage-fill`), и `animation-off` серым ПОСЛЕ voltage
+ * (перебивает по каскаду). Единый источник для экспорта (чистый SVG) и симуляции
+ * (живой DOM редактора) — чтобы превью совпадало с экспортом. Контексты разводят:
+ *   • scope       — префикс селектора ('.tms-simulating ' для превью, '' для SVG);
+ *   • strokeExtra — доп. `:not(...)`-исключения для live-DOM (joint-wrapper /
+ *     hit-area), которых в экспортном SVG нет.
+ * `!important` везде — перебить inline presentation-атрибуты внутри ячеек.
+ * Возвращает массив строк-правил (caller сам джойнит и обрамляет hidden/quality).
+ */
+export function buildVoltageCssRules({ scope = '', strokeExtra = '' } = {}) {
+  const rules = []
+  const paint = (cls, hex) => {
+    rules.push(
+      `${scope}.${cls}, ${scope}.${cls} *:not(text)${strokeExtra} { stroke: ${hex} !important; }`,
+      `${scope}.${cls} .tms-voltage-fill, ${scope}.${cls}.tms-voltage-fill { fill: ${hex} !important; }`
+    )
+  }
+  for (const [cls, hex] of Object.entries(ANIMATION_CLASS_COLORS)) paint(cls, hex)
+  paint(CLASS_OFF, ANIMATION_OFF_COLOR)
+  return rules
+}
