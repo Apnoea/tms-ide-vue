@@ -5,6 +5,7 @@ import { useUiStore } from '../stores/useUiStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { TMSStencil } from '../stencils/tmsStencil'
 import { getStencilById } from '../stencils/registry'
+import { isFloatType } from '../services/parsers'
 import {
   injectStencilSvg,
   buildPortItems,
@@ -159,7 +160,9 @@ export function usePaletteDrag(paperContainer, wireSplice) {
    * него (split); иначе просто создаётся.
    */
   function placeStencil(stencilId, point) {
-    if (stencilId === 'cell_value' && project.tags.length) {
+    // cell_value показывает аналог → picker только при наличии float-тегов; нет
+    // таких → создаём без picker'а (тег назначат позже в инспекторе).
+    if (stencilId === 'cell_value' && project.tags.some((t) => isFloatType(t.type))) {
       pendingValueDrop.value = { stencilId, x: point.x, y: point.y }
       valueTagPickerOpen.value = true
       return

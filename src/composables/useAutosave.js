@@ -1,7 +1,7 @@
 import { onBeforeUnmount } from 'vue'
 import { reinjectAllStencils } from '../stencils/svgInjector'
 import { withRestoreGuard } from '../utils/restoreGuard'
-import { idbGet, idbSet, idbDel } from '../utils/idb'
+import { idbGet, idbSet, idbDel, idbKeys } from '../utils/idb'
 import { parseTagList } from '../services/parsers'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -16,6 +16,11 @@ const formKey = (id) => `project:form:${id}`
 
 // Дефолтная форма при пустом старте (проекта в IDB ещё нет).
 const DEFAULT_FORM_ID = 'main'
+
+// В IndexedDB кладём только plain-JSON. Reactive-прокси стора (formTree) и
+// случайные не-клонируемые поля (в т.ч. из импортных ячеек) иначе валят
+// structured-clone: put бросает DataCloneError, запись «молча» не проходит.
+const toPlain = (v) => JSON.parse(JSON.stringify(v))
 
 // Длительность «✓ Сохранено» flash-индикатора в статус-полосе.
 const FLASH_DURATION_MS = 1500
@@ -51,6 +56,7 @@ export function useAutosave({ restoringHistory }) {
     if (!meta || !Array.isArray(meta.formIds) || meta.formIds.length === 0) {
       await idbSet(formKey(DEFAULT_FORM_ID), { cells: [] })
       workspace.loadForms([{ id: DEFAULT_FORM_ID, graphJson: { cells: [] } }], DEFAULT_FORM_ID)
+      workspace.setFormTree(null) // плоское дерево из единственной формы
       await persistMeta() // только при бутстрапе — иначе мета уже актуальна
     } else {
       const forms = []
@@ -59,6 +65,7 @@ export function useAutosave({ restoringHistory }) {
         forms.push({ id, graphJson })
       }
       workspace.loadForms(forms, meta.activeFormId)
+      workspace.setFormTree(meta.hierarchy) // null у старых проектов → плоский
       // Мета протухла (activeFormId не из formIds) → loadForms скорректировал
       // активную на первую; перезапишем мету, чтобы IDB не расходился со стором.
       if (workspace.activeFormId !== meta.activeFormId) await persistMeta()
@@ -84,10 +91,14 @@ export function useAutosave({ restoringHistory }) {
    * просматриваемую форму, а не первую.
    */
   async function persistMeta() {
-    return idbSet(META_KEY, {
-      formIds: [...workspace.formIds],
-      activeFormId: workspace.activeFormId,
-    })
+    return idbSet(
+      META_KEY,
+      toPlain({
+        formIds: [...workspace.formIds],
+        activeFormId: workspace.activeFormId,
+        hierarchy: workspace.formTree, // дерево форм (иерархия) — переживает reload
+      })
+    )
   }
 
   /** Сохраняет активную форму (граф → стор + IndexedDB). Fire-and-forget. */
@@ -119,11 +130,9 @@ export function useAutosave({ restoringHistory }) {
   }
 
   /**
-   * Заменяет проект целиком (импорт папки): пишет все формы + мету + теги в
-   * IndexedDB и грузит их в стор. Граф НЕ трогает — это делает либо reload (если
-   * импорт дописал стенсилы), либо вызывающий код вручную (если стенсилов нет).
-   * Старые `project:form:<id>` от прежнего проекта остаются осиротевшими в IDB
-   * (restore читает только formIds из меты) — некритичная утечка, GC позже.
+   * Заменяет проект целиком (импорт): пишет все формы + мету + теги в IndexedDB и
+   * грузит их в стор. Граф НЕ трогает — это делает либо reload (если импорт дописал
+   * стенсилы), либо вызывающий код вручную (если стенсилов нет).
    *
    * Возвращает true, если ВСЕ записи в IDB прошли. При false стор всё равно
    * загружен (сессия рабочая), но IDB неполон — caller обязан предупредить, иначе
@@ -131,12 +140,21 @@ export function useAutosave({ restoringHistory }) {
    *
    * @param {{ id: string, graphJson: object }[]} forms
    * @param {string|null} [tagsText] — сырой текст tag-list'а проекта
+   * @param {Array|null} [hierarchy] — дерево форм из hierarchy.json (null → плоское)
    * @returns {Promise<boolean>}
    */
-  async function replaceProject(forms, tagsText) {
+  async function replaceProject(forms, tagsText, hierarchy = null) {
+    // GC форм прежнего проекта: импорт заменяет проект целиком, а старые
+    // project:form:<id> дальше не читаются (restore идёт по formIds меты) и копили
+    // бы мёртвые blob'ы до квоты. Чистим ДО записи новых — освобождаем место.
+    const keep = new Set(forms.map((f) => formKey(f.id)))
+    for (const key of await idbKeys()) {
+      if (key.startsWith('project:form:') && !keep.has(key)) await idbDel(key)
+    }
     let ok = true
-    for (const f of forms) ok = (await idbSet(formKey(f.id), f.graphJson)) && ok
+    for (const f of forms) ok = (await idbSet(formKey(f.id), toPlain(f.graphJson))) && ok
     workspace.loadForms(forms, forms[0]?.id ?? null)
+    workspace.setFormTree(hierarchy)
     ok = (await persistMeta()) && ok
     // Только если проект принёс теги. Иначе НЕ затираем project:tags в IDB
     // (импорт проекта без taglist'а не должен стирать уже загруженные теги).

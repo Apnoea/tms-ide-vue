@@ -1,6 +1,6 @@
 // Покрываем оркестрацию проектных операций (переключение / CRUD форм / импорт / экспорт).
 // Реальные: dia.Graph + workspace-стор (Pinia). Мокаем canvas-singleton, notify,
-// I/O-слои (projectIO/exporter/projectLoader/registry) и инжектим бэг зависимостей.
+// I/O-слои (projectZip/exporter/projectLoader/registry) и инжектим бэг зависимостей.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
@@ -17,13 +17,12 @@ vi.mock('../services/exporter', () => ({
   exportProject: vi.fn(() => ({ svgText: '<svg/>', animationsJson: '{}' })),
 }))
 vi.mock('../services/projectLoader', () => ({ parseSvgProject: vi.fn() }))
-vi.mock('../services/projectIO', () => ({
-  readProjectFolder: vi.fn(),
-  pickOutputFolder: vi.fn(),
-  writeProjectFolder: vi.fn(),
+vi.mock('../services/projectZip', () => ({
+  buildProjectZipBlob: vi.fn(() => 'BLOB'),
+  downloadBlob: vi.fn(),
+  pickProjectArchive: vi.fn(),
+  readProjectZipFile: vi.fn(),
   collectUsedStencilIds: vi.fn(() => []),
-  rememberProjectDir: vi.fn(),
-  getWritableProjectDir: vi.fn(),
 }))
 
 const mockNotify = { success: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -34,13 +33,14 @@ const mockCanvas = {
   paperRef: ref(null),
   bumpVersion: vi.fn(),
   clearSelection: vi.fn(),
+  fitToContent: vi.fn(),
 }
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
 import { useProject } from './useProject'
 import { parseSvgProject } from '../services/projectLoader'
 import { getStencilById } from '../stencils/registry'
-import { readProjectFolder, getWritableProjectDir, writeProjectFolder } from '../services/projectIO'
+import { buildProjectZipBlob, pickProjectArchive, readProjectZipFile } from '../services/projectZip'
 
 // Свежие моки инжектируемых зависимостей на каждый тест.
 function makeDeps(overrides = {}) {
@@ -123,7 +123,7 @@ describe('useProject', () => {
   })
 
   describe('projectBusy (взаимное исключение)', () => {
-    it('пока selectForm в await, exportProjectToFolder возвращается рано', async () => {
+    it('пока selectForm в await, exportProjectToArchive возвращается рано', async () => {
       seedForms(
         [
           { id: 'a', graphJson: { cells: [] } },
@@ -135,31 +135,33 @@ describe('useProject', () => {
       const deps = makeDeps({
         autosave: { saveActiveForm: vi.fn(() => new Promise((r) => (releaseSave = r))) },
       })
-      const { selectForm, exportProjectToFolder } = useProject(deps)
+      const { selectForm, exportProjectToArchive } = useProject(deps)
 
       const p1 = selectForm('b') // входит, ставит projectBusy, виснет на saveActiveForm
-      await exportProjectToFolder() // projectBusy=true → ранний выход
-      expect(getWritableProjectDir).not.toHaveBeenCalled()
+      await exportProjectToArchive() // projectBusy=true → ранний выход
+      expect(buildProjectZipBlob).not.toHaveBeenCalled()
 
       releaseSave()
       await p1
     })
   })
 
-  describe('importProject', () => {
-    function bundle(forms, { stencils = [], tagsText = null } = {}) {
-      readProjectFolder.mockResolvedValue({ dirHandle: {}, forms, stencils, tagsText })
+  describe('importProjectFromArchive', () => {
+    function bundle(forms, { stencils = [], tagsText = null, hierarchy = null } = {}) {
+      pickProjectArchive.mockResolvedValue({ name: 'project.zip' })
+      readProjectZipFile.mockResolvedValue({ forms, stencils, tagsText, hierarchy })
     }
 
     it('пустая валидная форма сохраняется (цель навигации не теряется)', async () => {
       bundle([{ id: 'f1', svgText: '<svg/>' }])
       parseSvgProject.mockReturnValue({ ok: true, cells: [], stencilIds: [] })
       const deps = makeDeps()
-      const { importProject } = useProject(deps)
-      await importProject()
+      const { importProjectFromArchive } = useProject(deps)
+      await importProjectFromArchive()
 
       expect(deps.autosave.replaceProject).toHaveBeenCalledWith(
         [{ id: 'f1', graphJson: { cells: [] } }],
+        null,
         null
       )
       expect(mockNotify.success).toHaveBeenCalled()
@@ -176,11 +178,20 @@ describe('useProject', () => {
           : { ok: false, cells: [], stencilIds: [] }
       )
       const deps = makeDeps()
-      const { importProject } = useProject(deps)
-      await importProject()
+      const { importProjectFromArchive } = useProject(deps)
+      await importProjectFromArchive()
 
       const formsArg = deps.autosave.replaceProject.mock.calls[0][0]
       expect(formsArg.map((f) => f.id)).toEqual(['good'])
+    })
+
+    it('отмена picker (нет файла) → ничего не парсим', async () => {
+      pickProjectArchive.mockResolvedValue(null)
+      const deps = makeDeps()
+      const { importProjectFromArchive } = useProject(deps)
+      await importProjectFromArchive()
+      expect(readProjectZipFile).not.toHaveBeenCalled()
+      expect(deps.autosave.replaceProject).not.toHaveBeenCalled()
     })
 
     it('неполная запись в IDB → error и НЕ шлём стенсилы (нет POST, нет reload)', async () => {
@@ -191,16 +202,16 @@ describe('useProject', () => {
       getStencilById.mockReturnValue(null) // cell_new не в реестре → был бы POST
       global.fetch = vi.fn(() => Promise.resolve({ ok: true }))
       const deps = makeDeps({ autosave: { replaceProject: vi.fn(async () => false) } })
-      const { importProject } = useProject(deps)
-      await importProject()
+      const { importProjectFromArchive } = useProject(deps)
+      await importProjectFromArchive()
 
       expect(mockNotify.error).toHaveBeenCalled()
       expect(global.fetch).not.toHaveBeenCalled()
     })
   })
 
-  describe('exportProjectToFolder', () => {
-    it('прогоняет все формы, пишет бандл, возвращает активную, НЕ сбрасывает undo', async () => {
+  describe('exportProjectToArchive', () => {
+    it('прогоняет все формы в .zip-бандл, возвращает активную, НЕ сбрасывает undo', async () => {
       seedForms(
         [
           { id: 'a', graphJson: { cells: [] } },
@@ -208,28 +219,16 @@ describe('useProject', () => {
         ],
         'a'
       )
-      getWritableProjectDir.mockResolvedValue({ name: 'dir' })
       const deps = makeDeps()
-      const { exportProjectToFolder } = useProject(deps)
-      await exportProjectToFolder()
+      const { exportProjectToArchive } = useProject(deps)
+      await exportProjectToArchive()
 
-      const bundleArg = writeProjectFolder.mock.calls[0][1]
+      const bundleArg = buildProjectZipBlob.mock.calls[0][0]
       expect(bundleArg.forms.map((f) => f.id)).toEqual(['a', 'b'])
       // Активная форма восстановлена, undo НЕ сброшен (граф идентичен дозкспортному).
       expect(useWorkspaceStore().activeFormId).toBe('a')
       expect(deps.undo.initHistory).not.toHaveBeenCalled()
       expect(deps.undo.cancelPendingSnapshot).toHaveBeenCalled()
-    })
-
-    it('отмена picker (нет dirHandle) → ничего не пишем', async () => {
-      seedForms([{ id: 'a', graphJson: { cells: [] } }], 'a')
-      getWritableProjectDir.mockResolvedValue(null)
-      const { pickOutputFolder } = await import('../services/projectIO')
-      pickOutputFolder.mockResolvedValue(null)
-      const deps = makeDeps()
-      const { exportProjectToFolder } = useProject(deps)
-      await exportProjectToFolder()
-      expect(writeProjectFolder).not.toHaveBeenCalled()
     })
   })
 

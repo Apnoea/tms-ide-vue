@@ -4,8 +4,9 @@ import Toast from 'primevue/toast'
 import ConfirmPopup from 'primevue/confirmpopup'
 
 import StatusBar from './components/StatusBar.vue'
-import FormTabs from './components/FormTabs.vue'
 import ProjectActions from './components/ProjectActions.vue'
+import TagListControl from './components/TagListControl.vue'
+import FormTree from './components/FormTree.vue'
 import PalettePane from './components/PalettePane.vue'
 import CanvasPane from './components/CanvasPane.vue'
 import InspectorPane from './components/InspectorPane.vue'
@@ -30,30 +31,29 @@ useEventListener(window, 'keydown', (event) => {
 
 <template>
   <div class="h-screen flex flex-col bg-surface-100 text-surface-900">
-    <!-- Верхняя полоса (h-10): лого + Открыть/Экспорт │ вкладки форм │ справка.
-         Открыть/Экспорт — проектного уровня, поэтому в топ-баре, а не в тулбаре
-         холста. Вкладки отдельной строкой над карточками — чтобы активная вкладка
-         вливалась флэром в холст ниже. -->
-    <div class="flex items-stretch gap-2 px-2">
+    <!-- Верхняя полоса (h-10) по колонкам: лого (над формами/палитрой) │ проектные
+         действия Открыть/Экспорт/Tag-list (над холстом) │ справка (над инспектором).
+         Проектный I/O — здесь, а не в тулбаре холста; дерево форм — в левой панели. -->
+    <div class="flex items-stretch gap-2 px-2 py-1.5">
       <div class="w-[380px] shrink-0 flex items-center gap-2 px-2">
         <i class="pi pi-sitemap text-primary-500 shrink-0" />
         <span class="text-sm font-bold tracking-tight">TMS IDE</span>
-        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
-        <ProjectActions />
       </div>
-      <div class="flex-1 min-w-0">
-        <FormTabs />
+      <div class="flex-1 min-w-0 flex items-center gap-2 px-2">
+        <ProjectActions />
+        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+        <TagListControl />
       </div>
       <div class="w-[420px] shrink-0 flex items-center px-2">
         <StatusBar />
       </div>
     </div>
 
-    <!-- Карточки: палитра 380px / инспектор 420px, холст — остальное. Без ресайза.
-         Без pt — вкладки примыкают к холст-карточке вплотную. Бордера нет —
-         отделяет от общего surface-100 тень (shadow-md), как у хрома. -->
+    <!-- Карточки: левая 380px (дерево форм + палитра стеком) / инспектор 420px,
+         холст — остальное. Без ресайза. Отделяет от общего surface-100 тень. -->
     <div class="flex-1 min-h-0 flex gap-2 px-2 pb-2">
-      <div class="w-[380px] shrink-0 rounded-lg overflow-hidden shadow-md">
+      <div class="w-[380px] shrink-0 rounded-lg overflow-hidden shadow-md flex flex-col">
+        <FormTree />
         <PalettePane />
       </div>
       <div class="flex-1 min-w-0 rounded-lg overflow-hidden shadow-md">

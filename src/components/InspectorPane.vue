@@ -22,6 +22,7 @@ import {
 } from '../stencils/svgInjector'
 import { nplural } from '../utils/plural'
 import { normalizeSwitchSources } from '../utils/switchSources'
+import { isBooleanType, isFloatType } from '../services/parsers'
 import TagPickerDialog from './TagPickerDialog.vue'
 import TagField from './TagField.vue'
 import VoltageSourceBlock from './VoltageSourceBlock.vue'
@@ -55,11 +56,6 @@ const VOLTAGE_RANGE_DEFAULTS = [
 function isLayoutOnly(stencilId) {
   return !!getStencilById(stencilId)?.layoutOnly
 }
-
-// Bool-тег по типу из tag-list (Boolean/Bool, регистронезависимо). Булевы слоты
-// (cell_qw / cell_alr / …) и switchSources выбирают только из таких: тип из
-// tag-list'а надёжнее суффикса имени (.ONOFF / .ALR).
-const isBooleanType = (type) => /^bool/i.test(type || '')
 
 const canvas = useCanvas()
 const project = useProjectStore()
@@ -277,7 +273,7 @@ function openMultiVoltagePicker() {
 // ─── Tag-picker для cell_value (отображаемый тег) ───
 function openValueTagPicker() {
   openPicker({
-    tags: project.tags,
+    tags: floatTags.value,
     selected: details.value?.valueTag || '',
     header: 'Выберите тег для отображения значения',
     onSelect: onPickValueTag,
@@ -731,6 +727,8 @@ function buildSlotTooltip(slotKey, animationTemplate) {
 // switchSources принимает только bool-теги — эффект «false → затемнение»,
 // для аналогового значения бессмыслен. Фильтр по типу из tag-list'а.
 const booleanTags = computed(() => project.tags.filter((t) => isBooleanType(t.type)))
+// cell_value отображает аналоговое значение → picker только по float-тегам.
+const floatTags = computed(() => project.tags.filter((t) => isFloatType(t.type)))
 
 // Picker для switch-зависимостей исключает уже привязанные теги: основной
 // тег ячейки (slot.onoff у cell_qw) + все теги из обеих секций switchSources

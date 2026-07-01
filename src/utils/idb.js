@@ -61,8 +61,25 @@ export async function idbSet(key, value) {
       tx.onabort = () => reject(tx.error)
     })
     return true
+  } catch (e) {
+    // Реальная причина (QuotaExceededError / DataCloneError / приватный режим) —
+    // в консоль: наружу отдаём только false, но без лога диагностировать нечем.
+    console.error('[idb] запись не удалась:', key, e)
+    return false
+  }
+}
+
+/** Все ключи хранилища. Для GC осиротевших project:form:* записей. [] при ошибке. */
+export async function idbKeys() {
+  try {
+    const db = await openDB()
+    return await new Promise((resolve, reject) => {
+      const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAllKeys()
+      req.onsuccess = () => resolve(req.result || [])
+      req.onerror = () => reject(req.error)
+    })
   } catch {
-    return false // quota / private mode
+    return []
   }
 }
 

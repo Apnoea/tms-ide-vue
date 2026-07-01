@@ -128,6 +128,11 @@ watch(
       size="small"
       @click="pickTagList"
     />
-    <Badge v-if="tags.length" :value="tags.length" severity="secondary" size="small" />
+    <Badge
+      v-if="tags.length"
+      :value="tags.length"
+      size="small"
+      class="!bg-surface-200 !text-surface-600"
+    />
   </div>
 </template>

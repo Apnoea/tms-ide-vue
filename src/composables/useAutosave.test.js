@@ -26,6 +26,7 @@ vi.mock('../utils/idb', () => ({
   idbDel: vi.fn(async (k) => {
     idbStore.delete(k)
   }),
+  idbKeys: vi.fn(async () => [...idbStore.keys()]),
 }))
 
 const mockCanvas = makeMockCanvas({
@@ -133,7 +134,11 @@ describe('useAutosave', () => {
       const { restoreProject } = setup()
       const count = await restoreProject()
       expect(count).toBe(0)
-      expect(idbStore.get(META_KEY)).toEqual({ formIds: ['main'], activeFormId: 'main' })
+      expect(idbStore.get(META_KEY)).toEqual({
+        formIds: ['main'],
+        activeFormId: 'main',
+        hierarchy: [{ id: 'main', children: [] }],
+      })
       expect(idbStore.get(formKey('main'))).toEqual({ cells: [] })
     })
 
@@ -185,7 +190,11 @@ describe('useAutosave', () => {
       )
       const { persistMeta } = setup()
       await persistMeta()
-      expect(idbStore.get(META_KEY)).toEqual({ formIds: ['a', 'b'], activeFormId: 'b' })
+      expect(idbStore.get(META_KEY)).toEqual({
+        formIds: ['a', 'b'],
+        activeFormId: 'b',
+        hierarchy: [],
+      })
     })
   })
 
@@ -209,7 +218,14 @@ describe('useAutosave', () => {
         'TAG1;Bool'
       )
       expect(idbStore.get(formKey('a'))).toEqual({ cells: [{ id: 'x' }] })
-      expect(idbStore.get(META_KEY)).toEqual({ formIds: ['a', 'b'], activeFormId: 'a' })
+      expect(idbStore.get(META_KEY)).toEqual({
+        formIds: ['a', 'b'],
+        activeFormId: 'a',
+        hierarchy: [
+          { id: 'a', children: [] },
+          { id: 'b', children: [] },
+        ],
+      })
       expect(idbStore.get('project:tags')).toBe('TAG1;Bool')
       expect(useWorkspaceStore().activeFormId).toBe('a')
     })
@@ -219,6 +235,16 @@ describe('useAutosave', () => {
       const ok = await replaceProject([{ id: 'a', graphJson: { cells: [] } }], null)
       expect(ok).toBe(true)
       expect(mockCanvas.setSaveError).not.toHaveBeenCalled()
+    })
+
+    it('GC осиротевших форм прежнего проекта (не в новом наборе)', async () => {
+      idbStore.set(formKey('old1'), { cells: [] })
+      idbStore.set(formKey('old2'), { cells: [] })
+      const { replaceProject } = setup()
+      await replaceProject([{ id: 'a', graphJson: { cells: [] } }], null)
+      expect(idbStore.has(formKey('old1'))).toBe(false)
+      expect(idbStore.has(formKey('old2'))).toBe(false)
+      expect(idbStore.has(formKey('a'))).toBe(true)
     })
 
     it('запись формы упала (квота) → false + setSaveError, стор всё равно загружен', async () => {

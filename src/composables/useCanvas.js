@@ -23,14 +23,15 @@ const paperRef = shallowRef(null)
 // CanvasPane (ей доступны graph/paper/undo).
 const selectFormFn = shallowRef(null)
 
-// Импорт проекта (папка): кнопка в ProjectActions дёргает importProject, а
-// оркестрацию (read folder → формы в IDB → POST стенсилов → reload/apply)
-// держит CanvasPane.
-const importProjectFn = shallowRef(null)
+// Импорт из .zip + экспорт проекта в .zip (единственный формат ввода-вывода):
+// кнопки в ProjectActions дёргают эти fn, оркестрацию (распаковка / прогон форм
+// через paper → бандл → download) держит CanvasPane.
+const importArchiveFn = shallowRef(null)
+const exportArchiveFn = shallowRef(null)
 
-// Экспорт проекта (папка): кнопка в ProjectActions дёргает exportProjectToFolder,
-// оркестрацию (прогон форм через paper → бандл → FSA-запись) держит CanvasPane.
-const projectExportFn = shallowRef(null)
+// Вписать контент в область видимости (fit-to-content). Реализация в CanvasPane
+// (у неё paper + размеры контейнера); зовётся после импорта/переключения.
+const fitViewFn = shallowRef(null)
 
 // CRUD форм (панель форм дёргает): создать пустую / удалить / переименовать.
 // Оркестрацию (стор + IDB + перезагрузка холста) держит useProject в CanvasPane.
@@ -183,17 +184,21 @@ export function useCanvas() {
     selectForm(id) {
       return selectFormFn.value?.(id)
     },
-    setImportProjectFn(fn) {
-      importProjectFn.value = fn
+    setArchiveFns({ importFromArchive, exportToArchive }) {
+      importArchiveFn.value = importFromArchive
+      exportArchiveFn.value = exportToArchive
     },
-    importProject() {
-      return importProjectFn.value?.()
+    importProjectFromArchive() {
+      return importArchiveFn.value?.()
     },
-    setProjectExportFn(fn) {
-      projectExportFn.value = fn
+    exportProjectToArchive() {
+      return exportArchiveFn.value?.()
     },
-    exportProjectToFolder() {
-      return projectExportFn.value?.()
+    setFitViewFn(fn) {
+      fitViewFn.value = fn
+    },
+    fitToContent() {
+      return fitViewFn.value?.()
     },
     setFormCrudFns({ createForm, deleteForm, renameForm }) {
       createFormFn.value = createForm

@@ -7,22 +7,58 @@ import { ref } from 'vue'
  * делает персист-композабл (useAutosave).
  *
  * graphJson каждой формы — большой блоб (graph.toJSON()), реактивность ему не
- * нужна: держим в обычной (нереактивной) Map. Реактивны только `formIds` (для
- * панели форм) и `activeFormId` — по аналогии с graphVersion в useCanvas.
+ * нужна: держим в обычной (нереактивной) Map. Реактивны `formIds` (плоский
+ * источник существования/порядка), `activeFormId` и `formTree` (иерархия для
+ * дерева форм слева — приходит из hierarchy.json проекта, синкается на CRUD).
  *
- * `id` формы = имя её папки (оно же цель навигации и подпись в панели).
+ * `id` формы = имя её папки (оно же цель навигации и подпись в дереве).
  */
+
+// ─── Чистые операции над деревом иерархии (узел = { id, children: [] }) ───
+function normalizeTree(nodes) {
+  return (nodes || []).map((n) => ({ id: n.id, children: normalizeTree(n.children) }))
+}
+// Удаляем узел, поднимая его детей на место узла (форма-родитель удалена, но
+// дочерние формы существуют — не теряем их из дерева).
+function pruneTree(nodes, id) {
+  const out = []
+  for (const n of nodes) {
+    if (n.id === id) out.push(...pruneTree(n.children, id))
+    else out.push({ id: n.id, children: pruneTree(n.children, id) })
+  }
+  return out
+}
+function renameInTree(nodes, oldId, newId) {
+  return nodes.map((n) => ({
+    id: n.id === oldId ? newId : n.id,
+    children: renameInTree(n.children, oldId, newId),
+  }))
+}
+
 export const useWorkspaceStore = defineStore('workspace', () => {
   // id → graphJson. Приватная, не возвращаем наружу — не state Pinia.
   const forms = new Map()
-  const formIds = ref([]) // порядок форм для вкладок (FormTabs)
+  const formIds = ref([]) // плоский порядок/существование форм
   const activeFormId = ref(null)
+  const formTree = ref([]) // иерархия форм (дерево слева)
 
   function syncList() {
     formIds.value = Array.from(forms.keys())
   }
 
-  /** Массовое заполнение (restore из IndexedDB / импорт проекта). */
+  /**
+   * Иерархия форм. null/пусто → плоский список из formIds (проект без файла
+   * иерархии показывает все формы корневым списком). Ссылки на несуществующие
+   * формы остаются в дереве (компонент рисует их битыми); формы вне дерева
+   * компонент собирает в группу «Без иерархии».
+   */
+  function setFormTree(tree) {
+    formTree.value =
+      tree && tree.length ? normalizeTree(tree) : formIds.value.map((id) => ({ id, children: [] }))
+  }
+
+  /** Массовое заполнение (restore из IndexedDB / импорт проекта). formTree —
+   *  отдельным вызовом setFormTree (у caller'а есть hierarchy.json). */
   function loadForms(list, activeId) {
     forms.clear()
     for (const f of list) forms.set(f.id, f.graphJson)
@@ -59,10 +95,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return forms.has(id)
   }
 
-  /** Создать пустую форму. false — id уже занят. Активную не меняет. */
+  /** Создать пустую форму. false — id уже занят. Активную не меняет. Новая форма
+   *  добавляется последним узлом в корень дерева. */
   function addForm(id, graphJson = { cells: [] }) {
     if (forms.has(id)) return false
     forms.set(id, graphJson)
+    formTree.value = [...formTree.value, { id, children: [] }]
     syncList()
     return true
   }
@@ -72,6 +110,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function removeForm(id) {
     if (!forms.has(id)) return activeFormId.value
     forms.delete(id)
+    formTree.value = pruneTree(formTree.value, id)
     if (activeFormId.value === id) activeFormId.value = forms.keys().next().value ?? null
     syncList()
     return activeFormId.value
@@ -85,6 +124,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const entries = Array.from(forms.entries(), ([k, v]) => [k === oldId ? newId : k, v])
     forms.clear()
     for (const [k, v] of entries) forms.set(k, v)
+    formTree.value = renameInTree(formTree.value, oldId, newId)
     if (activeFormId.value === oldId) activeFormId.value = newId
     syncList()
     return true
@@ -93,6 +133,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   return {
     formIds,
     activeFormId,
+    formTree,
+    setFormTree,
     loadForms,
     updateActiveGraph,
     getFormGraph,

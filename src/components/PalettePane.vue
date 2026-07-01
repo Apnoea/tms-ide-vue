@@ -115,7 +115,7 @@ function stencilTooltip(stencil) {
 </script>
 
 <template>
-  <aside class="h-full flex flex-col bg-surface-50">
+  <aside class="flex-1 min-h-0 flex flex-col bg-surface-50">
     <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center gap-3">
       <h2 class="shrink-0 text-sm font-semibold text-surface-900 uppercase tracking-wide">
         Палитра

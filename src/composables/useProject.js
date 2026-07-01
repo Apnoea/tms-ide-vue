@@ -4,13 +4,12 @@ import { getStencilById, registerStencil } from '../stencils/registry'
 import { exportProject } from '../services/exporter'
 import { parseSvgProject } from '../services/projectLoader'
 import {
-  readProjectFolder,
-  pickOutputFolder,
-  writeProjectFolder,
+  buildProjectZipBlob,
+  downloadBlob,
+  pickProjectArchive,
+  readProjectZipFile,
   collectUsedStencilIds,
-  rememberProjectDir,
-  getWritableProjectDir,
-} from '../services/projectIO'
+} from '../services/projectZip'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { nplural } from '../utils/plural'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
@@ -19,7 +18,7 @@ import { useCanvas } from './useCanvas'
 
 /**
  * Оркестрация проектных операций: переключение формы, CRUD форм (создать /
- * удалить / переименовать), импорт и экспорт папки проекта. Без UI — поэтому
+ * удалить / переименовать), импорт и экспорт проекта в .zip. Без UI — поэтому
  * логика мутаций графа/стора под сериями await'ов тестируема в изоляции.
  *
  * graph/paper берём из `useCanvas` (как `useAutosave`); зависимости из других
@@ -192,20 +191,27 @@ export function useProject({
   }
 
   /**
-   * Импорт проекта из папки (зовётся ProjectActions через canvas.importProject).
-   * Читаем папку → парсим формы → заменяем проект в IndexedDB → если в бандле есть
-   * стенсилы, шлём их в dev-плагин (он пишет в definitions/ → Vite авто-reload, на
-   * ребуте restoreProject поднимет всё из IDB). Стенсилов нет → применяем активную
-   * форму сразу. Предупреждаем о стенсилах, которых нет ни в базе, ни в бандле.
+   * Импорт проекта из .zip (зовётся ProjectActions через canvas.importProjectFromArchive).
+   * Выбор архива → распаковка → применяем бандл. Единственный источник импорта.
    */
-  async function importProject() {
+  async function importProjectFromArchive() {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
     if (!graph || !paper) return
-    const data = await readProjectFolder()
-    if (!data) return
-    rememberProjectDir(data.dirHandle) // «сохранить туда же» для последующего Ctrl+S
+    const file = await pickProjectArchive()
+    if (!file) return
+    const data = await readProjectZipFile(file)
+    await applyImportedBundle(data, graph, paper)
+  }
 
+  /**
+   * Применяет распакованный бандл проекта: парсит формы → заменяет проект в
+   * IndexedDB → если в бандле есть стенсилы, шлём их в dev-плагин
+   * (он пишет в definitions/ → Vite авто-reload, на ребуте restoreProject поднимет
+   * всё из IDB). Стенсилов нет → применяем активную форму сразу. Предупреждаем о
+   * стенсилах, которых нет ни в базе, ни в бандле.
+   */
+  async function applyImportedBundle(data, graph, paper) {
     // Бандл-стенсилы, которых нет в базе, регистрируем в рантайме ДО парсинга —
     // иначе parseSvgProject выкинет их ячейки. Список фиксируем здесь (после
     // регистрации getStencilById вернёт их) — он же идёт в POST для записи файлов.
@@ -233,7 +239,7 @@ export function useProject({
       return
     }
 
-    const persisted = await replaceProject(forms, data.tagsText)
+    const persisted = await replaceProject(forms, data.tagsText, data.hierarchy)
 
     // Стенсилы, на которые ссылаются формы (по meta SVG), но которых нет ни в базе,
     // ни в бандле — отрисовать их нечем, предупреждаем.
@@ -255,18 +261,21 @@ export function useProject({
       })
       initHistory()
       canvas.clearSelection()
+      // Вписываем импортированный контент в область видимости (иначе paper стоит на
+      // translate(0,0) и формы, нарисованные не у левого-верхнего угла, вне экрана).
+      nextTick(() => canvas.fitToContent())
     }
     const okMsg =
       nplural(forms.length, 'форма', 'формы', 'форм') + (skipped ? `, пропущено ${skipped}` : '')
 
-    // Запись в IDB упала (квота) — стор загружен, сессия рабочая, но reload потеряет
-    // часть форм. Рисуем активную для текущей сессии, не врём про успех и НЕ пишем
-    // стенсилы (их reload подхватил бы вместе с уже неполным проектом).
+    // Запись в IDB упала (квота / браузер отклонил) — стор загружен, сессия рабочая,
+    // но reload потеряет часть форм. Рисуем активную для текущей сессии, не врём про
+    // успех и НЕ пишем стенсилы (их reload подхватил бы вместе с уже неполным проектом).
     if (!persisted) {
       applyActiveForm()
       notify.error(
         'Проект сохранён не полностью',
-        'Хранилище переполнено — после перезагрузки часть форм может пропасть'
+        'Браузер отклонил запись в локальное хранилище — после перезагрузки часть форм может пропасть'
       )
       return
     }
@@ -308,20 +317,18 @@ export function useProject({
   }
 
   /**
-   * Экспорт проекта в папку (зовётся ProjectActions через canvas.exportProjectToFolder).
-   * Геометрию провода exporter берёт из отрисованного paper, а на нём живёт только
-   * активная форма → прогоняем каждую форму через живой граф (под restoreGuard, без
-   * autosave/undo), снимаем view.svg+animations.json, затем возвращаем исходную
-   * форму. Стенсилы — used из реестра (GC); теги — из бандла проекта (IDB).
+   * Прогон всех форм через живой paper → бандл проекта, затем `deliver(bundle)`
+   * доставляет его (скачивание .zip). Геометрию провода exporter берёт из
+   * отрисованного paper, а на нём живёт только активная форма → каждую форму
+   * прогоняем через живой граф (под restoreGuard, без autosave/undo), снимаем
+   * view.svg+animations.json, в finally возвращаем исходную. Стенсилы — used из
+   * реестра (GC); теги — из бандла проекта (IDB).
    */
-  async function exportProjectToFolder() {
+  async function buildAndDeliverBundle(deliver) {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
     if (!graph || !paper) return
     if (textEditing.value) commitTextEdit() // не потерять незакоммиченную правку текста
-    // Сохраняем в запомненную папку проекта; нет/нет доступа → спрашиваем picker.
-    const dirHandle = (await getWritableProjectDir()) || (await pickOutputFolder())
-    if (!dirHandle) return
 
     const originalActive = workspace.activeFormId
     exportingProject.value = true
@@ -358,8 +365,7 @@ export function useProject({
         .filter(Boolean)
 
       const tagsText = await readTagsText()
-      await writeProjectFolder(dirHandle, { forms: formsOut, stencils, tagsText })
-      rememberProjectDir(dirHandle) // следующий Ctrl+S — сюда же
+      await deliver({ forms: formsOut, stencils, tagsText, hierarchy: workspace.formTree })
 
       notify.success(
         'Проект экспортирован',
@@ -392,10 +398,17 @@ export function useProject({
     }
   }
 
+  /** Экспорт в .zip (скачивание) — единственный формат вывода проекта. */
+  async function exportProjectToArchive() {
+    await buildAndDeliverBundle((bundle) =>
+      downloadBlob(buildProjectZipBlob(bundle), 'project.zip')
+    )
+  }
+
   // Проектные операции мутируют один граф/стор через серии await'ов. Параллельный
-  // запуск рассинхронил бы их (оверлей экспорта накрывает только canvas, а вкладки
-  // форм над холстом остаются кликабельными → клик по форме во время FSA-записи влез
-  // бы в один граф). Гоняем все через общий busy-флаг — исключение на уровне логики, не UI.
+  // запуск рассинхронил бы их (оверлей экспорта накрывает только canvas, а дерево
+  // форм в левой панели остаётся кликабельным → клик по форме во время экспорта/
+  // импорта влез бы в один граф). Гоняем все через общий busy-флаг — на уровне логики, не UI.
   let projectBusy = false
   const withProjectBusy =
     (fn) =>
@@ -412,8 +425,8 @@ export function useProject({
   return {
     exportingProject,
     selectForm: withProjectBusy(selectForm),
-    importProject: withProjectBusy(importProject),
-    exportProjectToFolder: withProjectBusy(exportProjectToFolder),
+    importProjectFromArchive: withProjectBusy(importProjectFromArchive),
+    exportProjectToArchive: withProjectBusy(exportProjectToArchive),
     createForm: withProjectBusy(createForm),
     deleteForm: withProjectBusy(deleteForm),
     renameForm: withProjectBusy(renameForm),

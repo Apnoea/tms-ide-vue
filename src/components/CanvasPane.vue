@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useEventListener, useResizeObserver } from '@vueuse/core'
 import { dia, shapes, anchors, connectionPoints, linkTools, routers } from '@joint/core'
 import { tmsNamespace } from '../stencils/tmsStencil'
@@ -9,6 +9,7 @@ import Tag from 'primevue/tag'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
 import { LINK_DEFAULTS, gridRightAngleRouter } from '../stencils/linkDefaults'
+import { isFloatType } from '../services/parsers'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from '../composables/useCanvas'
@@ -33,11 +34,12 @@ import { withRestoreGuard } from '../utils/restoreGuard'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cellHasTag } from '../utils/cellSearch'
 import TagPickerDialog from './TagPickerDialog.vue'
-import TagListControl from './TagListControl.vue'
 import SaveIndicator from './SaveIndicator.vue'
 import SearchBar from './SearchBar.vue'
 
 const project = useProjectStore()
+// cell_value отображает аналоговое значение → value-picker только по float-тегам.
+const floatTags = computed(() => project.tags.filter((t) => isFloatType(t.type)))
 const ui = useUiStore()
 const canvas = useCanvas()
 const notify = useNotify()
@@ -125,13 +127,13 @@ const {
   onValueTagPickerCancel,
 } = usePaletteDrag(paperContainer, useWireSplice())
 
-// Проектная оркестрация (переключение формы / импорт / экспорт папки). Возвращает
+// Проектная оркестрация (переключение формы / импорт+экспорт .zip). Возвращает
 // уже обёрнутые в общий busy-флаг функции (взаимное исключение) + оверлей-флаг.
 const {
   exportingProject,
   selectForm: guardedSelectForm,
-  importProject: guardedImportProject,
-  exportProjectToFolder: guardedExport,
+  importProjectFromArchive: guardedImportArchive,
+  exportProjectToArchive: guardedExportArchive,
   createForm: guardedCreateForm,
   deleteForm: guardedDeleteForm,
   renameForm: guardedRenameForm,
@@ -159,7 +161,7 @@ useHotkeys({
   copySelection,
   pasteClipboard,
   duplicateSelection,
-  onExport: guardedExport,
+  onExport: guardedExportArchive,
 })
 
 // ─── Zoom state ───
@@ -512,11 +514,14 @@ onMounted(async () => {
   // Регистрируем проектные операции чтобы ProjectActions мог их триггерить.
   // Переключение формы — панель форм дёргает через canvas.selectForm.
   canvas.setSelectFormFn(guardedSelectForm)
-  // Импорт проекта — ProjectActions дёргает через canvas.importProject.
-  canvas.setImportProjectFn(guardedImportProject)
-  // Экспорт проекта — ProjectActions дёргает через canvas.exportProjectToFolder.
-  canvas.setProjectExportFn(guardedExport)
-  // CRUD форм — FormTabs дёргает через canvas.createForm/deleteForm/renameForm.
+  // Импорт из .zip + экспорт (.zip) — ProjectActions дёргает через canvas.*Archive.
+  canvas.setArchiveFns({
+    importFromArchive: guardedImportArchive,
+    exportToArchive: guardedExportArchive,
+  })
+  // Вписать контент в область видимости — импорт дёргает через canvas.fitToContent.
+  canvas.setFitViewFn(fitToContent)
+  // CRUD форм — FormTree дёргает через canvas.createForm/deleteForm/renameForm.
   canvas.setFormCrudFns({
     createForm: guardedCreateForm,
     deleteForm: guardedDeleteForm,
@@ -715,8 +720,8 @@ onBeforeUnmount(() => {
   hideCellTooltip() // pending hover-tooltip не должен стрелять после unmount
   canvas.clearCanvasRefs()
   canvas.setSelectFormFn(null)
-  canvas.setImportProjectFn(null)
-  canvas.setProjectExportFn(null)
+  canvas.setArchiveFns({ importFromArchive: null, exportToArchive: null })
+  canvas.setFitViewFn(null)
   canvas.setFormCrudFns({ createForm: null, deleteForm: null, renameForm: null })
   paper?.remove()
   paper = null
@@ -866,8 +871,6 @@ function performClearCanvas(count) {
     >
       <div class="flex items-center gap-2">
         <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Холст</h2>
-        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
-        <TagListControl />
       </div>
       <div class="flex items-center gap-2">
         <Button
@@ -1170,7 +1173,7 @@ function performClearCanvas(count) {
 
     <TagPickerDialog
       v-model:visible="valueTagPickerOpen"
-      :tags="project.tags"
+      :tags="floatTags"
       header="Выберите тег для отображения значения"
       @select="onValueTagPickerSelect"
       @cancel="onValueTagPickerCancel"
