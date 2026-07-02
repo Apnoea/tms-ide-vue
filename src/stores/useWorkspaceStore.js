@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { subtreeIds } from '../utils/formTreeDnd'
 
 /**
  * Проектный слой: формы (схемы) и активная форма. Хранит только ДАННЫЕ —
@@ -34,6 +35,44 @@ function renameInTree(nodes, oldId, newId) {
     children: renameInTree(n.children, oldId, newId),
   }))
 }
+// Вынимает узел (с поддеревом) из дерева. → [дерево без узла, вынутый узел | null].
+function extractNode(nodes, id) {
+  let extracted = null
+  const walk = (list) => {
+    const out = []
+    for (const n of list) {
+      if (n.id === id) {
+        extracted = n
+        continue
+      }
+      out.push({ id: n.id, children: walk(n.children) })
+    }
+    return out
+  }
+  return [walk(nodes), extracted]
+}
+// Вставляет node относительно targetId (zone: before/after/inside). targetId=null →
+// в конец корня. Возвращает новое дерево либо null, если target не найден.
+function insertNode(nodes, targetId, zone, node) {
+  if (targetId == null) return [...nodes, node]
+  let done = false
+  const out = []
+  for (const n of nodes) {
+    if (n.id === targetId) {
+      done = true
+      if (zone === 'inside') out.push({ id: n.id, children: [...n.children, node] })
+      else if (zone === 'before') out.push(node, n)
+      else out.push(n, node)
+    } else {
+      const sub = insertNode(n.children, targetId, zone, node)
+      if (sub) {
+        out.push({ id: n.id, children: sub })
+        done = true
+      } else out.push(n)
+    }
+  }
+  return done ? out : null
+}
 
 export const useWorkspaceStore = defineStore('workspace', () => {
   // id → graphJson. Приватная, не возвращаем наружу — не state Pinia.
@@ -41,6 +80,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const formIds = ref([]) // плоский порядок/существование форм
   const activeFormId = ref(null)
   const formTree = ref([]) // иерархия форм (дерево слева)
+  // Имя проекта (= имя импортированного .zip без расширения; имя файла экспорта).
+  // null — проект без имени (свежий bootstrap), UI покажет заглушку.
+  const projectName = ref(null)
+
+  function setProjectName(name) {
+    projectName.value = name && String(name).trim() ? String(name).trim() : null
+  }
 
   function syncList() {
     formIds.value = Array.from(forms.keys())
@@ -130,11 +176,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return true
   }
 
+  /**
+   * Перенос узла дерева (DnD): `dragId` встаёт относительно `targetId` по зоне
+   * `before`/`after`/`inside` (targetId=null → в корень). Узел едет вместе с
+   * поддеревом. false — no-op: drop на себя, в собственное поддерево (цикл) или
+   * target не найден. Орфан (формы нет в дереве) при drop'е добавляется узлом.
+   * Только структура дерева — графы форм не трогает.
+   */
+  function moveNode(dragId, targetId, zone) {
+    if (dragId === targetId) return false
+    if (targetId != null && subtreeIds(formTree.value, dragId).has(targetId)) return false
+    const [without, node] = extractNode(formTree.value, dragId)
+    const next = insertNode(without, targetId, zone, node || { id: dragId, children: [] })
+    if (!next) return false
+    formTree.value = next
+    return true
+  }
+
   return {
     formIds,
     activeFormId,
     formTree,
+    projectName,
+    setProjectName,
     setFormTree,
+    moveNode,
     loadForms,
     updateActiveGraph,
     getFormGraph,

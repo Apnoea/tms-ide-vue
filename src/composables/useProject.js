@@ -115,6 +115,7 @@ export function useProject({
     workspace.setActiveFormId(id)
     await persistMeta()
     loadActiveIntoCanvas(graph, paper, { cells: [] })
+    canvas.markDirty() // новая форма → проект разошёлся с .zip
   }
 
   /**
@@ -136,6 +137,7 @@ export function useProject({
     await removeFormPersist(id)
     await persistMeta()
     if (wasActive) loadActiveIntoCanvas(graph, paper, workspace.getFormGraph(newActive))
+    canvas.markDirty() // форма удалена → проект разошёлся с .zip
   }
 
   /**
@@ -187,7 +189,18 @@ export function useProject({
       cancelPendingSnapshot()
       loadActiveIntoCanvas(graph, paper, workspace.getFormGraph(workspace.activeFormId))
     }
+    canvas.markDirty() // переименование (+ фикс nav-ссылок) → расхождение с .zip
     return true
+  }
+
+  /**
+   * Перенос узла дерева форм (DnD в FormTree). Меняет только структуру дерева +
+   * персист меты — граф/холст не трогает (иерархия = метаданные редактора).
+   */
+  async function moveFormNode(dragId, targetId, zone) {
+    if (!workspace.moveNode(dragId, targetId, zone)) return
+    await persistMeta()
+    canvas.markDirty() // иерархия (hierarchy.json) изменилась → расхождение с .zip
   }
 
   /**
@@ -201,7 +214,9 @@ export function useProject({
     const file = await pickProjectArchive()
     if (!file) return
     const data = await readProjectZipFile(file)
-    await applyImportedBundle(data, graph, paper)
+    // Имя проекта = имя архива без .zip (для топ-бара и имени файла экспорта).
+    const projectName = String(file.name || '').replace(/\.zip$/i, '')
+    await applyImportedBundle(data, graph, paper, projectName)
   }
 
   /**
@@ -211,7 +226,7 @@ export function useProject({
    * всё из IDB). Стенсилов нет → применяем активную форму сразу. Предупреждаем о
    * стенсилах, которых нет ни в базе, ни в бандле.
    */
-  async function applyImportedBundle(data, graph, paper) {
+  async function applyImportedBundle(data, graph, paper, projectName = null) {
     // Бандл-стенсилы, которых нет в базе, регистрируем в рантайме ДО парсинга —
     // иначе parseSvgProject выкинет их ячейки. Список фиксируем здесь (после
     // регистрации getStencilById вернёт их) — он же идёт в POST для записи файлов.
@@ -239,7 +254,7 @@ export function useProject({
       return
     }
 
-    const persisted = await replaceProject(forms, data.tagsText, data.hierarchy)
+    const persisted = await replaceProject(forms, data.tagsText, data.hierarchy, projectName)
 
     // Стенсилы, на которые ссылаются формы (по meta SVG), но которых нет ни в базе,
     // ни в бандле — отрисовать их нечем, предупреждаем.
@@ -261,6 +276,8 @@ export function useProject({
       })
       initHistory()
       canvas.clearSelection()
+      // Импортированный проект = то, что на диске → расхождения с .zip нет.
+      canvas.markExported()
       // Вписываем импортированный контент в область видимости (иначе paper стоит на
       // translate(0,0) и формы, нарисованные не у левого-верхнего угла, вне экрана).
       nextTick(() => canvas.fitToContent())
@@ -367,6 +384,8 @@ export function useProject({
       const tagsText = await readTagsText()
       await deliver({ forms: formsOut, stencils, tagsText, hierarchy: workspace.formTree })
 
+      // Доставленный архив = текущее состояние → сбрасываем «не выгружено».
+      canvas.markExported()
       notify.success(
         'Проект экспортирован',
         `${nplural(formsOut.length, 'форма', 'формы', 'форм')}, ` +
@@ -398,37 +417,43 @@ export function useProject({
     }
   }
 
-  /** Экспорт в .zip (скачивание) — единственный формат вывода проекта. */
+  /** Экспорт в .zip (скачивание) — единственный формат вывода проекта. Имя файла
+   *  = имя проекта (из импортированного архива); нет имени → 'project'. */
   async function exportProjectToArchive() {
-    await buildAndDeliverBundle((bundle) =>
-      downloadBlob(buildProjectZipBlob(bundle), 'project.zip')
-    )
+    await buildAndDeliverBundle((bundle) => {
+      const base = (workspace.projectName || 'project').replace(/[\\/:*?"<>|]/g, '_')
+      downloadBlob(buildProjectZipBlob(bundle), `${base}.zip`)
+    })
   }
 
   // Проектные операции мутируют один граф/стор через серии await'ов. Параллельный
   // запуск рассинхронил бы их (оверлей экспорта накрывает только canvas, а дерево
   // форм в левой панели остаётся кликабельным → клик по форме во время экспорта/
-  // импорта влез бы в один граф). Гоняем все через общий busy-флаг — на уровне логики, не UI.
-  let projectBusy = false
+  // импорта влез бы в один граф). Гоняем все через общий busy-флаг. Реактивный —
+  // useHotkeys читает его, чтобы гейтить мутирующие хоткеи (paste/undo/delete во
+  // время прогона писали бы граф чужой формы в store/IDB между await'ами).
+  const projectBusy = ref(false)
   const withProjectBusy =
     (fn) =>
     async (...args) => {
-      if (projectBusy) return
-      projectBusy = true
+      if (projectBusy.value) return
+      projectBusy.value = true
       try {
         return await fn(...args)
       } finally {
-        projectBusy = false
+        projectBusy.value = false
       }
     }
 
   return {
     exportingProject,
+    projectBusy,
     selectForm: withProjectBusy(selectForm),
     importProjectFromArchive: withProjectBusy(importProjectFromArchive),
     exportProjectToArchive: withProjectBusy(exportProjectToArchive),
     createForm: withProjectBusy(createForm),
     deleteForm: withProjectBusy(deleteForm),
     renameForm: withProjectBusy(renameForm),
+    moveFormNode: withProjectBusy(moveFormNode),
   }
 }

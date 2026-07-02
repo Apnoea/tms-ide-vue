@@ -26,6 +26,7 @@ function isFocusInInput(t) {
  *  Ctrl+O      — диспатч `tms-open-project` (ловит ProjectActions)
  *  Ctrl+C/V/D  — copy/paste/duplicate выделения
  *  Ctrl+A      — выделить все ячейки
+ *  R / Shift+R — повернуть выделенные ячейки по / против часовой (90°)
  *  Стрелки     — сдвиг выделенных ячеек на gridSize (Shift = ×5)
  *  Del/Bksp    — удалить выделение
  *
@@ -41,7 +42,14 @@ function isFocusInInput(t) {
  *
  * Зависимости передаются опциями (приходят из composables, которые держит
  * CanvasPane): undo/redo/scheduleSnapshot из useUndoRedo, copy/paste/duplicate
- * из useClipboard, onExport — локальная функция CanvasPane.
+ * из useClipboard, onExport — локальная функция CanvasPane, projectBusy —
+ * ref из useProject.
+ *
+ * Мутирующие граф/стор хоткеи (undo/redo/paste/duplicate/delete/nudge) гейтятся
+ * `projectBusy`: во время экспорта/импорта/переключения формы живой граф между
+ * await'ами держит ЧУЖУЮ форму — правка бы записала её JSON под ключ активной в
+ * store/IDB и утекла бы в экспортный SVG. copy (read-only) и search/Esc/Ctrl+S/O
+ * (сами no-op под busy) — не гейтим.
  */
 export function useHotkeys({
   undo,
@@ -50,7 +58,9 @@ export function useHotkeys({
   copySelection,
   pasteClipboard,
   duplicateSelection,
+  rotateSelected,
   onExport,
+  projectBusy = { value: false },
 }) {
   const canvas = useCanvas()
   const ui = useUiStore()
@@ -108,46 +118,58 @@ export function useHotkeys({
       window.dispatchEvent(new CustomEvent('tms-open-project'))
       return
     }
-    // Ctrl+D: браузерную закладку давим всегда, дублируем — только вне инпута.
+    // Ctrl+D: браузерную закладку давим всегда, дублируем — только вне инпута и не под busy.
     if (cmd && code === 'KeyD') {
       event.preventDefault()
       event.stopPropagation()
-      if (!inInput) duplicateSelection()
+      if (!inInput && !projectBusy.value) duplicateSelection()
       return
     }
 
     if (cmd && !inInput) {
+      // Мутирующие граф/стор — не под busy (см. docstring). preventDefault всё
+      // равно давим, чтобы не сработал браузерный дефолт комбо.
       if (code === 'KeyZ') {
         event.preventDefault()
         event.stopPropagation()
-        event.shiftKey ? redo() : undo()
+        if (!projectBusy.value) (event.shiftKey ? redo : undo)()
         return
       }
       if (code === 'KeyY') {
         event.preventDefault()
         event.stopPropagation()
-        redo()
+        if (!projectBusy.value) redo()
         return
       }
       if (code === 'KeyC' && !event.shiftKey) {
         event.preventDefault()
         event.stopPropagation()
-        copySelection()
+        copySelection() // read-only, безопасно под busy
         return
       }
       if (code === 'KeyV' && !event.shiftKey) {
         event.preventDefault()
         event.stopPropagation()
-        pasteClipboard()
+        if (!projectBusy.value) pasteClipboard()
         return
       }
       if (code === 'KeyA') {
-        if (!graph) return
+        if (!graph || projectBusy.value) return
         event.preventDefault()
         event.stopPropagation()
         canvas.selectAllCells()
         return
       }
+    }
+
+    // R / Shift+R — поворот выделенных ячеек. Без cmd: Ctrl+R отдаём браузеру
+    // (перезагрузка). rotateSelected сам фильтрует noRotate-стенсилы и снапшотит.
+    if (code === 'KeyR' && !cmd && !event.altKey) {
+      if (inInput || projectBusy.value) return
+      event.preventDefault()
+      event.stopPropagation()
+      rotateSelected?.(event.shiftKey ? -90 : 90)
+      return
     }
 
     const isArrow =
@@ -156,7 +178,7 @@ export function useHotkeys({
       event.key === 'ArrowLeft' ||
       event.key === 'ArrowRight'
     if (isArrow) {
-      if (inInput || !graph || !paper) return
+      if (inInput || !graph || !paper || projectBusy.value) return
       const cellSel = canvas.selection.value.filter((s) => s.kind === 'cell')
       if (!cellSel.length) return
       event.preventDefault()
@@ -174,7 +196,7 @@ export function useHotkeys({
     }
 
     if (event.key !== 'Delete' && event.key !== 'Backspace') return
-    if (inInput) return
+    if (inInput || projectBusy.value) return
     const sel = canvas.selection.value
     if (!sel.length || !graph) return
     event.preventDefault()

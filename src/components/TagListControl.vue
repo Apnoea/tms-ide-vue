@@ -5,7 +5,7 @@
  * переживает reload и попадает в бандл при экспорте), file-handle
  * (`tagListHandle`) — для тихого обновления из файла. Теги — в useProjectStore.
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import Button from 'primevue/button'
 import Badge from 'primevue/badge'
 import { storeToRefs } from 'pinia'
@@ -109,12 +109,6 @@ onMounted(async () => {
   hasPersistedTags.value = !!(await idbGet('project:tags'))
   tryRestoreTagListHandle()
 })
-
-// Сигнал из инспектора «Загрузить tag-list…» (см. ui.requestTagListLoad).
-watch(
-  () => ui.tagListLoadRequest,
-  () => pickTagList()
-)
 </script>
 
 <template>

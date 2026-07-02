@@ -33,11 +33,12 @@ const exportArchiveFn = shallowRef(null)
 // (у неё paper + размеры контейнера); зовётся после импорта/переключения.
 const fitViewFn = shallowRef(null)
 
-// CRUD форм (панель форм дёргает): создать пустую / удалить / переименовать.
-// Оркестрацию (стор + IDB + перезагрузка холста) держит useProject в CanvasPane.
+// CRUD форм + DnD-перенос узла дерева (панель форм дёргает). Оркестрацию (стор +
+// IDB + перезагрузка холста) держит useProject в CanvasPane.
 const createFormFn = shallowRef(null)
 const deleteFormFn = shallowRef(null)
 const renameFormFn = shallowRef(null)
+const moveFormFn = shallowRef(null)
 
 const selection = ref([]) // Array<{ kind, id }>
 
@@ -52,16 +53,19 @@ const paperViewTick = ref(0)
 const zoomPercent = ref(100)
 // { x, y } в paper-локальных координатах либо null когда курсор вне холста
 const cursorLocal = ref(null)
-// Индикаторы сохранения для статус-полосы.
-// recentlySaved — короткий «flash» на 1.5 сек после сохранения (зелёная галочка).
-// lastSavedAt — timestamp последнего успешного autosave'а (для «N сек назад»).
 // saveError — последняя запись в IndexedDB упала (квота / приватный режим):
-// статус-полоса показывает «не сохранено», чтобы юзер не закрыл вкладку с потерей данных.
-const recentlySaved = ref(false)
-const lastSavedAt = ref(0)
+// статус-полоса показывает «не сохранено», чтобы юзер не закрыл вкладку с потерей
+// данных. Успех автосейва отдельно не индицируем (это ожидаемое поведение).
 const saveError = ref(false)
 const canUndo = ref(false)
 const canRedo = ref(false)
+
+// Есть ли изменения, не попавшие в экспортированный .zip. Автосейв пишет только в
+// IndexedDB — файл проекта на диске при этом устаревает. Флаг разводит две модели:
+// «сохранено в браузере» ≠ «выгружено в .zip». true — любое изменение графа после
+// последнего экспорта/импорта; false — состояние совпадает с последним доставленным
+// архивом. Стартуем с false (свежая сессия = как в IDB, т.е. как последний импорт/экспорт).
+const dirtySinceExport = ref(false)
 
 // Тик для внешних запросов snapshot'а (Inspector после правки слотов и т.п.).
 // CanvasPane watch'ит изменения и вызывает свой scheduleSnapshot.
@@ -167,9 +171,8 @@ export function useCanvas() {
     cursorLocal,
     cellsCount,
     linksCount,
-    recentlySaved,
-    lastSavedAt,
     saveError,
+    dirtySinceExport,
     canUndo,
     canRedo,
     snapshotTick,
@@ -200,10 +203,11 @@ export function useCanvas() {
     fitToContent() {
       return fitViewFn.value?.()
     },
-    setFormCrudFns({ createForm, deleteForm, renameForm }) {
+    setFormCrudFns({ createForm, deleteForm, renameForm, moveForm }) {
       createFormFn.value = createForm
       deleteFormFn.value = deleteForm
       renameFormFn.value = renameForm
+      moveFormFn.value = moveForm
     },
     createForm() {
       return createFormFn.value?.()
@@ -213,6 +217,9 @@ export function useCanvas() {
     },
     renameForm(oldId, newId) {
       return renameFormFn.value?.(oldId, newId)
+    },
+    moveFormNode(dragId, targetId, zone) {
+      return moveFormFn.value?.(dragId, targetId, zone)
     },
     clearCanvasRefs() {
       graphRef.value = null
@@ -311,14 +318,16 @@ export function useCanvas() {
     setCursorLocal(point) {
       cursorLocal.value = point
     },
-    setRecentlySaved(value) {
-      recentlySaved.value = value
-    },
-    setLastSavedAt(ts) {
-      lastSavedAt.value = ts
-    },
     setSaveError(value) {
       saveError.value = value
+    },
+    /** Помечает наличие невыгруженных в .zip изменений (любая правка графа). */
+    markDirty() {
+      dirtySinceExport.value = true
+    },
+    /** Состояние совпало с доставленным архивом (успешный экспорт / импорт). */
+    markExported() {
+      dirtySinceExport.value = false
     },
     slotPickRequest,
     requestSlotPick() {

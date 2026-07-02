@@ -34,7 +34,6 @@ import { withRestoreGuard } from '../utils/restoreGuard'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cellHasTag } from '../utils/cellSearch'
 import TagPickerDialog from './TagPickerDialog.vue'
-import SaveIndicator from './SaveIndicator.vue'
 import SearchBar from './SearchBar.vue'
 
 const project = useProjectStore()
@@ -131,12 +130,14 @@ const {
 // уже обёрнутые в общий busy-флаг функции (взаимное исключение) + оверлей-флаг.
 const {
   exportingProject,
+  projectBusy,
   selectForm: guardedSelectForm,
   importProjectFromArchive: guardedImportArchive,
   exportProjectToArchive: guardedExportArchive,
   createForm: guardedCreateForm,
   deleteForm: guardedDeleteForm,
   renameForm: guardedRenameForm,
+  moveFormNode: guardedMoveForm,
 } = useProject({
   restoringHistory,
   autosave: {
@@ -161,8 +162,24 @@ useHotkeys({
   copySelection,
   pasteClipboard,
   duplicateSelection,
+  // Обёртка (не прямая ссылка): rotateSelectedBy объявлен ниже — стрелка
+  // резолвит его лениво, на keydown (после mount), TDZ не задевает.
+  rotateSelected: (deg) => rotateSelectedBy(deg),
   onExport: guardedExportArchive,
+  projectBusy,
 })
+
+// Кнопка-лупа в тулбаре тогглит панель поиска: открыта → закрыть (со сбросом
+// подсветки/матчей, как close в SearchBar), закрыта → открыть. Хоткей Ctrl+F
+// живёт отдельно (в useHotkeys) и всегда открывает/рефокусит.
+function toggleSearch() {
+  if (ui.searchOpen) {
+    canvas.clearSearch()
+    ui.closeSearch()
+  } else {
+    ui.openSearch()
+  }
+}
 
 // ─── Zoom state ───
 // zoomPercent живёт в singleton useCanvas — общая ссылка, чтобы зум читался без
@@ -521,11 +538,12 @@ onMounted(async () => {
   })
   // Вписать контент в область видимости — импорт дёргает через canvas.fitToContent.
   canvas.setFitViewFn(fitToContent)
-  // CRUD форм — FormTree дёргает через canvas.createForm/deleteForm/renameForm.
+  // CRUD форм + DnD-перенос — FormTree дёргает через canvas.createForm/…/moveFormNode.
   canvas.setFormCrudFns({
     createForm: guardedCreateForm,
     deleteForm: guardedDeleteForm,
     renameForm: guardedRenameForm,
+    moveForm: guardedMoveForm,
   })
 
   // Сообщаем о восстановлении уже после монтирования (toast service готов)
@@ -722,7 +740,7 @@ onBeforeUnmount(() => {
   canvas.setSelectFormFn(null)
   canvas.setArchiveFns({ importFromArchive: null, exportToArchive: null })
   canvas.setFitViewFn(null)
-  canvas.setFormCrudFns({ createForm: null, deleteForm: null, renameForm: null })
+  canvas.setFormCrudFns({ createForm: null, deleteForm: null, renameForm: null, moveForm: null })
   paper?.remove()
   paper = null
   graph = null
@@ -855,6 +873,7 @@ function performClearCanvas(count) {
   // Сбрасываем history до текущего пустого состояния
   initHistory()
   canvas.clearSelection()
+  canvas.markDirty() // очистка формы → проект разошёлся с .zip
 
   notify.info(
     'Холст очищен',
@@ -873,12 +892,27 @@ function performClearCanvas(count) {
         <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Холст</h2>
       </div>
       <div class="flex items-center gap-2">
+        <!-- Поиск по схеме (Ctrl+F): та же панель SearchBar, что и по хоткею —
+             кнопка делает фичу видимой, а не только клавиатурной. -->
+        <Button
+          v-tooltip.bottom="'Найти на схеме по тегу / тексту · Ctrl+F'"
+          icon="pi pi-search"
+          :severity="ui.searchOpen ? 'primary' : 'secondary'"
+          :text="!ui.searchOpen"
+          size="small"
+          class="tms-icon-btn"
+          @click="toggleSearch"
+        />
+
+        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+
         <Button
           v-tooltip.bottom="'Отменить · Ctrl+Z'"
           icon="pi pi-undo"
           severity="secondary"
           text
           size="small"
+          class="tms-icon-btn"
           :disabled="!canvas.canUndo.value"
           @click="undo"
         />
@@ -888,6 +922,7 @@ function performClearCanvas(count) {
           severity="secondary"
           text
           size="small"
+          class="tms-icon-btn"
           :disabled="!canvas.canRedo.value"
           @click="redo"
         />
@@ -901,6 +936,7 @@ function performClearCanvas(count) {
             severity="secondary"
             text
             size="small"
+            class="tms-icon-btn"
             :disabled="zoomPercent <= 20"
             @click="zoomByStep(1 / ZOOM_STEP)"
           />
@@ -921,6 +957,7 @@ function performClearCanvas(count) {
             severity="secondary"
             text
             size="small"
+            class="tms-icon-btn"
             :disabled="zoomPercent >= 400"
             @click="zoomByStep(ZOOM_STEP)"
           />
@@ -934,10 +971,13 @@ function performClearCanvas(count) {
           :severity="simulating ? 'primary' : 'secondary'"
           :text="!simulating"
           size="small"
+          class="tms-icon-btn"
           @click="toggleSimulation"
         />
 
-        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+        <!-- Деструктивную «Очистить холст» отодвигаем от рабочих контролов
+             (симуляция/зум) увеличенным зазором — меньше шанс задеть случайно. -->
+        <div class="w-px h-5 bg-surface-200 ml-2 mr-3" aria-hidden="true"></div>
 
         <Button
           v-tooltip.bottom="'Очистить холст'"
@@ -945,6 +985,7 @@ function performClearCanvas(count) {
           severity="secondary"
           text
           size="small"
+          class="tms-icon-btn"
           :disabled="canvas.cellsCount.value === 0"
           @click="onClearCanvas($event)"
         />
@@ -1054,8 +1095,8 @@ function performClearCanvas(count) {
       <template v-if="overlayBtns">
         <Button
           v-if="overlayBtns.canTransform"
-          v-tooltip.top="'Повернуть против часовой'"
-          icon="pi pi-undo"
+          v-tooltip.top="'Повернуть против часовой · Shift+R'"
+          icon="pi pi-replay"
           severity="secondary"
           rounded
           size="small"
@@ -1065,8 +1106,8 @@ function performClearCanvas(count) {
         />
         <Button
           v-if="overlayBtns.canTransform"
-          v-tooltip.top="'Повернуть по часовой'"
-          icon="pi pi-refresh"
+          v-tooltip.top="'Повернуть по часовой · R'"
+          icon="pi pi-sync"
           severity="secondary"
           rounded
           size="small"
@@ -1121,9 +1162,6 @@ function performClearCanvas(count) {
           {{ canvas.selectionLabel.value }}
         </span>
       </div>
-
-      <!-- Индикатор автосейва — слева-снизу (симметрично координатам справа). -->
-      <SaveIndicator />
 
       <!-- Lasso overlay (Alt+LMB drag): рамка выделения, координаты в container-px -->
       <div

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, ref } from 'vue'
 import { onClickOutside, useLocalStorage } from '@vueuse/core'
+import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
@@ -15,7 +16,7 @@ import { useUiStore } from '../stores/useUiStore'
 const ui = useUiStore()
 
 const search = ref('')
-// Поиск свёрнут в иконку; по клику разворачивается в поле ввода (collapsible).
+// Поиск свёрнут в кнопку-лупу; по клику разворачивается в поле ввода (collapsible).
 const searchOpen = ref(false)
 const searchInput = ref(null)
 const searchBox = ref(null)
@@ -28,6 +29,17 @@ async function openSearch() {
 function closeSearch() {
   search.value = ''
   searchOpen.value = false
+}
+// Крестик в поле: только чистит запрос, поле остаётся открытым и в фокусе.
+function clearQuery() {
+  search.value = ''
+  searchInput.value?.$el?.focus()
+}
+// Кнопка-лупа тогглит поиск: закрыта → открыть+фокус, открыта → закрыть (фильтр
+// снимается). Триггер — квадратная icon-кнопка, как в остальном UI.
+function toggleSearch() {
+  if (searchOpen.value) closeSearch()
+  else openSearch()
 }
 // Схлопываем только пустое поле — с текстом оставляем (фильтр активен).
 function collapseIfEmpty() {
@@ -120,41 +132,34 @@ function stencilTooltip(stencil) {
       <h2 class="shrink-0 text-sm font-semibold text-surface-900 uppercase tracking-wide">
         Палитра
       </h2>
-      <!-- Поиск свёрнут в иконку, по клику плавно разворачивается в поле (анимация
-           ширины). Поле рендерится всегда; в свёрнутом виде сжато до лупы и
-           прозрачно (без рамки/фона) — выглядит как иконка. -->
-      <div class="flex flex-1 justify-end">
-        <div
-          ref="searchBox"
-          class="overflow-hidden transition-[width] duration-200 ease-out"
-          :class="searchOpen ? 'w-full' : 'w-8'"
-        >
-          <IconField class="w-full">
-            <InputIcon
-              v-tooltip.bottom="'Поиск стенсилов'"
-              class="pi pi-search cursor-pointer"
-              @click="openSearch"
-            />
-            <InputText
-              ref="searchInput"
-              v-model="search"
-              size="small"
-              class="w-full"
-              :class="
-                searchOpen ? '' : '!border-transparent !bg-transparent !shadow-none cursor-pointer'
-              "
-              placeholder="Поиск по названию или id..."
-              @focus="searchOpen = true"
-              @blur="collapseIfEmpty"
-              @keyup.esc="closeSearch"
-            />
-            <InputIcon
-              v-if="search"
-              class="pi pi-times cursor-pointer hover:text-surface-700"
-              @click="closeSearch"
-            />
-          </IconField>
-        </div>
+      <!-- Поиск: квадратная кнопка-лупа (как в тулбаре холста / дереве форм). По
+           клику разворачивается поле ввода; повторный клик / Esc / клик-вне (пустое)
+           сворачивают. Поле — без ведущей иконки (лупа живёт на кнопке-триггере). -->
+      <div ref="searchBox" class="flex flex-1 items-center justify-end gap-1">
+        <IconField v-if="searchOpen" class="w-full">
+          <InputText
+            ref="searchInput"
+            v-model="search"
+            size="small"
+            class="w-full !h-8"
+            placeholder="Поиск по названию или id..."
+            @keyup.esc="closeSearch"
+          />
+          <InputIcon
+            v-if="search"
+            class="pi pi-times cursor-pointer hover:text-surface-700"
+            @click="clearQuery"
+          />
+        </IconField>
+        <Button
+          v-tooltip.bottom="'Поиск стенсилов'"
+          icon="pi pi-search"
+          :severity="searchOpen ? 'primary' : 'secondary'"
+          :text="!searchOpen"
+          size="small"
+          class="tms-icon-btn shrink-0"
+          @click="toggleSearch"
+        />
       </div>
     </div>
 

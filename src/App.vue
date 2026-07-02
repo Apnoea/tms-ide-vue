@@ -13,8 +13,10 @@ import InspectorPane from './components/InspectorPane.vue'
 import HelpDialog from './components/HelpDialog.vue'
 
 import { useUiStore } from './stores/useUiStore'
+import { useWorkspaceStore } from './stores/useWorkspaceStore'
 
 const ui = useUiStore()
+const workspace = useWorkspaceStore()
 
 // ? и F1 — открыть справку. Глобальный хоткей, игнорируем фокус в инпуте.
 // F1 нужен потому что `?` на русской раскладке = Shift+, и не сразу очевиден.
@@ -31,13 +33,23 @@ useEventListener(window, 'keydown', (event) => {
 
 <template>
   <div class="h-screen flex flex-col bg-surface-100 text-surface-900">
-    <!-- Верхняя полоса (h-10) по колонкам: лого (над формами/палитрой) │ проектные
-         действия Открыть/Экспорт/Tag-list (над холстом) │ справка (над инспектором).
+    <!-- Верхняя полоса (h-10) по колонкам: лого + имя проекта (над формами/палитрой) │
+         проектные действия Открыть/Экспорт/Tag-list (над холстом) │ статус выгрузки +
+         справка (над инспектором).
          Проектный I/O — здесь, а не в тулбаре холста; дерево форм — в левой панели. -->
     <div class="flex items-stretch gap-2 px-2 py-1.5">
-      <div class="w-[380px] shrink-0 flex items-center gap-2 px-2">
+      <div class="w-[380px] shrink-0 flex items-center gap-2 px-2 min-w-0">
         <i class="pi pi-sitemap text-primary-500 shrink-0" />
-        <span class="text-sm font-bold tracking-tight">TMS IDE</span>
+        <span class="text-sm font-bold tracking-tight shrink-0">TMS IDE</span>
+        <!-- Имя открытого проекта (= имя .zip). Отделяет активный проект от
+             «свежего»; при импорте разных архивов видно, что именно загружено. -->
+        <span class="text-surface-300 shrink-0" aria-hidden="true">·</span>
+        <span
+          class="min-w-0 truncate text-sm text-surface-500"
+          :title="workspace.projectName || 'Проект ещё не сохранён в файл'"
+        >
+          {{ workspace.projectName || 'Без названия' }}
+        </span>
       </div>
       <div class="flex-1 min-w-0 flex items-center gap-2 px-2">
         <ProjectActions />

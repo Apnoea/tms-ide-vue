@@ -30,8 +30,6 @@ vi.mock('../utils/idb', () => ({
 }))
 
 const mockCanvas = makeMockCanvas({
-  setRecentlySaved: vi.fn(),
-  setLastSavedAt: vi.fn(),
   setSaveError: vi.fn(),
   bumpVersion: vi.fn(),
 })
@@ -62,8 +60,6 @@ describe('useAutosave', () => {
     restoringHistory = ref(false)
     mockCanvas.graphRef.value = null
     mockCanvas.paperRef.value = { id: 'paper' }
-    mockCanvas.setRecentlySaved.mockClear()
-    mockCanvas.setLastSavedAt.mockClear()
     mockCanvas.setSaveError.mockClear()
     mockCanvas.bumpVersion.mockClear()
   })
@@ -91,7 +87,7 @@ describe('useAutosave', () => {
       await saveActiveForm()
       expect(idbStore.get(formKey('main'))).toEqual({ cells: [{ id: 'c1' }] })
       expect(graph.toJSON).toHaveBeenCalledOnce()
-      expect(mockCanvas.setRecentlySaved).toHaveBeenCalledWith(true)
+      expect(mockCanvas.setSaveError).toHaveBeenCalledWith(false) // успех снимает ошибку
     })
 
     it('запись в IndexedDB упала → setSaveError(true), НЕ врёт «сохранено»', async () => {
@@ -101,7 +97,7 @@ describe('useAutosave', () => {
       const { saveActiveForm } = setup()
       await saveActiveForm()
       expect(mockCanvas.setSaveError).toHaveBeenCalledWith(true)
-      expect(mockCanvas.setRecentlySaved).not.toHaveBeenCalled()
+      expect(mockCanvas.setSaveError).not.toHaveBeenCalledWith(false)
     })
 
     it('no-op при restoringHistory=true', async () => {
@@ -138,6 +134,7 @@ describe('useAutosave', () => {
         formIds: ['main'],
         activeFormId: 'main',
         hierarchy: [{ id: 'main', children: [] }],
+        projectName: null,
       })
       expect(idbStore.get(formKey('main'))).toEqual({ cells: [] })
     })
@@ -194,6 +191,7 @@ describe('useAutosave', () => {
         formIds: ['a', 'b'],
         activeFormId: 'b',
         hierarchy: [],
+        projectName: null,
       })
     })
   })
@@ -225,6 +223,7 @@ describe('useAutosave', () => {
           { id: 'a', children: [] },
           { id: 'b', children: [] },
         ],
+        projectName: null,
       })
       expect(idbStore.get('project:tags')).toBe('TAG1;Bool')
       expect(useWorkspaceStore().activeFormId).toBe('a')

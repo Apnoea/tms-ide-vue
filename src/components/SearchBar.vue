@@ -71,12 +71,11 @@ function onKeyDown(event) {
     @mousedown.stop
     @click.stop
   >
-    <i class="pi pi-search text-surface-400 text-xs" />
     <InputText
       ref="inputRef"
       v-model="query"
       size="small"
-      placeholder="Поиск по тегу / тексту"
+      placeholder="Найти на схеме: тег / текст"
       class="!text-xs !w-56 !py-1"
       @keydown="onKeyDown"
     />
@@ -92,7 +91,7 @@ function onKeyDown(event) {
       severity="secondary"
       text
       size="small"
-      class="!w-7 !h-7 !p-0"
+      class="tms-icon-btn"
       :disabled="total === 0"
       @click="prev"
     />
@@ -102,7 +101,7 @@ function onKeyDown(event) {
       severity="secondary"
       text
       size="small"
-      class="!w-7 !h-7 !p-0"
+      class="tms-icon-btn"
       :disabled="total === 0"
       @click="next"
     />
@@ -112,7 +111,7 @@ function onKeyDown(event) {
       severity="secondary"
       text
       size="small"
-      class="!w-7 !h-7 !p-0"
+      class="tms-icon-btn"
       @click="close"
     />
   </div>

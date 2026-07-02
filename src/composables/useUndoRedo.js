@@ -42,11 +42,17 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
   function snapshot() {
     const graph = canvas.graphRef.value
     if (restoringHistory.value || !graph) return
+    const json = graph.toJSON()
+    // Дедуп против текущей вершины: триггер (напр. cell:pointerup от клика-
+    // выделения) мог не изменить граф — selection в модель не пишется, toJSON
+    // идентичен. Идентичный снимок не пушим: иначе пустышки вымывают HISTORY_LIMIT,
+    // Ctrl+Z «прожимается» впустую, а после серии undo он ещё и срезал бы redo.
+    if (JSON.stringify(json) === JSON.stringify(history[historyIndex])) return
     // Если делаем новое действие после серии undo — отрезаем «будущее»
     if (historyIndex < history.length - 1) {
       history = history.slice(0, historyIndex + 1)
     }
-    history.push(graph.toJSON())
+    history.push(json)
     historyIndex++
     if (history.length > HISTORY_LIMIT) {
       history.shift()
@@ -55,6 +61,8 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
     // Autosave пишем по тому же триггеру что и history snapshot — оба отражают
     // «стабильное» состояние после действия пользователя.
     saveAutosave()
+    // Реальное изменение графа → состояние разошлось с последним экспортом.
+    canvas.markDirty()
     syncAvail()
   }
 
@@ -106,6 +114,7 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
     }
     if (ok) {
       saveAutosave()
+      canvas.markDirty() // undo/redo меняет граф → расхождение с экспортом
       syncAvail()
     }
     return ok

@@ -5,6 +5,11 @@ import { parseSvgProject } from './projectLoader'
 // svg-текст с data-tms-meta атрибутами и возвращает структуру JointJS-cells
 // (включая links) пригодную для graph.fromJSON.
 
+const attr = (o) => JSON.stringify(o).replace(/"/g, '&quot;')
+// <g>-ячейка с зарегистрированным стенсилом (endpoint для провода в тестах).
+const cellG = (id) =>
+  `<g transform="translate(0,0)" data-tms-meta='${attr({ id, stencilId: 'cell_qw', width: 20, height: 20 })}'/>`
+
 describe('parseSvgProject', () => {
   it('возвращает ok=false на пустом вводе', () => {
     expect(parseSvgProject('').ok).toBe(false)
@@ -102,9 +107,10 @@ describe('parseSvgProject', () => {
       switchSources: { or: [], and: ['S.ONOFF'] },
     }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
-      <path d="M 0,0 L 10,10" data-tms-meta='${JSON.stringify(meta).replace(/"/g, '&quot;')}'/>
+      ${cellG('a')}${cellG('b')}
+      <path d="M 0,0 L 10,10" data-tms-meta='${attr(meta)}'/>
     </svg>`
-    const link = parseSvgProject(svg).cells[0]
+    const link = parseSvgProject(svg).cells.find((c) => c.type === 'standard.Link')
     expect(link.vertices).toEqual(verts)
     expect(link.tms.switchSources).toEqual({ or: [], and: ['S.ONOFF'] })
   })
@@ -116,14 +122,30 @@ describe('parseSvgProject', () => {
       target: { id: 'cell-b', port: 'bottom' },
     }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
-      <path d="M 0,0 L 10,10" data-tms-meta='${JSON.stringify(meta).replace(/"/g, '&quot;')}'/>
+      ${cellG('cell-a')}${cellG('cell-b')}
+      <path d="M 0,0 L 10,10" data-tms-meta='${attr(meta)}'/>
     </svg>`
     const out = parseSvgProject(svg)
     expect(out.ok).toBe(true)
-    const link = out.cells[0]
+    const link = out.cells.find((c) => c.type === 'standard.Link')
     expect(link.type).toBe('standard.Link')
     expect(link.source).toEqual({ id: 'cell-a', port: 'top' })
     expect(link.target).toEqual({ id: 'cell-b', port: 'bottom' })
+  })
+
+  it('отбрасывает провод с несуществующим endpoint (иначе fromJSON падает на уже сохранённой форме)', () => {
+    // Ячейка 'b' пропущена (незарегистрированный стенсил) → провод a→b висячий.
+    const badCell = attr({ id: 'b', stencilId: 'cell_nonexistent', width: 10, height: 10 })
+    const link = attr({ id: 'l1', source: { id: 'a' }, target: { id: 'b' } })
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      ${cellG('a')}
+      <g transform="translate(0,0)" data-tms-meta='${badCell}'/>
+      <path d="M 0,0 L 10,10" data-tms-meta='${link}'/>
+    </svg>`
+    const out = parseSvgProject(svg)
+    expect(out.cells.filter((c) => c.type === 'standard.Link')).toEqual([]) // висячий отброшен
+    expect(out.cells.filter((c) => c.type === 'tms.Stencil').map((c) => c.id)).toEqual(['a'])
+    expect(out.errors.some((e) => /отсутствующую ячейку/.test(e))).toBe(true)
   })
 
   it('пропускает ячейку с неизвестным стенсилом, накапливает warning', () => {

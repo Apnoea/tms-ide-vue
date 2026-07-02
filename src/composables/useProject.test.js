@@ -34,6 +34,8 @@ const mockCanvas = {
   bumpVersion: vi.fn(),
   clearSelection: vi.fn(),
   fitToContent: vi.fn(),
+  markDirty: vi.fn(),
+  markExported: vi.fn(),
 }
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
@@ -162,7 +164,8 @@ describe('useProject', () => {
       expect(deps.autosave.replaceProject).toHaveBeenCalledWith(
         [{ id: 'f1', graphJson: { cells: [] } }],
         null,
-        null
+        null,
+        'project' // имя проекта = имя архива без .zip
       )
       expect(mockNotify.success).toHaveBeenCalled()
     })

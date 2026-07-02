@@ -73,16 +73,28 @@ async function openProject() {
       @click="openProject"
     />
     <!-- Экспорт — главное действие (вывод проекта): лёгкий primary-акцент
-         (cyan-текст) против серого «Открыть». Только .zip. -->
-    <Button
-      v-tooltip.bottom="'Экспортировать проект (.zip) · Ctrl+S'"
-      icon="pi pi-download"
-      label="Экспорт"
-      severity="primary"
-      text
-      size="small"
-      :disabled="importing"
-      @click="canvas.exportProjectToArchive"
-    />
+         (cyan-текст) против серого «Открыть». Только .zip. Амбер-точка справа —
+         есть невыгруженные изменения (dirtySinceExport); тултип это поясняет. -->
+    <div class="relative">
+      <Button
+        v-tooltip.bottom="
+          canvas.dirtySinceExport.value
+            ? 'Есть изменения, не выгруженные в .zip · Ctrl+S'
+            : 'Экспортировать проект (.zip) · Ctrl+S'
+        "
+        icon="pi pi-download"
+        label="Экспорт"
+        severity="primary"
+        text
+        size="small"
+        :disabled="importing"
+        @click="canvas.exportProjectToArchive"
+      />
+      <span
+        v-if="canvas.dirtySinceExport.value"
+        class="pointer-events-none absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-surface-0"
+        aria-hidden="true"
+      />
+    </div>
   </div>
 </template>

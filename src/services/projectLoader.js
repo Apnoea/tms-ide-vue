@@ -37,6 +37,7 @@ export function parseSvgProject(svgText) {
   const cells = []
   const errors = []
   const stencilIds = new Set()
+  const elementIds = new Set() // id успешно собранных ячеек — для отсева висячих проводов
 
   // ─── Ячейки: <g> с data-tms-meta ───
   for (const g of doc.querySelectorAll(`g[${ATTR_META}]`)) {
@@ -92,6 +93,7 @@ export function parseSvgProject(svgText) {
       // в fromJSON. Применится автоматически как transform на outer-`<g>`.
       if (meta.angle) cellJson.angle = meta.angle
       cells.push(cellJson)
+      elementIds.add(meta.id)
     } catch (e) {
       errors.push(`Парсинг ячейки: ${e.message}`)
     }
@@ -103,6 +105,13 @@ export function parseSvgProject(svgText) {
       const meta = JSON.parse(p.getAttribute(ATTR_META))
       if (!meta.source?.id || !meta.target?.id) {
         errors.push('Провод без source/target — пропускаю')
+        continue
+      }
+      // Оба конца должны ссылаться на собранную ячейку. Иначе висячий линк, и
+      // graph.fromJSON бросит «invalid source/target cell» — а форма к этому моменту
+      // уже в IDB → restoreProject падал бы на КАЖДОЙ загрузке (проект залипал).
+      if (!elementIds.has(meta.source.id) || !elementIds.has(meta.target.id)) {
+        errors.push(`Провод ${meta.id}: конец ссылается на отсутствующую ячейку — пропускаю`)
         continue
       }
 

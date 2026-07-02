@@ -98,4 +98,77 @@ describe('useWorkspaceStore', () => {
     expect(ws.renameForm('a', 'a')).toBe(false) // совпадает
     expect(ws.formIds).toEqual(['a', 'b'])
   })
+
+  describe('moveNode (DnD дерева)', () => {
+    function setup(tree) {
+      const ws = useWorkspaceStore()
+      ws.loadForms(
+        ['a', 'b', 'c'].map((id) => ({ id, graphJson: { cells: [] } })),
+        'a'
+      )
+      ws.setFormTree(tree)
+      return ws
+    }
+
+    it('inside вкладывает узел в целевой', () => {
+      const ws = setup([
+        { id: 'a', children: [] },
+        { id: 'b', children: [] },
+      ])
+      expect(ws.moveNode('b', 'a', 'inside')).toBe(true)
+      expect(ws.formTree).toEqual([{ id: 'a', children: [{ id: 'b', children: [] }] }])
+    })
+
+    it('before/after переставляют сиблингов', () => {
+      const ws = setup([
+        { id: 'a', children: [] },
+        { id: 'b', children: [] },
+        { id: 'c', children: [] },
+      ])
+      expect(ws.moveNode('c', 'a', 'before')).toBe(true)
+      expect(ws.formTree.map((n) => n.id)).toEqual(['c', 'a', 'b'])
+    })
+
+    it('targetId=null → в конец корня (outdent)', () => {
+      const ws = setup([{ id: 'a', children: [{ id: 'b', children: [] }] }])
+      expect(ws.moveNode('b', null, 'inside')).toBe(true)
+      expect(ws.formTree).toEqual([
+        { id: 'a', children: [] },
+        { id: 'b', children: [] },
+      ])
+    })
+
+    it('узел едет вместе с поддеревом', () => {
+      const ws = setup([
+        { id: 'a', children: [{ id: 'a1', children: [] }] },
+        { id: 'b', children: [] },
+      ])
+      ws.moveNode('a', 'b', 'inside')
+      expect(ws.formTree).toEqual([
+        { id: 'b', children: [{ id: 'a', children: [{ id: 'a1', children: [] }] }] },
+      ])
+    })
+
+    it('reject: drop на себя и в собственное поддерево (цикл)', () => {
+      const before = [
+        { id: 'a', children: [{ id: 'a1', children: [] }] },
+        { id: 'b', children: [] },
+      ]
+      const ws = setup(before)
+      expect(ws.moveNode('a', 'a', 'inside')).toBe(false)
+      expect(ws.moveNode('a', 'a1', 'inside')).toBe(false) // в потомка
+      expect(ws.formTree).toEqual(before)
+    })
+
+    it('reject: target не найден', () => {
+      const ws = setup([{ id: 'a', children: [] }])
+      expect(ws.moveNode('a', 'ghost', 'inside')).toBe(false)
+    })
+
+    it('орфан (в formIds, но не в дереве) при drop добавляется узлом', () => {
+      const ws = setup([{ id: 'a', children: [] }]) // b, c — орфаны
+      expect(ws.moveNode('b', 'a', 'inside')).toBe(true)
+      expect(ws.formTree).toEqual([{ id: 'a', children: [{ id: 'b', children: [] }] }])
+    })
+  })
 })

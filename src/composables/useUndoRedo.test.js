@@ -21,6 +21,7 @@ const mockCanvas = makeMockCanvas({
   setUndoRedoAvail: vi.fn(),
   bumpVersion: vi.fn(),
   clearSelection: vi.fn(),
+  markDirty: vi.fn(),
 })
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
@@ -217,5 +218,56 @@ describe('useUndoRedo', () => {
     api.redo()
     // Никаких ошибок — просто no-op'ы
     expect(saveAutosave).not.toHaveBeenCalled()
+  })
+})
+
+// Дедуп: state-based mock (toJSON отражает управляемое состояние), чтобы два
+// снимка без изменения графа были ИДЕНТИЧНЫ — тот самый кейс клика-выделения.
+describe('useUndoRedo — дедуп идентичных снимков', () => {
+  let scope
+  let api
+  let saveAutosave
+  let state
+
+  const flush = () => vi.advanceTimersByTime(200)
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    saveAutosave = vi.fn()
+    state = { cells: [] }
+    mockCanvas.graphRef.value = {
+      toJSON: () => JSON.parse(JSON.stringify(state)),
+      fromJSON: (j) => (state = JSON.parse(JSON.stringify(j))),
+    }
+    mockCanvas.paperRef.value = { id: 'mock-paper' }
+    ;[api, scope] = withSetup(() => useUndoRedo({ restoringHistory: ref(false), saveAutosave }))
+    api.initHistory()
+  })
+
+  afterEach(() => {
+    scope?.stop()
+    vi.useRealTimers()
+  })
+
+  it('идентичный снимок не растит стек — ОДИН undo откатывает правку', () => {
+    state = { cells: [{ id: 'a' }] }
+    api.scheduleSnapshot()
+    flush() // реальная правка → [∅, A]
+    api.scheduleSnapshot()
+    flush() // граф не менялся (клик-выделение) → дедуп, не пушим
+    api.undo()
+    expect(state).toEqual({ cells: [] }) // одного undo хватило
+  })
+
+  it('no-op снимок после undo не срезает redo-«будущее»', () => {
+    state = { cells: [{ id: 'a' }] }
+    api.scheduleSnapshot()
+    flush() // [∅, A]
+    api.undo()
+    expect(state).toEqual({ cells: [] })
+    api.scheduleSnapshot()
+    flush() // состояние == вершина → дедуп, future цел
+    api.redo()
+    expect(state).toEqual({ cells: [{ id: 'a' }] })
   })
 })

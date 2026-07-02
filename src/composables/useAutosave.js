@@ -1,6 +1,6 @@
-import { onBeforeUnmount } from 'vue'
 import { reinjectAllStencils } from '../stencils/svgInjector'
 import { withRestoreGuard } from '../utils/restoreGuard'
+import { toPlain } from '../utils/plain'
 import { idbGet, idbSet, idbDel, idbKeys } from '../utils/idb'
 import { parseTagList } from '../services/parsers'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
@@ -17,14 +17,6 @@ const formKey = (id) => `project:form:${id}`
 // Дефолтная форма при пустом старте (проекта в IDB ещё нет).
 const DEFAULT_FORM_ID = 'main'
 
-// В IndexedDB кладём только plain-JSON. Reactive-прокси стора (formTree) и
-// случайные не-клонируемые поля (в т.ч. из импортных ячеек) иначе валят
-// structured-clone: put бросает DataCloneError, запись «молча» не проходит.
-const toPlain = (v) => JSON.parse(JSON.stringify(v))
-
-// Длительность «✓ Сохранено» flash-индикатора в статус-полосе.
-const FLASH_DURATION_MS = 1500
-
 /**
  * Персист проекта в IndexedDB. Формами/активной владеет useWorkspaceStore; здесь
  * — мост граф ↔ хранилище. Зависит от внешнего флага `restoringHistory` (общего
@@ -38,8 +30,6 @@ export function useAutosave({ restoringHistory }) {
   const canvas = useCanvas()
   const workspace = useWorkspaceStore()
   const project = useProjectStore()
-  // Таймер flash-индикатора «✓ Сохранено» в статус-полосе (1.5 сек после save).
-  let savedFlashTimer = null
 
   /**
    * Восстанавливает проект из IndexedDB и грузит активную форму в граф.
@@ -66,6 +56,7 @@ export function useAutosave({ restoringHistory }) {
       }
       workspace.loadForms(forms, meta.activeFormId)
       workspace.setFormTree(meta.hierarchy) // null у старых проектов → плоский
+      workspace.setProjectName(meta.projectName ?? null) // старые проекты → без имени
       // Мета протухла (activeFormId не из formIds) → loadForms скорректировал
       // активную на первую; перезапишем мету, чтобы IDB не расходился со стором.
       if (workspace.activeFormId !== meta.activeFormId) await persistMeta()
@@ -97,6 +88,7 @@ export function useAutosave({ restoringHistory }) {
         formIds: [...workspace.formIds],
         activeFormId: workspace.activeFormId,
         hierarchy: workspace.formTree, // дерево форм (иерархия) — переживает reload
+        projectName: workspace.projectName, // имя проекта — переживает reload
       })
     )
   }
@@ -109,17 +101,9 @@ export function useAutosave({ restoringHistory }) {
     const json = graph.toJSON()
     workspace.updateActiveGraph(json)
     const ok = await idbSet(formKey(id), json)
-    if (!ok) {
-      // Запись упала (квота / приватный режим) — не зажигаем «✓ Сохранено»,
-      // а помечаем ошибку: статус-полоса покажет «не сохранено».
-      canvas.setSaveError(true)
-      return
-    }
-    canvas.setSaveError(false)
-    canvas.setRecentlySaved(true)
-    canvas.setLastSavedAt(Date.now())
-    clearTimeout(savedFlashTimer)
-    savedFlashTimer = setTimeout(() => canvas.setRecentlySaved(false), FLASH_DURATION_MS)
+    // Запись упала (квота / приватный режим) → помечаем ошибку: статус-полоса
+    // покажет «не сохранено». Успех молча снимает ошибку (успех не индицируем).
+    canvas.setSaveError(!ok)
   }
 
   /** Очищает граф активной формы (для «очистить холст» — только активную). */
@@ -141,9 +125,10 @@ export function useAutosave({ restoringHistory }) {
    * @param {{ id: string, graphJson: object }[]} forms
    * @param {string|null} [tagsText] — сырой текст tag-list'а проекта
    * @param {Array|null} [hierarchy] — дерево форм из hierarchy.json (null → плоское)
+   * @param {string|null} [projectName] — имя проекта (из имени .zip)
    * @returns {Promise<boolean>}
    */
-  async function replaceProject(forms, tagsText, hierarchy = null) {
+  async function replaceProject(forms, tagsText, hierarchy = null, projectName = null) {
     // GC форм прежнего проекта: импорт заменяет проект целиком, а старые
     // project:form:<id> дальше не читаются (restore идёт по formIds меты) и копили
     // бы мёртвые blob'ы до квоты. Чистим ДО записи новых — освобождаем место.
@@ -155,6 +140,7 @@ export function useAutosave({ restoringHistory }) {
     for (const f of forms) ok = (await idbSet(formKey(f.id), toPlain(f.graphJson))) && ok
     workspace.loadForms(forms, forms[0]?.id ?? null)
     workspace.setFormTree(hierarchy)
+    workspace.setProjectName(projectName) // до persistMeta — уедет в мету
     ok = (await persistMeta()) && ok
     // Только если проект принёс теги. Иначе НЕ затираем project:tags в IDB
     // (импорт проекта без taglist'а не должен стирать уже загруженные теги).
@@ -180,8 +166,6 @@ export function useAutosave({ restoringHistory }) {
   function removeFormPersist(id) {
     return idbDel(formKey(id))
   }
-
-  onBeforeUnmount(() => clearTimeout(savedFlashTimer))
 
   return {
     restoreProject,

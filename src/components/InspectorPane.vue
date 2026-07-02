@@ -10,7 +10,6 @@ import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
-import { useUiStore } from '../stores/useUiStore'
 import { getStencilById, isSwitchStencil } from '../stencils/registry'
 import {
   injectStencilSvg,
@@ -22,6 +21,7 @@ import {
 } from '../stencils/svgInjector'
 import { nplural } from '../utils/plural'
 import { normalizeSwitchSources } from '../utils/switchSources'
+import { toPlain } from '../utils/plain'
 import { isBooleanType, isFloatType } from '../services/parsers'
 import TagPickerDialog from './TagPickerDialog.vue'
 import TagField from './TagField.vue'
@@ -60,7 +60,6 @@ function isLayoutOnly(stencilId) {
 const canvas = useCanvas()
 const project = useProjectStore()
 const workspace = useWorkspaceStore()
-const ui = useUiStore()
 const notify = useNotify()
 
 // Computed-и читают canvas.graphVersion, чтобы пересчитываться при изменениях графа
@@ -404,11 +403,13 @@ function forEachSelectedCell(fn) {
   canvas.requestSnapshot()
 }
 
-/** Раздать текущий шаблон диапазонов на всё выделение (клон на ячейку, без общих ссылок). */
+/** Раздать текущий шаблон диапазонов на всё выделение (клон на ячейку, без общих
+ *  ссылок). toPlain, не structuredClone: multiVoltage.value — Vue reactive-прокси,
+ *  structuredClone на нём бросает DataCloneError. */
 function applyMultiVoltage() {
   if (!multiVoltage.value) return
   forEachSelectedCell((cell, tms) =>
-    cell.set('tms', { ...tms, voltageSource: structuredClone(multiVoltage.value) })
+    cell.set('tms', { ...tms, voltageSource: toPlain(multiVoltage.value) })
   )
 }
 
@@ -823,18 +824,6 @@ const switchPickerTags = computed(() => {
             <p class="text-[11px] leading-relaxed max-w-[180px]">
               Кликни по ячейке или проводу на холсте — здесь появятся свойства
             </p>
-            <!-- CTA когда tag-list ещё не загружен — без него анимации стенсилов
- не работают, юзеру полезно увидеть кнопку сразу при пустом инспекторе. -->
-            <Button
-              v-if="!project.tags.length"
-              label="Загрузить tag-list…"
-              icon="pi pi-upload"
-              severity="secondary"
-              size="small"
-              outlined
-              class="mt-4"
-              @click="ui.requestTagListLoad"
-            />
           </div>
 
           <!-- Холостой инспектор не простаивает: сводка активной формы + базовые
@@ -953,16 +942,6 @@ const switchPickerTags = computed(() => {
                 :can-pick="!!project.tags.length"
                 @pick="openValueTagPicker"
               />
-              <Button
-                v-if="!project.tags.length"
-                label="Загрузить tag-list…"
-                icon="pi pi-upload"
-                severity="secondary"
-                size="small"
-                text
-                class="!p-1 mt-1 !text-[11px]"
-                @click="ui.requestTagListLoad"
-              />
               <div
                 v-if="details.valueTag && valueDisplay"
                 class="text-[11px] text-surface-500 mt-2 font-mono"
@@ -1056,16 +1035,6 @@ const switchPickerTags = computed(() => {
                   @remove="patchSlotTag(slot.key, '')"
                 />
               </div>
-              <Button
-                v-if="!project.tags.length"
-                label="Загрузить tag-list…"
-                icon="pi pi-upload"
-                severity="secondary"
-                size="small"
-                text
-                class="!p-1 !text-[11px]"
-                @click="ui.requestTagListLoad"
-              />
             </div>
           </template>
 

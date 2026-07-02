@@ -13,14 +13,6 @@ export const useUiStore = defineStore('ui', () => {
   // Видимость SearchBar (Ctrl+F). Состояние поиска (query, matches) — в useCanvas.
   const searchOpen = ref(false)
 
-  // Сигнал-счётчик «открой tag-list-picker» из не-header контекста (например,
-  // кнопка в инспекторе). TagListControl watch'ит счётчик и вызывает pickTagList.
-  // Счётчик, а не boolean — повторный запрос подряд тоже триггерит.
-  const tagListLoadRequest = ref(0)
-  function requestTagListLoad() {
-    tagListLoadRequest.value++
-  }
-
   function setLastTagListPickerStartIn(handle) {
     lastTagListPickerStartIn.value = handle
   }
@@ -54,7 +46,6 @@ export const useUiStore = defineStore('ui', () => {
     dragging,
     helpOpen,
     searchOpen,
-    tagListLoadRequest,
     setLastTagListPickerStartIn,
     startDragging,
     stopDragging,
@@ -62,6 +53,5 @@ export const useUiStore = defineStore('ui', () => {
     closeHelp,
     openSearch,
     closeSearch,
-    requestTagListLoad,
   }
 })
