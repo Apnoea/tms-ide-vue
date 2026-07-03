@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, ref } from 'vue'
-import { onClickOutside, useLocalStorage } from '@vueuse/core'
+import { useLocalStorage } from '@vueuse/core'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
@@ -10,16 +10,30 @@ import Accordion from 'primevue/accordion'
 import AccordionPanel from 'primevue/accordionpanel'
 import AccordionHeader from 'primevue/accordionheader'
 import AccordionContent from 'primevue/accordioncontent'
-import { getAllStencils, getCategories } from '../stencils/registry'
+import { useConfirm } from 'primevue/useconfirm'
+import {
+  getAllStencils,
+  getCategories,
+  registryVersion,
+  unregisterStencil,
+} from '../stencils/registry'
+import { deleteStencilFromDisk } from '../services/stencilLibrary'
+import { useNotify } from '../composables/useNotify'
+import { useCanvas } from '../composables/useCanvas'
 import { useUiStore } from '../stores/useUiStore'
+import { useWorkspaceStore } from '../stores/useWorkspaceStore'
+import { nplural } from '../utils/plural'
 
 const ui = useUiStore()
+const confirm = useConfirm()
+const notify = useNotify()
+const canvas = useCanvas()
+const workspace = useWorkspaceStore()
 
 const search = ref('')
 // Поиск свёрнут в кнопку-лупу; по клику разворачивается в поле ввода (collapsible).
 const searchOpen = ref(false)
 const searchInput = ref(null)
-const searchBox = ref(null)
 
 async function openSearch() {
   searchOpen.value = true
@@ -36,20 +50,19 @@ function clearQuery() {
   searchInput.value?.$el?.focus()
 }
 // Кнопка-лупа тогглит поиск: закрыта → открыть+фокус, открыта → закрыть (фильтр
-// снимается). Триггер — квадратная icon-кнопка, как в остальном UI.
+// снимается). Закрыть поле можно кнопкой-лупой или Esc в самом поле; клик-вне не
+// сворачивает (поле выехало отдельной строкой и не мешает работе).
 function toggleSearch() {
   if (searchOpen.value) closeSearch()
   else openSearch()
 }
-// Схлопываем только пустое поле — с текстом оставляем (фильтр активен).
-function collapseIfEmpty() {
-  if (!search.value.trim()) searchOpen.value = false
-}
-// Клик вне поиска (в т.ч. по холсту, где JointJS гасит blur через preventDefault) —
-// сворачиваем пустое поле: onClickOutside слушает document и ловит такой клик.
-onClickOutside(searchBox, collapseIfEmpty)
 
-const allCategories = computed(() => getCategories())
+// registryVersion читаем во всех computed'ах, зависящих от реестра — чтобы
+// список пересобрался сразу после создания/удаления стенсила (без reload).
+const allCategories = computed(() => {
+  void registryVersion.value
+  return getCategories()
+})
 
 function matchesSearch(stencil) {
   const q = search.value.trim().toLowerCase()
@@ -60,6 +73,7 @@ function matchesSearch(stencil) {
 // Внутри категории сортируем по label (то, что видит юзер в палитре),
 // ru-локаль для корректной А-Я сортировки.
 const stencilsByCategory = computed(() => {
+  void registryVersion.value
   const map = new Map()
   for (const cat of allCategories.value) map.set(cat, [])
   for (const stencil of getAllStencils()) {
@@ -124,42 +138,128 @@ function stencilTooltip(stencil) {
   const value = `<div class="tms-stencil-zoom">${stencil.svgText || ''}</div>`
   return { value, escape: false, showDelay: 400 }
 }
+
+// Где используется стенсил: живой граф активной формы (правки могли не уехать
+// в стор) + сохранённые графы остальных форм. → { count, formIds }.
+function stencilUsage(id) {
+  const activeId = workspace.activeFormId
+  const forms = []
+  let count = 0
+  const scan = (formId, graph) => {
+    const n = (graph?.cells || []).filter((c) => c?.tms?.stencilId === id).length
+    if (n) {
+      count += n
+      forms.push(formId)
+    }
+  }
+  const live = canvas.graphRef?.value
+  scan(activeId, live ? live.toJSON() : workspace.getFormGraph(activeId))
+  for (const fid of workspace.formIds) {
+    if (fid === activeId) continue
+    scan(fid, workspace.getFormGraph(fid))
+  }
+  return { count, formIds: forms }
+}
+
+// Удаление стенсила из палитры: если он где-то расставлен — отказываем (иначе
+// осиротим ячейки на схемах), сообщаем где. Иначе попап-подтверждение якорится
+// на кнопку, снимаем из рантайм-реестра (мгновенно пропадает) и сносим с диска.
+function confirmDeleteStencil(event, stencil) {
+  const usage = stencilUsage(stencil.id)
+  if (usage.count) {
+    notify.warn(
+      'Стенсил используется',
+      `${nplural(usage.count, 'ячейка', 'ячейки', 'ячеек')} в формах: ` +
+        `${usage.formIds.join(', ')}. Сначала удалите их со схем.`
+    )
+    return
+  }
+  confirm.require({
+    target: event.currentTarget,
+    message: `Удалить стенсил «${stencil.label}»?`,
+    icon: 'pi pi-exclamation-triangle',
+    acceptLabel: 'Удалить',
+    rejectLabel: 'Отмена',
+    acceptProps: { severity: 'danger', size: 'small' },
+    rejectProps: { severity: 'secondary', text: true, size: 'small' },
+    accept: () => removeStencil(stencil.id),
+  })
+}
+async function removeStencil(id) {
+  unregisterStencil(id)
+  const ok = await deleteStencilFromDisk(id)
+  if (ok) notify.success('Стенсил удалён', id)
+  else
+    notify.warn(
+      'Стенсил удалён',
+      'Файл на диске не удалён (dev-плагин недоступен) — после перезагрузки может вернуться'
+    )
+}
 </script>
 
 <template>
   <aside class="flex-1 min-h-0 flex flex-col bg-surface-50">
-    <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center gap-3">
-      <h2 class="shrink-0 text-sm font-semibold text-surface-900 uppercase tracking-wide">
-        Палитра
-      </h2>
-      <!-- Поиск: квадратная кнопка-лупа (как в тулбаре холста / дереве форм). По
-           клику разворачивается поле ввода; повторный клик / Esc / клик-вне (пустое)
-           сворачивают. Поле — без ведущей иконки (лупа живёт на кнопке-триггере). -->
-      <div ref="searchBox" class="flex flex-1 items-center justify-end gap-1">
-        <IconField v-if="searchOpen" class="w-full">
-          <InputText
-            ref="searchInput"
-            v-model="search"
+    <div>
+      <div
+        class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center justify-between gap-3"
+      >
+        <h2 class="shrink-0 text-sm font-semibold text-surface-900 uppercase tracking-wide">
+          Палитра
+        </h2>
+        <!-- Кнопки-действия. Поиск раскрывается отдельной строкой ниже (не в
+             шапке), поэтому кнопки не прячутся и не теснятся при росте их числа. -->
+        <div class="flex items-center gap-1">
+          <Button
+            v-tooltip.bottom="'Поиск стенсилов'"
+            icon="pi pi-search"
+            :severity="searchOpen ? 'primary' : 'secondary'"
+            :text="!searchOpen"
             size="small"
-            class="w-full !h-8"
-            placeholder="Поиск по названию или id..."
-            @keyup.esc="closeSearch"
+            class="tms-icon-btn shrink-0"
+            @click="toggleSearch"
           />
-          <InputIcon
-            v-if="search"
-            class="pi pi-times cursor-pointer hover:text-surface-700"
-            @click="clearQuery"
+          <Button
+            v-tooltip.bottom="'Создать стенсил'"
+            icon="pi pi-plus"
+            severity="secondary"
+            text
+            size="small"
+            class="tms-icon-btn shrink-0"
+            @click="ui.openStencilEditor()"
           />
-        </IconField>
-        <Button
-          v-tooltip.bottom="'Поиск стенсилов'"
-          icon="pi pi-search"
-          :severity="searchOpen ? 'primary' : 'secondary'"
-          :text="!searchOpen"
-          size="small"
-          class="tms-icon-btn shrink-0"
-          @click="toggleSearch"
-        />
+        </div>
+      </div>
+
+      <!-- Поле поиска «выезжает» между шапкой и списком (grid-rows 0fr↔1fr — тот же
+           приём, что сворачивание в дереве форм). Всегда смонтировано (focus по
+           openSearch работает); border-b — только раскрытым (в 0-высоте линия
+           клипуется, но условие убирает мигание в конце анимации). -->
+      <div
+        class="grid transition-[grid-template-rows] duration-200 ease-out"
+        :class="searchOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'"
+      >
+        <div class="overflow-hidden">
+          <div
+            class="px-3 py-2 bg-surface-0"
+            :class="{ 'border-b border-surface-200': searchOpen }"
+          >
+            <IconField class="w-full">
+              <InputText
+                ref="searchInput"
+                v-model="search"
+                size="small"
+                class="w-full !h-8"
+                placeholder="Поиск по названию или id..."
+                @keyup.esc="closeSearch"
+              />
+              <InputIcon
+                v-if="search"
+                class="pi pi-times cursor-pointer hover:text-surface-700"
+                @click="clearQuery"
+              />
+            </IconField>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -213,6 +313,22 @@ function stencilTooltip(stencil) {
                   {{ stencil.id }}
                 </div>
               </div>
+              <!-- Удаление — только у пользовательских стенсилов (userCreated);
+                   родные (из репозитория) удалить нельзя. Видно по ховеру строки.
+                   @pointerdown.stop глушит старт drag'а (строка тащится по
+                   pointerdown). Клик БЕЗ .stop: ConfirmPopup выравнивается по target
+                   только в своём document-click листенере — с .stop клик не всплыл бы
+                   и попап упал бы в (0,0). Drag уже погашен на pointerdown, click безопасен. -->
+              <button
+                v-if="stencil.userCreated"
+                type="button"
+                v-tooltip.bottom="'Удалить стенсил'"
+                class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-red-600 group-hover:opacity-100"
+                @pointerdown.stop
+                @click="confirmDeleteStencil($event, stencil)"
+              >
+                <i class="pi pi-trash !text-sm" />
+              </button>
             </div>
           </AccordionContent>
         </AccordionPanel>

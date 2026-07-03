@@ -66,6 +66,11 @@ export function useHotkeys({
   const ui = useUiStore()
 
   function onKeyDown(event) {
+    // Открыт редактор стенсилов (оверлей поверх холста) — все хоткеи холста
+    // молчат: холст под оверлеем не виден, а undo/delete/paste писали бы в
+    // невидимый граф. У редактора своя обработка клавиш.
+    if (ui.stencilEditorOpen) return
+
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
     const cmd = event.ctrlKey || event.metaKey

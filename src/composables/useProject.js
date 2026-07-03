@@ -10,6 +10,7 @@ import {
   readProjectZipFile,
   collectUsedStencilIds,
 } from '../services/projectZip'
+import { persistStencilsToDisk } from '../services/stencilLibrary'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { nplural } from '../utils/plural'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
@@ -300,17 +301,7 @@ export function useProject({
     // Новые стенсилы пишем в definitions/ (dev-плагин) — reload сделает рантайм-
     // регистрацию персистентной. Уже имеющиеся в POST не попадают (отфильтрованы выше).
     if (newStencils.length) {
-      let written = false
-      try {
-        const res = await fetch('/__stencils/import', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(newStencils),
-        })
-        written = res.ok
-      } catch {
-        written = false
-      }
+      const written = await persistStencilsToDisk(newStencils)
       if (written) {
         // Файлы записаны в definitions/ — на диске для будущих сессий (glob их
         // подхватит). Vite обычно делает full-reload (restoreProject поднимет всё

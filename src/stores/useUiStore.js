@@ -13,6 +13,10 @@ export const useUiStore = defineStore('ui', () => {
   // Видимость SearchBar (Ctrl+F). Состояние поиска (query, matches) — в useCanvas.
   const searchOpen = ref(false)
 
+  // Открыт ли редактор стенсилов (оверлей поверх холста). Пока открыт — глобальные
+  // хоткеи холста гейтятся (см. useHotkeys), у редактора своя обработка клавиш.
+  const stencilEditorOpen = ref(false)
+
   function setLastTagListPickerStartIn(handle) {
     lastTagListPickerStartIn.value = handle
   }
@@ -41,11 +45,20 @@ export const useUiStore = defineStore('ui', () => {
     searchOpen.value = false
   }
 
+  function openStencilEditor() {
+    stencilEditorOpen.value = true
+  }
+
+  function closeStencilEditor() {
+    stencilEditorOpen.value = false
+  }
+
   return {
     lastTagListPickerStartIn,
     dragging,
     helpOpen,
     searchOpen,
+    stencilEditorOpen,
     setLastTagListPickerStartIn,
     startDragging,
     stopDragging,
@@ -53,5 +66,7 @@ export const useUiStore = defineStore('ui', () => {
     closeHelp,
     openSearch,
     closeSearch,
+    openStencilEditor,
+    closeStencilEditor,
   }
 })

@@ -12,6 +12,7 @@ Web IDE на Vue 3 для сборки SVG-мнемосхем SCADA и эксп�
 - **Tailwind CSS 3** — layout / utility
 - **@joint/core 4** (JointJS) — SVG-редактор
 - **fflate** — ZIP-экспорт/импорт проекта архивом
+- **interactjs** — drag/resize/снап примитивов в редакторе стенсилов
 - **Vitest 3 + jsdom** — unit-тесты
 
 ## Запуск
@@ -33,7 +34,8 @@ src/
 ├── components/
 │   ├── StatusBar.vue          # статус выгрузки в .zip + справка F1 (верх справа)
 │   ├── FormTree.vue           # дерево форм (навигатор, слева над палитрой)
-│   ├── PalettePane.vue        # палитра стенсилов (слева)
+│   ├── PalettePane.vue        # палитра стенсилов (слева) + создание/удаление стенсилов
+│   ├── StencilEditor.vue      # редактор стенсилов (оверлей поверх холста)
 │   ├── CanvasPane.vue         # JointJS-холст (центр)
 │   ├── InspectorPane.vue      # инспектор (справа)
 │   ├── ProjectActions.vue     # открыть (.zip) + экспорт (.zip), топ-бар
@@ -57,6 +59,7 @@ src/
 │   ├── useBusResize.js        # drag-resize шины
 │   ├── useWireSplice.js       # врезка стенсила в провод + превью над проводом
 │   ├── useProject.js          # оркестрация: переключение / CRUD форм / импорт / экспорт
+│   ├── useStencilEditor.js    # модель редактора стенсилов (фигуры / порты / снап)
 │   ├── usePan.js / useLasso.js # pan холста / рамочное выделение (Alt+ЛКМ)
 │   ├── usePaletteDrag.js      # drag стенсила из палитры (превью + создание + врезка)
 │   ├── useContextMenu.js      # контекстное меню холста
@@ -64,7 +67,7 @@ src/
 │   ├── useSlotWarnings.js     # бейджи незаполненных required-слотов
 │   └── useSelectionOverlay.js # overlay-кнопки выделенной ячейки (rotate/delete)
 ├── stores/
-│   ├── useUiStore.js          # dragging, helpOpen, searchOpen
+│   ├── useUiStore.js          # dragging, helpOpen, searchOpen, stencilEditorOpen
 │   ├── useProjectStore.js     # tag-list + handle
 │   └── useWorkspaceStore.js   # формы проекта + активная + дерево форм + имя проекта
 ├── stencils/
@@ -78,6 +81,7 @@ src/
 │   ├── exporter.js            # view.svg + animations.json (пер-форма)
 │   ├── projectLoader.js       # round-trip load (parseSvgProject)
 │   ├── projectZip.js          # проект ↔ .zip (fflate): импорт/экспорт + collectUsedStencilIds
+│   ├── stencilLibrary.js      # persist/delete стенсила на диск (dev-эндпоинты /__stencils/*)
 │   ├── fileSystem.js          # File System Access API
 │   └── parsers.js             # tag-list парсер
 ├── constants/
@@ -85,6 +89,8 @@ src/
 │   └── ids.js                 # wire-protocol: prefixes / data-attrs / slot resolver
 └── utils/
     ├── cellSearch.js          # getCellTags(FromTms) + match для Ctrl+F
+    ├── plain.js               # toPlain: JSON-клон без reactive-прокси (structuredClone на прокси падает)
+    ├── stencilSvg.js          # редактор стенсилов: serializeSvg + buildStencilJson + cropToContent + валидация
     ├── plural.js              # русские падежи
     ├── bridgeLinks.js         # bridge-link при copy/paste
     ├── grid.js                # snapToGrid
@@ -161,6 +167,26 @@ Canvas читают флаги, никаких хардкод-списков в 
 | cell_bus   | Шины             | Шина (resizable, динамические порты)    |
 
 `cell_bus`, `cell_text`, `cell_value` рендерятся программно (без `shape.svg`).
+
+### Редактор стенсилов (создание в IDE)
+
+Кнопка «+» в шапке палитры открывает редактор-оверлей поверх холста (v1 — статика,
+без анимаций); пока он открыт, боковые панели `inert` (без кликов/фокуса).
+Рисование примитивов (line / rect / circle / polyline) + расстановка портов, всё
+со снапом к сетке (вершины фигур — шаг 5, порты и размер — шаг 10); правка /
+перемещение / ресайз — через interactjs (колбэки пишут в модель, Vue
+перерисовывает). Undo/redo (Ctrl+Z / Ctrl+Y) — в пределах редактора. На сохранении
+контент обрезается до bbox (кратно 10) и сдвигается в (0,0) — «воздух» холста
+отбрасывается. Метаданные (id `[a-z0-9_]`, label, категория) валидируются; стенсил
+регистрируется в реестре сразу (появляется в палитре) и пишется в
+`definitions/<id>/` dev-плагином.
+
+Удаление — кнопка-корзина в строке стенсила (видна по ховеру, **только у созданных
+в IDE** стенсилов — метка `userCreated`; родные из репозитория удалить нельзя) с
+ConfirmPopup: снимает из реестра + сносит папку. Если стенсил расставлен в формах,
+удаление отклоняется (не осиротить ячейки), с указанием где. Персист на диск
+работает только в dev (dev-плагин); в проде созданный стенсил живёт сессию и уезжает
+в `library/` проекта при экспорте.
 
 ## Инспектор
 
@@ -332,7 +358,10 @@ IDE работает с **проектом** — набором форм (схе
   снимается с реально отрисованного paper (формы прогоняются через холст под
   оверлеем).
 - **Стенсилы — физические файлы** в `src/stencils/definitions/` (Vite-glob).
-  Персистентный реестр — статичный glob; при импорте новые стенсилы пишет
-  dev-плагин (`vite.config.js`, `POST /__stencils/import`) — браузер сам в
-  исходники писать не может, а `registerStencil` лишь транзитно держит их в
-  реестре до reload. Существующие стенсилы не перезаписываются (нет git-шума).
+  Персистентный реестр — статичный glob; браузер сам в исходники писать не может,
+  поэтому запись/удаление идут через dev-плагин (`vite.config.js`): импорт проекта
+  и редактор стенсилов шлют `POST /__stencils/import`, удаление из палитры —
+  `POST /__stencils/delete`. `registerStencil` / `unregisterStencil` держат реестр
+  в актуальном виде до reload (реактивно через `registryVersion` — палитра
+  обновляется без перезагрузки). Существующие стенсилы при импорте не
+  перезаписываются (нет git-шума).

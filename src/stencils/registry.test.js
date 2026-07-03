@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { validateStencilJson, registerStencil, getStencilById } from './registry'
+import {
+  validateStencilJson,
+  registerStencil,
+  unregisterStencil,
+  getStencilById,
+  registryVersion,
+} from './registry'
 
 // Минимальный валидный stencil — все required-поля. Используем как baseline,
 // в каждом тесте только модифицируем нужное (валидный + 1 issue = чёткое
@@ -151,5 +157,28 @@ describe('registerStencil', () => {
   it('без id ничего не регистрирует (no-op)', () => {
     registerStencil({ label: 'нет id' }, '<g/>')
     expect(getStencilById(undefined)).toBeUndefined()
+  })
+
+  it('бампает registryVersion', () => {
+    const before = registryVersion.value
+    registerStencil({ id: 'cell_ver_test', label: 'V', category: 'Т', width: 20, height: 20 }, '')
+    expect(registryVersion.value).toBe(before + 1)
+  })
+})
+
+describe('unregisterStencil', () => {
+  it('удаляет стенсил из реестра и бампает версию', () => {
+    const id = 'cell_unreg_test'
+    registerStencil({ id, label: 'U', category: 'Т', width: 20, height: 20 }, '<g/>')
+    const before = registryVersion.value
+    unregisterStencil(id)
+    expect(getStencilById(id)).toBeUndefined()
+    expect(registryVersion.value).toBe(before + 1)
+  })
+
+  it('удаление несуществующего id — версию не трогает (no-op)', () => {
+    const before = registryVersion.value
+    unregisterStencil('cell_does_not_exist_xyz')
+    expect(registryVersion.value).toBe(before)
   })
 })

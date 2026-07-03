@@ -19,6 +19,7 @@
     "@primeuix/themes": "^2.0.3",
     "@vueuse/core": "^14.3.0",
     "fflate": "^0.8.3",
+    "interactjs": "^1.10.27",
     "pinia": "^3.0.4",
     "primeicons": "^7.0.0",
     "primevue": "^4.2.5",

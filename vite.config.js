@@ -62,6 +62,28 @@ function stencilWritePlugin() {
           res.end(JSON.stringify({ ok: false, error: String(e?.message || e) }))
         }
       })
+
+      // Удаление стенсила из палитры: сносим папку definitions/<id>/. id — тот
+      // же slug-guard + жёсткое ограничение путём внутри defsDir (анти-traversal).
+      server.middlewares.use('/__stencils/delete', async (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        try {
+          const body = await readJsonBody(req)
+          const id = body?.id || ''
+          const dir = path.resolve(defsDir, id)
+          if (!STENCIL_ID_RE.test(id) || dir !== path.join(defsDir, id)) {
+            res.statusCode = 400
+            res.end(JSON.stringify({ ok: false, error: 'bad id' }))
+            return
+          }
+          await fs.rm(dir, { recursive: true, force: true })
+          res.setHeader('content-type', 'application/json')
+          res.end(JSON.stringify({ ok: true }))
+        } catch (e) {
+          res.statusCode = 400
+          res.end(JSON.stringify({ ok: false, error: String(e?.message || e) }))
+        }
+      })
     },
   }
 }

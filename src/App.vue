@@ -9,6 +9,7 @@ import TagListControl from './components/TagListControl.vue'
 import FormTree from './components/FormTree.vue'
 import PalettePane from './components/PalettePane.vue'
 import CanvasPane from './components/CanvasPane.vue'
+import StencilEditor from './components/StencilEditor.vue'
 import InspectorPane from './components/InspectorPane.vue'
 import HelpDialog from './components/HelpDialog.vue'
 
@@ -63,15 +64,30 @@ useEventListener(window, 'keydown', (event) => {
 
     <!-- Карточки: левая 380px (дерево форм + палитра стеком) / инспектор 420px,
          холст — остальное. Без ресайза. Отделяет от общего surface-100 тень. -->
+    <!-- Пока открыт редактор стенсилов — боковые панели гейтим (inert: без кликов
+         и фокуса), чтобы drag из палитры / переключение формы / правки инспектора
+         не уходили в скрытый под оверлеем холст. Оверлей физически накрывает только
+         холст; панели остаются на месте, лишь притушены и неактивны. -->
     <div class="flex-1 min-h-0 flex gap-2 px-2 pb-2">
-      <div class="w-[380px] shrink-0 rounded-lg overflow-hidden shadow-md flex flex-col">
+      <div
+        class="w-[380px] shrink-0 rounded-lg overflow-hidden shadow-md flex flex-col transition-opacity"
+        :class="{ 'pointer-events-none opacity-60': ui.stencilEditorOpen }"
+        :inert="ui.stencilEditorOpen"
+      >
         <FormTree />
         <PalettePane />
       </div>
-      <div class="flex-1 min-w-0 rounded-lg overflow-hidden shadow-md">
+      <!-- Редактор стенсилов — оверлей поверх холста (relative-контейнер). CanvasPane
+           остаётся смонтированным под ним: paper/graph не пересоздаются. -->
+      <div class="flex-1 min-w-0 rounded-lg overflow-hidden shadow-md relative">
         <CanvasPane />
+        <StencilEditor v-if="ui.stencilEditorOpen" class="absolute inset-0 z-20" />
       </div>
-      <div class="w-[420px] shrink-0 rounded-lg overflow-hidden shadow-md">
+      <div
+        class="w-[420px] shrink-0 rounded-lg overflow-hidden shadow-md transition-opacity"
+        :class="{ 'pointer-events-none opacity-60': ui.stencilEditorOpen }"
+        :inert="ui.stencilEditorOpen"
+      >
         <InspectorPane />
       </div>
     </div>

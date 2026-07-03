@@ -15,7 +15,13 @@
  *   getCategories()          — список уникальных категорий
  */
 
+import { ref } from 'vue'
 import { ATTR_SUFFIX } from '../constants/ids'
+
+// Реактивный счётчик ревизий реестра. Бампается при рантайм-регистрации/удалении
+// стенсила; потребители (палитра) читают его в computed'ах, чтобы список
+// пересобирался сразу, без перезагрузки страницы. Сам Map не реактивен.
+export const registryVersion = ref(0)
 
 const jsonModules = import.meta.glob('./definitions/*/stencil.json', {
   eager: true,
@@ -73,6 +79,7 @@ export function validateStencilJson(path, json, svgText) {
     'layoutOnly',
     'noRotate',
     'defaults',
+    'userCreated',
   ])
   for (const key of Object.keys(json)) {
     if (!known.has(key)) {
@@ -170,6 +177,15 @@ export function getStencilById(id) {
 export function registerStencil(json, svgText) {
   if (!json?.id) return
   registry.set(json.id, { ...json, svgText: svgText || '' })
+  registryVersion.value++
+}
+
+/**
+ * Удаляет стенсил из рантайм-реестра. Персистентно — только вместе с удалением
+ * файлов definitions/<id>/ (dev-плагин), иначе glob вернёт его на reload.
+ */
+export function unregisterStencil(id) {
+  if (registry.delete(id)) registryVersion.value++
 }
 
 // Категория «Текст и значения» закреплена ПЕРВОЙ независимо от алфавита: это
