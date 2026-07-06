@@ -5,8 +5,10 @@
  * снапом к сетке (вершины фигур → шаг 5, порты/размер → шаг 10). Модель, операции
  * и undo/redo — в useStencilEditor; здесь DOM: SVG-холст, рисование жестами и
  * привязка перемещения/ресайза через interact.js (колбэки обновляют модель, Vue
- * перерисовывает — interact не мутирует DOM в обход Vue). Сохранение валидирует
- * черновик, регистрирует стенсил в реестре и пишет на диск (dev-плагин).
+ * перерисовывает — interact не мутирует DOM в обход Vue). Открывается на создание
+ * (пустой черновик) либо правку существующего userCreated-стенсила (loadStencil по
+ * ui.stencilEditorTargetId). Сохранение валидирует черновик, регистрирует стенсил
+ * в реестре и пишет на диск (dev-плагин).
  */
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useElementSize, useEventListener } from '@vueuse/core'
@@ -18,15 +20,23 @@ import Select from 'primevue/select'
 import { useConfirm } from 'primevue/useconfirm'
 import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from '../composables/useNotify'
+import { useCanvas } from '../composables/useCanvas'
 import { snapToGrid } from '../utils/grid'
 import { stencilDraftIssues } from '../utils/stencilSvg'
-import { getAllStencils, getCategories, registerStencil } from '../stencils/registry'
+import {
+  getAllStencils,
+  getStencilById,
+  getCategories,
+  registerStencil,
+} from '../stencils/registry'
+import { reinjectAllStencils } from '../stencils/svgInjector'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
 import { useStencilEditor, SHAPE_GRID } from '../composables/useStencilEditor'
 
 const ui = useUiStore()
 const notify = useNotify()
 const confirm = useConfirm()
+const canvas = useCanvas()
 const ed = useStencilEditor()
 const {
   meta,
@@ -34,11 +44,13 @@ const {
   ports,
   tool,
   selectedId,
+  editingId,
   canUndo,
   canRedo,
   snapShapeX,
   snapShapeY,
   setTool,
+  loadStencil,
   select,
   addShape,
   updateShape,
@@ -62,10 +74,14 @@ const DRAW_TOOLS = [
   { key: 'port', icon: 'pi pi-map-marker', tip: 'Порт (клик по порту — удалить)' },
 ]
 
-// Категории для комбо (существующие + можно вписать новую) и id-префилл: все
-// стенсилы в проекте по конвенции cell_*, поэтому подставляем префикс.
 const categories = computed(() => getCategories())
-if (!meta.id) meta.id = 'cell_'
+
+// Режим определяется таргетом из store: задан id → правка (грузим стенсил в
+// модель, id блокируется), иначе создание нового (префилл `cell_` в поле id).
+// Правим только userCreated — их SVG в нашем формате, парсится обратно однозначно.
+const editTarget = ui.stencilEditorTargetId ? getStencilById(ui.stencilEditorTargetId) : null
+if (editTarget) loadStencil(editTarget)
+else if (!meta.id) meta.id = 'cell_'
 
 // Есть ли что терять при закрытии (нарисованные фигуры/порты). Метаданные без
 // фигур за «работу» не считаем — закрытие пустого редактора не переспрашиваем.
@@ -91,27 +107,50 @@ function requestClose(event) {
   })
 }
 
-// Сохранение: валидация → мгновенная регистрация в реестре (появится в палитре)
-// → персист на диск (в проде плагина нет → стенсил уедет в library/ проекта).
+// Сохранение: валидация → регистрация в реестре (появится в палитре) → персист
+// на диск (в проде плагина нет → стенсил уедет в library/ проекта). В режиме
+// правки id исключаем из проверки уникальности (он и есть редактируемый) и после
+// сохранения переинжектим активную форму — расставленные экземпляры подхватят
+// новый рисунок; при смене размера/портов предупреждаем (их геометрия не тронута).
 async function save() {
-  const issues = stencilDraftIssues(
-    meta,
-    shapes.value,
-    getAllStencils().map((s) => s.id)
-  )
+  const editing = editingId.value
+  const existingIds = getAllStencils()
+    .map((s) => s.id)
+    .filter((id) => id !== editing)
+  const issues = stencilDraftIssues(meta, shapes.value, existingIds)
   if (issues.length) {
     notify.warn('Проверьте стенсил', issues.join('; '))
     return
   }
+  const prev = editing ? getStencilById(editing) : null
   const { json, svg } = ed.output()
   registerStencil(json, svg)
   const ok = await persistStencilsToDisk([{ id: json.id, stencilJson: json, shapeSvg: svg }])
-  if (ok) notify.success('Стенсил создан', json.id)
-  else
+
+  if (editing) {
+    reinjectAllStencils(canvas.graphRef.value, canvas.paperRef.value)
+    canvas.bumpVersion()
+    const geomChanged =
+      prev &&
+      (prev.width !== json.width ||
+        prev.height !== json.height ||
+        JSON.stringify(prev.ports || []) !== JSON.stringify(json.ports || []))
+    if (geomChanged) {
+      notify.warn(
+        'Стенсил обновлён',
+        'Размер/порты у уже расставленных экземпляров не меняются — переставьте при необходимости'
+      )
+    } else {
+      notify.success('Стенсил обновлён', json.id)
+    }
+  } else if (ok) {
+    notify.success('Стенсил создан', json.id)
+  } else {
     notify.warn(
       'Стенсил создан',
       'Запись на диск недоступна — переживёт сессию и уедет в архив проекта'
     )
+  }
   ui.closeStencilEditor()
 }
 
@@ -123,6 +162,15 @@ watch(
     meta.height = Math.max(10, snapToGrid(meta.height, 10))
   }
 )
+
+// id = имя папки definitions/<id>/ → маска `[a-z0-9_]`. Фильтруем прямо в DOM
+// (не через watch/computed: там значение уходит в кириллицу и обратно за один
+// тик, Vue не видит изменения modelValue и не перезатирает введённый символ).
+function onIdInput(e) {
+  const clean = (e.target.value || '').toLowerCase().replace(/[^a-z0-9_]/g, '')
+  if (e.target.value !== clean) e.target.value = clean
+  meta.id = clean
+}
 
 // ─── Масштаб холста ───
 // Вписываем bbox стенсила в доступную область с запасом; клампим, чтобы мелкие
@@ -436,7 +484,7 @@ onBeforeUnmount(() => {
     <!-- Тулбар -->
     <div class="flex min-h-14 items-center gap-2 border-b border-surface-200 px-3">
       <h2 class="mr-2 text-sm font-semibold uppercase tracking-wide text-surface-900">
-        Новый стенсил
+        {{ editingId ? 'Правка стенсила' : 'Новый стенсил' }}
       </h2>
       <div class="flex items-center gap-1">
         <Button
@@ -545,7 +593,16 @@ onBeforeUnmount(() => {
       </label>
       <label class="flex items-center gap-1.5 text-xs text-surface-500">
         id
-        <InputText v-model="meta.id" size="small" class="!h-8 !w-40 font-mono !text-xs" />
+        <!-- id = имя папки definitions/<id>/; в режиме правки заблокирован.
+             :model-value (не v-model) + @input: фильтрацию делает onIdInput,
+             лишний update:modelValue не слушаем — иначе гонка с DOM-правкой. -->
+        <InputText
+          :model-value="meta.id"
+          :disabled="!!editingId"
+          size="small"
+          class="!h-8 !w-40 font-mono !text-xs"
+          @input="onIdInput"
+        />
       </label>
       <label class="flex items-center gap-1.5 text-xs text-surface-500">
         Категория

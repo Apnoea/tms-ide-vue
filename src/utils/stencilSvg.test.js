@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { serializeSvg, buildStencilJson, stencilDraftIssues, cropToContent } from './stencilSvg'
+import {
+  serializeSvg,
+  buildStencilJson,
+  stencilDraftIssues,
+  cropToContent,
+  parseStencilSvg,
+} from './stencilSvg'
 
 describe('serializeSvg', () => {
   it('оборачивает фигуры в svg с viewBox из meta', () => {
@@ -190,5 +196,50 @@ describe('cropToContent', () => {
 
   it('пустой ввод → нулевой размер', () => {
     expect(cropToContent([], [])).toMatchObject({ width: 0, height: 0 })
+  })
+})
+
+describe('parseStencilSvg (инверсия serializeSvg)', () => {
+  it('round-trip: serialize → parse возвращает те же фигуры', () => {
+    const shapes = [
+      { type: 'rect', x: 0, y: 0, w: 20, h: 20, stroke: '#000', strokeWidth: 2, fill: 'none' },
+      { type: 'line', x1: 5, y1: 10, x2: 15, y2: 10, stroke: '#000', strokeWidth: 2 },
+      { type: 'circle', cx: 10, cy: 10, r: 8, stroke: '#000', strokeWidth: 2, fill: 'none' },
+      {
+        type: 'polyline',
+        points: [
+          [0, 0],
+          [10, 10],
+          [20, 0],
+        ],
+        stroke: '#000',
+        strokeWidth: 2,
+        fill: 'none',
+      },
+    ]
+    const svg = serializeSvg(shapes, { width: 20, height: 20 })
+    expect(parseStencilSvg(svg)).toEqual(shapes)
+  })
+
+  it('читает нестандартные stroke/fill/width', () => {
+    const svg = serializeSvg(
+      [{ type: 'rect', x: 0, y: 0, w: 10, h: 10, stroke: '#f00', strokeWidth: 4, fill: '#eee' }],
+      { width: 10, height: 10 }
+    )
+    expect(parseStencilSvg(svg)[0]).toMatchObject({ stroke: '#f00', strokeWidth: 4, fill: '#eee' })
+  })
+
+  it('пустой/битый ввод → []', () => {
+    expect(parseStencilSvg('')).toEqual([])
+    expect(parseStencilSvg(null)).toEqual([])
+  })
+
+  it('игнорирует незнакомые элементы (group/path)', () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">' +
+      '<g><path d="M0 0"/></g><rect x="0" y="0" width="10" height="10"/></svg>'
+    const shapes = parseStencilSvg(svg)
+    expect(shapes).toHaveLength(1)
+    expect(shapes[0].type).toBe('rect')
   })
 })

@@ -313,6 +313,18 @@ async function removeStencil(id) {
                   {{ stencil.id }}
                 </div>
               </div>
+              <!-- Правка — только у пользовательских стенсилов (userCreated): их
+                   SVG в нашем формате, парсится обратно. Открывает редактор с id. -->
+              <button
+                v-if="stencil.userCreated"
+                type="button"
+                v-tooltip.bottom="'Редактировать стенсил'"
+                class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
+                @pointerdown.stop
+                @click="ui.openStencilEditor(stencil.id)"
+              >
+                <i class="pi pi-pencil !text-sm" />
+              </button>
               <!-- Удаление — только у пользовательских стенсилов (userCreated);
                    родные (из репозитория) удалить нельзя. Видно по ховеру строки.
                    @pointerdown.stop глушит старт drag'а (строка тащится по

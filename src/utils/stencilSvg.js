@@ -132,6 +132,64 @@ export function serializeSvg(shapes, meta) {
   )
 }
 
+// Атрибуты обводки/заливки фигуры из SVG-элемента (инверсия strokeAttrs/fillAttr).
+function readStroke(el) {
+  return {
+    stroke: el.getAttribute('stroke') || '#000',
+    strokeWidth: Number.parseFloat(el.getAttribute('stroke-width')) || 2,
+  }
+}
+
+function elementToShape(el) {
+  const n = (a) => Number.parseFloat(el.getAttribute(a))
+  const fill = el.getAttribute('fill') || 'none'
+  switch (el.tagName.toLowerCase()) {
+    case 'rect':
+      return {
+        type: 'rect',
+        x: n('x'),
+        y: n('y'),
+        w: n('width'),
+        h: n('height'),
+        fill,
+        ...readStroke(el),
+      }
+    case 'line':
+      return { type: 'line', x1: n('x1'), y1: n('y1'), x2: n('x2'), y2: n('y2'), ...readStroke(el) }
+    case 'circle':
+      return { type: 'circle', cx: n('cx'), cy: n('cy'), r: n('r'), fill, ...readStroke(el) }
+    case 'polyline': {
+      const points = (el.getAttribute('points') || '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((p) => p.split(',').map(Number))
+      return { type: 'polyline', points, fill, ...readStroke(el) }
+    }
+    default:
+      return null
+  }
+}
+
+/**
+ * Обратный парсинг shape.svg → массив примитивов модели (инверсия serializeSvg).
+ * Рассчитан ТОЛЬКО на свой формат (плоский список rect/line/circle/polyline
+ * прямыми детьми <svg>) — им пользуется редактор для правки userCreated-стенсилов.
+ * Рукописные/родные SVG (группы, transform, path, data-anim-suffix) сюда не
+ * подходят и не редактируются. Незнакомые элементы молча пропускаются.
+ */
+export function parseStencilSvg(svgText) {
+  if (!svgText) return []
+  const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml')
+  if (doc.getElementsByTagName('parsererror').length > 0) return []
+  const out = []
+  for (const el of Array.from(doc.documentElement.children)) {
+    const shape = elementToShape(el)
+    if (shape) out.push(shape)
+  }
+  return out
+}
+
 // id стенсила = имя папки в definitions/, поэтому та же маска, что у dev-плагина
 // (анти-traversal): только латиница в нижнем регистре, цифры и подчёркивание.
 const STENCIL_ID_RE = /^[a-z0-9_]+$/

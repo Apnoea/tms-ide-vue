@@ -12,7 +12,7 @@
  */
 import { computed, reactive, ref } from 'vue'
 import { snapToGrid } from '../utils/grid'
-import { serializeSvg, buildStencilJson, cropToContent } from '../utils/stencilSvg'
+import { serializeSvg, buildStencilJson, cropToContent, parseStencilSvg } from '../utils/stencilSvg'
 
 export const SHAPE_GRID = 5
 export const PORT_GRID = 10
@@ -28,6 +28,9 @@ export function useStencilEditor() {
   const ports = ref([])
   const tool = ref('select') // 'select' | 'rect' | 'line' | 'circle' | 'polyline' | 'port'
   const selectedId = ref(null)
+  // id редактируемого стенсила (null = создание нового). В режиме правки id
+  // заблокирован (= имя папки), проверка уникальности его исключает.
+  const editingId = ref(null)
 
   // ─── Undo/redo ───
   // Стек полных снимков {shapes, ports} (meta/размер в историю не входит —
@@ -128,6 +131,26 @@ export function useStencilEditor() {
     commit()
   }
 
+  // Загрузка существующего стенсила на правку (только userCreated — их SVG в
+  // нашем формате, парсится обратно однозначно). История сбрасывается: загруженное
+  // состояние = базовая точка (первый undo вернёт к нему, не к пустому холсту).
+  function loadStencil(def) {
+    editingId.value = def.id
+    meta.id = def.id
+    meta.label = def.label || ''
+    meta.category = def.category || ''
+    meta.width = def.width || 40
+    meta.height = def.height || 40
+    // Присваиваем внутренние id — без них не работают выделение/ручки/удаление.
+    shapes.value = parseStencilSvg(def.svgText).map((s) => ({ id: nextId(), ...s }))
+    ports.value = (def.ports || []).map((p) => ({ id: nextId(), name: p.name, x: p.x, y: p.y }))
+    selectedId.value = null
+    tool.value = 'select'
+    history.value = []
+    histIndex.value = -1
+    commit()
+  }
+
   // Черновик → артефакты формата проекта. Перед сериализацией обрезаем пустые
   // поля (bbox контента, кратно PORT_GRID) и сдвигаем в (0,0): итоговый стенсил =
   // ровно нарисованное, без «воздуха» от размера холста. Внутренние id отбрасываются.
@@ -149,11 +172,13 @@ export function useStencilEditor() {
     ports,
     tool,
     selectedId,
+    editingId,
     canUndo,
     canRedo,
     snapShapeX,
     snapShapeY,
     setTool,
+    loadStencil,
     select,
     addShape,
     updateShape,

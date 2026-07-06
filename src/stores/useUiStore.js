@@ -16,6 +16,9 @@ export const useUiStore = defineStore('ui', () => {
   // Открыт ли редактор стенсилов (оверлей поверх холста). Пока открыт — глобальные
   // хоткеи холста гейтятся (см. useHotkeys), у редактора своя обработка клавиш.
   const stencilEditorOpen = ref(false)
+  // id стенсила, открытого на правку (null = создание нового). Редактор читает
+  // при монтировании и префиллит модель через loadStencil.
+  const stencilEditorTargetId = ref(null)
 
   function setLastTagListPickerStartIn(handle) {
     lastTagListPickerStartIn.value = handle
@@ -45,12 +48,14 @@ export const useUiStore = defineStore('ui', () => {
     searchOpen.value = false
   }
 
-  function openStencilEditor() {
+  function openStencilEditor(id = null) {
+    stencilEditorTargetId.value = id
     stencilEditorOpen.value = true
   }
 
   function closeStencilEditor() {
     stencilEditorOpen.value = false
+    stencilEditorTargetId.value = null
   }
 
   return {
@@ -59,6 +64,7 @@ export const useUiStore = defineStore('ui', () => {
     helpOpen,
     searchOpen,
     stencilEditorOpen,
+    stencilEditorTargetId,
     setLastTagListPickerStartIn,
     startDragging,
     stopDragging,

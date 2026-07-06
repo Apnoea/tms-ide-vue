@@ -1096,7 +1096,7 @@ function performClearCanvas(count) {
         <Button
           v-if="overlayBtns.canTransform"
           v-tooltip.top="'Повернуть против часовой · Shift+R'"
-          icon="pi pi-replay"
+          icon="pi pi-undo"
           severity="secondary"
           rounded
           size="small"
@@ -1107,7 +1107,7 @@ function performClearCanvas(count) {
         <Button
           v-if="overlayBtns.canTransform"
           v-tooltip.top="'Повернуть по часовой · R'"
-          icon="pi pi-sync"
+          icon="pi pi-undo -scale-x-100"
           severity="secondary"
           rounded
           size="small"

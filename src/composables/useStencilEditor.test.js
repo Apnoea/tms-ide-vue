@@ -135,4 +135,25 @@ describe('useStencilEditor', () => {
     expect(svg).toContain('viewBox="0 0 20 20"')
     expect(svg).toContain('<rect x="0" y="0" width="20" height="20"')
   })
+
+  it('loadStencil грузит стенсил на правку (editingId, shapes, ports, чистая история)', () => {
+    const ed = useStencilEditor()
+    ed.loadStencil({
+      id: 'cell_edit',
+      label: 'Правка',
+      category: 'Прочее',
+      width: 20,
+      height: 20,
+      ports: [{ name: 'top', x: 10, y: 0 }],
+      svgText:
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">' +
+        '<rect x="0" y="0" width="20" height="20" fill="none" stroke="#000" stroke-width="2"/></svg>',
+    })
+    expect(ed.editingId.value).toBe('cell_edit')
+    expect(ed.meta).toMatchObject({ id: 'cell_edit', label: 'Правка', width: 20 })
+    expect(ed.shapes.value[0]).toMatchObject({ type: 'rect', x: 0, y: 0, w: 20, h: 20 })
+    expect(ed.ports.value[0]).toMatchObject({ name: 'top', x: 10, y: 0 })
+    // История сброшена к загруженному состоянию — первый undo не уводит к пустому.
+    expect(ed.canUndo.value).toBe(false)
+  })
 })
