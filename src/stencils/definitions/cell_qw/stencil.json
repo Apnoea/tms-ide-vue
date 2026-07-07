@@ -1,9 +1,9 @@
 {
   "id": "cell_qw",
+  "locked": true,
   "label": "Выключатель",
   "category": "Коммутация",
   "intrinsicOnoff": true,
-
   "slots": [
     {
       "key": "onoff",
@@ -12,7 +12,6 @@
       "required": true
     }
   ],
-
   "shapeFile": "shape.svg",
   "width": 20,
   "height": 20,
@@ -22,7 +21,6 @@
     { "name": "bottom", "x": 10, "y": 20 },
     { "name": "left", "x": 0, "y": 10 }
   ],
-
   "animationTemplate": [
     {
       "idSuffix": ".QW",

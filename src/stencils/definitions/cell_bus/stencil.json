@@ -1,13 +1,11 @@
 {
   "id": "cell_bus",
+  "locked": true,
   "label": "Шина",
   "category": "Шины",
   "noRotate": true,
-
   "shapeFile": "shape.svg",
   "width": 80,
   "height": 8,
-  "minWidth": 40,
-
-  "ports": []
+  "minWidth": 40
 }

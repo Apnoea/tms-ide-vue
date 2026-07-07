@@ -1,5 +1,6 @@
 {
   "id": "cell_node",
+  "locked": true,
   "label": "Точка соединения",
   "category": "Текст и значения",
   "shapeFile": "shape.svg",

@@ -888,24 +888,24 @@ function performClearCanvas(count) {
     <div
       class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center justify-between gap-2"
     >
+      <!-- Слева — заголовок + симуляция: глобальное действие над всей схемой,
+           остаётся на холсте (это взаимодействие с холстом, не проектное
+           действие для шапки). -->
       <div class="flex items-center gap-2">
         <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Холст</h2>
-      </div>
-      <div class="flex items-center gap-2">
-        <!-- Поиск по схеме (Ctrl+F): та же панель SearchBar, что и по хоткею —
-             кнопка делает фичу видимой, а не только клавиатурной. -->
         <Button
-          v-tooltip.bottom="'Найти на схеме по тегу / тексту · Ctrl+F'"
-          icon="pi pi-search"
-          :severity="ui.searchOpen ? 'primary' : 'secondary'"
-          :text="!ui.searchOpen"
+          v-tooltip.bottom="simulating ? 'Остановить симуляцию' : 'Запустить симуляцию'"
+          :icon="simulating ? 'pi pi-pause-circle' : 'pi pi-play-circle'"
+          :severity="simulating ? 'primary' : 'secondary'"
+          :text="!simulating"
           size="small"
           class="tms-icon-btn"
-          @click="toggleSearch"
+          @click="toggleSimulation"
         />
+      </div>
 
-        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
-
+      <!-- Справа — инструменты группами: история │ вид (поиск + зум) │ удаление. -->
+      <div class="flex items-center gap-2">
         <Button
           v-tooltip.bottom="'Отменить · Ctrl+Z'"
           icon="pi pi-undo"
@@ -929,6 +929,17 @@ function performClearCanvas(count) {
 
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
 
+        <!-- Поиск (Ctrl+F) — рядом с зумом: оба про навигацию по холсту. Кнопка
+             делает фичу видимой, а не только клавиатурной (та же панель SearchBar). -->
+        <Button
+          v-tooltip.bottom="'Найти на схеме по тегу / тексту · Ctrl+F'"
+          icon="pi pi-search"
+          :severity="ui.searchOpen ? 'primary' : 'secondary'"
+          :text="!ui.searchOpen"
+          size="small"
+          class="tms-icon-btn"
+          @click="toggleSearch"
+        />
         <div class="flex items-center">
           <Button
             v-tooltip.bottom="'Уменьшить'"
@@ -964,20 +975,6 @@ function performClearCanvas(count) {
         </div>
 
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
-
-        <Button
-          v-tooltip.bottom="simulating ? 'Остановить симуляцию' : 'Запустить симуляцию'"
-          :icon="simulating ? 'pi pi-pause-circle' : 'pi pi-play-circle'"
-          :severity="simulating ? 'primary' : 'secondary'"
-          :text="!simulating"
-          size="small"
-          class="tms-icon-btn"
-          @click="toggleSimulation"
-        />
-
-        <!-- Деструктивную «Очистить холст» отодвигаем от рабочих контролов
-             (симуляция/зум) увеличенным зазором — меньше шанс задеть случайно. -->
-        <div class="w-px h-5 bg-surface-200 ml-2 mr-3" aria-hidden="true"></div>
 
         <Button
           v-tooltip.bottom="'Очистить холст'"

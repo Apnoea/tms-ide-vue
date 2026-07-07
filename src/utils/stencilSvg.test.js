@@ -100,7 +100,6 @@ describe('buildStencilJson', () => {
       shapeFile: 'shape.svg',
       width: 20,
       height: 20,
-      userCreated: true,
     })
   })
 
@@ -118,6 +117,19 @@ describe('buildStencilJson', () => {
       []
     )
     expect(json.ports).toBeUndefined()
+  })
+
+  it('пишет декл-флаги (noRotate/layoutOnly/quality) когда включены, иначе опускает', () => {
+    const base = { id: 'cell_x', label: 'X', category: 'Прочее', width: 20, height: 20 }
+    const on = buildStencilJson({ ...base, noRotate: true, layoutOnly: true, quality: true }, [])
+    expect(on).toMatchObject({ noRotate: true, layoutOnly: true, quality: true })
+    const off = buildStencilJson(
+      { ...base, noRotate: false, layoutOnly: false, quality: false },
+      []
+    )
+    expect(off.noRotate).toBeUndefined()
+    expect(off.layoutOnly).toBeUndefined()
+    expect(off.quality).toBeUndefined()
   })
 })
 
@@ -234,12 +246,66 @@ describe('parseStencilSvg (инверсия serializeSvg)', () => {
     expect(parseStencilSvg(null)).toEqual([])
   })
 
-  it('игнорирует незнакомые элементы (group/path)', () => {
+  it('serializeSvg оборачивает фигуры в <g>', () => {
+    const svg = serializeSvg([{ type: 'rect', x: 0, y: 0, w: 10, h: 10 }], {
+      width: 10,
+      height: 10,
+    })
+    expect(svg).toMatch(/<g>[\s\S]*<rect[\s\S]*<\/g>/)
+  })
+
+  it('рекурсит в <g> — читает фигуры внутри группы (формат рукописных стенсилов)', () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 40">' +
+      '<g><line x1="10" y1="0" x2="10" y2="6" stroke="#000" stroke-width="2"/>' +
+      '<circle cx="10" cy="14" r="8" fill="none" stroke="#000" stroke-width="2"/></g></svg>'
+    const shapes = parseStencilSvg(svg)
+    expect(shapes.map((s) => s.type)).toEqual(['line', 'circle'])
+  })
+
+  it('игнорирует незнакомые элементы (path/text) внутри группы', () => {
     const svg =
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">' +
-      '<g><path d="M0 0"/></g><rect x="0" y="0" width="10" height="10"/></svg>'
+      '<g data-anim-suffix=".X"><path d="M0 0"/>' +
+      '<rect x="0" y="0" width="10" height="10"/></g><text>Wh</text></svg>'
     const shapes = parseStencilSvg(svg)
     expect(shapes).toHaveLength(1)
     expect(shapes[0].type).toBe('rect')
+  })
+
+  it('замкнутая ломаная сериализуется в <polygon>', () => {
+    const svg = serializeSvg(
+      [
+        {
+          type: 'polyline',
+          closed: true,
+          points: [
+            [0, 0],
+            [10, 0],
+            [5, 10],
+          ],
+        },
+      ],
+      { width: 10, height: 10 }
+    )
+    expect(svg).toContain('<polygon points="0,0 10,0 5,10"')
+    expect(svg).not.toContain('<polyline')
+  })
+
+  it('<polygon> парсится в замкнутую ломаную (closed) и round-trip сохраняет флаг', () => {
+    const shape = {
+      type: 'polyline',
+      closed: true,
+      points: [
+        [0, 0],
+        [10, 0],
+        [5, 10],
+      ],
+      stroke: '#000',
+      strokeWidth: 2,
+      fill: 'none',
+    }
+    const svg = serializeSvg([shape], { width: 10, height: 10 })
+    expect(parseStencilSvg(svg)).toEqual([shape])
   })
 })

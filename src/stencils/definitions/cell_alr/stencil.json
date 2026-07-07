@@ -1,8 +1,8 @@
 {
   "id": "cell_alr",
+  "locked": true,
   "label": "Аварийный сигнал",
   "category": "Сигналы",
-
   "slots": [
     {
       "key": "alr",
@@ -11,12 +11,9 @@
       "required": true
     }
   ],
-
   "shapeFile": "shape.svg",
   "width": 30,
   "height": 30,
-  "ports": [],
-
   "animationTemplate": [
     {
       "idSuffix": ".ALR",

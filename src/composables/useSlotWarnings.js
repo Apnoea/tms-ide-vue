@@ -7,7 +7,7 @@ import { projectToScreen } from '../utils/paperGeom'
  * Бейджи незаполненных required-слотов на холсте. Для каждой ячейки, чей стенсил
  * декларирует required-слоты и хотя бы один пуст — жёлтый «!» в правом нижнем
  * углу. Клик выделяет ячейку и просит инспектор открыть picker первого пустого
- * слота (`canvas.requestSlotPick` → InspectorPane слушает).
+ * слота (`canvas.requestSlotPick` → CanvasInspector слушает).
  *
  * cell_value НЕ обрабатывается: его drop-flow всегда открывает tag-picker (или
  * не даёт создать ячейку), так что cell_value без valueTag в норме не бывает.

@@ -2,13 +2,24 @@
   "id": "cell_tv3",
   "label": "Трансформатор (3об)",
   "category": "Трансформаторы",
-
   "shapeFile": "shape.svg",
   "width": 40,
   "height": 30,
   "ports": [
-    { "name": "phase_a", "x": 20, "y": 0 },
-    { "name": "phase_b", "x": 10, "y": 30 },
-    { "name": "phase_c", "x": 30, "y": 30 }
+    {
+      "name": "phase_a",
+      "x": 20,
+      "y": 0
+    },
+    {
+      "name": "phase_b",
+      "x": 10,
+      "y": 30
+    },
+    {
+      "name": "phase_c",
+      "x": 30,
+      "y": 30
+    }
   ]
 }

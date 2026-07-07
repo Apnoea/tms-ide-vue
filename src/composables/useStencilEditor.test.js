@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { useStencilEditor, SHAPE_GRID, PORT_GRID } from './useStencilEditor'
+import { createStencilEditor, useStencilEditor, PORT_GRID } from './useStencilEditor'
 
 describe('useStencilEditor', () => {
   it('addShape присваивает id, дефолты обводки, выделяет и возвращает в select', () => {
-    const ed = useStencilEditor()
+    const ed = createStencilEditor()
     ed.setTool('rect')
     const s = ed.addShape({ type: 'rect', x: 0, y: 0, w: 20, h: 20 })
     expect(s.id).toBeTruthy()
@@ -16,7 +16,7 @@ describe('useStencilEditor', () => {
   })
 
   it('updateShape меняет только целевую фигуру', () => {
-    const ed = useStencilEditor()
+    const ed = createStencilEditor()
     const a = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
     const b = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
     ed.updateShape(a.id, { w: 30 })
@@ -25,48 +25,48 @@ describe('useStencilEditor', () => {
   })
 
   it('removeShape снимает выделение если удалили выделенное', () => {
-    const ed = useStencilEditor()
+    const ed = createStencilEditor()
     const s = ed.addShape({ type: 'circle', cx: 5, cy: 5, r: 3 })
     ed.removeShape(s.id)
     expect(ed.shapes.value).toHaveLength(0)
     expect(ed.selectedId.value).toBeNull()
   })
 
-  it('addPort снапит к PORT_GRID и авто-именует', () => {
-    const ed = useStencilEditor()
-    const p = ed.addPort(12, 7) // → 10, 10
+  it('addPort снапит к PORT_GRID, кладёт на ближайшую границу и авто-именует', () => {
+    const ed = createStencilEditor() // 40×40 по умолчанию
+    const p = ed.addPort(12, 3) // снап (10,0) → ближайшая сторона top → (10,0)
     expect(p.x % PORT_GRID).toBe(0)
     expect(p.y % PORT_GRID).toBe(0)
-    expect(p).toMatchObject({ x: 10, y: 10, name: 'p1' })
+    expect(p).toMatchObject({ x: 10, y: 0, name: 'p1' })
   })
 
   it('addPort дедупит совпадающие точки', () => {
-    const ed = useStencilEditor()
+    const ed = createStencilEditor()
     ed.addPort(10, 10)
     const dup = ed.addPort(12, 8) // снап туда же → 10,10
     expect(dup).toBeNull()
     expect(ed.ports.value).toHaveLength(1)
   })
 
-  it('movePort снапит к сетке', () => {
-    const ed = useStencilEditor()
+  it('movePort снапит к сетке и держит порт на границе', () => {
+    const ed = createStencilEditor() // 40×40
     const p = ed.addPort(0, 0)
-    ed.movePort(p.id, 23, 17) // → 20, 20
+    ed.movePort(p.id, 37, 15) // снап (40,20) → ближайшая сторона right → (40,20)
     const moved = ed.ports.value.find((x) => x.id === p.id)
-    expect(moved).toMatchObject({ x: 20, y: 20 })
+    expect(moved).toMatchObject({ x: 40, y: 20 })
   })
 
   it('снап зажимает координаты в bbox стенсила', () => {
-    const ed = useStencilEditor()
+    const ed = createStencilEditor()
     ed.meta.width = 40
     ed.meta.height = 40
     expect(ed.snapShapeX(999)).toBe(40)
     expect(ed.snapShapeY(-5)).toBe(0)
-    expect(ed.snapShapeX(7)).toBe(SHAPE_GRID) // 7 → ближайшая 5
+    expect(ed.snapShapeX(7.6)).toBe(8) // снап фигур к 1px — округление до пикселя
   })
 
   it('output собирает json + svg из черновика', () => {
-    const ed = useStencilEditor()
+    const ed = createStencilEditor()
     ed.meta.id = 'cell_test'
     ed.meta.label = 'Тест'
     ed.meta.category = 'Прочее'
@@ -82,7 +82,7 @@ describe('useStencilEditor', () => {
   })
 
   it('undo/redo: пустая история в начале, шаг за добавлением фигуры', () => {
-    const ed = useStencilEditor()
+    const ed = createStencilEditor()
     expect(ed.canUndo.value).toBe(false)
     const s = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
     expect(ed.canUndo.value).toBe(true)
@@ -96,7 +96,7 @@ describe('useStencilEditor', () => {
   })
 
   it('undo откатывает удаление и перемещение (commit на конце жеста)', () => {
-    const ed = useStencilEditor()
+    const ed = createStencilEditor()
     const s = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
     ed.updateShape(s.id, { x: 20 }) // «drag» — сам по себе историю не пишет
     ed.commit() // компонент коммитит на конце жеста
@@ -106,7 +106,7 @@ describe('useStencilEditor', () => {
   })
 
   it('commit дедупит no-op (drag без сдвига)', () => {
-    const ed = useStencilEditor()
+    const ed = createStencilEditor()
     ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
     ed.commit() // ничего не менялось после addShape → шаг не добавляется
     ed.undo()
@@ -114,7 +114,7 @@ describe('useStencilEditor', () => {
   })
 
   it('новое действие после undo отсекает redo-хвост', () => {
-    const ed = useStencilEditor()
+    const ed = createStencilEditor()
     ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
     ed.undo()
     expect(ed.canRedo.value).toBe(true)
@@ -123,7 +123,7 @@ describe('useStencilEditor', () => {
   })
 
   it('output обрезает пустые поля холста до контента', () => {
-    const ed = useStencilEditor()
+    const ed = createStencilEditor()
     ed.meta.id = 'cell_crop'
     ed.meta.label = 'Crop'
     ed.meta.category = 'Прочее'
@@ -137,7 +137,7 @@ describe('useStencilEditor', () => {
   })
 
   it('loadStencil грузит стенсил на правку (editingId, shapes, ports, чистая история)', () => {
-    const ed = useStencilEditor()
+    const ed = createStencilEditor()
     ed.loadStencil({
       id: 'cell_edit',
       label: 'Правка',
@@ -155,5 +155,49 @@ describe('useStencilEditor', () => {
     expect(ed.ports.value[0]).toMatchObject({ name: 'top', x: 10, y: 0 })
     // История сброшена к загруженному состоянию — первый undo не уводит к пустому.
     expect(ed.canUndo.value).toBe(false)
+  })
+
+  it('loadStencil грузит декл-флаги, output их пишет', () => {
+    const ed = createStencilEditor()
+    ed.loadStencil({
+      id: 'cell_flags',
+      label: 'F',
+      category: 'Прочее',
+      width: 20,
+      height: 20,
+      noRotate: true,
+      layoutOnly: true,
+      svgText:
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">' +
+        '<rect x="0" y="0" width="20" height="20" fill="none" stroke="#000" stroke-width="2"/></svg>',
+    })
+    expect(ed.meta.noRotate).toBe(true)
+    expect(ed.meta.layoutOnly).toBe(true)
+    expect(ed.output().json).toMatchObject({ noRotate: true, layoutOnly: true })
+  })
+
+  it('reset очищает черновик к пустому', () => {
+    const ed = createStencilEditor()
+    ed.meta.id = 'cell_x'
+    ed.meta.noRotate = true
+    ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    ed.reset()
+    expect(ed.meta).toMatchObject({
+      id: '',
+      label: '',
+      width: 40,
+      height: 40,
+      noRotate: false,
+      layoutOnly: false,
+    })
+    expect(ed.shapes.value).toHaveLength(0)
+    expect(ed.editingId.value).toBeNull()
+    expect(ed.canUndo.value).toBe(false)
+  })
+})
+
+describe('useStencilEditor (синглтон)', () => {
+  it('возвращает один и тот же инстанс', () => {
+    expect(useStencilEditor()).toBe(useStencilEditor())
   })
 })

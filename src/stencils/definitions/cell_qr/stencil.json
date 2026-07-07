@@ -1,9 +1,9 @@
 {
   "id": "cell_qr",
+  "locked": true,
   "label": "Отделитель",
   "category": "Коммутация",
   "quality": true,
-
   "slots": [
     {
       "key": "onoff",
@@ -12,7 +12,6 @@
       "required": false
     }
   ],
-
   "shapeFile": "shape.svg",
   "width": 20,
   "height": 40,
@@ -20,7 +19,6 @@
     { "name": "top", "x": 10, "y": 0 },
     { "name": "bottom", "x": 10, "y": 40 }
   ],
-
   "animationTemplate": [
     {
       "idSuffix": ".closed",

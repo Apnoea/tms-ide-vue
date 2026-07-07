@@ -14,7 +14,7 @@ import { nplural } from '../utils/plural'
  * и dblclick'ом для быстрого выбора.
  *
  * Caller передаёт уже отфильтрованный массив `tags` (например только bool-теги
- * для switch-picker'а — фильтр живёт в InspectorPane.booleanTags), и при
+ * для switch-picker'а — фильтр живёт в CanvasInspector.booleanTags), и при
  * закрытии получает обратно строку-имя выбранного тега.
  */
 const props = defineProps({

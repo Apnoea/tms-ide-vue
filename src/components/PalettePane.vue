@@ -313,10 +313,11 @@ async function removeStencil(id) {
                   {{ stencil.id }}
                 </div>
               </div>
-              <!-- Правка — только у пользовательских стенсилов (userCreated): их
-                   SVG в нашем формате, парсится обратно. Открывает редактор с id. -->
+              <!-- Правка — у всех, кроме залоченных (`locked`: программные,
+                   анимированные, с текстом — их SVG в наш формат не разбирается).
+                   Открывает редактор с id. -->
               <button
-                v-if="stencil.userCreated"
+                v-if="!stencil.locked"
                 type="button"
                 v-tooltip.bottom="'Редактировать стенсил'"
                 class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
@@ -325,14 +326,13 @@ async function removeStencil(id) {
               >
                 <i class="pi pi-pencil !text-sm" />
               </button>
-              <!-- Удаление — только у пользовательских стенсилов (userCreated);
-                   родные (из репозитория) удалить нельзя. Видно по ховеру строки.
-                   @pointerdown.stop глушит старт drag'а (строка тащится по
+              <!-- Удаление — у всех, кроме залоченных (`locked`). Видно по ховеру
+                   строки. @pointerdown.stop глушит старт drag'а (строка тащится по
                    pointerdown). Клик БЕЗ .stop: ConfirmPopup выравнивается по target
                    только в своём document-click листенере — с .stop клик не всплыл бы
                    и попап упал бы в (0,0). Drag уже погашен на pointerdown, click безопасен. -->
               <button
-                v-if="stencil.userCreated"
+                v-if="!stencil.locked"
                 type="button"
                 v-tooltip.bottom="'Удалить стенсил'"
                 class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-red-600 group-hover:opacity-100"

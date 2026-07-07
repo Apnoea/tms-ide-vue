@@ -2,33 +2,25 @@
 /**
  * Редактор стенсилов (v1 — статика, без слоёв анимации). Оверлей поверх холста:
  * рисование примитивов (rect/line/circle/polyline) + расстановка портов, всё со
- * снапом к сетке (вершины фигур → шаг 5, порты/размер → шаг 10). Модель, операции
+ * снапом к сетке (вершины фигур → 1px, порты/размер → шаг 10). Модель, операции
  * и undo/redo — в useStencilEditor; здесь DOM: SVG-холст, рисование жестами и
  * привязка перемещения/ресайза через interact.js (колбэки обновляют модель, Vue
  * перерисовывает — interact не мутирует DOM в обход Vue). Открывается на создание
- * (пустой черновик) либо правку существующего userCreated-стенсила (loadStencil по
+ * (пустой черновик) либо правку существующего незалоченного стенсила (loadStencil по
  * ui.stencilEditorTargetId). Сохранение валидирует черновик, регистрирует стенсил
  * в реестре и пишет на диск (dev-плагин).
  */
-import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useElementSize, useEventListener } from '@vueuse/core'
 import interact from 'interactjs'
 import Button from 'primevue/button'
-import InputText from 'primevue/inputtext'
-import InputNumber from 'primevue/inputnumber'
-import Select from 'primevue/select'
 import { useConfirm } from 'primevue/useconfirm'
 import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { snapToGrid } from '../utils/grid'
 import { stencilDraftIssues } from '../utils/stencilSvg'
-import {
-  getAllStencils,
-  getStencilById,
-  getCategories,
-  registerStencil,
-} from '../stencils/registry'
+import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
 import { reinjectAllStencils } from '../stencils/svgInjector'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
 import { useStencilEditor, SHAPE_GRID } from '../composables/useStencilEditor'
@@ -50,6 +42,7 @@ const {
   snapShapeX,
   snapShapeY,
   setTool,
+  reset,
   loadStencil,
   select,
   addShape,
@@ -63,29 +56,51 @@ const {
   redo,
 } = ed
 
-// Инструмент выбора отделён от рисующих разделителем (см. шаблон), поэтому
-// вынесен отдельно от списка рисующих инструментов.
-const SELECT_TOOL = { key: 'select', icon: 'pi pi-arrow-up-left', tip: 'Выбор / перемещение' }
+// Рисующие инструменты. Отдельного «выбора» в тулбаре нет — select фоновый
+// дефолт (см. pickTool: повторный клик по активному возвращает к нему).
 const DRAW_TOOLS = [
   { key: 'line', icon: 'pi pi-minus', tip: 'Линия' },
   { key: 'rect', icon: 'pi pi-stop', tip: 'Прямоугольник' },
   { key: 'circle', icon: 'pi pi-circle', tip: 'Окружность' },
-  { key: 'polyline', icon: 'pi pi-chart-line', tip: 'Ломаная (двойной клик — завершить)' },
+  {
+    key: 'polyline',
+    icon: 'pi pi-chart-line',
+    tip: 'Ломаная (клик по началу — замкнуть, двойной клик — завершить)',
+  },
   { key: 'port', icon: 'pi pi-map-marker', tip: 'Порт (клик по порту — удалить)' },
 ]
 
-const categories = computed(() => getCategories())
+// Тоггл рисующих инструментов: повторный клик по активному инструменту
+// возвращает к select (дефолт). Select сам не «отжимается» — он и есть дефолт.
+function pickTool(key) {
+  setTool(tool.value === key ? 'select' : key)
+}
+
+// Выделенная фигура — обводка перекрашивается в primary (cyan): работает для всех
+// фигур, включая линии; заливку не трогаем. SVG-атрибут stroke не принимает CSS
+// var → цвет литералом.
+const SEL_STROKE = '#06b6d4'
 
 // Режим определяется таргетом из store: задан id → правка (грузим стенсил в
 // модель, id блокируется), иначе создание нового (префилл `cell_` в поле id).
-// Правим только userCreated — их SVG в нашем формате, парсится обратно однозначно.
+// Правку открываем только у незалоченных (см. гейт в палитре) — их SVG в нашем
+// формате и разбирается обратно однозначно.
+// Синглтон-стейт переживает закрытие редактора → при входе чистим/грузим заново:
+// правка → loadStencil (перезаписывает всё), создание → reset + префилл `cell_`.
 const editTarget = ui.stencilEditorTargetId ? getStencilById(ui.stencilEditorTargetId) : null
-if (editTarget) loadStencil(editTarget)
-else if (!meta.id) meta.id = 'cell_'
+if (editTarget) {
+  loadStencil(editTarget)
+} else {
+  reset()
+  meta.id = 'cell_'
+}
 
-// Есть ли что терять при закрытии (нарисованные фигуры/порты). Метаданные без
-// фигур за «работу» не считаем — закрытие пустого редактора не переспрашиваем.
-const isDirty = computed(() => shapes.value.length > 0 || ports.value.length > 0)
+// Есть ли несохранённые изменения = были ли правки относительно исходного
+// состояния (пустой холст при создании / загруженный стенсил при правке).
+// Берём canUndo: после открытия история = базовый снимок (canUndo=false), любая
+// правка делает его true, откат к базе — снова false. Так режим правки не
+// переспрашивает, если ничего не меняли (в отличие от «есть ли фигуры вообще»).
+const isDirty = computed(() => canUndo.value)
 
 // Закрытие с подтверждением, если черновик непустой. Попап якорим на кнопку
 // «Закрыть» (для Esc, где нет DOM-таргета события, — через closeBtn-реф).
@@ -154,24 +169,6 @@ async function save() {
   ui.closeStencilEditor()
 }
 
-// Размер стенсила кратен 10 (порты и сам стенсил садятся на сетку схемы).
-watch(
-  () => [meta.width, meta.height],
-  () => {
-    meta.width = Math.max(10, snapToGrid(meta.width, 10))
-    meta.height = Math.max(10, snapToGrid(meta.height, 10))
-  }
-)
-
-// id = имя папки definitions/<id>/ → маска `[a-z0-9_]`. Фильтруем прямо в DOM
-// (не через watch/computed: там значение уходит в кириллицу и обратно за один
-// тик, Vue не видит изменения modelValue и не перезатирает введённый символ).
-function onIdInput(e) {
-  const clean = (e.target.value || '').toLowerCase().replace(/[^a-z0-9_]/g, '')
-  if (e.target.value !== clean) e.target.value = clean
-  meta.id = clean
-}
-
 // ─── Масштаб холста ───
 // Вписываем bbox стенсила в доступную область с запасом; клампим, чтобы мелкие
 // стенсилы не раздувались до пикселизации, а крупные помещались.
@@ -189,14 +186,18 @@ const pxH = computed(() => meta.height * scale.value)
 const hr = computed(() => 4 / scale.value)
 
 // ─── Сетка ───
+// Сетка 1px (= snap фигур). Чтобы не была плоским шумом, три уровня яркости:
+// еле видная на каждый 1px, заметнее на кратных 5, тёмная на кратных 10 (порты
+// садятся именно на десятки). Для крупных стенсилов линий много, но они лёгкие.
+const GRID_STEP = 1
 const range = (max, step) => {
   const out = []
   for (let v = 0; v <= max + 1e-6; v += step) out.push(v)
   return out
 }
-const gridX = computed(() => range(meta.width, SHAPE_GRID))
-const gridY = computed(() => range(meta.height, SHAPE_GRID))
-const lineColor = (v) => (v % 10 === 0 ? '#d4d4d8' : '#eef0f2')
+const gridX = computed(() => range(meta.width, GRID_STEP))
+const gridY = computed(() => range(meta.height, GRID_STEP))
+const lineColor = (v) => (v % 10 === 0 ? '#cbd5e1' : v % 5 === 0 ? '#e2e8f0' : '#f1f5f9')
 
 // ─── Пиксель события → user-координаты стенсила ───
 const svgEl = ref(null)
@@ -231,7 +232,19 @@ function onSurfaceDown(e) {
   }
   if (tool.value === 'polyline') {
     const u = snappedShape(e)
-    polyPoints.value = [...polyPoints.value, [u.x, u.y]]
+    const pts = polyPoints.value
+    // Клик рядом со стартовой вершиной (при ≥2 точках) — замыкаем в polygon:
+    // дубль стартовой точки не добавляем, помечаем closed. Порог ~10 экранных px.
+    if (pts.length >= 2) {
+      const [fx, fy] = pts[0]
+      if (Math.hypot(u.x - fx, u.y - fy) <= 10 / scale.value) {
+        addShape({ type: 'polyline', points: [...pts], closed: true })
+        polyPoints.value = []
+        polyCursor.value = null
+        return
+      }
+    }
+    polyPoints.value = [...pts, [u.x, u.y]]
     return
   }
   const u = snappedShape(e)
@@ -307,6 +320,17 @@ const polyPreview = computed(() => {
   if (!polyPoints.value.length) return ''
   const pts = polyCursor.value ? [...polyPoints.value, polyCursor.value] : polyPoints.value
   return pts.map(([x, y]) => `${x},${y}`).join(' ')
+})
+
+// Порядок рендера: выделенную фигуру рисуем ПОСЛЕДНЕЙ (поверх остальных) —
+// иначе её может перекрыть нарисованная позже. Порядок в модели (и на экспорте)
+// не меняется, это только z-order на время выделения.
+const orderedShapes = computed(() => {
+  const sel = selectedId.value
+  if (sel == null) return shapes.value
+  const rest = shapes.value.filter((s) => s.id !== sel)
+  if (rest.length === shapes.value.length) return shapes.value // выделенной нет в списке
+  return [...rest, shapes.value.find((s) => s.id === sel)]
 })
 
 // ─── Ручки выделенной фигуры ───
@@ -486,17 +510,10 @@ onBeforeUnmount(() => {
       <h2 class="mr-2 text-sm font-semibold uppercase tracking-wide text-surface-900">
         {{ editingId ? 'Правка стенсила' : 'Новый стенсил' }}
       </h2>
+      <!-- Инструменты рисования (тогл). Отдельной кнопки «выбор» нет: select —
+           фоновый дефолт (повторный клик по активному инструменту или авто после
+           добавления фигуры возвращают к нему). -->
       <div class="flex items-center gap-1">
-        <Button
-          v-tooltip.bottom="SELECT_TOOL.tip"
-          :icon="SELECT_TOOL.icon"
-          :severity="tool === SELECT_TOOL.key ? 'primary' : 'secondary'"
-          :text="tool !== SELECT_TOOL.key"
-          size="small"
-          class="tms-icon-btn"
-          @click="setTool(SELECT_TOOL.key)"
-        />
-        <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
         <Button
           v-for="t in DRAW_TOOLS"
           :key="t.key"
@@ -506,7 +523,7 @@ onBeforeUnmount(() => {
           :text="tool !== t.key"
           size="small"
           class="tms-icon-btn"
-          @click="setTool(t.key)"
+          @click="pickTool(t.key)"
         />
       </div>
 
@@ -546,31 +563,6 @@ onBeforeUnmount(() => {
         @click="selectedId && removeShape(selectedId)"
       />
 
-      <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
-
-      <label class="flex items-center gap-1 text-xs text-surface-500">
-        Ш
-        <InputNumber
-          v-model="meta.width"
-          :min="10"
-          :step="10"
-          :use-grouping="false"
-          size="small"
-          input-class="!w-14 !py-1 text-center"
-        />
-      </label>
-      <label class="flex items-center gap-1 text-xs text-surface-500">
-        В
-        <InputNumber
-          v-model="meta.height"
-          :min="10"
-          :step="10"
-          :use-grouping="false"
-          size="small"
-          input-class="!w-14 !py-1 text-center"
-        />
-      </label>
-
       <div class="flex-1"></div>
 
       <Button label="Сохранить" icon="pi pi-check" size="small" @click="save" />
@@ -582,39 +574,6 @@ onBeforeUnmount(() => {
         size="small"
         @click="requestClose"
       />
-    </div>
-
-    <!-- Метаданные: id (маска [a-z0-9_], уникален), название, категория (комбо
-         из существующих + можно вписать новую). Валидируются при сохранении. -->
-    <div class="flex items-center gap-3 border-b border-surface-200 bg-surface-0 px-3 py-2">
-      <label class="flex items-center gap-1.5 text-xs text-surface-500">
-        Название
-        <InputText v-model="meta.label" size="small" class="!h-8 !w-44 !text-xs" />
-      </label>
-      <label class="flex items-center gap-1.5 text-xs text-surface-500">
-        id
-        <!-- id = имя папки definitions/<id>/; в режиме правки заблокирован.
-             :model-value (не v-model) + @input: фильтрацию делает onIdInput,
-             лишний update:modelValue не слушаем — иначе гонка с DOM-правкой. -->
-        <InputText
-          :model-value="meta.id"
-          :disabled="!!editingId"
-          size="small"
-          class="!h-8 !w-40 font-mono !text-xs"
-          @input="onIdInput"
-        />
-      </label>
-      <label class="flex items-center gap-1.5 text-xs text-surface-500">
-        Категория
-        <Select
-          v-model="meta.category"
-          :options="categories"
-          editable
-          placeholder="Выберите или впишите"
-          size="small"
-          class="!h-8 !w-52 items-center"
-        />
-      </label>
     </div>
 
     <!-- Холст -->
@@ -657,7 +616,7 @@ onBeforeUnmount(() => {
         </g>
 
         <!-- Фигуры -->
-        <template v-for="s in shapes" :key="s.id">
+        <template v-for="s in orderedShapes" :key="s.id">
           <rect
             v-if="s.type === 'rect'"
             data-se-move="shape"
@@ -667,7 +626,7 @@ onBeforeUnmount(() => {
             :width="s.w"
             :height="s.h"
             :fill="s.fill"
-            :stroke="s.stroke"
+            :stroke="s.id === selectedId ? SEL_STROKE : s.stroke"
             :stroke-width="s.strokeWidth"
             @pointerdown="tool === 'select' && select(s.id)"
           />
@@ -679,7 +638,7 @@ onBeforeUnmount(() => {
             :y1="s.y1"
             :x2="s.x2"
             :y2="s.y2"
-            :stroke="s.stroke"
+            :stroke="s.id === selectedId ? SEL_STROKE : s.stroke"
             :stroke-width="s.strokeWidth"
             @pointerdown="tool === 'select' && select(s.id)"
           />
@@ -691,7 +650,17 @@ onBeforeUnmount(() => {
             :cy="s.cy"
             :r="s.r"
             :fill="s.fill"
-            :stroke="s.stroke"
+            :stroke="s.id === selectedId ? SEL_STROKE : s.stroke"
+            :stroke-width="s.strokeWidth"
+            @pointerdown="tool === 'select' && select(s.id)"
+          />
+          <polygon
+            v-else-if="s.type === 'polyline' && s.closed"
+            data-se-move="shape"
+            :data-id="s.id"
+            :points="s.points.map((p) => p.join(',')).join(' ')"
+            :fill="s.fill"
+            :stroke="s.id === selectedId ? SEL_STROKE : s.stroke"
             :stroke-width="s.strokeWidth"
             @pointerdown="tool === 'select' && select(s.id)"
           />
@@ -701,7 +670,7 @@ onBeforeUnmount(() => {
             :data-id="s.id"
             :points="s.points.map((p) => p.join(',')).join(' ')"
             :fill="s.fill"
-            :stroke="s.stroke"
+            :stroke="s.id === selectedId ? SEL_STROKE : s.stroke"
             :stroke-width="s.strokeWidth"
             @pointerdown="tool === 'select' && select(s.id)"
           />

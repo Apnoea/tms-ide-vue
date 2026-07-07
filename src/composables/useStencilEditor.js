@@ -4,17 +4,20 @@
  *
  * Только состояние и чистая логика — без DOM и без interact.js: привязка драга/
  * ресайза живёт в компоненте StencilEditor, где есть ref'ы на SVG-элементы.
- * Фабрика (не singleton): на каждое открытие редактора — свежий черновик.
+ * useStencilEditor — синглтон: один черновик на холст редактора (центр) и панель
+ * свойств (StencilInspector, справа). При входе: reset() для нового / loadStencil()
+ * для правки. createStencilEditor — фабрика для тестов (изолированный инстанс).
  *
- * Две сетки: вершины фигур снапятся к SHAPE_GRID, а порты и размер самого
- * стенсила — к PORT_GRID. Строго-10 для всего не дало бы даже cell_qw-подобный
- * символ (там линии на x=5).
+ * Две сетки: вершины фигур снапятся к SHAPE_GRID (1px — фактически свободно,
+ * пиксельная точность), а порты и размер самого стенсила — к PORT_GRID (10,
+ * садятся на сетку схемы). Визуальная сетка холста рисуется отдельным читаемым
+ * шагом (см. StencilEditor) и со snap'ом не связана.
  */
 import { computed, reactive, ref } from 'vue'
 import { snapToGrid } from '../utils/grid'
 import { serializeSvg, buildStencilJson, cropToContent, parseStencilSvg } from '../utils/stencilSvg'
 
-export const SHAPE_GRID = 5
+export const SHAPE_GRID = 1
 export const PORT_GRID = 10
 
 // Инкрементный id для v-for/selection — детерминированнее Math.random и не течёт
@@ -22,8 +25,19 @@ export const PORT_GRID = 10
 let seq = 0
 const nextId = () => `s${++seq}`
 
-export function useStencilEditor() {
-  const meta = reactive({ id: '', label: '', category: '', width: 40, height: 40 })
+export function createStencilEditor() {
+  // noRotate/layoutOnly/quality — декл-флаги стенсила, моделируем как поля
+  // (генератор их пишет в json, не теряются при пересохранении). Остальное — v2.
+  const meta = reactive({
+    id: '',
+    label: '',
+    category: '',
+    width: 40,
+    height: 40,
+    noRotate: false,
+    layoutOnly: false,
+    quality: false,
+  })
   const shapes = ref([])
   const ports = ref([])
   const tool = ref('select') // 'select' | 'rect' | 'line' | 'circle' | 'polyline' | 'port'
@@ -107,11 +121,24 @@ export function useStencilEditor() {
     commit()
   }
 
-  // Порт по координате: снап к PORT_GRID, дедуп по совпадающим x/y (два порта в
-  // одной точке бессмысленны), авто-имя p1/p2/…; имя правится позже в UI.
-  function addPort(x, y) {
+  // Порт живёт на ГРАНИЦЕ стенсила: снапим к PORT_GRID и проецируем на ближайшую
+  // сторону bbox (порт — точка подключения провода, логично по краю). Клик/драг
+  // «примерно туда» → порт садится на край.
+  function portOnEdge(x, y) {
     const px = snapPortX(x)
     const py = snapPortY(y)
+    const dist = { left: px, right: meta.width - px, top: py, bottom: meta.height - py }
+    const side = Object.keys(dist).reduce((a, b) => (dist[b] < dist[a] ? b : a))
+    if (side === 'left') return { x: 0, y: py }
+    if (side === 'right') return { x: meta.width, y: py }
+    if (side === 'top') return { x: px, y: 0 }
+    return { x: px, y: meta.height }
+  }
+
+  // Порт по координате: проекция на границу + дедуп по совпадающим x/y (два порта
+  // в одной точке бессмысленны), авто-имя p1/p2/…; имя правится позже в UI.
+  function addPort(x, y) {
+    const { x: px, y: py } = portOnEdge(x, y)
     if (ports.value.some((p) => p.x === px && p.y === py)) return null
     const port = { id: nextId(), name: `p${ports.value.length + 1}`, x: px, y: py }
     ports.value = [...ports.value, port]
@@ -121,8 +148,7 @@ export function useStencilEditor() {
 
   // Как updateShape — идёт во время drag'а порта, историю коммитит компонент.
   function movePort(id, x, y) {
-    const px = snapPortX(x)
-    const py = snapPortY(y)
+    const { x: px, y: py } = portOnEdge(x, y)
     ports.value = ports.value.map((p) => (p.id === id ? { ...p, x: px, y: py } : p))
   }
 
@@ -131,7 +157,7 @@ export function useStencilEditor() {
     commit()
   }
 
-  // Загрузка существующего стенсила на правку (только userCreated — их SVG в
+  // Загрузка существующего стенсила на правку (только незалоченные — их SVG в
   // нашем формате, парсится обратно однозначно). История сбрасывается: загруженное
   // состояние = базовая точка (первый undo вернёт к нему, не к пустому холсту).
   function loadStencil(def) {
@@ -141,11 +167,36 @@ export function useStencilEditor() {
     meta.category = def.category || ''
     meta.width = def.width || 40
     meta.height = def.height || 40
+    meta.noRotate = !!def.noRotate
+    meta.layoutOnly = !!def.layoutOnly
+    meta.quality = !!def.quality
     // Присваиваем внутренние id — без них не работают выделение/ручки/удаление.
     shapes.value = parseStencilSvg(def.svgText).map((s) => ({ id: nextId(), ...s }))
     ports.value = (def.ports || []).map((p) => ({ id: nextId(), name: p.name, x: p.x, y: p.y }))
     selectedId.value = null
     tool.value = 'select'
+    history.value = []
+    histIndex.value = -1
+    commit()
+  }
+
+  // Сброс к пустому черновику. Нужен синглтону: при открытии редактора на
+  // «создание» состояние от прошлой сессии надо очистить (правка идёт через
+  // loadStencil, который перезаписывает всё сам).
+  function reset() {
+    meta.id = ''
+    meta.label = ''
+    meta.category = ''
+    meta.width = 40
+    meta.height = 40
+    meta.noRotate = false
+    meta.layoutOnly = false
+    meta.quality = false
+    shapes.value = []
+    ports.value = []
+    tool.value = 'select'
+    selectedId.value = null
+    editingId.value = null
     history.value = []
     histIndex.value = -1
     commit()
@@ -178,6 +229,7 @@ export function useStencilEditor() {
     snapShapeX,
     snapShapeY,
     setTool,
+    reset,
     loadStencil,
     select,
     addShape,
@@ -191,4 +243,13 @@ export function useStencilEditor() {
     redo,
     output,
   }
+}
+
+// Синглтон для приложения: центр (StencilEditor) и панель свойств
+// (StencilInspector) делят один инстанс. Пересоздавать на каждое открытие не
+// нужно — при входе вызывается reset() (новый) либо loadStencil() (правка).
+let instance = null
+export function useStencilEditor() {
+  if (!instance) instance = createStencilEditor()
+  return instance
 }

@@ -1,9 +1,9 @@
 {
   "id": "cell_pi",
+  "locked": true,
   "label": "Счётчик электроэнергии",
   "category": "Измерения",
   "noRotate": true,
-
   "shapeFile": "shape.svg",
   "width": 40,
   "height": 40,

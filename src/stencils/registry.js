@@ -79,7 +79,7 @@ export function validateStencilJson(path, json, svgText) {
     'layoutOnly',
     'noRotate',
     'defaults',
-    'userCreated',
+    'locked',
   ])
   for (const key of Object.keys(json)) {
     if (!known.has(key)) {

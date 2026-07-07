@@ -64,10 +64,10 @@ useEventListener(window, 'keydown', (event) => {
 
     <!-- Карточки: левая 380px (дерево форм + палитра стеком) / инспектор 420px,
          холст — остальное. Без ресайза. Отделяет от общего surface-100 тень. -->
-    <!-- Пока открыт редактор стенсилов — боковые панели гейтим (inert: без кликов
-         и фокуса), чтобы drag из палитры / переключение формы / правки инспектора
-         не уходили в скрытый под оверлеем холст. Оверлей физически накрывает только
-         холст; панели остаются на месте, лишь притушены и неактивны. -->
+    <!-- Пока открыт редактор стенсилов: левую панель (формы/палитра) гейтим
+         (inert), чтобы drag/переключение формы не уходили в скрытый под оверлеем
+         холст. Правую (инспектор) НЕ гейтим — там свойства стенсила (StencilInspector),
+         с ней работают. Оверлей физически накрывает только холст. -->
     <div class="flex-1 min-h-0 flex gap-2 px-2 pb-2">
       <div
         class="w-[380px] shrink-0 rounded-lg overflow-hidden shadow-md flex flex-col transition-opacity"
@@ -83,11 +83,7 @@ useEventListener(window, 'keydown', (event) => {
         <CanvasPane />
         <StencilEditor v-if="ui.stencilEditorOpen" class="absolute inset-0 z-20" />
       </div>
-      <div
-        class="w-[420px] shrink-0 rounded-lg overflow-hidden shadow-md transition-opacity"
-        :class="{ 'pointer-events-none opacity-60': ui.stencilEditorOpen }"
-        :inert="ui.stencilEditorOpen"
-      >
+      <div class="w-[420px] shrink-0 rounded-lg overflow-hidden shadow-md">
         <InspectorPane />
       </div>
     </div>

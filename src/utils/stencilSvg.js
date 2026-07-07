@@ -46,7 +46,9 @@ function serializeShape(shape) {
       )
     case 'polyline': {
       const pts = (shape.points || []).map(([x, y]) => `${num(x)},${num(y)}`).join(' ')
-      return `<polyline points="${pts}" ${fillAttr(shape)} ${strokeAttrs(shape)}/>`
+      // Замкнутая ломаная — это <polygon> (сам соединяет конец с началом).
+      const tag = shape.closed ? 'polygon' : 'polyline'
+      return `<${tag} points="${pts}" ${fillAttr(shape)} ${strokeAttrs(shape)}/>`
     }
     default:
       return ''
@@ -114,7 +116,8 @@ export function cropToContent(shapes, ports = [], grid = 10) {
 
 /**
  * Модель → строка shape.svg. viewBox/width/height берём из meta (кратны 10).
- * Формат совпадает с рукописными определениями: xml-декларация, 2-space отступ.
+ * Фигуры оборачиваем в `<g>` — единый формат с рукописными стенсилами (у них
+ * всё в группе) и задел под v2-анимацию (там на группу вешается data-anim-suffix).
  */
 export function serializeSvg(shapes, meta) {
   const w = num(meta.width)
@@ -122,12 +125,13 @@ export function serializeSvg(shapes, meta) {
   const body = (shapes || [])
     .map(serializeShape)
     .filter(Boolean)
-    .map((el) => `  ${el}`)
+    .map((el) => `    ${el}`)
     .join('\n')
+  const group = body ? `  <g>\n${body}\n  </g>\n` : '  <g></g>\n'
   return (
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">\n` +
-    `${body}\n` +
+    group +
     '</svg>\n'
   )
 }
@@ -158,35 +162,45 @@ function elementToShape(el) {
       return { type: 'line', x1: n('x1'), y1: n('y1'), x2: n('x2'), y2: n('y2'), ...readStroke(el) }
     case 'circle':
       return { type: 'circle', cx: n('cx'), cy: n('cy'), r: n('r'), fill, ...readStroke(el) }
-    case 'polyline': {
+    case 'polyline':
+    case 'polygon': {
       const points = (el.getAttribute('points') || '')
         .trim()
         .split(/\s+/)
         .filter(Boolean)
         .map((p) => p.split(',').map(Number))
-      return { type: 'polyline', points, fill, ...readStroke(el) }
+      const shape = { type: 'polyline', points, fill, ...readStroke(el) }
+      if (el.tagName.toLowerCase() === 'polygon') shape.closed = true
+      return shape
     }
     default:
       return null
   }
 }
 
+// Собирает фигуры рекурсивно: заходит внутрь `<g>` (наш формат и рукописные
+// стенсилы держат примитивы в группе). Порядок — DFS в порядке документа.
+function collectShapes(parent, out) {
+  for (const el of Array.from(parent.children)) {
+    const shape = elementToShape(el)
+    if (shape) out.push(shape)
+    else if (el.tagName.toLowerCase() === 'g') collectShapes(el, out)
+  }
+}
+
 /**
  * Обратный парсинг shape.svg → массив примитивов модели (инверсия serializeSvg).
- * Рассчитан ТОЛЬКО на свой формат (плоский список rect/line/circle/polyline
- * прямыми детьми <svg>) — им пользуется редактор для правки userCreated-стенсилов.
- * Рукописные/родные SVG (группы, transform, path, data-anim-suffix) сюда не
- * подходят и не редактируются. Незнакомые элементы молча пропускаются.
+ * Рекурсит в `<g>`, поэтому читает и наш формат (фигуры в группе), и плоский
+ * legacy, и статические рукописные (tv2/tv3). Незнакомые элементы (`path`,
+ * `text`, `polygon`) и атрибуты групп (`data-anim-suffix`, `transform`) —
+ * пропускаются: редактор их не моделит (это задача v2-анимации).
  */
 export function parseStencilSvg(svgText) {
   if (!svgText) return []
   const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml')
   if (doc.getElementsByTagName('parsererror').length > 0) return []
   const out = []
-  for (const el of Array.from(doc.documentElement.children)) {
-    const shape = elementToShape(el)
-    if (shape) out.push(shape)
-  }
+  collectShapes(doc.documentElement, out)
   return out
 }
 
@@ -216,9 +230,9 @@ export function stencilDraftIssues(meta, shapes, existingIds = []) {
 /**
  * Модель → объект stencil.json (v1: статика, без slots/animationTemplate).
  * ports включаем только непустыми — стенсил без портов валиден (декор).
- * `userCreated: true` — метка «нарисован в редакторе» (не из репозитория):
- * палитра по ней показывает кнопку удаления только у пользовательских стенсилов,
- * родные (в definitions/ без метки) удалить нельзя. Метка переживает reload.
+ * Метку редактируемости НЕ пишем: по умолчанию стенсил редактируем/удаляем;
+ * нередактируемые (программные / анимированные / с текстом) помечаются в своих
+ * definitions флагом `locked: true` — см. гейты в PalettePane.
  */
 export function buildStencilJson(meta, ports) {
   const json = {
@@ -228,8 +242,11 @@ export function buildStencilJson(meta, ports) {
     shapeFile: 'shape.svg',
     width: meta.width,
     height: meta.height,
-    userCreated: true,
   }
+  // Декл-флаги пишем только когда включены (json чище; отсутствие = false).
+  if (meta.noRotate) json.noRotate = true
+  if (meta.layoutOnly) json.layoutOnly = true
+  if (meta.quality) json.quality = true
   if (ports?.length) {
     json.ports = ports.map((p) => ({ name: p.name, x: p.x, y: p.y }))
   }

@@ -1,14 +1,12 @@
 {
   "id": "cell_value",
+  "locked": true,
   "label": "Значение тега",
   "category": "Текст и значения",
   "layoutOnly": true,
   "noRotate": true,
   "defaults": { "valueTag": "" },
-
   "shapeFile": "shape.svg",
   "width": 100,
-  "height": 20,
-
-  "ports": []
+  "height": 20
 }
