@@ -133,7 +133,7 @@ export function useSimulation() {
     // Bool-биндинги стенсильного template: для КАЖДОГО binding'а резолвим тег
     // ({slot.X} → tms.slots[X]), смотрим rolling state и применяем класс
     // соответствующего case'а (true или false). Несколько биндингов на одном
-    // теге (например .QW + .QW-cross у cell_qw или .closed + .open у
+    // теге (например .true у cell_qw или .true + .false у
     // cell_qr/cell_qk/cell_qf) переключаются согласованно.
     for (const cell of graph.getElements()) {
       const tms = cell.get('tms') || {}

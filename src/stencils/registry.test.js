@@ -72,9 +72,9 @@ describe('validateStencilJson', () => {
     expect(issues.some((s) => s.includes('slots[0] без "key"'))).toBe(true)
   })
 
-  it('slot без label → issue', () => {
+  it('slot без label — не проблема (label необязателен, есть фолбэк в UI)', () => {
     const issues = validateStencilJson(PATH, validStencil({ slots: [{ key: 'x' }] }))
-    expect(issues.some((s) => s.includes('slots[0] без "label"'))).toBe(true)
+    expect(issues.some((s) => s.includes('slots[0] без "label"'))).toBe(false)
   })
 
   it('animationTemplate без idSuffix → issue', () => {

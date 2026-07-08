@@ -21,7 +21,9 @@ export const ANIMATION_CLASS_OPTIONS = Object.keys(ANIMATION_CLASS_COLORS)
 // перекрашивает контуры в серый поверх любых voltage-классов (cascade-порядок:
 // .animation-off декларируется ПОСЛЕ voltage-правил). В отличие от opacity 0.4
 // эффект предсказуем независимо от родительских fill/stroke.
-export const ANIMATION_OFF_COLOR = '#64748b'
+// Локальна (не экспортируется): наружу нужен не сам hex, а готовые CSS-правила
+// из buildVoltageCssRules — единственный потребитель off-цвета вне этого файла.
+const ANIMATION_OFF_COLOR = '#64748b'
 
 // Class-name константы wire-protocol'а с WebScada-рантаймом. Литералы не
 // плодим — синхронизировано с CSS в exporter inlineStyles и useSimulation.

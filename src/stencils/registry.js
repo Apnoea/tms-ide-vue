@@ -60,9 +60,9 @@ export function validateStencilJson(path, json, svgText) {
   }
 
   // Известные поля верхнего уровня. Опечатки типа `slts` / `slosts` вылавливаем.
-  // Декларативные флаги (quality / intrinsicOnoff / layoutOnly / noRotate) —
-  // источник правды о специальном поведении стенсила: exporter / Inspector /
-  // Canvas читают их через getStencilById, никаких хардкод-Set'ов.
+  // Декларативные флаги (quality / layoutOnly / noRotate) — источник правды о
+  // специальном поведении стенсила: exporter / Inspector / Canvas читают их через
+  // getStencilById, никаких хардкод-Set'ов.
   const known = new Set([
     'id',
     'label',
@@ -75,7 +75,6 @@ export function validateStencilJson(path, json, svgText) {
     'slots',
     'animationTemplate',
     'quality',
-    'intrinsicOnoff',
     'layoutOnly',
     'noRotate',
     'defaults',
@@ -87,11 +86,12 @@ export function validateStencilJson(path, json, svgText) {
     }
   }
 
-  // Слоты — все должны иметь key и label
+  // Слоты обязаны иметь key (идентичность слота, идёт в {slot.KEY} и tms.slots).
+  // label необязателен: он чисто редакторная подпись строки в инспекторе с
+  // фолбэком (SwitchBlock → «Состояние»), в рантайм-экспорт не уходит.
   if (Array.isArray(json.slots)) {
     for (const [i, slot] of json.slots.entries()) {
       if (!slot.key) issues.push(`[stencils] ${path}: slots[${i}] без "key"`)
-      if (!slot.label) issues.push(`[stencils] ${path}: slots[${i}] без "label"`)
     }
   }
 

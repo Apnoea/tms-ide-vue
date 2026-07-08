@@ -8,8 +8,12 @@
  * никакого парсинга/санитайза чужого SVG не требуется. Координаты в модели уже
  * в системе стенсила (0..W, 0..H) и снапнуты к сетке, здесь только рендер.
  *
- * Поддерживаемые примитивы (v1, статика): rect, line, circle, polyline.
+ * Поддерживаемые примитивы: rect, line, circle, polyline. Внутренняя анимация
+ * (булево состояние): фигуры группируются по state (always/on/off) в
+ * <g data-anim-suffix>, из них же строится animationTemplate.
  */
+
+import { ATTR_SUFFIX } from '../constants/ids'
 
 // Числа в атрибутах — без хвостовых нулей и float-мусора (модель снапнута к
 // сетке, но масштаб/дробный шаг могут дать 12.5 → оставляем как есть, а 12.0 → 12).
@@ -119,19 +123,39 @@ export function cropToContent(shapes, ports = [], grid = 10) {
  * Фигуры оборачиваем в `<g>` — единый формат с рукописными стенсилами (у них
  * всё в группе) и задел под v2-анимацию (там на группу вешается data-anim-suffix).
  */
-export function serializeSvg(shapes, meta) {
-  const w = num(meta.width)
-  const h = num(meta.height)
-  const body = (shapes || [])
+// Тело группы: сериализованные фигуры с отступом (пустая строка, если фигур нет).
+function groupBody(shapes) {
+  return (shapes || [])
     .map(serializeShape)
     .filter(Boolean)
     .map((el) => `    ${el}`)
     .join('\n')
-  const group = body ? `  <g>\n${body}\n  </g>\n` : '  <g></g>\n'
+}
+
+export function serializeSvg(shapes, meta) {
+  const w = num(meta.width)
+  const h = num(meta.height)
+  const all = shapes || []
+  let groups
+  if (meta?.stateful) {
+    // Внутренняя анимация: статику — в базовую группу, true/false — каждое в свой
+    // <g data-anim-suffix> (рантайм вешает animation-hidden на противоположное
+    // значение тега). Суффикс = значение тега, при котором элемент виден. Порядок:
+    // база → .true → .false (анимируемое поверх статики).
+    const base = groupBody(all.filter((s) => (s.state || 'always') === 'always'))
+    const onTrue = groupBody(all.filter((s) => s.state === 'true'))
+    const onFalse = groupBody(all.filter((s) => s.state === 'false'))
+    groups = base ? `  <g>\n${base}\n  </g>\n` : '  <g></g>\n'
+    if (onTrue) groups += `  <g ${ATTR_SUFFIX}=".true">\n${onTrue}\n  </g>\n`
+    if (onFalse) groups += `  <g ${ATTR_SUFFIX}=".false">\n${onFalse}\n  </g>\n`
+  } else {
+    const body = groupBody(all)
+    groups = body ? `  <g>\n${body}\n  </g>\n` : '  <g></g>\n'
+  }
   return (
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">\n` +
-    group +
+    groups +
     '</svg>\n'
   )
 }
@@ -180,20 +204,29 @@ function elementToShape(el) {
 
 // Собирает фигуры рекурсивно: заходит внутрь `<g>` (наш формат и рукописные
 // стенсилы держат примитивы в группе). Порядок — DFS в порядке документа.
-function collectShapes(parent, out) {
+function collectShapes(parent, out, state = 'always') {
   for (const el of Array.from(parent.children)) {
+    if (el.tagName.toLowerCase() === 'g') {
+      // Суффикс состояния = значение тега (.true/.false) → state фигуры; прочие
+      // суффиксы редактор не моделит — наследуем родительское (по умолчанию always).
+      const suffix = el.getAttribute(ATTR_SUFFIX)
+      const childState = suffix === '.true' ? 'true' : suffix === '.false' ? 'false' : state
+      collectShapes(el, out, childState)
+      continue
+    }
     const shape = elementToShape(el)
-    if (shape) out.push(shape)
-    else if (el.tagName.toLowerCase() === 'g') collectShapes(el, out)
+    // state пишем только для true/false; always — дефолт (поле не заводим, чтобы
+    // статика парсилась байт-в-байт как раньше и round-trip'ы не разъезжались).
+    if (shape) out.push(state === 'always' ? shape : { ...shape, state })
   }
 }
 
 /**
  * Обратный парсинг shape.svg → массив примитивов модели (инверсия serializeSvg).
  * Рекурсит в `<g>`, поэтому читает и наш формат (фигуры в группе), и плоский
- * legacy, и статические рукописные (tv2/tv3). Незнакомые элементы (`path`,
- * `text`, `polygon`) и атрибуты групп (`data-anim-suffix`, `transform`) —
- * пропускаются: редактор их не моделит (это задача v2-анимации).
+ * legacy, и статические рукописные (tv2/tv3). `data-anim-suffix=".on"/".off"` на
+ * группе → state фигуры (внутренняя анимация); прочие суффиксы/атрибуты групп
+ * (`transform`) и незнакомые элементы (`path`, `text`) — пропускаются.
  */
 export function parseStencilSvg(svgText) {
   if (!svgText) return []
@@ -227,14 +260,35 @@ export function stencilDraftIssues(meta, shapes, existingIds = []) {
   return issues
 }
 
+// Карточка animationTemplate для состояния: элемент виден только в «своём»
+// значении тега, т.е. получает animation-hidden на противоположном (hideOn).
+function stateCard(idSuffix, tag, hideOn) {
+  return {
+    idSuffix,
+    type: 'shape',
+    bindings: [
+      {
+        tag,
+        when: {
+          source: 'value',
+          type: 'map',
+          cases: { [hideOn]: { apply: { addClass: 'animation-hidden' } } },
+        },
+      },
+    ],
+    detailTags: [{ tag }],
+  }
+}
+
 /**
- * Модель → объект stencil.json (v1: статика, без slots/animationTemplate).
- * ports включаем только непустыми — стенсил без портов валиден (декор).
- * Метку редактируемости НЕ пишем: по умолчанию стенсил редактируем/удаляем;
- * нередактируемые (программные / анимированные / с текстом) помечаются в своих
- * definitions флагом `locked: true` — см. гейты в PalettePane.
+ * Модель → объект stencil.json. ports включаем только непустыми — стенсил без
+ * портов валиден (декор). slots/animationTemplate — только при включённом
+ * `stateful` И наличии true/false-фигур (слот без реагирующих элементов бессмыслен):
+ * булев слот-драйвер + карточки видимости `.true`/`.false`. Иначе стенсил статичен
+ * (разреженный json — как у рукописных). Метку редактируемости НЕ пишем:
+ * по умолчанию редактируем/удаляем, нередактируемые — `locked: true` в definitions.
  */
-export function buildStencilJson(meta, ports) {
+export function buildStencilJson(meta, ports, shapes = []) {
   const json = {
     id: meta.id,
     label: meta.label,
@@ -249,6 +303,21 @@ export function buildStencilJson(meta, ports) {
   if (meta.quality) json.quality = true
   if (ports?.length) {
     json.ports = ports.map((p) => ({ name: p.name, x: p.x, y: p.y }))
+  }
+  if (meta.stateful) {
+    const states = new Set(
+      (shapes || []).map((s) => s.state).filter((st) => st === 'true' || st === 'false')
+    )
+    if (states.size) {
+      const key = meta.stateSlot?.key || 'onoff'
+      const tag = `{slot.${key}}`
+      // label не пишем: редакторная подпись (SwitchBlock даёт фолбэк), не рантайм.
+      json.slots = [{ key, type: 'Boolean', required: false }]
+      json.animationTemplate = []
+      // Суффикс = значение тега, при котором виден; скрываем на противоположном.
+      if (states.has('true')) json.animationTemplate.push(stateCard('.true', tag, 'false'))
+      if (states.has('false')) json.animationTemplate.push(stateCard('.false', tag, 'true'))
+    }
   }
   return json
 }

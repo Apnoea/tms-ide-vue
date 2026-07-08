@@ -172,12 +172,6 @@ function buildMultiCard(c) {
     }
   }
 
-  if (stencil?.intrinsicOnoff && c.slots?.onoff) {
-    bindings.push(
-      singleMultiBinding(c.slots.onoff, 'value', { type: 'map', cases: { false: true } }, CLASS_OFF)
-    )
-  }
-
   // switchSources: «Параллельно» (or) гасит только когда ВСЕ открыты → AND
   // условий «открыт»; «Последовательно» (and) гасит когда ЛЮБОЙ открыт → OR.
   // off = (все or открыты) И (любой and открыт), пустой фактор выпадает.
@@ -250,7 +244,7 @@ const innerPrefixFor = innerPrefix
 
 /**
  * Дублирует bindings новой карточки во ВСЕ стенсильные shape-карточки того же
- * animId (`animation-{stencilId}-{animId}.QW`, `.QW-cross`, …). Так класс
+ * animId (`animation-{stencilId}-{animId}.true`, `.false`, …). Так класс
  * ляжет не только на outer-wrapper, но и на внутренние shape-группы стенсила.
  * Text-карточки (вроде cell_value text-update) пропускаем — их раскрашивать
  * чужими классами не нужно.
@@ -368,7 +362,7 @@ export function exportProject(graph, paper = null) {
       // parser.instantiate сделает интерполяцию {slot.X} → tms.slots[X] в
       // bindings и соберёт SVG с id="animation-{stencilId}-{animId}{suffix}".
       // Передаём КОРОТКИЙ animId — id стенсильных карточек короткие
-      // (например animation-cell_qw-c1.QW).
+      // (например animation-cell_qw-c1.true).
       const inst = instantiate(stencil, animId, tms.slots || {})
       cellSvg = inst.svg
       Object.assign(animations, inst.animations)
@@ -542,24 +536,6 @@ export function exportProject(graph, paper = null) {
     }
   }
 
-  // ─── Intrinsic switch (cell_qw): slot.onoff неявно даёт animation-off ───
-  // Привязав тег к слоту, юзер сразу получает И крестик-визуал (через .QW /
-  // .QW-cross из стенсильного шаблона), И серость всей ячейки на false.
-  // Без ручного дублирования в switchSources. switchSources остаётся для
-  // дополнительных РОДИТЕЛЬСКИХ выключателей — их биндинги добавляются ПОВЕРХ
-  // slot.onoff (AND-семантика).
-  // Merge в стенсильные .QW / .QW-cross НЕ делаем: стенсильный шаблон уже
-  // эмитит свой animation-off биндинг для slot.onoff в .QW — дубль не нужен,
-  // да и CSS-cascade с outer-wrapper всё равно красит вложенные элементы.
-  for (const c of cellExports) {
-    if (needsMulti(c)) continue
-    if (!getStencilById(c.stencilId)?.intrinsicOnoff) continue
-    const onoffTag = c.slots?.onoff
-    if (!onoffTag) continue
-    const card = buildSwitchCard([onoffTag])
-    assignOrMergeAnimation(animations, outerKeyFor(c.stencilId, c.animId), card)
-  }
-
   // ─── cell_node наследует voltage от соединённого провода ───
   // Если у точки соединения нет своего voltageSource — берём первый connected
   // wire с voltage. Узел получает ту же range-карточку → визуально перекрасится
@@ -637,7 +613,7 @@ export function exportProject(graph, paper = null) {
   // Биндинги кладём ТОЛЬКО на outer-карточку — оттуда CSS-каскад
   // `.animation-off *:not(text) { stroke }` затемняет ВСЕ stroke-элементы
   // стенсила (хвосты, контакты, шарнир, рычаги, заземление). Если класть на
-  // inner-карточки (.closed / .open), серым станет только текущий видимый
+  // inner-карточки (.true / .false), серым станет только текущий видимый
   // рычаг — остальной корпус останется чёрным.
   //
   // Outer-карточку создаём если её ещё нет (cell без voltage/switch — просто

@@ -10,11 +10,64 @@ import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
+import SelectButton from 'primevue/selectbutton'
 import { getCategories, registryVersion } from '../stencils/registry'
 import { snapToGrid } from '../utils/grid'
 import { useStencilEditor } from '../composables/useStencilEditor'
 
-const { meta, editingId } = useStencilEditor()
+const { meta, editingId, shapes, selectedId, updateShape, commit, setShapeState } =
+  useStencilEditor()
+
+// Свойства выделенной фигуры (цвет линии/заливка) правятся здесь же. У линии
+// заливки нет — только обводка.
+const selectedShape = computed(() => shapes.value.find((s) => s.id === selectedId.value) || null)
+const hasFill = computed(() => selectedShape.value && selectedShape.value.type !== 'line')
+
+// <input type="color"> требует 6-значный #rrggbb: разворачиваем #rgb, «none»/
+// пусто → запасной цвет (сам факт заливки регулируется отдельной галкой).
+function normHex(c, fallback) {
+  if (!c || c === 'none') return fallback
+  if (/^#[0-9a-fA-F]{3}$/.test(c)) {
+    return '#' + [...c.slice(1)].map((ch) => ch + ch).join('')
+  }
+  return c
+}
+const strokeColor = computed(() => normHex(selectedShape.value?.stroke, '#000000'))
+const fillEnabled = computed(() => {
+  const f = selectedShape.value?.fill
+  return !!f && f !== 'none'
+})
+const fillColor = computed(() => normHex(selectedShape.value?.fill, '#ffffff'))
+
+// Живое обновление на @input (видно на холсте сразу), один снимок истории на
+// @change (закрытие пипетки) — как жесты рисования.
+function setStroke(e) {
+  if (selectedShape.value) updateShape(selectedShape.value.id, { stroke: e.target.value })
+}
+function setFill(e) {
+  if (selectedShape.value) updateShape(selectedShape.value.id, { fill: e.target.value })
+}
+function toggleFill(on) {
+  if (!selectedShape.value) return
+  updateShape(selectedShape.value.id, {
+    fill: on ? normHex(selectedShape.value.fill, '#ffffff') : 'none',
+  })
+  commit()
+}
+
+// Видимость фигуры по булеву состоянию стенсила (внутренняя анимация):
+// always — статична, on/off — видна только при этом значении тега-драйвера.
+const STATE_OPTIONS = [
+  { label: 'Всегда', value: 'always' },
+  { label: 'При вкл', value: 'true' },
+  { label: 'При выкл', value: 'false' },
+]
+const shapeState = computed({
+  get: () => selectedShape.value?.state || 'always',
+  set: (v) => {
+    if (selectedShape.value) setShapeState(selectedShape.value.id, v)
+  },
+})
 
 // Категории для комбо (существующие + можно вписать новую). registryVersion —
 // чтобы список пересобрался, если реестр поменяется.
@@ -121,6 +174,70 @@ function onIdInput(e) {
           <Checkbox v-model="meta.quality" binary input-id="se-quality" />
           <span class="text-surface-700">Анимация качества сигнала (Quality)</span>
         </label>
+      </div>
+
+      <div class="border-t border-surface-200 pt-4">
+        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
+          Анимация состояния
+        </div>
+        <label class="flex items-center gap-2 mb-2 cursor-pointer">
+          <Checkbox v-model="meta.stateful" binary input-id="se-stateful" />
+          <span class="text-surface-700">Булево состояние (вкл/выкл)</span>
+        </label>
+        <p v-if="meta.stateful" class="text-xs text-surface-400">
+          Выделяй фигуру и задавай ей видимость (При&nbsp;вкл / При&nbsp;выкл) ниже.
+        </p>
+      </div>
+
+      <div class="border-t border-surface-200 pt-4">
+        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
+          Выделенная фигура
+        </div>
+        <div v-if="selectedShape" class="space-y-2.5">
+          <label class="flex items-center justify-between cursor-pointer">
+            <span class="text-surface-700">Цвет линии</span>
+            <input
+              type="color"
+              :value="strokeColor"
+              class="h-7 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+              @input="setStroke"
+              @change="commit"
+            />
+          </label>
+          <template v-if="hasFill">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                :model-value="fillEnabled"
+                binary
+                input-id="se-fill"
+                @update:model-value="toggleFill"
+              />
+              <span class="text-surface-700">Заливка</span>
+            </label>
+            <label v-if="fillEnabled" class="flex items-center justify-between cursor-pointer">
+              <span class="text-surface-700">Цвет заливки</span>
+              <input
+                type="color"
+                :value="fillColor"
+                class="h-7 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                @input="setFill"
+                @change="commit"
+              />
+            </label>
+          </template>
+          <div v-if="meta.stateful" class="pt-1">
+            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Видимость</div>
+            <SelectButton
+              v-model="shapeState"
+              :options="STATE_OPTIONS"
+              option-label="label"
+              option-value="value"
+              :allow-empty="false"
+              size="small"
+            />
+          </div>
+        </div>
+        <p v-else class="text-xs text-surface-400">Выделите фигуру на холсте</p>
       </div>
     </div>
   </aside>

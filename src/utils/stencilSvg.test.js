@@ -171,6 +171,90 @@ describe('stencilDraftIssues', () => {
   })
 })
 
+describe('внутренняя анимация (state)', () => {
+  const shapes = [
+    { type: 'line', x1: 10, y1: 12, x2: 10, y2: 28, stroke: '#000', strokeWidth: 2, state: 'true' },
+    { type: 'line', x1: 10, y1: 28, x2: 0, y2: 16, stroke: '#000', strokeWidth: 2, state: 'false' },
+    { type: 'circle', cx: 10, cy: 28, r: 2, stroke: '#000', strokeWidth: 2, fill: 'none' },
+  ]
+  const meta = {
+    width: 20,
+    height: 40,
+    stateful: true,
+    stateSlot: { key: 'onoff', label: 'Рычаг' },
+  }
+
+  it('serializeSvg группирует true/false в <g data-anim-suffix>, статику — в базовую', () => {
+    const svg = serializeSvg(shapes, meta)
+    expect(svg).toContain('<g data-anim-suffix=".true">')
+    expect(svg).toContain('<g data-anim-suffix=".false">')
+    // circle без state попал в базовую группу (без суффикса)
+    expect(svg).toMatch(/<g>\s*<circle/)
+  })
+
+  it('serializeSvg игнорирует state, когда stateful выключен (одна группа, без суффикса)', () => {
+    const svg = serializeSvg(shapes, { width: 20, height: 40 })
+    expect(svg).not.toContain('data-anim-suffix')
+  })
+
+  it('пустые true/false группы не эмитятся', () => {
+    const svg = serializeSvg([{ type: 'rect', x: 0, y: 0, w: 10, h: 10 }], {
+      width: 10,
+      height: 10,
+      stateful: true,
+    })
+    expect(svg).not.toContain('data-anim-suffix')
+  })
+
+  it('parseStencilSvg читает .true/.false → state, round-trip сохраняет', () => {
+    const svg = serializeSvg(shapes, meta)
+    const parsed = parseStencilSvg(svg)
+    expect(parsed.find((s) => s.state === 'true')).toBeTruthy()
+    expect(parsed.find((s) => s.state === 'false')).toBeTruthy()
+    // статика — без поля state
+    expect(parsed.find((s) => s.type === 'circle').state).toBeUndefined()
+  })
+
+  it('buildStencilJson эмитит slot + animationTemplate при stateful и наличии true/false', () => {
+    const json = buildStencilJson(
+      { id: 'cell_x', label: 'X', category: 'C', width: 20, height: 40, ...meta },
+      [],
+      shapes
+    )
+    expect(json.slots).toEqual([{ key: 'onoff', type: 'Boolean', required: false }])
+    expect(json.animationTemplate).toHaveLength(2)
+    const onTrue = json.animationTemplate.find((t) => t.idSuffix === '.true')
+    expect(onTrue.bindings[0].tag).toBe('{slot.onoff}')
+    expect(onTrue.bindings[0].when.cases.false.apply.addClass).toBe('animation-hidden')
+    const onFalse = json.animationTemplate.find((t) => t.idSuffix === '.false')
+    expect(onFalse.bindings[0].when.cases.true.apply.addClass).toBe('animation-hidden')
+  })
+
+  it('buildStencilJson не эмитит анимацию, если stateful выключен или нет true/false', () => {
+    const base = { id: 'cell_x', label: 'X', category: 'C', width: 20, height: 20 }
+    const staticShapes = [{ type: 'rect', x: 0, y: 0, w: 10, h: 10 }]
+    const offToggle = buildStencilJson({ ...base, stateful: false }, [], shapes)
+    expect(offToggle.slots).toBeUndefined()
+    expect(offToggle.animationTemplate).toBeUndefined()
+    const noStates = buildStencilJson(
+      { ...base, stateful: true, stateSlot: { key: 'state', label: 'X' } },
+      [],
+      staticShapes
+    )
+    expect(noStates.slots).toBeUndefined()
+  })
+
+  it('эмитит только используемые состояния (одно из двух)', () => {
+    const json = buildStencilJson(
+      { id: 'cell_x', label: 'X', category: 'C', width: 20, height: 20, ...meta },
+      [],
+      [shapes[0]] // только true
+    )
+    expect(json.animationTemplate).toHaveLength(1)
+    expect(json.animationTemplate[0].idSuffix).toBe('.true')
+  })
+})
+
 describe('cropToContent', () => {
   it('обрезает поля и сдвигает контент в (0,0)', () => {
     const { shapes, width, height } = cropToContent(

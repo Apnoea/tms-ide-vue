@@ -47,7 +47,7 @@ describe('exportProject', () => {
     expect(result.animations.animations).toEqual({})
   })
 
-  it('cell_qw: пишет data-tms-meta и animation-карточки .QW / .QW-cross по cellId', () => {
+  it('cell_qw: пишет data-tms-meta и переключение позиции через .true', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
@@ -62,31 +62,24 @@ describe('exportProject', () => {
     const result = exportProject(graph)
     expect(result.svgText).toContain('data-tms-stencil="cell_qw"')
     expect(result.svgText).toContain('data-tms-meta=')
-    // Outer-wrapper id и стенсильные карточки — все по cellId
     expect(result.svgText).toContain('animation-cell_qw-c1')
 
     const anims = result.animations.animations
-    expect(anims).toHaveProperty('animation-cell_qw-c1.QW')
-    expect(anims).toHaveProperty('animation-cell_qw-c1.QW-cross')
-    // Биндинг тега из slot.onoff — подставлен в шаблоны стенсила
-    expect(anims['animation-cell_qw-c1.QW'].bindings[0].tag).toBe('PS031VK001.ONOFF')
+    // Своей серости у cell_qw больше нет — карточки .QW не существует.
+    expect(anims['animation-cell_qw-c1.QW']).toBeUndefined()
+    // Позицию (+/−) переключает .true: onoff=false → крестик скрыт.
+    expect(anims).toHaveProperty('animation-cell_qw-c1.true')
+    const cross = anims['animation-cell_qw-c1.true'].bindings[0]
+    expect(cross.tag).toBe('PS031VK001.ONOFF')
+    expect(cross.when?.cases?.false?.apply?.addClass).toBe('animation-hidden')
 
-    // slot.onoff неявно даёт animation-off биндинг на outer-wrapper:
-    // крестик переключается (стенсильный .QW / .QW-cross) И ячейка серая
-    // на false без ручного добавления switchSources.
+    // Outer-wrapper есть ради detailTags, но своего animation-off нет: серость
+    // (де-энергизация) задаётся на холсте (switchSources), а не в стенсиле.
     expect(anims).toHaveProperty('animation-cell_qw-c1')
-    const outerOff = anims['animation-cell_qw-c1'].bindings.find(
-      (b) =>
-        b.tag === 'PS031VK001.ONOFF' && b.when?.cases?.false?.apply?.addClass === 'animation-off'
+    const anyOff = Object.values(anims).some((card) =>
+      (card.bindings || []).some((b) => b.when?.cases?.false?.apply?.addClass === 'animation-off')
     )
-    expect(outerOff).toBeDefined()
-    // На .QW animation-off уже эмитится стенсильным шаблоном — outer-merge не
-    // нужен (избежать дубля). Проверяем, что биндинг РОВНО один.
-    const vkOffBindings = anims['animation-cell_qw-c1.QW'].bindings.filter(
-      (b) =>
-        b.tag === 'PS031VK001.ONOFF' && b.when?.cases?.false?.apply?.addClass === 'animation-off'
-    )
-    expect(vkOffBindings).toHaveLength(1)
+    expect(anyOff).toBe(false)
 
     // detailTags на outer-wrapper — рантайм откроет popup при клике на ячейку
     expect(anims['animation-cell_qw-c1'].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
@@ -97,9 +90,8 @@ describe('exportProject', () => {
       mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 }),
     ])
     const anims = exportProject(graph).animations.animations
-    expect(anims['animation-cell_qw-c1.QW']).toBeUndefined()
-    expect(anims['animation-cell_qw-c1.QW-cross']).toBeUndefined()
-    // Без slot.onoff intrinsic-switch не эмитит animation-off
+    expect(anims['animation-cell_qw-c1.true']).toBeUndefined()
+    // Без привязок нет и detailTags → outer-карточка не создаётся
     expect(anims['animation-cell_qw-c1']).toBeUndefined()
   })
 
@@ -158,8 +150,8 @@ describe('exportProject', () => {
     const anims = exportProject(graph).animations.animations
     expect(anims).toHaveProperty('animation-cell_qw-c1')
     expect(anims['animation-cell_qw-c1'].bindings[0].tag).toBe('PS031.UA')
-    // voltage биндинг МЕРЖИТСЯ в .QW / .QW-cross
-    const vkBindings = anims['animation-cell_qw-c1.QW'].bindings
+    // voltage биндинг МЕРЖИТСЯ в стенсильную .true
+    const vkBindings = anims['animation-cell_qw-c1.true'].bindings
     expect(vkBindings.some((b) => b.tag === 'PS031.UA')).toBe(true)
   })
 
@@ -188,9 +180,10 @@ describe('exportProject', () => {
     expect(anims['animation-cell_bus-c1']?.bindings?.some((b) => b.tag === 'X')).not.toBe(true)
   })
 
-  it('cell_qw: slot.onoff + switchSources родителей → N+1 независимых биндингов', () => {
-    // Типичный кейс: свой выключатель + общий по ПС + секционный. Все три тега
-    // независимы; любой false → ячейка серая (AND через несколько биндингов).
+  it('cell_qw: свой onoff → позиция (.true), switchSources родителей → серость на outer', () => {
+    // Типичный кейс: свой выключатель + общий по ПС + секционный. Своя серость
+    // убрана — LOCAL.ONOFF только переключает позицию (.true), а серость
+    // (обесточенность) даёт switchSources родителей на outer (красит всё каскадом).
     const graph = mockGraph([
       mockCell({
         id: 'c1',
@@ -200,25 +193,24 @@ describe('exportProject', () => {
       }),
     ])
     const anims = exportProject(graph).animations.animations
-    const bindings = anims['animation-cell_qw-c1'].bindings
-    const offBindings = bindings.filter(
+    // Outer сереет только по родительским тегам.
+    const outerOff = anims['animation-cell_qw-c1'].bindings.filter(
       (b) => b.when?.cases?.false?.apply?.addClass === 'animation-off'
     )
-    expect(offBindings).toHaveLength(3)
-    expect(offBindings.map((b) => b.tag).sort()).toEqual(
-      ['LOCAL.ONOFF', 'SECTION.ONOFF', 'ОБЩИЙ.ONOFF'].sort()
-    )
-    // На .QW: 1 стенсильный (slot.onoff) + 2 от switchSources родителей =
-    // 3 биндинга animation-off. slot.onoff в outer-merge НЕ задваивается
-    // (стенсильный шаблон уже эмитит этот тег прямо в .QW).
-    const vkBindings = anims['animation-cell_qw-c1.QW'].bindings
-    const vkOff = vkBindings.filter(
-      (b) => b.when?.cases?.false?.apply?.addClass === 'animation-off'
-    )
-    expect(vkOff).toHaveLength(3)
-    expect(vkOff.map((b) => b.tag).sort()).toEqual(
-      ['LOCAL.ONOFF', 'SECTION.ONOFF', 'ОБЩИЙ.ONOFF'].sort()
-    )
+    expect(outerOff.map((b) => b.tag).sort()).toEqual(['SECTION.ONOFF', 'ОБЩИЙ.ONOFF'].sort())
+    // Свой onoff (LOCAL) прячет крестик (.true), но серым НЕ делает.
+    const cross = anims['animation-cell_qw-c1.true'].bindings
+    expect(
+      cross.find(
+        (b) =>
+          b.tag === 'LOCAL.ONOFF' && b.when?.cases?.false?.apply?.addClass === 'animation-hidden'
+      )
+    ).toBeDefined()
+    expect(
+      cross.find(
+        (b) => b.tag === 'LOCAL.ONOFF' && b.when?.cases?.false?.apply?.addClass === 'animation-off'
+      )
+    ).toBeUndefined()
   })
 
   it('switchSources на линии → карточка с animation-off на link-id', () => {
@@ -376,7 +368,7 @@ describe('exportProject', () => {
     })
   })
 
-  it('cell_qr с slot.onoff: .closed (cases.false→hidden) и .open (cases.true→hidden)', () => {
+  it('cell_qr с slot.onoff: .true (cases.false→hidden) и .false (cases.true→hidden)', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
@@ -390,26 +382,26 @@ describe('exportProject', () => {
     const anims = exported.animations.animations
 
     // Две карточки на двух SVG-линиях
-    expect(anims).toHaveProperty('animation-cell_qr-c1.closed')
-    expect(anims).toHaveProperty('animation-cell_qr-c1.open')
+    expect(anims).toHaveProperty('animation-cell_qr-c1.true')
+    expect(anims).toHaveProperty('animation-cell_qr-c1.false')
 
-    // .closed: hidden при value=false
-    const closedBinding = anims['animation-cell_qr-c1.closed'].bindings.find(
+    // .true: hidden при value=false
+    const closedBinding = anims['animation-cell_qr-c1.true'].bindings.find(
       (b) => b.when?.source === 'value'
     )
     expect(closedBinding?.tag).toBe('TAG.ONOFF')
     expect(closedBinding?.when?.cases?.false?.apply?.addClass).toBe('animation-hidden')
 
-    // .open: hidden при value=true
-    const openBinding = anims['animation-cell_qr-c1.open'].bindings.find(
+    // .false: hidden при value=true
+    const openBinding = anims['animation-cell_qr-c1.false'].bindings.find(
       (b) => b.when?.source === 'value'
     )
     expect(openBinding?.tag).toBe('TAG.ONOFF')
     expect(openBinding?.when?.cases?.true?.apply?.addClass).toBe('animation-hidden')
 
     // В SVG обе линии получили id, по которым их найдёт WebScada
-    expect(exported.svgText).toContain('id="animation-cell_qr-c1.closed"')
-    expect(exported.svgText).toContain('id="animation-cell_qr-c1.open"')
+    expect(exported.svgText).toContain('id="animation-cell_qr-c1.true"')
+    expect(exported.svgText).toContain('id="animation-cell_qr-c1.false"')
   })
 
   it('quality: cell_qk получает bad-биндинг ТОЛЬКО на outer для каждого тега', () => {
@@ -435,7 +427,7 @@ describe('exportProject', () => {
       expect(b.when.type).toBe('range')
       expect(b.when.cases).toEqual([{ min: 0, max: 191, apply: { addClass: 'animation-off' } }])
     }
-    // Inner-карточки (.closed / .open) quality НЕ должны иметь —
+    // Inner-карточки (.true / .false) quality НЕ должны иметь —
     // animation-off на outer и так каскадит на все потомки.
     for (const key of Object.keys(anims)) {
       if (key === 'animation-cell_qk-c1') continue
@@ -521,7 +513,7 @@ describe('exportProject', () => {
   it('short-id collision: две ячейки с одинаковым первым сегментом UUID получают разные animation-keys', () => {
     // Контрфактический сценарий: два UUID с совпадающим первым сегментом.
     // Без uniqueShortId оба свернулись бы в animId='abc12345' и слили бы свои
-    // bindings (LOCAL.A и LOCAL.B) в одну карточку + дубль id в SVG.
+    // bindings (LOCAL.A и LOCAL.B, живут в стенсильной .true) + дубль id в SVG.
     const graph = mockGraph([
       mockCell({
         id: 'abc12345-1111-1111-1111-111111111111',
@@ -539,9 +531,9 @@ describe('exportProject', () => {
     // Первая ячейка получает короткий первый сегмент, вторая расширяется.
     expect(anims['animation-cell_qw-abc12345']).toBeDefined()
     expect(anims['animation-cell_qw-abc12345-2222']).toBeDefined()
-    // Биндинги НЕ слились в одну карточку
-    const firstTags = anims['animation-cell_qw-abc12345'].bindings.map((b) => b.tag)
-    const secondTags = anims['animation-cell_qw-abc12345-2222'].bindings.map((b) => b.tag)
+    // Биндинги НЕ слились в одну карточку (свой onoff у cell_qw — в .true)
+    const firstTags = anims['animation-cell_qw-abc12345.true'].bindings.map((b) => b.tag)
+    const secondTags = anims['animation-cell_qw-abc12345-2222.true'].bindings.map((b) => b.tag)
     expect(firstTags).toContain('LOCAL.A')
     expect(firstTags).not.toContain('LOCAL.B')
     expect(secondTags).toContain('LOCAL.B')

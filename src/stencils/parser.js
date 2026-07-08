@@ -37,7 +37,7 @@
  *     // animationTemplate — список карточек с подстановкой через {slot.KEY}
  *     "animationTemplate": [
  *       {
- *         "idSuffix":   ".QW",                // финальный id = "animation-{stencilId}-{cellId}{idSuffix}"
+ *         "idSuffix":   ".true",              // финальный id = "animation-{stencilId}-{cellId}{idSuffix}"
  *         "type":       "shape",
  *         "bindings":   [{ "tag": "{slot.onoff}", ... }]
  *       }

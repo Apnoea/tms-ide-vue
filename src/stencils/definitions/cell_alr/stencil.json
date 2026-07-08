@@ -6,7 +6,6 @@
   "slots": [
     {
       "key": "alr",
-      "label": "Состояние аварии",
       "type": "Boolean",
       "required": true
     }
@@ -16,7 +15,7 @@
   "height": 30,
   "animationTemplate": [
     {
-      "idSuffix": ".ALR",
+      "idSuffix": ".true",
       "type": "shape",
       "bindings": [
         {

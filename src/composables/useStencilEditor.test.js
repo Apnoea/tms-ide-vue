@@ -176,10 +176,60 @@ describe('useStencilEditor', () => {
     expect(ed.output().json).toMatchObject({ noRotate: true, layoutOnly: true })
   })
 
+  it('addShape по умолчанию даёт state=always; setShapeState меняет и коммитит', () => {
+    const ed = createStencilEditor()
+    const s = ed.addShape({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 })
+    expect(s.state).toBe('always')
+    ed.setShapeState(s.id, 'true')
+    expect(ed.shapes.value[0].state).toBe('true')
+    ed.undo() // setShapeState коммитит → undo возвращает к always
+    expect(ed.shapes.value[0].state).toBe('always')
+  })
+
+  it('stateful выключен по умолчанию; output не пишет анимацию, пока не включён', () => {
+    const ed = createStencilEditor()
+    ed.meta.id = 'cell_anim'
+    ed.meta.label = 'A'
+    ed.meta.category = 'Прочее'
+    ed.meta.width = 20
+    ed.meta.height = 20
+    const s = ed.addShape({ type: 'line', x1: 10, y1: 0, x2: 10, y2: 20 })
+    ed.setShapeState(s.id, 'true')
+    expect(ed.meta.stateful).toBe(false)
+    expect(ed.output().json.animationTemplate).toBeUndefined() // тумблер выключен
+
+    ed.meta.stateful = true
+    const { json, svg } = ed.output()
+    expect(json.slots).toEqual([{ key: 'onoff', type: 'Boolean', required: false }])
+    expect(json.animationTemplate).toHaveLength(1)
+    expect(svg).toContain('data-anim-suffix=".true"')
+  })
+
+  it('loadStencil включает stateful и читает слот из animationTemplate-стенсила', () => {
+    const ed = createStencilEditor()
+    ed.loadStencil({
+      id: 'cell_state',
+      label: 'S',
+      category: 'Прочее',
+      width: 20,
+      height: 40,
+      // старый ключ state/лейбл — на загрузке нормализуются к стандартному onoff (без label)
+      slots: [{ key: 'state', label: 'пук', type: 'Boolean', required: false }],
+      animationTemplate: [{ idSuffix: '.true', type: 'shape', bindings: [] }],
+      svgText:
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 40"><g></g>' +
+        '<g data-anim-suffix=".true"><line x1="10" y1="12" x2="10" y2="28" stroke="#000" stroke-width="2"/></g></svg>',
+    })
+    expect(ed.meta.stateful).toBe(true)
+    expect(ed.meta.stateSlot).toEqual({ key: 'onoff' })
+    expect(ed.shapes.value[0]).toMatchObject({ type: 'line', state: 'true' })
+  })
+
   it('reset очищает черновик к пустому', () => {
     const ed = createStencilEditor()
     ed.meta.id = 'cell_x'
     ed.meta.noRotate = true
+    ed.meta.stateful = true
     ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
     ed.reset()
     expect(ed.meta).toMatchObject({
@@ -189,6 +239,7 @@ describe('useStencilEditor', () => {
       height: 40,
       noRotate: false,
       layoutOnly: false,
+      stateful: false,
     })
     expect(ed.shapes.value).toHaveLength(0)
     expect(ed.editingId.value).toBeNull()

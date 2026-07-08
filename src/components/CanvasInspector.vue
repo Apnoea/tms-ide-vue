@@ -28,14 +28,8 @@ import TagField from './TagField.vue'
 import VoltageSourceBlock from './VoltageSourceBlock.vue'
 import AlarmSourceBlock from './AlarmSourceBlock.vue'
 import SwitchBlock from './SwitchBlock.vue'
-import {
-  ANIMATION_CLASS_COLORS,
-  ANIMATION_CLASS_OPTIONS,
-  ANIMATION_OFF_COLOR,
-  CLASS_OFF,
-  CLASS_HIDDEN,
-} from '../constants/animation'
-import { hasSlotPlaceholder, previewOuterKey } from '../constants/ids'
+import { ANIMATION_CLASS_OPTIONS } from '../constants/animation'
+import { previewOuterKey } from '../constants/ids'
 
 // Дефолтные диапазоны voltage-source. .map(({...r})) на каждое использование —
 // чтобы ячейки не делили один и тот же массив.
@@ -92,28 +86,23 @@ const details = computed(() => {
       // id outer-карточки в animations.json/SVG (тот же, что эмитит exporter).
       exportId: previewOuterKey(tms.stencilId, cell.id, tms.valueTag),
       // cell_alr рендерит свой required-слот через AlarmSourceBlock (с описанием,
-      // bell-иконкой, без отдельной строки в «Привязки тегов»). Булев источник для
-      // тревоги бессмыслен — кнопку «Булев источник» прячем тоже.
+      // bell-иконкой). Булев источник для тревоги бессмыслен — прячем его тоже.
       isAlarm: tms.stencilId === 'cell_alr',
       // Стенсилы со slot.onoff (cell_qw / qr / qk / qf — см. isSwitchStencil
-      // convention в registry) рендерят слот через SwitchBlock первой строкой
-      // (intrinsic), а не отдельной строкой в «Привязках тегов» — чтобы тег не
-      // показывался дважды.
+      // convention в registry) рендерят slot.onoff через SwitchBlock первой
+      // строкой (основной тег) вместе с зависимостями switchSources.
       isSwitch: isSwitchStencil(stencil),
       // Тег самого свитча (slot.onoff) — для исключения из switchSources-зависимостей.
       // Из payload (tms.slots.onoff), как и multi-select; не по индексу slots[0].
       onoffTag: slotValues.onoff || '',
       // Слоты для UI: декларация из стенсила + текущее значение из tms.slots.
-      // type — тип тега (Boolean/Float/…); picker фильтрует bool-слоты по нему.
-      // tooltip — встроенные правила анимации для этого слота (см. buildSlotTooltip),
-      // показываем как HTML-tooltip на info-иконке рядом с лейблом слота.
+      // Нужны Switch/Alarm-блокам (slots[0]) и slot-picker'у; type — тип тега.
       slots: slotsDef.map((s) => ({
         key: s.key,
         label: s.label,
         type: s.type,
         required: !!s.required,
         value: slotValues[s.key] || '',
-        tooltip: buildSlotTooltip(s.key, stencil?.animationTemplate),
       })),
       voltageSource: tms.voltageSource || null,
       switchSources: tms.switchSources || null,
@@ -653,78 +642,6 @@ const navBroken = computed(() => {
   return !!cur && !workspace.formIds.includes(cur)
 })
 
-// Цветовая карта для swatch'ей в подсказке-тултипе слота.
-// Voltage-палитра + off — те же значения попадают в CSS экспорта/симуляции.
-const BINDING_CLASS_COLORS = {
-  ...ANIMATION_CLASS_COLORS,
-  [CLASS_OFF]: ANIMATION_OFF_COLOR,
-}
-
-/**
- * Правила animationTemplate для конкретного слота — для info-tooltip'а
- * рядом со слотом. Дубликаты схлопываются.
- */
-function slotBindingRules(slotKey, animationTemplate) {
-  const rules = []
-  for (const tpl of animationTemplate || []) {
-    for (const binding of tpl.bindings || []) {
-      if (!hasSlotPlaceholder(binding.tag, slotKey)) continue
-      const when = binding.when || {}
-      if (when.type === 'map' && when.cases) {
-        for (const [value, action] of Object.entries(when.cases)) {
-          const cls = action?.apply?.addClass
-          if (!cls) continue
-          rules.push({
-            condition: `= ${value}`,
-            applyClass: cls,
-            color: BINDING_CLASS_COLORS[cls] || null,
-            hidden: cls === CLASS_HIDDEN,
-          })
-        }
-      } else if (when.type === 'range' && Array.isArray(when.cases)) {
-        for (const range of when.cases) {
-          const cls = range.apply?.addClass
-          if (!cls) continue
-          rules.push({
-            condition: `в [${range.min}, ${range.max})`,
-            applyClass: cls,
-            color: BINDING_CLASS_COLORS[cls] || null,
-            hidden: cls === CLASS_HIDDEN,
-          })
-        }
-      }
-    }
-  }
-  const seen = new Set()
-  return rules.filter((r) => {
-    const k = `${r.condition}→${r.applyClass}`
-    if (seen.has(k)) return false
-    seen.add(k)
-    return true
-  })
-}
-
-/** HTML-объект для v-tooltip: правила со swatch'ами. null = иконку не рендерить. */
-function buildSlotTooltip(slotKey, animationTemplate) {
-  const rules = slotBindingRules(slotKey, animationTemplate)
-  if (!rules.length) return null
-  const items = rules
-    .map((r) => {
-      const swatch = r.color
-        ? `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${r.color};vertical-align:middle;margin-right:4px;border:1px solid rgba(0,0,0,0.15)"></span>`
-        : r.hidden
-          ? `<i class="pi pi-eye-slash" style="font-size:10px;margin-right:4px;opacity:0.7"></i>`
-          : ''
-      return `<li style="margin-bottom:2px">тег ${r.condition} → ${swatch}<code style="font-size:10px">${r.applyClass}</code></li>`
-    })
-    .join('')
-  return {
-    value: `<div style="min-width:160px"><div style="margin-bottom:4px;font-weight:600;font-size:11px">Поведение анимации:</div><ul style="margin:0;padding-left:14px;font-size:11px;list-style:disc">${items}</ul></div>`,
-    escape: false,
-    showDelay: 300,
-  }
-}
-
 // switchSources принимает только bool-теги — эффект «false → затемнение»,
 // для аналогового значения бессмыслен. Фильтр по типу из tag-list'а.
 const booleanTags = computed(() => project.tags.filter((t) => isBooleanType(t.type)))
@@ -989,52 +906,6 @@ const switchPickerTags = computed(() => {
                   В проекте нет других форм
                 </div>
               </template>
-            </div>
-
-            <!-- Слоты стенсила: каждый слот = один тег, который попадёт в
- соответствующие bindings шаблона при экспорте.
- cell_alr / switch-стенсилы (isSwitch) рендерят свой единственный required-слот в
- специальном Alarm/Switch-блоке внутри секции «Анимации» — поэтому
- общий slot-row для них скрываем, чтобы тег не показывался дважды. -->
-            <div
-              v-if="details.slots.length && !details.isAlarm && !details.isSwitch"
-              class="space-y-2"
-            >
-              <div class="text-[11px] uppercase tracking-wider text-surface-500">
-                Привязки тегов
-              </div>
-              <div v-for="slot in details.slots" :key="slot.key" class="space-y-1">
-                <div class="flex items-center gap-2 text-[11px] text-surface-500">
-                  <span>{{ slot.label }}</span>
-                  <span
-                    v-if="slot.required && !slot.value"
-                    class="text-amber-500"
-                    title="Обязательно для работы анимации"
-                  >
-                    *
-                  </span>
-                  <!-- info-иконка с тултипом: правила встроенной анимации стенсила,
- реагирующие на этот слот (описание по наведению, чтобы не засорять панель).
- Если у слота нет реактивных правил — иконку не рендерим. -->
-                  <i
-                    v-if="slot.tooltip"
-                    v-tooltip.bottom="slot.tooltip"
-                    class="pi pi-info-circle text-surface-400 cursor-help text-[11px]"
-                  />
-                  <!-- Тип тега, ожидаемого слотом (Boolean/Float/…) — справа от лейбла. -->
-                  <span v-if="slot.type" class="text-surface-400 ml-auto font-mono">
-                    {{ slot.type }}
-                  </span>
-                </div>
-                <TagField
-                  :value="slot.value || ''"
-                  :can-pick="!!project.tags.length"
-                  :warn="slot.required && !slot.value"
-                  :removable="!!slot.value"
-                  @pick="openSlotPicker(slot)"
-                  @remove="patchSlotTag(slot.key, '')"
-                />
-              </div>
             </div>
           </template>
 

@@ -10,7 +10,7 @@
  * ui.stencilEditorTargetId). Сохранение валидирует черновик, регистрирует стенсил
  * в реестре и пишет на диск (dev-плагин).
  */
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useElementSize, useEventListener } from '@vueuse/core'
 import interact from 'interactjs'
 import Button from 'primevue/button'
@@ -76,9 +76,32 @@ function pickTool(key) {
   setTool(tool.value === key ? 'select' : key)
 }
 
-// Выделенная фигура — обводка перекрашивается в primary (cyan): работает для всех
-// фигур, включая линии; заливку не трогаем. SVG-атрибут stroke не принимает CSS
-// var → цвет литералом.
+// Превью внутренней анимации: эмулируем animation-hidden прямо в редакторе,
+// чтобы автор видел каждое положение (актуально только при meta.stateful).
+const PREVIEW_STATES = [
+  { key: 'all', label: 'Все' },
+  { key: 'true', label: 'Вкл' },
+  { key: 'false', label: 'Выкл' },
+]
+const previewState = ref('all')
+const renderShapes = computed(() => {
+  if (!meta.stateful || previewState.value === 'all') return shapes.value
+  return shapes.value.filter((s) => {
+    const st = s.state || 'always'
+    return st === 'always' || st === previewState.value
+  })
+})
+// Тумблер выключили → превью теряет смысл, возвращаем к «Все».
+watch(
+  () => meta.stateful,
+  (on) => {
+    if (!on) previewState.value = 'all'
+  }
+)
+
+// Цвет подсветки выделения (см. halo-слой в шаблоне): широкая обводка ПОД
+// фигурой, поэтому реальные цвет линии/заливки видны поверх и правятся на глазах.
+// SVG-атрибут stroke не принимает CSS-var → цвет литералом.
 const SEL_STROKE = '#06b6d4'
 
 // Режим определяется таргетом из store: задан id → правка (грузим стенсил в
@@ -213,6 +236,42 @@ function snappedShape(e) {
   return { x: snapShapeX(u.x), y: snapShapeY(u.y) }
 }
 
+// ─── Линейка (координаты по краям холста) ───
+const RULER = 22 // px — толщина полос
+// Экранная позиция точки (0,0) SVG относительно stage: учитывает центрирование
+// холста и скролл. Тик юнита u → origin + u*scale.
+const originX = ref(0)
+const originY = ref(0)
+function updateRuler() {
+  const stage = stageEl.value
+  const svg = svgEl.value
+  if (!stage || !svg) return
+  const sr = stage.getBoundingClientRect()
+  const vr = svg.getBoundingClientRect()
+  originX.value = vr.left - sr.left
+  originY.value = vr.top - sr.top
+}
+// Три уровня делений: major (÷10, длинный штрих + подпись), medium (÷5), minor
+// (каждый 1). 1px-штрихи показываем только при достаточном зуме — иначе слились бы
+// (шаг < ~6px). Подписи — только на major (подписывать каждый 1px = каша).
+const RULER_MINOR_MIN_SCALE = 6
+const tickInset = (level) => (level === 'major' ? 10 : level === 'medium' ? 6 : 3)
+function rulerTicks(size, origin) {
+  const s = scale.value
+  const step = s >= RULER_MINOR_MIN_SCALE ? 1 : 5
+  const out = []
+  for (let u = 0; u <= size + 1e-6; u += step) {
+    const level = u % 10 === 0 ? 'major' : u % 5 === 0 ? 'medium' : 'minor'
+    out.push({ u, p: origin + u * s, level })
+  }
+  return out
+}
+const rulerTicksX = computed(() => rulerTicks(meta.width, originX.value))
+const rulerTicksY = computed(() => rulerTicks(meta.height, originY.value))
+// Пересчёт при зуме/ресайзе/смене размера — после DOM-патча (flush: post).
+// Скролл холста — отдельно, через @scroll в шаблоне.
+watch([pxW, pxH, stageW, stageH], updateRuler, { flush: 'post' })
+
 // ─── Рисование жестами (rect/line/circle — drag; polyline — клики) ───
 const drawing = ref(null) // { type, sx, sy, cx, cy } — тянущаяся фигура
 const polyPoints = ref([]) // накопленные вершины ломаной
@@ -322,19 +381,10 @@ const polyPreview = computed(() => {
   return pts.map(([x, y]) => `${x},${y}`).join(' ')
 })
 
-// Порядок рендера: выделенную фигуру рисуем ПОСЛЕДНЕЙ (поверх остальных) —
-// иначе её может перекрыть нарисованная позже. Порядок в модели (и на экспорте)
-// не меняется, это только z-order на время выделения.
-const orderedShapes = computed(() => {
-  const sel = selectedId.value
-  if (sel == null) return shapes.value
-  const rest = shapes.value.filter((s) => s.id !== sel)
-  if (rest.length === shapes.value.length) return shapes.value // выделенной нет в списке
-  return [...rest, shapes.value.find((s) => s.id === sel)]
-})
-
 // ─── Ручки выделенной фигуры ───
 const selectedShape = computed(() => shapes.value.find((s) => s.id === selectedId.value) || null)
+// Толщина halo-подсветки = реальная обводка + запас в несколько экранных px.
+const haloWidth = computed(() => (selectedShape.value?.strokeWidth || 2) + 4 / scale.value)
 const handles = computed(() => {
   const s = selectedShape.value
   if (!s) return []
@@ -495,7 +545,10 @@ useEventListener(window, 'keydown', (e) => {
   }
 })
 
-onMounted(setupInteract)
+onMounted(() => {
+  setupInteract()
+  updateRuler()
+})
 onBeforeUnmount(() => {
   interact('[data-se-move]').unset()
   window.removeEventListener('pointermove', onDrawMove)
@@ -563,6 +616,24 @@ onBeforeUnmount(() => {
         @click="selectedId && removeShape(selectedId)"
       />
 
+      <!-- Превью состояния (только когда включена анимация) — эмулирует
+           видимость положений, чтобы автор проверил каждое глазами. -->
+      <template v-if="meta.stateful">
+        <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
+        <div class="flex items-center gap-1">
+          <Button
+            v-for="p in PREVIEW_STATES"
+            :key="p.key"
+            v-tooltip.bottom="'Превью: ' + p.label"
+            :label="p.label"
+            :severity="previewState === p.key ? 'primary' : 'secondary'"
+            :text="previewState !== p.key"
+            size="small"
+            @click="previewState = p.key"
+          />
+        </div>
+      </template>
+
       <div class="flex-1"></div>
 
       <Button label="Сохранить" icon="pi pi-check" size="small" @click="save" />
@@ -576,185 +647,280 @@ onBeforeUnmount(() => {
       />
     </div>
 
-    <!-- Холст -->
-    <div ref="stageEl" class="flex flex-1 items-center justify-center overflow-auto bg-surface-100">
-      <svg
-        ref="svgEl"
-        :width="pxW"
-        :height="pxH"
-        :viewBox="`0 0 ${meta.width} ${meta.height}`"
-        class="bg-white shadow-sm"
-        :class="tool === 'select' ? 'cursor-default' : 'cursor-crosshair'"
-        @pointerdown="onSurfaceDown"
-        @pointermove="onSurfaceMove"
-        @dblclick="finishPolyline"
-      >
-        <!-- Сетка -->
-        <g>
-          <line
-            v-for="x in gridX"
-            :key="`vx${x}`"
-            :x1="x"
-            :y1="0"
-            :x2="x"
-            :y2="meta.height"
-            :stroke="lineColor(x)"
-            stroke-width="1"
-            vector-effect="non-scaling-stroke"
-          />
-          <line
-            v-for="y in gridY"
-            :key="`hy${y}`"
-            :x1="0"
-            :y1="y"
-            :x2="meta.width"
-            :y2="y"
-            :stroke="lineColor(y)"
-            stroke-width="1"
-            vector-effect="non-scaling-stroke"
-          />
-        </g>
+    <!-- Холст с линейками по краям -->
+    <div class="flex flex-1 min-h-0 flex-col">
+      <!-- Уголок + верхняя линейка (X) -->
+      <div class="flex shrink-0">
+        <div
+          class="shrink-0 border-b border-r border-surface-200 bg-surface-0"
+          :style="{ width: `${RULER}px`, height: `${RULER}px` }"
+        ></div>
+        <div
+          class="flex-1 overflow-hidden border-b border-surface-200 bg-surface-0"
+          :style="{ height: `${RULER}px` }"
+        >
+          <svg :width="stageW" :height="RULER" class="block">
+            <g v-for="t in rulerTicksX" :key="`rx${t.u}`">
+              <line
+                :x1="t.p"
+                :y1="RULER - tickInset(t.level)"
+                :x2="t.p"
+                :y2="RULER"
+                stroke="#94a3b8"
+                stroke-width="1"
+              />
+              <text
+                v-if="t.level === 'major'"
+                :x="t.p + 2"
+                y="9"
+                fill="#64748b"
+                font-size="9"
+                font-family="monospace"
+              >
+                {{ t.u }}
+              </text>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <!-- Левая линейка (Y) + холст -->
+      <div class="flex flex-1 min-h-0">
+        <div
+          class="shrink-0 overflow-hidden border-r border-surface-200 bg-surface-0"
+          :style="{ width: `${RULER}px` }"
+        >
+          <svg :width="RULER" :height="stageH" class="block">
+            <g v-for="t in rulerTicksY" :key="`ry${t.u}`">
+              <line
+                :x1="RULER - tickInset(t.level)"
+                :y1="t.p"
+                :x2="RULER"
+                :y2="t.p"
+                stroke="#94a3b8"
+                stroke-width="1"
+              />
+              <text
+                v-if="t.level === 'major'"
+                :x="RULER - 6"
+                :y="t.p - 2"
+                text-anchor="end"
+                fill="#64748b"
+                font-size="9"
+                font-family="monospace"
+              >
+                {{ t.u }}
+              </text>
+            </g>
+          </svg>
+        </div>
+        <div
+          ref="stageEl"
+          class="flex flex-1 items-center justify-center overflow-auto bg-surface-100"
+          @scroll="updateRuler"
+        >
+          <svg
+            ref="svgEl"
+            :width="pxW"
+            :height="pxH"
+            :viewBox="`0 0 ${meta.width} ${meta.height}`"
+            class="bg-white shadow-sm"
+            :class="tool === 'select' ? 'cursor-default' : 'cursor-crosshair'"
+            @pointerdown="onSurfaceDown"
+            @pointermove="onSurfaceMove"
+            @dblclick="finishPolyline"
+          >
+            <!-- Сетка -->
+            <g>
+              <line
+                v-for="x in gridX"
+                :key="`vx${x}`"
+                :x1="x"
+                :y1="0"
+                :x2="x"
+                :y2="meta.height"
+                :stroke="lineColor(x)"
+                stroke-width="1"
+                vector-effect="non-scaling-stroke"
+              />
+              <line
+                v-for="y in gridY"
+                :key="`hy${y}`"
+                :x1="0"
+                :y1="y"
+                :x2="meta.width"
+                :y2="y"
+                :stroke="lineColor(y)"
+                stroke-width="1"
+                vector-effect="non-scaling-stroke"
+              />
+            </g>
 
-        <!-- Фигуры -->
-        <template v-for="s in orderedShapes" :key="s.id">
-          <rect
-            v-if="s.type === 'rect'"
-            data-se-move="shape"
-            :data-id="s.id"
-            :x="s.x"
-            :y="s.y"
-            :width="s.w"
-            :height="s.h"
-            :fill="s.fill"
-            :stroke="s.id === selectedId ? SEL_STROKE : s.stroke"
-            :stroke-width="s.strokeWidth"
-            @pointerdown="tool === 'select' && select(s.id)"
-          />
-          <line
-            v-else-if="s.type === 'line'"
-            data-se-move="shape"
-            :data-id="s.id"
-            :x1="s.x1"
-            :y1="s.y1"
-            :x2="s.x2"
-            :y2="s.y2"
-            :stroke="s.id === selectedId ? SEL_STROKE : s.stroke"
-            :stroke-width="s.strokeWidth"
-            @pointerdown="tool === 'select' && select(s.id)"
-          />
-          <circle
-            v-else-if="s.type === 'circle'"
-            data-se-move="shape"
-            :data-id="s.id"
-            :cx="s.cx"
-            :cy="s.cy"
-            :r="s.r"
-            :fill="s.fill"
-            :stroke="s.id === selectedId ? SEL_STROKE : s.stroke"
-            :stroke-width="s.strokeWidth"
-            @pointerdown="tool === 'select' && select(s.id)"
-          />
-          <polygon
-            v-else-if="s.type === 'polyline' && s.closed"
-            data-se-move="shape"
-            :data-id="s.id"
-            :points="s.points.map((p) => p.join(',')).join(' ')"
-            :fill="s.fill"
-            :stroke="s.id === selectedId ? SEL_STROKE : s.stroke"
-            :stroke-width="s.strokeWidth"
-            @pointerdown="tool === 'select' && select(s.id)"
-          />
-          <polyline
-            v-else-if="s.type === 'polyline'"
-            data-se-move="shape"
-            :data-id="s.id"
-            :points="s.points.map((p) => p.join(',')).join(' ')"
-            :fill="s.fill"
-            :stroke="s.id === selectedId ? SEL_STROKE : s.stroke"
-            :stroke-width="s.strokeWidth"
-            @pointerdown="tool === 'select' && select(s.id)"
-          />
-        </template>
+            <!-- Фигуры в натуральном z-порядке (= порядок экспорта). Выделенную
+                 НЕ выносим вперёд: её заливка перекрыла бы фигуры, лежащие выше.
+                 Halo рисуем прямо перед выделенной фигурой, в её же слое — реальные
+                 цвет линии/заливка видны поверх; выделение всё равно читается по
+                 halo вокруг обводки и ручкам (ручки рисуются последними, сверху).
+                 renderShapes фильтрует по превью состояния (эмуляция animation-hidden). -->
+            <template v-for="s in renderShapes" :key="s.id">
+              <g
+                v-if="s.id === selectedId"
+                pointer-events="none"
+                fill="none"
+                :stroke="SEL_STROKE"
+                :stroke-width="haloWidth"
+              >
+                <rect v-if="s.type === 'rect'" :x="s.x" :y="s.y" :width="s.w" :height="s.h" />
+                <line v-else-if="s.type === 'line'" :x1="s.x1" :y1="s.y1" :x2="s.x2" :y2="s.y2" />
+                <circle v-else-if="s.type === 'circle'" :cx="s.cx" :cy="s.cy" :r="s.r" />
+                <polygon
+                  v-else-if="s.type === 'polyline' && s.closed"
+                  :points="s.points.map((p) => p.join(',')).join(' ')"
+                />
+                <polyline
+                  v-else-if="s.type === 'polyline'"
+                  :points="s.points.map((p) => p.join(',')).join(' ')"
+                />
+              </g>
+              <rect
+                v-if="s.type === 'rect'"
+                data-se-move="shape"
+                :data-id="s.id"
+                :x="s.x"
+                :y="s.y"
+                :width="s.w"
+                :height="s.h"
+                :fill="s.fill"
+                :stroke="s.stroke"
+                :stroke-width="s.strokeWidth"
+                @pointerdown="tool === 'select' && select(s.id)"
+              />
+              <line
+                v-else-if="s.type === 'line'"
+                data-se-move="shape"
+                :data-id="s.id"
+                :x1="s.x1"
+                :y1="s.y1"
+                :x2="s.x2"
+                :y2="s.y2"
+                :stroke="s.stroke"
+                :stroke-width="s.strokeWidth"
+                @pointerdown="tool === 'select' && select(s.id)"
+              />
+              <circle
+                v-else-if="s.type === 'circle'"
+                data-se-move="shape"
+                :data-id="s.id"
+                :cx="s.cx"
+                :cy="s.cy"
+                :r="s.r"
+                :fill="s.fill"
+                :stroke="s.stroke"
+                :stroke-width="s.strokeWidth"
+                @pointerdown="tool === 'select' && select(s.id)"
+              />
+              <polygon
+                v-else-if="s.type === 'polyline' && s.closed"
+                data-se-move="shape"
+                :data-id="s.id"
+                :points="s.points.map((p) => p.join(',')).join(' ')"
+                :fill="s.fill"
+                :stroke="s.stroke"
+                :stroke-width="s.strokeWidth"
+                @pointerdown="tool === 'select' && select(s.id)"
+              />
+              <polyline
+                v-else-if="s.type === 'polyline'"
+                data-se-move="shape"
+                :data-id="s.id"
+                :points="s.points.map((p) => p.join(',')).join(' ')"
+                :fill="s.fill"
+                :stroke="s.stroke"
+                :stroke-width="s.strokeWidth"
+                @pointerdown="tool === 'select' && select(s.id)"
+              />
+            </template>
 
-        <!-- Превью тянущейся фигуры -->
-        <rect
-          v-if="draftRect"
-          :x="draftRect.x"
-          :y="draftRect.y"
-          :width="draftRect.w"
-          :height="draftRect.h"
-          fill="none"
-          stroke="#06b6d4"
-          stroke-width="1"
-          stroke-dasharray="3 2"
-          vector-effect="non-scaling-stroke"
-        />
-        <line
-          v-if="drawing?.type === 'line'"
-          :x1="drawing.sx"
-          :y1="drawing.sy"
-          :x2="drawing.cx"
-          :y2="drawing.cy"
-          stroke="#06b6d4"
-          stroke-width="1"
-          stroke-dasharray="3 2"
-          vector-effect="non-scaling-stroke"
-        />
-        <circle
-          v-if="drawing?.type === 'circle' && draftCircleR > 0"
-          :cx="drawing.sx"
-          :cy="drawing.sy"
-          :r="draftCircleR"
-          fill="none"
-          stroke="#06b6d4"
-          stroke-width="1"
-          stroke-dasharray="3 2"
-          vector-effect="non-scaling-stroke"
-        />
-        <polyline
-          v-if="polyPreview"
-          :points="polyPreview"
-          fill="none"
-          stroke="#06b6d4"
-          stroke-width="1"
-          stroke-dasharray="3 2"
-          vector-effect="non-scaling-stroke"
-        />
+            <!-- Превью тянущейся фигуры -->
+            <rect
+              v-if="draftRect"
+              :x="draftRect.x"
+              :y="draftRect.y"
+              :width="draftRect.w"
+              :height="draftRect.h"
+              fill="none"
+              stroke="#06b6d4"
+              stroke-width="1"
+              stroke-dasharray="3 2"
+              vector-effect="non-scaling-stroke"
+            />
+            <line
+              v-if="drawing?.type === 'line'"
+              :x1="drawing.sx"
+              :y1="drawing.sy"
+              :x2="drawing.cx"
+              :y2="drawing.cy"
+              stroke="#06b6d4"
+              stroke-width="1"
+              stroke-dasharray="3 2"
+              vector-effect="non-scaling-stroke"
+            />
+            <circle
+              v-if="drawing?.type === 'circle' && draftCircleR > 0"
+              :cx="drawing.sx"
+              :cy="drawing.sy"
+              :r="draftCircleR"
+              fill="none"
+              stroke="#06b6d4"
+              stroke-width="1"
+              stroke-dasharray="3 2"
+              vector-effect="non-scaling-stroke"
+            />
+            <polyline
+              v-if="polyPreview"
+              :points="polyPreview"
+              fill="none"
+              stroke="#06b6d4"
+              stroke-width="1"
+              stroke-dasharray="3 2"
+              vector-effect="non-scaling-stroke"
+            />
 
-        <!-- Ручки выделенной фигуры -->
-        <circle
-          v-for="hnd in handles"
-          :key="`${selectedId}-${hnd.h}`"
-          data-se-move="handle"
-          :data-id="selectedId"
-          :data-h="hnd.h"
-          :cx="hnd.x"
-          :cy="hnd.y"
-          :r="hr"
-          fill="#fff"
-          stroke="#06b6d4"
-          stroke-width="1.5"
-          vector-effect="non-scaling-stroke"
-          class="cursor-pointer"
-        />
+            <!-- Ручки выделенной фигуры -->
+            <circle
+              v-for="hnd in handles"
+              :key="`${selectedId}-${hnd.h}`"
+              data-se-move="handle"
+              :data-id="selectedId"
+              :data-h="hnd.h"
+              :cx="hnd.x"
+              :cy="hnd.y"
+              :r="hr"
+              fill="#fff"
+              stroke="#06b6d4"
+              stroke-width="1.5"
+              vector-effect="non-scaling-stroke"
+              class="cursor-pointer"
+            />
 
-        <!-- Порты -->
-        <circle
-          v-for="p in ports"
-          :key="p.id"
-          data-se-move="port"
-          :data-id="p.id"
-          :cx="p.x"
-          :cy="p.y"
-          :r="hr * 1.2"
-          fill="#f59e0b"
-          stroke="#78350f"
-          stroke-width="1"
-          vector-effect="non-scaling-stroke"
-          :class="tool === 'port' ? 'cursor-pointer' : 'cursor-move'"
-          @pointerdown="onPortDown($event, p.id)"
-        />
-      </svg>
+            <!-- Порты -->
+            <circle
+              v-for="p in ports"
+              :key="p.id"
+              data-se-move="port"
+              :data-id="p.id"
+              :cx="p.x"
+              :cy="p.y"
+              :r="hr * 1.2"
+              fill="#f59e0b"
+              stroke="#78350f"
+              stroke-width="1"
+              vector-effect="non-scaling-stroke"
+              :class="tool === 'port' ? 'cursor-pointer' : 'cursor-move'"
+              @pointerdown="onPortDown($event, p.id)"
+            />
+          </svg>
+        </div>
+      </div>
     </div>
   </div>
 </template>

@@ -20,6 +20,14 @@ import { serializeSvg, buildStencilJson, cropToContent, parseStencilSvg } from '
 export const SHAPE_GRID = 1
 export const PORT_GRID = 10
 
+// Слот-драйвер внутренней анимации = стандартный булев onoff (isSwitchStencil).
+// На холсте его биндинг рисует существующий SwitchBlock («основной тег») — новой
+// сущности в инспекторе не появляется. Переключение положений даёт наш
+// animationTemplate (.on/.off); серость (де-энергизация) — задача холста
+// (switchSources), в стенсиле её не объявляем.
+// Без label: редакторная подпись, не рантайм; SwitchBlock показывает «Состояние».
+const defaultStateSlot = () => ({ key: 'onoff' })
+
 // Инкрементный id для v-for/selection — детерминированнее Math.random и не течёт
 // в выход (в stencil.json/shape.svg внутренние id не попадают, см. stencilSvg).
 let seq = 0
@@ -27,7 +35,10 @@ const nextId = () => `s${++seq}`
 
 export function createStencilEditor() {
   // noRotate/layoutOnly/quality — декл-флаги стенсила, моделируем как поля
-  // (генератор их пишет в json, не теряются при пересохранении). Остальное — v2.
+  // (генератор их пишет в json, не теряются при пересохранении).
+  // stateful — мастер-тумблер внутренней анимации: пока выключен, стенсил по
+  // всем следам статичен (в json нет slots/animationTemplate); включённый даёт
+  // булев слот-драйвер onoff (stateSlot) и разрешает фигурам состояние on/off.
   const meta = reactive({
     id: '',
     label: '',
@@ -37,6 +48,8 @@ export function createStencilEditor() {
     noRotate: false,
     layoutOnly: false,
     quality: false,
+    stateful: false,
+    stateSlot: defaultStateSlot(),
   })
   const shapes = ref([])
   const ports = ref([])
@@ -101,7 +114,14 @@ export function createStencilEditor() {
   // Добавить фигуру: присваиваем id, кладём в список, сразу выделяем и
   // возвращаемся в режим выбора (нарисовал → правь).
   function addShape(shape) {
-    const withId = { id: nextId(), stroke: '#000', strokeWidth: 2, fill: 'none', ...shape }
+    const withId = {
+      id: nextId(),
+      stroke: '#000',
+      strokeWidth: 2,
+      fill: 'none',
+      state: 'always',
+      ...shape,
+    }
     shapes.value = [...shapes.value, withId]
     selectedId.value = withId.id
     tool.value = 'select'
@@ -118,6 +138,13 @@ export function createStencilEditor() {
   function removeShape(id) {
     shapes.value = shapes.value.filter((s) => s.id !== id)
     if (selectedId.value === id) selectedId.value = null
+    commit()
+  }
+
+  // Состояние видимости фигуры (внутренняя анимация): always | on | off.
+  // Дискретная операция → коммитим сразу (в отличие от updateShape в жесте).
+  function setShapeState(id, state) {
+    shapes.value = shapes.value.map((s) => (s.id === id ? { ...s, state } : s))
     commit()
   }
 
@@ -170,6 +197,14 @@ export function createStencilEditor() {
     meta.noRotate = !!def.noRotate
     meta.layoutOnly = !!def.layoutOnly
     meta.quality = !!def.quality
+    // Анимация состояния = булев слот + карточки animationTemplate. Тумблер
+    // включаем, если стенсил их несёт; ключ/лейбл слота берём как есть (свой
+    // формат — один булев слот-драйвер).
+    // Слот-драйвер фиксирован (onoff + стандартный лейбл), поэтому не читаем его
+    // из def: старые черновики с ключом `state`/другим лейблом мигрируют на
+    // сохранении. stateful — только флаг «анимация есть».
+    meta.stateful = !!(def.slots?.length && def.animationTemplate?.length)
+    meta.stateSlot = defaultStateSlot()
     // Присваиваем внутренние id — без них не работают выделение/ручки/удаление.
     shapes.value = parseStencilSvg(def.svgText).map((s) => ({ id: nextId(), ...s }))
     ports.value = (def.ports || []).map((p) => ({ id: nextId(), name: p.name, x: p.x, y: p.y }))
@@ -192,6 +227,8 @@ export function createStencilEditor() {
     meta.noRotate = false
     meta.layoutOnly = false
     meta.quality = false
+    meta.stateful = false
+    meta.stateSlot = defaultStateSlot()
     shapes.value = []
     ports.value = []
     tool.value = 'select'
@@ -209,7 +246,7 @@ export function createStencilEditor() {
     const cropped = cropToContent(shapes.value, ports.value, PORT_GRID)
     const croppedMeta = { ...meta, width: cropped.width, height: cropped.height }
     return {
-      json: buildStencilJson(croppedMeta, cropped.ports),
+      json: buildStencilJson(croppedMeta, cropped.ports, cropped.shapes),
       svg: serializeSvg(cropped.shapes, croppedMeta),
     }
   }
@@ -235,6 +272,7 @@ export function createStencilEditor() {
     addShape,
     updateShape,
     removeShape,
+    setShapeState,
     addPort,
     movePort,
     removePort,
