@@ -9,7 +9,7 @@
  * в системе стенсила (0..W, 0..H) и снапнуты к сетке, здесь только рендер.
  *
  * Поддерживаемые примитивы: rect, line, circle, polyline. Внутренняя анимация
- * (булево состояние): фигуры группируются по state (always/on/off) в
+ * (булево состояние): фигуры группируются по state (always/true/false) в
  * <g data-anim-suffix>, из них же строится animationTemplate.
  */
 
@@ -30,29 +30,42 @@ function fillAttr(shape) {
   return `fill="${shape.fill || 'none'}"`
 }
 
+// Радиус скругления углов прямоугольника (в user-единицах) при shape.rounded.
+export const ROUND_RX = 2
+
+// Опциональное скругление (тумблер в редакторе): у линии/ломаной — круглые торцы
+// и стыки, у прямоугольника — скруглённые углы (rx). У круга скруглять нечего.
+function roundingAttrs(shape) {
+  if (!shape.rounded) return ''
+  if (shape.type === 'rect') return ` rx="${num(ROUND_RX)}"`
+  if (shape.type === 'line') return ' stroke-linecap="round"'
+  if (shape.type === 'polyline') return ' stroke-linecap="round" stroke-linejoin="round"'
+  return ''
+}
+
 function serializeShape(shape) {
   switch (shape.type) {
     case 'rect':
       return (
         `<rect x="${num(shape.x)}" y="${num(shape.y)}" ` +
         `width="${num(shape.w)}" height="${num(shape.h)}" ` +
-        `${fillAttr(shape)} ${strokeAttrs(shape)}/>`
+        `${fillAttr(shape)} ${strokeAttrs(shape)}${roundingAttrs(shape)}/>`
       )
     case 'line':
       return (
         `<line x1="${num(shape.x1)}" y1="${num(shape.y1)}" ` +
-        `x2="${num(shape.x2)}" y2="${num(shape.y2)}" ${strokeAttrs(shape)}/>`
+        `x2="${num(shape.x2)}" y2="${num(shape.y2)}" ${strokeAttrs(shape)}${roundingAttrs(shape)}/>`
       )
     case 'circle':
       return (
         `<circle cx="${num(shape.cx)}" cy="${num(shape.cy)}" r="${num(shape.r)}" ` +
-        `${fillAttr(shape)} ${strokeAttrs(shape)}/>`
+        `${fillAttr(shape)} ${strokeAttrs(shape)}${roundingAttrs(shape)}/>`
       )
     case 'polyline': {
       const pts = (shape.points || []).map(([x, y]) => `${num(x)},${num(y)}`).join(' ')
       // Замкнутая ломаная — это <polygon> (сам соединяет конец с началом).
       const tag = shape.closed ? 'polygon' : 'polyline'
-      return `<${tag} points="${pts}" ${fillAttr(shape)} ${strokeAttrs(shape)}/>`
+      return `<${tag} points="${pts}" ${fillAttr(shape)} ${strokeAttrs(shape)}${roundingAttrs(shape)}/>`
     }
     default:
       return ''
@@ -168,6 +181,14 @@ function readStroke(el) {
   }
 }
 
+// Инверсия roundingAttrs: rect с rx>0 или линия/ломаная с круглыми торцами/стыками.
+function isRounded(el) {
+  if (el.tagName.toLowerCase() === 'rect') return Number.parseFloat(el.getAttribute('rx')) > 0
+  return (
+    el.getAttribute('stroke-linecap') === 'round' || el.getAttribute('stroke-linejoin') === 'round'
+  )
+}
+
 function elementToShape(el) {
   const n = (a) => Number.parseFloat(el.getAttribute(a))
   const fill = el.getAttribute('fill') || 'none'
@@ -215,9 +236,13 @@ function collectShapes(parent, out, state = 'always') {
       continue
     }
     const shape = elementToShape(el)
-    // state пишем только для true/false; always — дефолт (поле не заводим, чтобы
-    // статика парсилась байт-в-байт как раньше и round-trip'ы не разъезжались).
-    if (shape) out.push(state === 'always' ? shape : { ...shape, state })
+    if (shape) {
+      // Скругление: rect с rx, либо линия/ломаная с круглым linecap/linejoin.
+      if (isRounded(el)) shape.rounded = true
+      // state пишем только для true/false; always — дефолт (поле не заводим,
+      // чтобы статика парсилась байт-в-байт как раньше и round-trip не разъезжался).
+      out.push(state === 'always' ? shape : { ...shape, state })
+    }
   }
 }
 
@@ -311,8 +336,7 @@ export function buildStencilJson(meta, ports, shapes = []) {
     if (states.size) {
       const key = meta.stateSlot?.key || 'onoff'
       const tag = `{slot.${key}}`
-      // label не пишем: редакторная подпись (SwitchBlock даёт фолбэк), не рантайм.
-      json.slots = [{ key, type: 'Boolean', required: false }]
+      json.slots = [{ key, type: 'Boolean' }]
       json.animationTemplate = []
       // Суффикс = значение тега, при котором виден; скрываем на противоположном.
       if (states.has('true')) json.animationTemplate.push(stateCard('.true', tag, 'false'))

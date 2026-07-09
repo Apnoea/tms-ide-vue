@@ -2,7 +2,7 @@
   "id": "cell_text",
   "locked": true,
   "label": "Текстовое поле",
-  "category": "Текст и значения",
+  "category": "Разметка и значения",
   "layoutOnly": true,
   "noRotate": true,
   "defaults": { "text": "Текст" },

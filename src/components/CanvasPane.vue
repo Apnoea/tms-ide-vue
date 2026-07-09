@@ -22,7 +22,6 @@ import { useClipboard } from '../composables/useClipboard'
 import { useWireSplice } from '../composables/useWireSplice'
 import { useProject } from '../composables/useProject'
 import { useHotkeys } from '../composables/useHotkeys'
-import { useSlotWarnings } from '../composables/useSlotWarnings'
 import { useSelectionOverlay } from '../composables/useSelectionOverlay'
 import { useHoverTooltip } from '../composables/useHoverTooltip'
 import { usePan } from '../composables/usePan'
@@ -199,10 +198,9 @@ let activeDragCellId = null
 let dragSnapshot = null
 
 // ─── Overlay-фичи холста (вынесены в composables) ───
-// slot-warning бейджи, overlay-кнопки выделенной ячейки, hover-tooltip и
-// контекстное меню. Все читают graph/paper через canvas.*-ref; tooltip получает
-// suppress-предикат «идёт взаимодействие» (pan/drag/resize/edit).
-const { slotWarnings, onSlotBadgeClick } = useSlotWarnings()
+// overlay-кнопки выделенной ячейки, hover-tooltip и контекстное меню. Все читают
+// graph/paper через canvas.*-ref; tooltip получает suppress-предикат «идёт
+// взаимодействие» (pan/drag/resize/edit).
 const { overlayBtns, rotateSelectedBy, onDeleteSelected } = useSelectionOverlay({
   scheduleSnapshot,
   textEditing,
@@ -1123,22 +1121,6 @@ function performClearCanvas(count) {
           @click="onDeleteSelected"
         />
       </template>
-
-      <!-- Бейджи незаполненных required-слотов. Кликабельны: тык по бейджу
- выделяет ячейку и просит инспектор открыть picker первого пустого
- required-слота. Title с перечислением слотов даёт юзеру понять что
- именно не привязано до клика. -->
-      <button
-        v-for="badge in slotWarnings"
-        :key="`warn-${badge.cellId}`"
-        type="button"
-        class="absolute z-10 w-3 h-3 rounded-full bg-amber-400 text-surface-900 text-[8px] font-bold leading-none flex items-center justify-center shadow-sm border border-amber-600 hover:scale-125 transition-transform cursor-pointer"
-        :style="badge.style"
-        :title="`Привязать тег · ${badge.missingLabels}`"
-        @click="onSlotBadgeClick(badge.cellId)"
-      >
-        !
-      </button>
 
       <!-- Floating info-bar: координаты курсора + selection label. Плавает
            внизу-справа холста, появляется только когда есть что показать. -->

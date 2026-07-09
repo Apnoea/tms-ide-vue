@@ -39,9 +39,7 @@ describe('validateStencilJson', () => {
           slots: [
             {
               key: 'onoff',
-              label: 'ВКЛ/ВЫКЛ',
               type: 'Boolean',
-              required: true,
             },
           ],
           animationTemplate: [

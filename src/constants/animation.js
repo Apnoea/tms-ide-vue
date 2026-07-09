@@ -1,5 +1,5 @@
 // Цветовые классы анимации напряжения. Единый источник правды:
-//   • UI-preview (CanvasInspector / VoltageSourceBlock рисуют swatch'и этим цветом)
+//   • UI-preview (CanvasInspector / RangeBlock рисуют swatch'и этим цветом)
 //   • Экспорт view.svg (CSS-правила .animation-low/mid/high → stroke/fill)
 // При расхождении preview в IDE врёт о том, как будет выглядеть рантайм. Поэтому
 // и опции, и hex'ы держим здесь.

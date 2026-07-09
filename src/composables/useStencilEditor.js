@@ -20,12 +20,11 @@ import { serializeSvg, buildStencilJson, cropToContent, parseStencilSvg } from '
 export const SHAPE_GRID = 1
 export const PORT_GRID = 10
 
-// Слот-драйвер внутренней анимации = стандартный булев onoff (isSwitchStencil).
-// На холсте его биндинг рисует существующий SwitchBlock («основной тег») — новой
+// Слот-драйвер внутренней анимации = стандартный булев onoff (hasBoolSlot).
+// На холсте его биндинг рисует существующий BooleanBlock («основной тег») — новой
 // сущности в инспекторе не появляется. Переключение положений даёт наш
 // animationTemplate (.on/.off); серость (де-энергизация) — задача холста
 // (switchSources), в стенсиле её не объявляем.
-// Без label: редакторная подпись, не рантайм; SwitchBlock показывает «Состояние».
 const defaultStateSlot = () => ({ key: 'onoff' })
 
 // Инкрементный id для v-for/selection — детерминированнее Math.random и не течёт
@@ -197,14 +196,14 @@ export function createStencilEditor() {
     meta.noRotate = !!def.noRotate
     meta.layoutOnly = !!def.layoutOnly
     meta.quality = !!def.quality
-    // Анимация состояния = булев слот + карточки animationTemplate. Тумблер
-    // включаем, если стенсил их несёт; ключ/лейбл слота берём как есть (свой
-    // формат — один булев слот-драйвер).
-    // Слот-драйвер фиксирован (onoff + стандартный лейбл), поэтому не читаем его
-    // из def: старые черновики с ключом `state`/другим лейблом мигрируют на
-    // сохранении. stateful — только флаг «анимация есть».
+    // Анимация состояния = булев слот-драйвер + карточки animationTemplate.
+    // Тумблер включаем, если стенсил их несёт. Ключ слота СОХРАНЯЕМ как есть
+    // (`alr` у тревоги, `onoff` у свитчей — иначе правка переименовала бы его и
+    // сломала привязку тега/анимацию у расставленных экземпляров). Мигрируем
+    // только транзитный `state` (ранняя версия) → onoff.
     meta.stateful = !!(def.slots?.length && def.animationTemplate?.length)
-    meta.stateSlot = defaultStateSlot()
+    const loadedKey = def.slots?.[0]?.key
+    meta.stateSlot = { key: loadedKey && loadedKey !== 'state' ? loadedKey : 'onoff' }
     // Присваиваем внутренние id — без них не работают выделение/ручки/удаление.
     shapes.value = parseStencilSvg(def.svgText).map((s) => ({ id: nextId(), ...s }))
     ports.value = (def.ports || []).map((p) => ({ id: nextId(), name: p.name, x: p.x, y: p.y }))

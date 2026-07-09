@@ -200,7 +200,7 @@ describe('useStencilEditor', () => {
 
     ed.meta.stateful = true
     const { json, svg } = ed.output()
-    expect(json.slots).toEqual([{ key: 'onoff', type: 'Boolean', required: false }])
+    expect(json.slots).toEqual([{ key: 'onoff', type: 'Boolean' }])
     expect(json.animationTemplate).toHaveLength(1)
     expect(svg).toContain('data-anim-suffix=".true"')
   })
@@ -214,7 +214,7 @@ describe('useStencilEditor', () => {
       width: 20,
       height: 40,
       // старый ключ state/лейбл — на загрузке нормализуются к стандартному onoff (без label)
-      slots: [{ key: 'state', label: 'пук', type: 'Boolean', required: false }],
+      slots: [{ key: 'state', label: 'пук', type: 'Boolean' }],
       animationTemplate: [{ idSuffix: '.true', type: 'shape', bindings: [] }],
       svgText:
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 40"><g></g>' +

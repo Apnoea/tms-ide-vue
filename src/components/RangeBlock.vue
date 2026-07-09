@@ -6,7 +6,7 @@ import TagField from './TagField.vue'
 import { ANIMATION_CLASS_COLORS } from '../constants/animation'
 
 /**
- * Карточка анимации «Диапазоны значений» в инспекторе (аналоговый источник:
+ * Карточка анимации «Диапазоны значений» в инспекторе (аналоговое значение:
  * значение тега → класс по диапазону). Виден всегда; `voltageSource === null` —
  * пустое состояние (тег не выбран, порогов нет). Объект создаётся лениво в
  * родителе при выборе тега, очищается через × (× виден только при непустом).
@@ -43,13 +43,15 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
     </div>
 
     <p class="text-[11px] text-surface-500 mb-2 leading-snug">
-      Класс анимации зависит от диапазона значения тега - задайте границы и соответствующие цвета
-      ниже.
+      Значение тега задаёт цвет по диапазонам.
     </p>
 
     <div class="space-y-3">
       <div>
-        <div class="text-[11px] text-surface-500 mb-1">Тег</div>
+        <div class="text-[11px] text-surface-500 mb-1">
+          Тег
+          <span class="text-surface-400">- для анимации элемента</span>
+        </div>
         <TagField
           :value="voltageSource?.tag || ''"
           :can-pick="tagsLoaded"

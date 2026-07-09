@@ -2,7 +2,7 @@
   "id": "cell_node",
   "locked": true,
   "label": "Точка соединения",
-  "category": "Текст и значения",
+  "category": "Разметка и значения",
   "shapeFile": "shape.svg",
   "width": 20,
   "height": 20,

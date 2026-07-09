@@ -16,8 +16,7 @@
   "slots": [
     {
       "key": "onoff",
-      "type": "Boolean",
-      "required": false
+      "type": "Boolean"
     }
   ],
   "animationTemplate": [

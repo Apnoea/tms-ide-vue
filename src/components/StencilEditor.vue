@@ -1,8 +1,11 @@
 <script setup>
 /**
- * Редактор стенсилов (v1 — статика, без слоёв анимации). Оверлей поверх холста:
- * рисование примитивов (rect/line/circle/polyline) + расстановка портов, всё со
- * снапом к сетке (вершины фигур → 1px, порты/размер → шаг 10). Модель, операции
+ * Редактор стенсилов. Оверлей поверх холста: рисование примитивов
+ * (rect/line/circle/polyline) + расстановка портов, цвет/скругление фигур и булева
+ * анимация состояния (.true/.false), всё со снапом к сетке (вершины фигур → 1px,
+ * порты/размер → шаг 10). Область стенсила — белый холст (opacity 1), весь экран
+ * вокруг — та же подложка на .3; рисовать можно только в области стенсила.
+ * Модель, операции
  * и undo/redo — в useStencilEditor; здесь DOM: SVG-холст, рисование жестами и
  * привязка перемещения/ресайза через interact.js (колбэки обновляют модель, Vue
  * перерисовывает — interact не мутирует DOM в обход Vue). Открывается на создание
@@ -19,7 +22,7 @@ import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { snapToGrid } from '../utils/grid'
-import { stencilDraftIssues } from '../utils/stencilSvg'
+import { stencilDraftIssues, ROUND_RX } from '../utils/stencilSvg'
 import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
 import { reinjectAllStencils } from '../stencils/svgInjector'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
@@ -221,6 +224,27 @@ const range = (max, step) => {
 const gridX = computed(() => range(meta.width, GRID_STEP))
 const gridY = computed(() => range(meta.height, GRID_STEP))
 const lineColor = (v) => (v % 10 === 0 ? '#cbd5e1' : v % 5 === 0 ? '#e2e8f0' : '#f1f5f9')
+
+// Расширенная сетка: холст (та же сетка) продолжается за границы стенсила в зону
+// .5 (не редактируется). Отступ = видимая область вокруг карточки в user-единицах
+// ((stage − card) / 2 / scale); при скролле/большом стенсиле → 0 (нечего показывать).
+const gridPadX = computed(() =>
+  Math.max(0, Math.ceil((stageW.value - pxW.value) / 2 / scale.value))
+)
+const gridPadY = computed(() =>
+  Math.max(0, Math.ceil((stageH.value - pxH.value) / 2 / scale.value))
+)
+const rangeFromTo = (from, to, step) => {
+  const out = []
+  for (let v = from; v <= to + 1e-6; v += step) out.push(v)
+  return out
+}
+const gridXFull = computed(() =>
+  rangeFromTo(-gridPadX.value, meta.width + gridPadX.value, GRID_STEP)
+)
+const gridYFull = computed(() =>
+  rangeFromTo(-gridPadY.value, meta.height + gridPadY.value, GRID_STEP)
+)
 
 // ─── Пиксель события → user-координаты стенсила ───
 const svgEl = ref(null)
@@ -723,14 +747,49 @@ onBeforeUnmount(() => {
             :width="pxW"
             :height="pxH"
             :viewBox="`0 0 ${meta.width} ${meta.height}`"
-            class="bg-white shadow-sm"
+            class="shadow-sm overflow-visible"
             :class="tool === 'select' ? 'cursor-default' : 'cursor-crosshair'"
             @pointerdown="onSurfaceDown"
             @pointermove="onSurfaceMove"
             @dblclick="finishPolyline"
           >
-            <!-- Сетка -->
-            <g>
+            <!-- Холст: та же канва (белый фон + сетка) продолжается за границы
+                 стенсила, но на opacity .3 и без редактирования (pointer-events
+                 none — рисуем только в области стенсила). Порядок: сначала вся
+                 канва на .3, поверх — область стенсила 0..W/0..H на opacity 1. -->
+            <g opacity="0.3" pointer-events="none">
+              <rect
+                :x="-gridPadX"
+                :y="-gridPadY"
+                :width="meta.width + gridPadX * 2"
+                :height="meta.height + gridPadY * 2"
+                fill="#fff"
+              />
+              <line
+                v-for="x in gridXFull"
+                :key="`fvx${x}`"
+                :x1="x"
+                :y1="-gridPadY"
+                :x2="x"
+                :y2="meta.height + gridPadY"
+                :stroke="lineColor(x)"
+                stroke-width="1"
+                vector-effect="non-scaling-stroke"
+              />
+              <line
+                v-for="y in gridYFull"
+                :key="`fhy${y}`"
+                :x1="-gridPadX"
+                :y1="y"
+                :x2="meta.width + gridPadX"
+                :y2="y"
+                :stroke="lineColor(y)"
+                stroke-width="1"
+                vector-effect="non-scaling-stroke"
+              />
+            </g>
+            <g pointer-events="none">
+              <rect x="0" y="0" :width="meta.width" :height="meta.height" fill="#fff" />
               <line
                 v-for="x in gridX"
                 :key="`vx${x}`"
@@ -768,8 +827,17 @@ onBeforeUnmount(() => {
                 fill="none"
                 :stroke="SEL_STROKE"
                 :stroke-width="haloWidth"
+                :stroke-linecap="s.rounded ? 'round' : null"
+                :stroke-linejoin="s.rounded ? 'round' : null"
               >
-                <rect v-if="s.type === 'rect'" :x="s.x" :y="s.y" :width="s.w" :height="s.h" />
+                <rect
+                  v-if="s.type === 'rect'"
+                  :x="s.x"
+                  :y="s.y"
+                  :width="s.w"
+                  :height="s.h"
+                  :rx="s.rounded ? ROUND_RX : null"
+                />
                 <line v-else-if="s.type === 'line'" :x1="s.x1" :y1="s.y1" :x2="s.x2" :y2="s.y2" />
                 <circle v-else-if="s.type === 'circle'" :cx="s.cx" :cy="s.cy" :r="s.r" />
                 <polygon
@@ -789,6 +857,7 @@ onBeforeUnmount(() => {
                 :y="s.y"
                 :width="s.w"
                 :height="s.h"
+                :rx="s.rounded ? ROUND_RX : null"
                 :fill="s.fill"
                 :stroke="s.stroke"
                 :stroke-width="s.strokeWidth"
@@ -804,6 +873,7 @@ onBeforeUnmount(() => {
                 :y2="s.y2"
                 :stroke="s.stroke"
                 :stroke-width="s.strokeWidth"
+                :stroke-linecap="s.rounded ? 'round' : null"
                 @pointerdown="tool === 'select' && select(s.id)"
               />
               <circle
@@ -826,6 +896,7 @@ onBeforeUnmount(() => {
                 :fill="s.fill"
                 :stroke="s.stroke"
                 :stroke-width="s.strokeWidth"
+                :stroke-linejoin="s.rounded ? 'round' : null"
                 @pointerdown="tool === 'select' && select(s.id)"
               />
               <polyline
@@ -836,6 +907,8 @@ onBeforeUnmount(() => {
                 :fill="s.fill"
                 :stroke="s.stroke"
                 :stroke-width="s.strokeWidth"
+                :stroke-linecap="s.rounded ? 'round' : null"
+                :stroke-linejoin="s.rounded ? 'round' : null"
                 @pointerdown="tool === 'select' && select(s.id)"
               />
             </template>

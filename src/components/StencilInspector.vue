@@ -44,6 +44,10 @@ const fillColor = computed(() => normHex(selectedShape.value?.fill, '#ffffff'))
 function setStroke(e) {
   if (selectedShape.value) updateShape(selectedShape.value.id, { stroke: e.target.value })
 }
+const strokeWidth = computed(() => selectedShape.value?.strokeWidth ?? 2)
+function setStrokeWidth(v) {
+  if (selectedShape.value && v != null) updateShape(selectedShape.value.id, { strokeWidth: v })
+}
 function setFill(e) {
   if (selectedShape.value) updateShape(selectedShape.value.id, { fill: e.target.value })
 }
@@ -52,6 +56,16 @@ function toggleFill(on) {
   updateShape(selectedShape.value.id, {
     fill: on ? normHex(selectedShape.value.fill, '#ffffff') : 'none',
   })
+  commit()
+}
+
+// Скругление: у линии/ломаной — круглые торцы/стыки, у прямоугольника — углы (rx).
+// Круг скруглять нечего — контрол скрыт.
+const hasRounding = computed(() => selectedShape.value && selectedShape.value.type !== 'circle')
+const roundedEnabled = computed(() => !!selectedShape.value?.rounded)
+function toggleRounded(on) {
+  if (!selectedShape.value) return
+  updateShape(selectedShape.value.id, { rounded: on })
   commit()
 }
 
@@ -204,6 +218,22 @@ function onIdInput(e) {
               @change="commit"
             />
           </label>
+          <label class="flex items-center justify-between">
+            <span class="text-surface-700">Толщина линии</span>
+            <InputNumber
+              :model-value="strokeWidth"
+              :min="0.5"
+              :max="20"
+              :step="0.5"
+              :max-fraction-digits="1"
+              show-buttons
+              button-layout="horizontal"
+              size="small"
+              input-class="!w-12 text-center"
+              @update:model-value="setStrokeWidth"
+              @blur="commit"
+            />
+          </label>
           <template v-if="hasFill">
             <label class="flex items-center gap-2 cursor-pointer">
               <Checkbox
@@ -225,6 +255,15 @@ function onIdInput(e) {
               />
             </label>
           </template>
+          <label v-if="hasRounding" class="flex items-center gap-2 cursor-pointer">
+            <Checkbox
+              :model-value="roundedEnabled"
+              binary
+              input-id="se-rounded"
+              @update:model-value="toggleRounded"
+            />
+            <span class="text-surface-700">Скругление</span>
+          </label>
           <div v-if="meta.stateful" class="pt-1">
             <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Видимость</div>
             <SelectButton

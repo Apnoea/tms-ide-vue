@@ -2,7 +2,7 @@
   "id": "cell_bus",
   "locked": true,
   "label": "Шина",
-  "category": "Шины",
+  "category": "Разметка и значения",
   "noRotate": true,
   "shapeFile": "shape.svg",
   "width": 80,

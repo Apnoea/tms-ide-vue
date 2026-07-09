@@ -71,17 +71,10 @@ const dirtySinceExport = ref(false)
 // CanvasPane watch'ит изменения и вызывает свой scheduleSnapshot.
 const snapshotTick = ref(0)
 
-// Запрос «открыть picker первого пустого required-слота» — bump'ается клик'ом
-// по жёлтому badge'у на холсте. Inspector watch'ит и сам открывает picker
-// (Canvas не знает про устройство Inspector'а; Inspector не знает про badge).
-// Ячейку Inspector берёт из текущего selection — onSlotBadgeClick перед bump'ом
-// делает selectOnly, так что к моменту watcher'а нужный объект уже выделен.
-const slotPickRequest = ref(0)
-
 // Тег, по которому в данный момент подсвечены элементы. Матчит по любому
 // tag-полю (slots, voltageSource.tag, switchSources, valueTag —
 // см. cellHasTag), не только voltageSource. null = подсветки нет.
-// Кнопка «Подсветить на схеме» в VoltageSourceBlock / SwitchBlock
+// Кнопка «Подсветить на схеме» в RangeBlock / BooleanBlock
 // включает/выключает это значение через toggle: тот же тег второй раз
 // → снимает подсветку.
 const highlightedTag = ref(null)
@@ -328,10 +321,6 @@ export function useCanvas() {
     /** Состояние совпало с доставленным архивом (успешный экспорт / импорт). */
     markExported() {
       dirtySinceExport.value = false
-    },
-    slotPickRequest,
-    requestSlotPick() {
-      slotPickRequest.value++
     },
     highlightedTag,
     /** Toggle подсветки тега на холсте. Тот же тег → выкл, новый → переключаем. */

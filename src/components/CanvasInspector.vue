@@ -10,7 +10,7 @@ import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
-import { getStencilById, isSwitchStencil } from '../stencils/registry'
+import { getStencilById, hasBoolSlot } from '../stencils/registry'
 import {
   injectStencilSvg,
   TEXT_FONT_SIZE,
@@ -25,9 +25,8 @@ import { toPlain } from '../utils/plain'
 import { isBooleanType, isFloatType } from '../services/parsers'
 import TagPickerDialog from './TagPickerDialog.vue'
 import TagField from './TagField.vue'
-import VoltageSourceBlock from './VoltageSourceBlock.vue'
-import AlarmSourceBlock from './AlarmSourceBlock.vue'
-import SwitchBlock from './SwitchBlock.vue'
+import RangeBlock from './RangeBlock.vue'
+import BooleanBlock from './BooleanBlock.vue'
 import { ANIMATION_CLASS_OPTIONS } from '../constants/animation'
 import { previewOuterKey } from '../constants/ids'
 
@@ -85,23 +84,18 @@ const details = computed(() => {
       valueTag: tms.valueTag ?? '',
       // id outer-карточки в animations.json/SVG (тот же, что эмитит exporter).
       exportId: previewOuterKey(tms.stencilId, cell.id, tms.valueTag),
-      // cell_alr рендерит свой required-слот через AlarmSourceBlock (с описанием,
-      // bell-иконкой). Булев источник для тревоги бессмыслен — прячем его тоже.
-      isAlarm: tms.stencilId === 'cell_alr',
-      // Стенсилы со slot.onoff (cell_qw / qr / qk / qf — см. isSwitchStencil
-      // convention в registry) рендерят slot.onoff через SwitchBlock первой
-      // строкой (основной тег) вместе с зависимостями switchSources.
-      isSwitch: isSwitchStencil(stencil),
-      // Тег самого свитча (slot.onoff) — для исключения из switchSources-зависимостей.
+      // Стенсилы с булевым слотом-драйвером (key onoff — см. hasBoolSlot; это
+      // cell_qw/qr/qk/qf, cell_alr, пользовательские) рендерят его через BooleanBlock
+      // первой строкой (основной тег) вместе с зависимостями switchSources.
+      hasBoolSlot: hasBoolSlot(stencil),
+      // Тег основного булева слота (slot.onoff) — для исключения из switchSources.
       // Из payload (tms.slots.onoff), как и multi-select; не по индексу slots[0].
       onoffTag: slotValues.onoff || '',
       // Слоты для UI: декларация из стенсила + текущее значение из tms.slots.
-      // Нужны Switch/Alarm-блокам (slots[0]) и slot-picker'у; type — тип тега.
+      // Нужны BooleanBlock (slots[0]) и slot-picker'у; type — тип тега.
       slots: slotsDef.map((s) => ({
         key: s.key,
-        label: s.label,
         type: s.type,
-        required: !!s.required,
         value: slotValues[s.key] || '',
       })),
       voltageSource: tms.voltageSource || null,
@@ -150,24 +144,10 @@ function openSlotPicker(slot) {
   openPicker({
     tags: isBooleanType(slot?.type) ? booleanTags.value : project.tags,
     selected: slot?.value || '',
-    header: `Выберите тег: ${slot.label}`,
+    header: 'Выберите тег',
     onSelect: (tag) => patchSlotTag(slot.key, tag),
   })
 }
-
-// Внешний запрос на «открой picker первого пустого required-слота» — приходит
-// от клика по slot-warning badge на холсте (см. CanvasPane.onSlotBadgeClick).
-// К моменту срабатывания canvas.selection уже выставлен на нужную ячейку, и
-// details.slots реактивно обновился — берём из него первый пустой required.
-watch(
-  () => canvas.slotPickRequest.value,
-  () => {
-    const d = details.value
-    if (!d || d.kind !== 'cell') return
-    const empty = (d.slots || []).find((s) => s.required && !s.value)
-    if (empty && project.tags.length) openSlotPicker(empty)
-  }
-)
 
 /**
  * Каркас правки выделенной ЯЧЕЙКИ (не линка): резолвит cell + её stencil и
@@ -459,7 +439,7 @@ const switchBuckets = computed(() => normalizeSwitchSources(details.value?.switc
 // удаляется). У не-свитча блок появляется лишь при наличии switchSources, и ×
 // убирает его целиком (в т.ч. пустой) — там достаточно самого факта присутствия.
 const switchRemovable = computed(() =>
-  details.value?.isSwitch
+  details.value?.hasBoolSlot
     ? switchBuckets.value.or.length > 0 || switchBuckets.value.and.length > 0
     : !!details.value?.switchSources
 )
@@ -512,7 +492,7 @@ function onPickSwitchTag(tag) {
   const { bucket, idx } = editingSwitch.value
   editingSwitch.value = { bucket: null, idx: null }
   if (!bucket || !tag) return
-  if (d?.isSwitch && d.onoffTag === tag) return
+  if (d?.hasBoolSlot && d.onoffTag === tag) return
 
   const buckets = normalizeSwitchSources(d?.switchSources)
   const field = bucketField(bucket)
@@ -534,7 +514,7 @@ function removeSwitchTagAt(bucket, idx) {
 }
 
 /** Открыть picker массовой привязки булева тега. `bucket` — ключ секции
- * SwitchBlock ('series'|'parallel'), маппим в поле switchSources ('and'|'or'). */
+ * BooleanBlock ('series'|'parallel'), маппим в поле switchSources ('and'|'or'). */
 function openMultiSwitchPicker(bucket) {
   multiSwitchBucket.value = bucketField(bucket)
   openPicker({
@@ -562,7 +542,7 @@ function onPickMultiSwitchTag(tag) {
     }
     // Свитчи (стенсилы с slot.onoff) не должны зависеть от своего же тега —
     // slot.onoff уже отвечает за переключение, дубль в switchSources бессмыслен.
-    if (isSwitchStencil(getStencilById(tms.stencilId)) && tms.slots?.onoff === tag) {
+    if (hasBoolSlot(getStencilById(tms.stencilId)) && tms.slots?.onoff === tag) {
       skipped++
       continue
     }
@@ -656,7 +636,7 @@ const switchPickerTags = computed(() => {
   const d = details.value
   if (!d) return booleanTags.value
   const excluded = new Set()
-  if (d.isSwitch && d.onoffTag) excluded.add(d.onoffTag)
+  if (d.hasBoolSlot && d.onoffTag) excluded.add(d.onoffTag)
   // Исключаем уже привязанные теги (из обеих секций), КРОМЕ редактируемого
   // сейчас по индексу — его оставляем, чтобы юзер видел текущее значение.
   const { or, and } = normalizeSwitchSources(d.switchSources)
@@ -695,21 +675,21 @@ const switchPickerTags = computed(() => {
 
           <!-- Multi-select: те же блоки, что в single, как «применить ко всем»
                (общего состояния у выделения нет → списки пустые/шаблон, выбор тега
-               и порогов раздаётся на всё выделение). Булев — SwitchBlock с пустыми
-               секциями (поле «- не выбран -» → во все). Voltage — шаблон multiVoltage:
+               и порогов раздаётся на всё выделение). Булев — BooleanBlock с пустыми
+               секциями (поле «- не выбран -» → во все). Range — шаблон multiVoltage:
                задаёшь тег → правишь пороги → раздаётся на все выделенные. -->
           <div class="space-y-2">
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
-            <SwitchBlock
+            <BooleanBlock
               :slot-info="null"
               :parallel="[]"
               :series="[]"
               :removable="false"
               :tags-loaded="!!project.tags.length"
-              title="Булев источник"
+              title="Булево значение"
               @open-tag-picker="openMultiSwitchPicker"
             />
-            <VoltageSourceBlock
+            <RangeBlock
               :voltage-source="multiVoltage"
               :tags-loaded="!!project.tags.length"
               :class-options="ANIMATION_CLASS_OPTIONS"
@@ -919,30 +899,17 @@ const switchPickerTags = computed(() => {
           <div v-if="!details.isText && !details.isValue" class="space-y-2">
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
 
-            <!-- Встроенные анимации стенсила показываются в tooltip'е у иконки
- каждого слота (см. info-icon выше). -->
-
-            <!-- A. cell_alr — обёртка required-слота .alr. Интринсик-анимация
-                 шаблона, не отдельная tms-сущность. -->
-            <AlarmSourceBlock
-              v-if="details.isAlarm && details.slots[0]"
-              :alarm-slot="details.slots[0]"
-              :tags-loaded="!!project.tags.length"
-              @open-tag-picker="openSlotPicker(details.slots[0])"
-            />
-
-            <!-- B. Булев источник — виден всегда (кроме cell_alr: у тревоги свой
-                 слот). Для switch-стенсила включает slot.onoff (intrinsic). Теги
-                 пишутся лениво через «Добавить» внутри блока; × очищает (виден при
-                 непустом, switchRemovable). -->
-            <SwitchBlock
-              v-if="!details.isAlarm"
-              :slot-info="details.isSwitch ? details.slots[0] : null"
+            <!-- Булево значение — виден ВСЕГДА. У стенсила с булевым слотом
+                 (onoff, в т.ч. cell_alr) первой строкой идёт этот слот (основной
+                 тег), ниже — зависимости switchSources. Теги пишутся лениво через
+                 «Добавить»; × очищает (switchRemovable). -->
+            <BooleanBlock
+              :slot-info="details.hasBoolSlot ? details.slots[0] : null"
               :parallel="switchBuckets.or"
               :series="switchBuckets.and"
               :removable="switchRemovable"
               :tags-loaded="!!project.tags.length"
-              title="Булев источник"
+              title="Булево значение"
               @open-slot-picker="openSlotPicker(details.slots[0])"
               @open-tag-picker="onAddSwitchTag"
               @remove-tag="removeSwitchTagAt"
@@ -951,10 +918,10 @@ const switchPickerTags = computed(() => {
               @edit-tag="editSwitchTagAt"
             />
 
-            <!-- C. Диапазоны значений (аналоговый источник) — виден всегда.
+            <!-- C. Диапазоны значений (аналоговое значение) — виден всегда.
                  voltageSource создаётся лениво при выборе тега (onPickTag),
                  очищается через × (виден при непустом). -->
-            <VoltageSourceBlock
+            <RangeBlock
               :voltage-source="details.voltageSource"
               :tags-loaded="!!project.tags.length"
               :class-options="ANIMATION_CLASS_OPTIONS"

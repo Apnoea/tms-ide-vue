@@ -2,7 +2,7 @@
   "id": "cell_value",
   "locked": true,
   "label": "Значение тега",
-  "category": "Текст и значения",
+  "category": "Разметка и значения",
   "layoutOnly": true,
   "noRotate": true,
   "defaults": { "valueTag": "" },

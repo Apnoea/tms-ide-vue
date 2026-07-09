@@ -221,7 +221,7 @@ describe('внутренняя анимация (state)', () => {
       [],
       shapes
     )
-    expect(json.slots).toEqual([{ key: 'onoff', type: 'Boolean', required: false }])
+    expect(json.slots).toEqual([{ key: 'onoff', type: 'Boolean' }])
     expect(json.animationTemplate).toHaveLength(2)
     const onTrue = json.animationTemplate.find((t) => t.idSuffix === '.true')
     expect(onTrue.bindings[0].tag).toBe('{slot.onoff}')
@@ -391,5 +391,49 @@ describe('parseStencilSvg (инверсия serializeSvg)', () => {
     }
     const svg = serializeSvg([shape], { width: 10, height: 10 })
     expect(parseStencilSvg(svg)).toEqual([shape])
+  })
+})
+
+describe('скругление (rounded)', () => {
+  it('rect rounded → rx, round-trip сохраняет', () => {
+    const shape = {
+      type: 'rect',
+      x: 0,
+      y: 0,
+      w: 20,
+      h: 20,
+      fill: 'none',
+      stroke: '#000',
+      strokeWidth: 2,
+      rounded: true,
+    }
+    const svg = serializeSvg([shape], { width: 20, height: 20 })
+    expect(svg).toContain('rx="2"')
+    expect(parseStencilSvg(svg)).toEqual([shape])
+  })
+
+  it('line rounded → stroke-linecap=round, round-trip сохраняет', () => {
+    const shape = {
+      type: 'line',
+      x1: 0,
+      y1: 0,
+      x2: 10,
+      y2: 0,
+      stroke: '#000',
+      strokeWidth: 2,
+      rounded: true,
+    }
+    const svg = serializeSvg([shape], { width: 10, height: 10 })
+    expect(svg).toContain('stroke-linecap="round"')
+    expect(parseStencilSvg(svg)).toEqual([shape])
+  })
+
+  it('без rounded — атрибутов скругления нет', () => {
+    const svg = serializeSvg([{ type: 'rect', x: 0, y: 0, w: 10, h: 10 }], {
+      width: 10,
+      height: 10,
+    })
+    expect(svg).not.toContain('rx=')
+    expect(svg).not.toContain('stroke-linecap')
   })
 })
