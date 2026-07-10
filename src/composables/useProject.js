@@ -60,6 +60,14 @@ export function useProject({
   // Допустимое имя формы (= имя папки при экспорте = цель навигации).
   const FORM_ID_RE = /^[A-Za-z0-9_-]+$/
 
+  // Запись формы/меты в IDB могла не пройти (квота / приватный режим): idbSet
+  // возвращает false, не бросает. CRUD форм это игнорировал — «не сохранено» не
+  // загоралось, хотя новая/переименованная форма после reload пропала бы. Флагаем.
+  const flagIfNotSaved = (ok) => {
+    if (!ok) canvas.setSaveError(true)
+    return ok
+  }
+
   // Загрузить graphJson в живой холст + сброс undo под новую форму. Общий хвост
   // selectForm / createForm / deleteForm (когда меняется активная форма).
   function loadActiveIntoCanvas(graph, paper, json) {
@@ -112,9 +120,10 @@ export function useProject({
     let id = `form${n}`
     while (workspace.hasForm(id)) id = `form${++n}`
     workspace.addForm(id)
-    await persistForm(id, { cells: [] })
+    let ok = await persistForm(id, { cells: [] })
     workspace.setActiveFormId(id)
-    await persistMeta()
+    ok = (await persistMeta()) && ok
+    flagIfNotSaved(ok)
     loadActiveIntoCanvas(graph, paper, { cells: [] })
     canvas.markDirty() // новая форма → проект разошёлся с .zip
   }
@@ -136,7 +145,7 @@ export function useProject({
     else await saveActiveForm() // удаляем не активную — её правки сохраняем
     const newActive = workspace.removeForm(id)
     await removeFormPersist(id)
-    await persistMeta()
+    flagIfNotSaved(await persistMeta())
     if (wasActive) loadActiveIntoCanvas(graph, paper, workspace.getFormGraph(newActive))
     canvas.markDirty() // форма удалена → проект разошёлся с .zip
   }
@@ -166,7 +175,7 @@ export function useProject({
     // Переносим ключ формы.
     const json = workspace.getFormGraph(oldId) || { cells: [] }
     workspace.renameForm(oldId, id)
-    await persistForm(id, json)
+    let ok = await persistForm(id, json)
     await removeFormPersist(oldId)
 
     // Чиним tms.navigation === oldId во всех формах (ссылки на переименованную).
@@ -179,10 +188,11 @@ export function useProject({
       )
       const next = { ...g, cells }
       workspace.setFormGraph(fid, next)
-      await persistForm(fid, next)
+      ok = (await persistForm(fid, next)) && ok
       if (fid === workspace.activeFormId) activeChanged = true
     }
-    await persistMeta()
+    ok = (await persistMeta()) && ok
+    flagIfNotSaved(ok)
 
     // Активная форма содержала ссылку → перезагружаем её в холст, чтобы инспектор
     // и экспорт видели новый target (сброс undo под изменённое состояние).
@@ -200,7 +210,7 @@ export function useProject({
    */
   async function moveFormNode(dragId, targetId, zone) {
     if (!workspace.moveNode(dragId, targetId, zone)) return
-    await persistMeta()
+    flagIfNotSaved(await persistMeta())
     canvas.markDirty() // иерархия (hierarchy.json) изменилась → расхождение с .zip
   }
 
@@ -239,9 +249,14 @@ export function useProject({
     const forms = []
     const usedStencilIds = new Set()
     let skipped = 0
+    // Пер-элементные предупреждения парсера (выкинутый провод, ячейка без transform
+    // и т.п.) — форма может загрузиться `ok`, но молча потерять часть ячеек. Копим
+    // и показываем сводкой, иначе пропажа уходит только в возвращаемое значение.
+    const parseWarnings = []
     for (const f of data.forms) {
       const parsed = parseSvgProject(f.svgText)
       for (const id of parsed.stencilIds) usedStencilIds.add(id)
+      for (const w of parsed.errors || []) parseWarnings.push(`${f.id}: ${w}`)
       // Пропускаем только битый SVG. Пустая форма (parsed.ok, 0 ячеек) валидна —
       // сохраняем как цель навигации/заготовку, иначе рвутся ссылки tms.navigation.
       if (!parsed.ok) {
@@ -262,6 +277,11 @@ export function useProject({
     const importedIds = new Set(data.stencils.map((s) => s.id))
     const missing = [...usedStencilIds].filter((id) => !getStencilById(id) && !importedIds.has(id))
     if (missing.length) notify.warn('Не хватает стенсилов', missing.join(', '))
+    if (parseWarnings.length) {
+      const head = parseWarnings.slice(0, 5).join('; ')
+      const tail = parseWarnings.length > 5 ? ` (+${parseWarnings.length - 5})` : ''
+      notify.warn('Часть элементов пропущена при импорте', head + tail)
+    }
 
     // Грузит активную форму в граф. Стенсилы (включая бандл-новые) уже в рантайм-
     // реестре, поэтому рисуем сразу — reload, если случится, лишь переподнимет то
@@ -349,6 +369,10 @@ export function useProject({
       await saveActiveForm() // зафиксировать текущую форму перед прогоном
       const formsOut = []
       const graphs = []
+      // Предупреждения exporter'а (пропущенные стенсилы, дубли valueTag) — иначе
+      // они уходят только в console.warn, и в поставленном .zip молча нет части
+      // оборудования. Копим по всем формам и показываем сводкой ниже.
+      const exportWarnings = []
 
       for (const id of [...workspace.formIds]) {
         const json = workspace.getFormGraph(id) || { cells: [] }
@@ -360,6 +384,7 @@ export function useProject({
         await nextTick() // дать paper отрисовать линии (exporter читает их DOM-путь)
         const result = exportProject(graph, paper)
         formsOut.push({ id, viewSvg: result.svgText, animationsJson: result.animationsJson })
+        for (const w of result.warnings || []) exportWarnings.push(`${id}: ${w}`)
       }
 
       // Используемые стенсилы из реестра (def→stencil.json без svgText, svgText→shape.svg).
@@ -382,6 +407,11 @@ export function useProject({
         `${nplural(formsOut.length, 'форма', 'формы', 'форм')}, ` +
           nplural(stencils.length, 'стенсил', 'стенсила', 'стенсилов')
       )
+      if (exportWarnings.length) {
+        const head = exportWarnings.slice(0, 5).join('; ')
+        const tail = exportWarnings.length > 5 ? ` (+${exportWarnings.length - 5})` : ''
+        notify.warn('Экспорт с предупреждениями', head + tail)
+      }
     } catch (e) {
       if (e?.name !== 'AbortError') {
         console.error('[Export] Ошибка экспорта проекта:', e)
@@ -431,6 +461,11 @@ export function useProject({
       projectBusy.value = true
       try {
         return await fn(...args)
+      } catch (e) {
+        // Один перехват на все проектные операции: без него исключение из любой
+        // стало бы unhandled-rejection без следа для пользователя.
+        console.error('[Project] операция завершилась ошибкой:', e)
+        notify.error('Операция не выполнена', e?.message || String(e))
       } finally {
         projectBusy.value = false
       }

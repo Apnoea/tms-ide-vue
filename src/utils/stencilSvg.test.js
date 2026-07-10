@@ -255,6 +255,69 @@ describe('внутренняя анимация (state)', () => {
   })
 })
 
+describe('внутренняя анимация по значению (stateMode=value)', () => {
+  const shapes = [
+    { type: 'line', x1: 10, y1: 12, x2: 10, y2: 28, stroke: '#000', strokeWidth: 2, state: 'on' },
+    { type: 'line', x1: 0, y1: 20, x2: 20, y2: 20, stroke: '#000', strokeWidth: 2, state: 'off' },
+    { type: 'circle', cx: 10, cy: 20, r: 2, stroke: '#000', strokeWidth: 2, fill: 'none' },
+  ]
+  const meta = {
+    width: 20,
+    height: 40,
+    stateful: true,
+    stateMode: 'value',
+    stateSlot: { key: 'value' },
+    states: [
+      { key: 'on', label: 'Включен', code: '01' },
+      { key: 'off', label: 'Отключен', code: '10' },
+    ],
+  }
+
+  it('serializeSvg группирует по ключам состояний (.on/.off), статику — в базовую', () => {
+    const svg = serializeSvg(shapes, meta)
+    expect(svg).toContain('<g data-anim-suffix=".on">')
+    expect(svg).toContain('<g data-anim-suffix=".off">')
+    expect(svg).toMatch(/<g>\s*<circle/)
+  })
+
+  it('parseStencilSvg читает произвольный суффикс → state (round-trip)', () => {
+    const parsed = parseStencilSvg(serializeSvg(shapes, meta))
+    expect(parsed.find((s) => s.state === 'on')).toBeTruthy()
+    expect(parsed.find((s) => s.state === 'off')).toBeTruthy()
+    expect(parsed.find((s) => s.type === 'circle').state).toBeUndefined()
+  })
+
+  it('buildStencilJson: слот value + states + карточка на состояние, прячется на чужих кодах', () => {
+    const json = buildStencilJson(
+      { id: 'cell_x', label: 'X', category: 'C', width: 20, height: 40, ...meta },
+      [],
+      shapes
+    )
+    expect(json.slots).toEqual([{ key: 'value', type: 'Value' }])
+    expect(json.states).toEqual([
+      { key: 'on', label: 'Включен', code: '01' },
+      { key: 'off', label: 'Отключен', code: '10' },
+    ])
+    expect(json.animationTemplate).toHaveLength(2)
+    const on = json.animationTemplate.find((t) => t.idSuffix === '.on')
+    expect(on.bindings[0].tag).toBe('{slot.value}')
+    // .on прячется на коде «отключено» (10), а на своём (01) — нет.
+    expect(on.bindings[0].when.cases['10'].apply.addClass).toBe('animation-hidden')
+    expect(on.bindings[0].when.cases['01']).toBeUndefined()
+  })
+
+  it('states пишется даже без фигур, но animationTemplate — только при наличии фигур', () => {
+    const json = buildStencilJson(
+      { id: 'cell_x', label: 'X', category: 'C', width: 20, height: 40, ...meta },
+      [],
+      [] // фигур нет
+    )
+    expect(json.slots).toEqual([{ key: 'value', type: 'Value' }])
+    expect(json.states).toHaveLength(2)
+    expect(json.animationTemplate).toBeUndefined()
+  })
+})
+
 describe('cropToContent', () => {
   it('обрезает поля и сдвигает контент в (0,0)', () => {
     const { shapes, width, height } = cropToContent(

@@ -1,9 +1,10 @@
 <script setup>
 /**
- * Свойства стенсила — контент правой панели в режиме редактора. Метаданные
- * (id / label / категория / размер) редактируются здесь, а не в тулбаре холста;
- * стейт — синглтон useStencilEditor (тот же инстанс, что рисуется в центре).
- * Анимации приедут сюда же в v2.
+ * Свойства стенсила — контент правой панели в режиме редактора. Секции:
+ * идентификация (название/id/категория), холст (размер), поведение (флаги),
+ * анимация состояния (свитч Выкл/Булево/По значению + список состояний) и
+ * фигура (свойства выделенного элемента + его видимость по состоянию).
+ * Стейт — синглтон useStencilEditor (тот же инстанс, что рисуется в центре).
  */
 import { computed, watch } from 'vue'
 import InputText from 'primevue/inputtext'
@@ -11,12 +12,25 @@ import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
 import SelectButton from 'primevue/selectbutton'
+import Button from 'primevue/button'
 import { getCategories, registryVersion } from '../stencils/registry'
 import { snapToGrid } from '../utils/grid'
-import { useStencilEditor } from '../composables/useStencilEditor'
+import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor'
 
-const { meta, editingId, shapes, selectedId, updateShape, commit, setShapeState } =
-  useStencilEditor()
+const {
+  meta,
+  editingId,
+  shapes,
+  selectedId,
+  updateShape,
+  commit,
+  setShapeState,
+  setStateMode,
+  addState,
+  updateState,
+  removeState,
+  applyPositionPreset,
+} = useStencilEditor()
 
 // Свойства выделенной фигуры (цвет линии/заливка) правятся здесь же. У линии
 // заливки нет — только обводка.
@@ -69,13 +83,47 @@ function toggleRounded(on) {
   commit()
 }
 
-// Видимость фигуры по булеву состоянию стенсила (внутренняя анимация):
-// always — статична, on/off — видна только при этом значении тега-драйвера.
+// Единый свитч анимации состояния: Выкл / Булево / По значению. «Выкл» гасит
+// stateful; выбор типа включает stateful и задаёт режим (setStateMode).
+const ANIM_MODE_OPTIONS = [
+  { label: 'Выкл', value: 'off' },
+  { label: 'Булево', value: 'boolean' },
+  { label: 'По значению', value: 'value' },
+]
+const animMode = computed({
+  get: () => (meta.stateful ? meta.stateMode : 'off'),
+  set: (v) => {
+    if (v === 'off') {
+      meta.stateful = false
+      return
+    }
+    meta.stateful = true
+    setStateMode(v)
+  },
+})
+// Булев режим — те же две строки «подпись → значение», что у «по значению», но
+// read-only: значения фиксированы (true/false), редактировать/удалять нельзя.
+const BOOLEAN_STATES = [
+  { label: 'Вкл', value: 'true' },
+  { label: 'Выкл', value: 'false' },
+]
+// Пресет-подписи для editable-Select строки состояния (автор может вписать своё).
+const PRESET_LABELS = STATE_PRESETS.map((p) => p.label)
+
+// Видимость выделенной фигуры. Булев: Всегда/При вкл/При выкл. По значению:
+// Всегда + все объявленные состояния (по подписи, значение — стабильный key).
 const STATE_OPTIONS = [
   { label: 'Всегда', value: 'always' },
   { label: 'При вкл', value: 'true' },
   { label: 'При выкл', value: 'false' },
 ]
+const shapeStateOptions = computed(() => {
+  if (meta.stateMode !== 'value') return STATE_OPTIONS
+  return [
+    { label: 'Всегда', value: 'always' },
+    ...meta.states.map((s) => ({ label: s.label || s.key, value: s.key })),
+  ]
+})
 const shapeState = computed({
   get: () => selectedShape.value?.state || 'always',
   set: (v) => {
@@ -117,18 +165,6 @@ function onIdInput(e) {
 
     <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-4">
       <label class="block">
-        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Категория</div>
-        <Select
-          v-model="meta.category"
-          :options="categories"
-          editable
-          placeholder="Выберите или впишите"
-          size="small"
-          class="w-full"
-        />
-      </label>
-
-      <label class="block">
         <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Название</div>
         <InputText v-model="meta.label" size="small" class="w-full" placeholder="Задвижка" />
       </label>
@@ -146,8 +182,21 @@ function onIdInput(e) {
         />
       </label>
 
-      <div>
-        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Размер</div>
+      <label class="block">
+        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Категория</div>
+        <Select
+          v-model="meta.category"
+          :options="categories"
+          editable
+          placeholder="Выберите или впишите"
+          size="small"
+          class="w-full"
+        />
+      </label>
+
+      <!-- Холст — область рисования стенсила -->
+      <div class="border-t border-surface-200 pt-4">
+        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Холст</div>
         <div class="flex items-center gap-3">
           <label class="flex items-center gap-1.5 text-xs text-surface-500">
             Ш
@@ -174,7 +223,7 @@ function onIdInput(e) {
         </div>
       </div>
 
-      <div>
+      <div class="border-t border-surface-200 pt-4">
         <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Поведение</div>
         <label class="flex items-center gap-2 mb-1.5 cursor-pointer">
           <Checkbox v-model="meta.noRotate" binary input-id="se-norotate" />
@@ -194,19 +243,100 @@ function onIdInput(e) {
         <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
           Анимация состояния
         </div>
-        <label class="flex items-center gap-2 mb-2 cursor-pointer">
-          <Checkbox v-model="meta.stateful" binary input-id="se-stateful" />
-          <span class="text-surface-700">Булево состояние (вкл/выкл)</span>
-        </label>
-        <p v-if="meta.stateful" class="text-xs text-surface-400">
-          Выделяй фигуру и задавай ей видимость (При&nbsp;вкл / При&nbsp;выкл) ниже.
-        </p>
+        <SelectButton
+          v-model="animMode"
+          :options="ANIM_MODE_OPTIONS"
+          option-label="label"
+          option-value="value"
+          :allow-empty="false"
+          size="small"
+          class="mb-2"
+        />
+
+        <template v-if="meta.stateful">
+          <div v-if="meta.stateMode === 'boolean'" class="space-y-1.5 mb-2">
+            <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
+              <span class="flex-1 min-w-0">Подпись</span>
+              <span class="w-16">Значение</span>
+              <span class="w-6 shrink-0" aria-hidden="true"></span>
+            </div>
+            <div v-for="st in BOOLEAN_STATES" :key="st.value" class="flex items-center gap-1.5">
+              <InputText
+                :model-value="st.label"
+                disabled
+                size="small"
+                class="flex-1 min-w-0 !text-xs"
+              />
+              <InputText
+                :model-value="st.value"
+                disabled
+                size="small"
+                class="w-16 font-mono !text-xs"
+              />
+              <span class="w-6 shrink-0" aria-hidden="true"></span>
+            </div>
+          </div>
+
+          <div v-if="meta.stateMode === 'value'" class="space-y-1.5 mb-2">
+            <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
+              <span class="flex-1 min-w-0">Подпись</span>
+              <span class="w-16">Значение</span>
+              <span class="w-6 shrink-0" aria-hidden="true"></span>
+            </div>
+            <div v-for="st in meta.states" :key="st.key" class="flex items-center gap-1.5">
+              <Select
+                :model-value="st.label"
+                :options="PRESET_LABELS"
+                editable
+                placeholder="состояние"
+                size="small"
+                class="flex-1 min-w-0"
+                @update:model-value="updateState(st.key, { label: $event })"
+              />
+              <InputText
+                :model-value="st.code"
+                placeholder="код"
+                size="small"
+                class="w-16 font-mono !text-xs"
+                @update:model-value="updateState(st.key, { code: $event })"
+              />
+              <Button
+                v-tooltip.bottom="'Убрать состояние'"
+                icon="pi pi-times"
+                severity="secondary"
+                text
+                size="small"
+                class="!p-1 !w-6 !h-6"
+                @click="removeState(st.key)"
+              />
+            </div>
+            <div class="flex gap-1.5">
+              <button
+                type="button"
+                class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
+                @click="addState"
+              >
+                <i class="pi pi-plus !text-[10px]" />
+                состояние
+              </button>
+              <button
+                type="button"
+                v-tooltip.bottom="'4 состояния: Включен / Отключен / Промежуточное / Недостоверно'"
+                class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
+                @click="applyPositionPreset"
+              >
+                <i class="pi pi-bolt !text-[10px]" />
+                Сигнал положения
+              </button>
+            </div>
+          </div>
+        </template>
       </div>
 
+      <!-- Фигура — свойства выделенного элемента (контекстно). Видимость (состояние
+           фигуры) живёт здесь же: это свойство элемента, а не стенсила. -->
       <div class="border-t border-surface-200 pt-4">
-        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
-          Выделенная фигура
-        </div>
+        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">Фигура</div>
         <div v-if="selectedShape" class="space-y-2.5">
           <label class="flex items-center justify-between cursor-pointer">
             <span class="text-surface-700">Цвет линии</span>
@@ -264,15 +394,17 @@ function onIdInput(e) {
             />
             <span class="text-surface-700">Скругление</span>
           </label>
+          <!-- Видимость (в каком состоянии видна фигура) — только при включённой
+               анимации состояния; опции зависят от режима (см. shapeStateOptions). -->
           <div v-if="meta.stateful" class="pt-1">
             <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Видимость</div>
-            <SelectButton
+            <Select
               v-model="shapeState"
-              :options="STATE_OPTIONS"
+              :options="shapeStateOptions"
               option-label="label"
               option-value="value"
-              :allow-empty="false"
               size="small"
+              class="w-full"
             />
           </div>
         </div>

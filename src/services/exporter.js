@@ -307,7 +307,9 @@ export function exportProject(graph, paper = null) {
 
     const stencil = getStencilById(tms.stencilId)
     if (!stencil) {
-      console.warn(`[Exporter] Стенсил "${tms.stencilId}" не найден в реестре, пропускаю`)
+      const msg = `стенсил "${tms.stencilId}" не найден в реестре — ячейка выпала из view.svg`
+      warnings.push(msg)
+      console.warn(`[Exporter] ${msg}`)
       continue
     }
 

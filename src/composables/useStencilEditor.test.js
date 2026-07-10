@@ -225,6 +225,78 @@ describe('useStencilEditor', () => {
     expect(ed.shapes.value[0]).toMatchObject({ type: 'line', state: 'true' })
   })
 
+  it('режим «по значению»: пресет, назначение фигуры, output даёт value-слот + states', () => {
+    const ed = createStencilEditor()
+    ed.meta.id = 'cell_qs'
+    ed.meta.label = 'Q'
+    ed.meta.category = 'Прочее'
+    ed.meta.width = 20
+    ed.meta.height = 40
+    ed.meta.stateful = true
+    ed.setStateMode('value')
+    expect(ed.meta.stateSlot).toEqual({ key: 'value' })
+    ed.applyPositionPreset()
+    expect(ed.meta.states.map((s) => s.key)).toEqual(['on', 'off', 'intermediate', 'invalid'])
+    ed.updateState('on', { code: '01' })
+    ed.updateState('off', { code: '10' })
+    const s = ed.addShape({ type: 'line', x1: 10, y1: 0, x2: 10, y2: 20 })
+    ed.setShapeState(s.id, 'on')
+
+    const { json, svg } = ed.output()
+    expect(json.slots).toEqual([{ key: 'value', type: 'Value' }])
+    expect(json.states).toHaveLength(4)
+    expect(svg).toContain('data-anim-suffix=".on"')
+    const on = json.animationTemplate.find((t) => t.idSuffix === '.on')
+    expect(on.bindings[0].when.cases['10'].apply.addClass).toBe('animation-hidden')
+  })
+
+  it('setStateMode сбрасывает видимость фигур (ключи режимов несовместимы)', () => {
+    const ed = createStencilEditor()
+    const s = ed.addShape({ type: 'line', x1: 10, y1: 0, x2: 10, y2: 20 })
+    ed.meta.stateful = true
+    ed.setShapeState(s.id, 'true')
+    ed.setStateMode('value')
+    expect(ed.shapes.value[0].state).toBe('always')
+  })
+
+  it('removeState возвращает осиротевшие фигуры в always', () => {
+    const ed = createStencilEditor()
+    ed.meta.stateful = true
+    ed.setStateMode('value')
+    ed.addState()
+    const key = ed.meta.states[0].key
+    const s = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    ed.setShapeState(s.id, key)
+    ed.removeState(key)
+    expect(ed.meta.states).toHaveLength(0)
+    expect(ed.shapes.value[0].state).toBe('always')
+  })
+
+  it('loadStencil c полем states → режим value, ключи состояний из суффиксов', () => {
+    const ed = createStencilEditor()
+    ed.loadStencil({
+      id: 'cell_qs',
+      label: 'Q',
+      category: 'Прочее',
+      width: 20,
+      height: 40,
+      slots: [{ key: 'value', type: 'Value' }],
+      states: [
+        { key: 'on', label: 'Включен', code: '01' },
+        { key: 'off', label: 'Отключен', code: '10' },
+      ],
+      animationTemplate: [{ idSuffix: '.on', type: 'shape', bindings: [] }],
+      svgText:
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 40"><g></g>' +
+        '<g data-anim-suffix=".on"><line x1="10" y1="12" x2="10" y2="28" stroke="#000" stroke-width="2"/></g></svg>',
+    })
+    expect(ed.meta.stateful).toBe(true)
+    expect(ed.meta.stateMode).toBe('value')
+    expect(ed.meta.stateSlot).toEqual({ key: 'value' })
+    expect(ed.meta.states).toHaveLength(2)
+    expect(ed.shapes.value[0]).toMatchObject({ type: 'line', state: 'on' })
+  })
+
   it('reset очищает черновик к пустому', () => {
     const ed = createStencilEditor()
     ed.meta.id = 'cell_x'

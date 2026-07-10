@@ -129,5 +129,5 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
 
   onBeforeUnmount(cancelPendingSnapshot)
 
-  return { initHistory, scheduleSnapshot, undo, redo, cancelPendingSnapshot }
+  return { initHistory, snapshot, scheduleSnapshot, undo, redo, cancelPendingSnapshot }
 }

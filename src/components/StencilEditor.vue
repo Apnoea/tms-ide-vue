@@ -1,8 +1,9 @@
 <script setup>
 /**
  * Редактор стенсилов. Оверлей поверх холста: рисование примитивов
- * (rect/line/circle/polyline) + расстановка портов, цвет/скругление фигур и булева
- * анимация состояния (.true/.false), всё со снапом к сетке (вершины фигур → 1px,
+ * (rect/line/circle/polyline) + расстановка портов, цвет/скругление фигур и
+ * анимация состояния (булев `.true`/`.false` или «по значению» с произвольными
+ * состояниями), всё со снапом к сетке (вершины фигур → 1px,
  * порты/размер → шаг 10). Область стенсила — белый холст (opacity 1), весь экран
  * вокруг — та же подложка на .3; рисовать можно только в области стенсила.
  * Модель, операции
@@ -17,6 +18,7 @@ import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useElementSize, useEventListener } from '@vueuse/core'
 import interact from 'interactjs'
 import Button from 'primevue/button'
+import Select from 'primevue/select'
 import { useConfirm } from 'primevue/useconfirm'
 import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from '../composables/useNotify'
@@ -40,6 +42,7 @@ const {
   tool,
   selectedId,
   editingId,
+  previewState,
   canUndo,
   canRedo,
   snapShapeX,
@@ -79,14 +82,16 @@ function pickTool(key) {
   setTool(tool.value === key ? 'select' : key)
 }
 
-// Превью внутренней анимации: эмулируем animation-hidden прямо в редакторе,
-// чтобы автор видел каждое положение (актуально только при meta.stateful).
-const PREVIEW_STATES = [
-  { key: 'all', label: 'Все' },
-  { key: 'true', label: 'Вкл' },
-  { key: 'false', label: 'Выкл' },
-]
-const previewState = ref('all')
+// Превью внутренней анимации: эмулируем animation-hidden прямо в редакторе, чтобы
+// автор видел каждое положение. Селектор — компактный Select в тулбаре (влезает при
+// любом числе значений); previewState живёт в синглтоне useStencilEditor.
+const previewOptions = computed(() => {
+  const head = { label: 'Все', value: 'all' }
+  if (meta.stateMode === 'value') {
+    return [head, ...(meta.states || []).map((s) => ({ label: s.label || s.key, value: s.key }))]
+  }
+  return [head, { label: 'Вкл', value: 'true' }, { label: 'Выкл', value: 'false' }]
+})
 const renderShapes = computed(() => {
   if (!meta.stateful || previewState.value === 'all') return shapes.value
   return shapes.value.filter((s) => {
@@ -94,13 +99,6 @@ const renderShapes = computed(() => {
     return st === 'always' || st === previewState.value
   })
 })
-// Тумблер выключили → превью теряет смысл, возвращаем к «Все».
-watch(
-  () => meta.stateful,
-  (on) => {
-    if (!on) previewState.value = 'all'
-  }
-)
 
 // Цвет подсветки выделения (см. halo-слой в шаблоне): широкая обводка ПОД
 // фигурой, поэтому реальные цвет линии/заливки видны поверх и правятся на глазах.
@@ -584,9 +582,7 @@ onBeforeUnmount(() => {
   <div class="flex flex-col bg-surface-0">
     <!-- Тулбар -->
     <div class="flex min-h-14 items-center gap-2 border-b border-surface-200 px-3">
-      <h2 class="mr-2 text-sm font-semibold uppercase tracking-wide text-surface-900">
-        {{ editingId ? 'Правка стенсила' : 'Новый стенсил' }}
-      </h2>
+      <h2 class="mr-2 text-sm font-semibold uppercase tracking-wide text-surface-900">Редактор</h2>
       <!-- Инструменты рисования (тогл). Отдельной кнопки «выбор» нет: select —
            фоновый дефолт (повторный клик по активному инструменту или авто после
            добавления фигуры возвращают к нему). -->
@@ -640,22 +636,26 @@ onBeforeUnmount(() => {
         @click="selectedId && removeShape(selectedId)"
       />
 
-      <!-- Превью состояния (только когда включена анимация) — эмулирует
-           видимость положений, чтобы автор проверил каждое глазами. -->
+      <!-- Превью состояния (когда включена анимация): эмуляция видимости на холсте,
+           чтобы автор проверил каждое положение глазами. Select компактен при N. -->
       <template v-if="meta.stateful">
         <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
-        <div class="flex items-center gap-1">
-          <Button
-            v-for="p in PREVIEW_STATES"
-            :key="p.key"
-            v-tooltip.bottom="'Превью: ' + p.label"
-            :label="p.label"
-            :severity="previewState === p.key ? 'primary' : 'secondary'"
-            :text="previewState !== p.key"
-            size="small"
-            @click="previewState = p.key"
-          />
-        </div>
+        <span
+          v-tooltip.bottom="
+            'Эмуляция: показать, как элемент выглядит в выбранном состоянии (только превью, на экспорт не влияет)'
+          "
+          class="text-sm text-surface-500"
+        >
+          Превью состояния
+        </span>
+        <Select
+          v-model="previewState"
+          :options="previewOptions"
+          option-label="label"
+          option-value="value"
+          size="small"
+          class="w-36"
+        />
       </template>
 
       <div class="flex-1"></div>

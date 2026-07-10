@@ -74,6 +74,7 @@ export function validateStencilJson(path, json, svgText) {
     'ports',
     'slots',
     'animationTemplate',
+    'states',
     'quality',
     'layoutOnly',
     'noRotate',

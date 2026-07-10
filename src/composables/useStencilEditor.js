@@ -1,6 +1,6 @@
 /**
- * Модель редактора стенсилов (v1, статика). Хранит черновик: метаданные, список
- * примитивов и порты; отдаёт операции над ними + сборку артефактов на выход.
+ * Модель редактора стенсилов. Хранит черновик: метаданные, список примитивов,
+ * порты и анимацию состояния; отдаёт операции над ними + сборку артефактов на выход.
  *
  * Только состояние и чистая логика — без DOM и без interact.js: привязка драга/
  * ресайза живёт в компоненте StencilEditor, где есть ref'ы на SVG-элементы.
@@ -13,19 +13,35 @@
  * садятся на сетку схемы). Визуальная сетка холста рисуется отдельным читаемым
  * шагом (см. StencilEditor) и со snap'ом не связана.
  */
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { snapToGrid } from '../utils/grid'
 import { serializeSvg, buildStencilJson, cropToContent, parseStencilSvg } from '../utils/stencilSvg'
 
 export const SHAPE_GRID = 1
 export const PORT_GRID = 10
 
-// Слот-драйвер внутренней анимации = стандартный булев onoff (hasBoolSlot).
-// На холсте его биндинг рисует существующий BooleanBlock («основной тег») — новой
-// сущности в инспекторе не появляется. Переключение положений даёт наш
-// animationTemplate (.on/.off); серость (де-энергизация) — задача холста
-// (switchSources), в стенсиле её не объявляем.
-const defaultStateSlot = () => ({ key: 'onoff' })
+// Слот-драйвер внутренней анимации. Булев режим → ключ `onoff` (hasBoolSlot,
+// на холсте рисуется блоком «Булево значение»). Режим «по значению» → ключ
+// `value` (тег сигнала, значение которого выбирает активное состояние).
+// Переключение даёт наш animationTemplate; серость/цвет — задача холста
+// (switchSources/voltage), в стенсиле не объявляем.
+const boolSlot = () => ({ key: 'onoff' })
+const valueSlot = () => ({ key: 'value' })
+
+// Пресет подписей состояний КА (СТО 56947007, табл. 6–8) — чтобы автор не
+// перепечатывал стандартные названия. Ключ (`key`) стабилен и идёт в суффикс
+// группы `data-anim-suffix=".on"`; код (значение тега) автор вписывает сам —
+// он проектно-зависим и в суффикс НЕ входит (см. buildStencilJson).
+export const STATE_PRESETS = [
+  { key: 'on', label: 'Включен' },
+  { key: 'off', label: 'Отключен' },
+  { key: 'intermediate', label: 'Промежуточное' },
+  { key: 'invalid', label: 'Недостоверно' },
+  { key: 'fault', label: 'Неисправность' },
+]
+// Быстрый шаблон «Сигнал положения» — 4 основных состояния (без «Неисправность»:
+// она производная по таймауту, триггерится рантаймом, а не значением тега).
+const POSITION_SIGNAL_KEYS = ['on', 'off', 'intermediate', 'invalid']
 
 // Инкрементный id для v-for/selection — детерминированнее Math.random и не течёт
 // в выход (в stencil.json/shape.svg внутренние id не попадают, см. stencilSvg).
@@ -36,8 +52,10 @@ export function createStencilEditor() {
   // noRotate/layoutOnly/quality — декл-флаги стенсила, моделируем как поля
   // (генератор их пишет в json, не теряются при пересохранении).
   // stateful — мастер-тумблер внутренней анимации: пока выключен, стенсил по
-  // всем следам статичен (в json нет slots/animationTemplate); включённый даёт
-  // булев слот-драйвер onoff (stateSlot) и разрешает фигурам состояние on/off.
+  // всем следам статичен (в json нет slots/animationTemplate). Включён — режим
+  // (stateMode) решает форму: `boolean` (частный случай, слот onoff, фигуры
+  // видимы при true/false) или `value` (слот value + список states: фигуры
+  // видимы при своём значении сигнала). Один режим за раз.
   const meta = reactive({
     id: '',
     label: '',
@@ -48,12 +66,25 @@ export function createStencilEditor() {
     layoutOnly: false,
     quality: false,
     stateful: false,
-    stateSlot: defaultStateSlot(),
+    stateMode: 'boolean', // 'boolean' | 'value'
+    stateSlot: boolSlot(),
+    // Режим «по значению»: [{ key (стабильный, → суффикс), label, code }].
+    states: [],
   })
   const shapes = ref([])
   const ports = ref([])
   const tool = ref('select') // 'select' | 'rect' | 'line' | 'circle' | 'polyline' | 'port'
   const selectedId = ref(null)
+  // Превью состояния (эмуляция animation-hidden на холсте): 'all' — все фигуры,
+  // иначе ключ состояния. В синглтоне, т.к. селектор рисуется в инспекторе, а
+  // фильтрация фигур — в StencilEditor. Выключение анимации → сброс на 'all'.
+  const previewState = ref('all')
+  watch(
+    () => meta.stateful,
+    (on) => {
+      if (!on) previewState.value = 'all'
+    }
+  )
   // id редактируемого стенсила (null = создание нового). В режиме правки id
   // заблокирован (= имя папки), проверка уникальности его исключает.
   const editingId = ref(null)
@@ -140,11 +171,60 @@ export function createStencilEditor() {
     commit()
   }
 
-  // Состояние видимости фигуры (внутренняя анимация): always | on | off.
+  // Состояние видимости фигуры (внутренняя анимация): always | <ключ состояния>.
+  // Булев режим: always | true | false. Режим значения: always | key из meta.states.
   // Дискретная операция → коммитим сразу (в отличие от updateShape в жесте).
   function setShapeState(id, state) {
     shapes.value = shapes.value.map((s) => (s.id === id ? { ...s, state } : s))
     commit()
+  }
+
+  // ─── Режим «по значению»: список состояний {key, label, code} ───
+  // Смена режима переустанавливает слот и сбрасывает видимость фигур на `always`:
+  // ключи состояний в булевом (true/false) и value-режиме разные, оставлять
+  // старые назначения нельзя — повисли бы на несуществующем состоянии.
+  function setStateMode(mode) {
+    if (meta.stateMode === mode) return
+    meta.stateMode = mode
+    meta.stateSlot = mode === 'value' ? valueSlot() : boolSlot()
+    previewState.value = 'all' // ключи состояний между режимами разные
+    shapes.value = shapes.value.map((s) =>
+      s.state && s.state !== 'always' ? { ...s, state: 'always' } : s
+    )
+    commit()
+  }
+
+  // Стабильный ключ нового состояния (s1/s2/…) — идёт в суффикс группы, не зависит
+  // от подписи/кода (их автор меняет свободно, назначения фигур не рвутся).
+  function uniqueStateKey() {
+    let n = meta.states.length + 1
+    let key = `s${n}`
+    while (meta.states.some((s) => s.key === key)) key = `s${++n}`
+    return key
+  }
+
+  function addState() {
+    meta.states = [...meta.states, { key: uniqueStateKey(), label: '', code: '' }]
+  }
+
+  function updateState(key, patch) {
+    meta.states = meta.states.map((s) => (s.key === key ? { ...s, ...patch } : s))
+  }
+
+  function removeState(key) {
+    meta.states = meta.states.filter((s) => s.key !== key)
+    // Осиротевшие фигуры (были в этом состоянии) → снова always.
+    shapes.value = shapes.value.map((s) => (s.state === key ? { ...s, state: 'always' } : s))
+    commit()
+  }
+
+  // Шаблон «Сигнал положения»: 4 основных состояния с пресет-подписями, коды пустые.
+  function applyPositionPreset() {
+    meta.states = POSITION_SIGNAL_KEYS.map((k) => ({
+      key: k,
+      label: STATE_PRESETS.find((p) => p.key === k)?.label || k,
+      code: '',
+    }))
   }
 
   // Порт живёт на ГРАНИЦЕ стенсила: снапим к PORT_GRID и проецируем на ближайшую
@@ -196,14 +276,19 @@ export function createStencilEditor() {
     meta.noRotate = !!def.noRotate
     meta.layoutOnly = !!def.layoutOnly
     meta.quality = !!def.quality
-    // Анимация состояния = булев слот-драйвер + карточки animationTemplate.
-    // Тумблер включаем, если стенсил их несёт. Ключ слота СОХРАНЯЕМ как есть
-    // (`alr` у тревоги, `onoff` у свитчей — иначе правка переименовала бы его и
-    // сломала привязку тега/анимацию у расставленных экземпляров). Мигрируем
-    // только транзитный `state` (ранняя версия) → onoff.
-    meta.stateful = !!(def.slots?.length && def.animationTemplate?.length)
+    // Анимация состояния. Режим «по значению» опознаём по полю `states` в json
+    // (редакторные подписи/коды, рантайм их игнорит); иначе — булев (slots +
+    // animationTemplate). Ключ слота СОХРАНЯЕМ как есть (иначе правка переименовала
+    // бы его и сломала привязку у расставленных). Транзитный `state` → onoff.
+    const hasValueStates = Array.isArray(def.states) && def.states.length > 0
+    meta.stateMode = hasValueStates ? 'value' : 'boolean'
+    meta.states = hasValueStates
+      ? def.states.map((s) => ({ key: s.key, label: s.label || '', code: s.code ?? '' }))
+      : []
+    meta.stateful = hasValueStates || !!(def.slots?.length && def.animationTemplate?.length)
     const loadedKey = def.slots?.[0]?.key
-    meta.stateSlot = { key: loadedKey && loadedKey !== 'state' ? loadedKey : 'onoff' }
+    const fallbackKey = hasValueStates ? 'value' : 'onoff'
+    meta.stateSlot = { key: loadedKey && loadedKey !== 'state' ? loadedKey : fallbackKey }
     // Присваиваем внутренние id — без них не работают выделение/ручки/удаление.
     shapes.value = parseStencilSvg(def.svgText).map((s) => ({ id: nextId(), ...s }))
     ports.value = (def.ports || []).map((p) => ({ id: nextId(), name: p.name, x: p.x, y: p.y }))
@@ -227,7 +312,10 @@ export function createStencilEditor() {
     meta.layoutOnly = false
     meta.quality = false
     meta.stateful = false
-    meta.stateSlot = defaultStateSlot()
+    meta.stateMode = 'boolean'
+    meta.stateSlot = boolSlot()
+    meta.states = []
+    previewState.value = 'all'
     shapes.value = []
     ports.value = []
     tool.value = 'select'
@@ -260,6 +348,7 @@ export function createStencilEditor() {
     tool,
     selectedId,
     editingId,
+    previewState,
     canUndo,
     canRedo,
     snapShapeX,
@@ -272,6 +361,11 @@ export function createStencilEditor() {
     updateShape,
     removeShape,
     setShapeState,
+    setStateMode,
+    addState,
+    updateState,
+    removeState,
+    applyPositionPreset,
     addPort,
     movePort,
     removePort,

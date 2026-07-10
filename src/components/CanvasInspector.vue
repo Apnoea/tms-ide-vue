@@ -117,6 +117,15 @@ const details = computed(() => {
   return null
 })
 
+// Слот-драйвер стенсила «по значению»: любой не-onoff слот (onoff рисует
+// BooleanBlock). Значение сигнала выбирает активное состояние; на холсте нужна
+// одна строка — привязать тег (сами состояния/вид уже в стенсиле).
+const valueStateSlot = computed(() => {
+  const d = details.value
+  if (!d || d.kind !== 'cell') return null
+  return (d.slots || []).find((s) => s.key !== 'onoff') || null
+})
+
 // ─── Удаление ───
 function onDelete() {
   canvas.deleteItems([...canvas.selection.value])
@@ -315,12 +324,14 @@ function onPickTag(tag) {
 }
 
 // Правка одного порога: возвращает новый массив ranges либо null, если ввод
-// невалиден. min/max — числа; нечисловой ввод (пустая строка, '3,99', буквы)
-// дал бы NaN, который молча сломал бы диапазон при экспорте → правку игнорируем.
+// невалиден. min/max — числа; нечисловой ввод (пустая строка, буквы) дал бы NaN,
+// который молча сломал бы диапазон при экспорте → правку игнорируем. Русская
+// десятичная запятая («3,99») — самый частый «съеденный» ввод у инженеров с ru-
+// раскладкой: нормализуем в точку до Number(), иначе тоже NaN → тихий откат.
 function editRanges(ranges, idx, field, value) {
   let parsed = value
   if (field !== 'class') {
-    parsed = Number(value)
+    parsed = Number(String(value).trim().replace(',', '.'))
     if (!Number.isFinite(parsed)) return null
   }
   return ranges.map((r, i) => (i === idx ? { ...r, [field]: parsed } : r))
@@ -898,6 +909,26 @@ const switchPickerTags = computed(() => {
 
           <div v-if="!details.isText && !details.isValue" class="space-y-2">
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
+
+            <!-- Стенсил «по значению»: привязка тега сигнала (состояния и их вид
+                 запечены в стенсиле, здесь только тег-драйвер). -->
+            <div v-if="valueStateSlot" class="border border-surface-200 rounded p-3 bg-surface-0">
+              <div class="flex items-center gap-2 mb-2 min-h-6">
+                <i class="pi pi-sitemap text-purple-500" />
+                <div class="text-xs font-medium text-surface-700">Состояние по значению</div>
+              </div>
+              <div class="text-[11px] text-surface-500 mb-1">
+                Тег
+                <span class="text-surface-400">- сигнал, значение выбирает состояние</span>
+              </div>
+              <TagField
+                :value="valueStateSlot.value"
+                :can-pick="!!project.tags.length"
+                highlightable
+                @pick="openSlotPicker(valueStateSlot)"
+                @highlight="canvas.toggleHighlightedTag(valueStateSlot.value)"
+              />
+            </div>
 
             <!-- Булево значение — виден ВСЕГДА. У стенсила с булевым слотом
                  (onoff, в т.ч. cell_alr) первой строкой идёт этот слот (основной

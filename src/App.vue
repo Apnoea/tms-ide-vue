@@ -15,9 +15,20 @@ import HelpDialog from './components/HelpDialog.vue'
 
 import { useUiStore } from './stores/useUiStore'
 import { useWorkspaceStore } from './stores/useWorkspaceStore'
+import { useCanvas } from './composables/useCanvas'
 
 const ui = useUiStore()
 const workspace = useWorkspaceStore()
+const canvas = useCanvas()
+
+// beforeunload-гард только при saveError: запись в IndexedDB не проходит (квота /
+// приватный режим), autosave не спасает → закрытие вкладки теряет всё. В обычном
+// режиме (autosave пишет) не мешаем — данные уже в IDB, потери нет.
+useEventListener(window, 'beforeunload', (e) => {
+  if (!canvas.saveError.value) return
+  e.preventDefault()
+  e.returnValue = ''
+})
 
 // ? и F1 — открыть справку. Глобальный хоткей, игнорируем фокус в инпуте.
 // F1 нужен потому что `?` на русской раскладке = Shift+, и не сразу очевиден.

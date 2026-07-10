@@ -9,8 +9,9 @@
  * в системе стенсила (0..W, 0..H) и снапнуты к сетке, здесь только рендер.
  *
  * Поддерживаемые примитивы: rect, line, circle, polyline. Внутренняя анимация
- * (булево состояние): фигуры группируются по state (always/true/false) в
- * <g data-anim-suffix>, из них же строится animationTemplate.
+ * состояния: фигуры группируются по state в <g data-anim-suffix=".<ключ>">, из
+ * них же строится animationTemplate. Ключи — либо булевы (true/false), либо
+ * произвольные состояния «по значению» (см. meta.stateMode / meta.states).
  */
 
 import { ATTR_SUFFIX } from '../constants/ids'
@@ -134,7 +135,7 @@ export function cropToContent(shapes, ports = [], grid = 10) {
 /**
  * Модель → строка shape.svg. viewBox/width/height берём из meta (кратны 10).
  * Фигуры оборачиваем в `<g>` — единый формат с рукописными стенсилами (у них
- * всё в группе) и задел под v2-анимацию (там на группу вешается data-anim-suffix).
+ * всё в группе); на группу состояния вешается data-anim-suffix.
  */
 // Тело группы: сериализованные фигуры с отступом (пустая строка, если фигур нет).
 function groupBody(shapes) {
@@ -145,22 +146,27 @@ function groupBody(shapes) {
     .join('\n')
 }
 
+// Порядок и набор состояний-групп. Булев режим — фикс. `true`,`false` (частный
+// случай); режим значения — ключи из meta.states (порядок как задал автор).
+function stateKeys(meta) {
+  return meta?.stateMode === 'value' ? (meta.states || []).map((s) => s.key) : ['true', 'false']
+}
+
 export function serializeSvg(shapes, meta) {
   const w = num(meta.width)
   const h = num(meta.height)
   const all = shapes || []
   let groups
   if (meta?.stateful) {
-    // Внутренняя анимация: статику — в базовую группу, true/false — каждое в свой
-    // <g data-anim-suffix> (рантайм вешает animation-hidden на противоположное
-    // значение тега). Суффикс = значение тега, при котором элемент виден. Порядок:
-    // база → .true → .false (анимируемое поверх статики).
+    // Внутренняя анимация: статику — в базовую группу, каждое состояние — в свой
+    // <g data-anim-suffix=".<ключ>"> (рантайм вешает animation-hidden, когда
+    // значение тега не совпадает). Порядок: база → состояния (анимируемое поверх).
     const base = groupBody(all.filter((s) => (s.state || 'always') === 'always'))
-    const onTrue = groupBody(all.filter((s) => s.state === 'true'))
-    const onFalse = groupBody(all.filter((s) => s.state === 'false'))
     groups = base ? `  <g>\n${base}\n  </g>\n` : '  <g></g>\n'
-    if (onTrue) groups += `  <g ${ATTR_SUFFIX}=".true">\n${onTrue}\n  </g>\n`
-    if (onFalse) groups += `  <g ${ATTR_SUFFIX}=".false">\n${onFalse}\n  </g>\n`
+    for (const key of stateKeys(meta)) {
+      const body = groupBody(all.filter((s) => s.state === key))
+      if (body) groups += `  <g ${ATTR_SUFFIX}=".${key}">\n${body}\n  </g>\n`
+    }
   } else {
     const body = groupBody(all)
     groups = body ? `  <g>\n${body}\n  </g>\n` : '  <g></g>\n'
@@ -228,10 +234,11 @@ function elementToShape(el) {
 function collectShapes(parent, out, state = 'always') {
   for (const el of Array.from(parent.children)) {
     if (el.tagName.toLowerCase() === 'g') {
-      // Суффикс состояния = значение тега (.true/.false) → state фигуры; прочие
-      // суффиксы редактор не моделит — наследуем родительское (по умолчанию always).
+      // Суффикс `.<ключ>` → state фигуры (булев `.true`/`.false` или value-ключ
+      // `.on`/`.s1`); группа без суффикса — наследует родительское (по умолчанию
+      // always). Ключ = суффикс без ведущей точки.
       const suffix = el.getAttribute(ATTR_SUFFIX)
-      const childState = suffix === '.true' ? 'true' : suffix === '.false' ? 'false' : state
+      const childState = suffix && suffix.startsWith('.') ? suffix.slice(1) : state
       collectShapes(el, out, childState)
       continue
     }
@@ -239,8 +246,8 @@ function collectShapes(parent, out, state = 'always') {
     if (shape) {
       // Скругление: rect с rx, либо линия/ломаная с круглым linecap/linejoin.
       if (isRounded(el)) shape.rounded = true
-      // state пишем только для true/false; always — дефолт (поле не заводим,
-      // чтобы статика парсилась байт-в-байт как раньше и round-trip не разъезжался).
+      // state пишем только для непустого состояния; always — дефолт (поле не
+      // заводим, чтобы статика парсилась байт-в-байт и round-trip не разъезжался).
       out.push(state === 'always' ? shape : { ...shape, state })
     }
   }
@@ -248,10 +255,10 @@ function collectShapes(parent, out, state = 'always') {
 
 /**
  * Обратный парсинг shape.svg → массив примитивов модели (инверсия serializeSvg).
- * Рекурсит в `<g>`, поэтому читает и наш формат (фигуры в группе), и плоский
- * legacy, и статические рукописные (tv2/tv3). `data-anim-suffix=".on"/".off"` на
- * группе → state фигуры (внутренняя анимация); прочие суффиксы/атрибуты групп
- * (`transform`) и незнакомые элементы (`path`, `text`) — пропускаются.
+ * Рекурсит в `<g>`, поэтому читает и наш формат (фигуры в группе), и плоский, и
+ * статические рукописные (tv2/tv3). `data-anim-suffix=".<ключ>"` на группе → state
+ * фигуры (ключ = суффикс без точки); атрибуты групп (`transform`) и незнакомые
+ * элементы (`path`, `text`) — пропускаются.
  */
 export function parseStencilSvg(svgText) {
   if (!svgText) return []
@@ -286,32 +293,29 @@ export function stencilDraftIssues(meta, shapes, existingIds = []) {
 }
 
 // Карточка animationTemplate для состояния: элемент виден только в «своём»
-// значении тега, т.е. получает animation-hidden на противоположном (hideOn).
+// значении тега, т.е. получает animation-hidden на КАЖДОМ из чужих значений
+// (hideOn). Булев режим: одно чужое значение (.true прячется на 'false'). Режим
+// значения: перечисляем коды остальных состояний — на любом из них группа
+// прячется, на своём (нет case) остаётся видимой. Обобщение той же механики.
 function stateCard(idSuffix, tag, hideOn) {
+  const list = Array.isArray(hideOn) ? hideOn : [hideOn]
+  const cases = {}
+  for (const v of list) cases[String(v)] = { apply: { addClass: 'animation-hidden' } }
   return {
     idSuffix,
     type: 'shape',
-    bindings: [
-      {
-        tag,
-        when: {
-          source: 'value',
-          type: 'map',
-          cases: { [hideOn]: { apply: { addClass: 'animation-hidden' } } },
-        },
-      },
-    ],
+    bindings: [{ tag, when: { source: 'value', type: 'map', cases } }],
     detailTags: [{ tag }],
   }
 }
 
 /**
  * Модель → объект stencil.json. ports включаем только непустыми — стенсил без
- * портов валиден (декор). slots/animationTemplate — только при включённом
- * `stateful` И наличии true/false-фигур (слот без реагирующих элементов бессмыслен):
- * булев слот-драйвер + карточки видимости `.true`/`.false`. Иначе стенсил статичен
- * (разреженный json — как у рукописных). Метку редактируемости НЕ пишем:
- * по умолчанию редактируем/удаляем, нередактируемые — `locked: true` в definitions.
+ * портов валиден (декор). Анимация состояния (при `stateful`) — по режиму:
+ * булев (slot onoff + карточки `.true`/`.false`) либо «по значению» (slot value +
+ * `states` + карточки `.<ключ>`), см. buildBooleanState/buildValueState. Иначе
+ * стенсил статичен (разреженный json). Метку редактируемости НЕ пишем: по
+ * умолчанию редактируем/удаляем, нередактируемые — `locked: true` в definitions.
  */
 export function buildStencilJson(meta, ports, shapes = []) {
   const json = {
@@ -330,18 +334,49 @@ export function buildStencilJson(meta, ports, shapes = []) {
     json.ports = ports.map((p) => ({ name: p.name, x: p.x, y: p.y }))
   }
   if (meta.stateful) {
-    const states = new Set(
-      (shapes || []).map((s) => s.state).filter((st) => st === 'true' || st === 'false')
-    )
-    if (states.size) {
-      const key = meta.stateSlot?.key || 'onoff'
-      const tag = `{slot.${key}}`
-      json.slots = [{ key, type: 'Boolean' }]
-      json.animationTemplate = []
-      // Суффикс = значение тега, при котором виден; скрываем на противоположном.
-      if (states.has('true')) json.animationTemplate.push(stateCard('.true', tag, 'false'))
-      if (states.has('false')) json.animationTemplate.push(stateCard('.false', tag, 'true'))
-    }
+    if (meta.stateMode === 'value') buildValueState(json, meta, shapes)
+    else buildBooleanState(json, meta, shapes)
   }
   return json
+}
+
+// Булев режим (частный случай): слот onoff + карточки `.true`/`.false`, каждая
+// прячется на противоположном значении. Пишем только при наличии таких фигур.
+function buildBooleanState(json, meta, shapes) {
+  const states = new Set(
+    (shapes || []).map((s) => s.state).filter((st) => st === 'true' || st === 'false')
+  )
+  if (!states.size) return
+  const key = meta.stateSlot?.key || 'onoff'
+  const tag = `{slot.${key}}`
+  json.slots = [{ key, type: 'Boolean' }]
+  json.animationTemplate = []
+  if (states.has('true')) json.animationTemplate.push(stateCard('.true', tag, ['false']))
+  if (states.has('false')) json.animationTemplate.push(stateCard('.false', tag, ['true']))
+}
+
+// Режим «по значению»: слот value + список состояний (states — редакторные
+// подписи/коды для round-trip, рантайм игнорит) + по карточке на каждое состояние
+// С ФИГУРАМИ (прячется на кодах остальных). Слот/states пишем при любых
+// объявленных состояниях (чтобы канвас мог привязать тег), карточки — только когда
+// есть что анимировать. Смена кода → другой список cases, суффиксы/фигуры не трогаются.
+function buildValueState(json, meta, shapes) {
+  const declared = meta.states || []
+  if (!declared.length) return
+  const key = meta.stateSlot?.key || 'value'
+  const tag = `{slot.${key}}`
+  json.slots = [{ key, type: 'Value' }]
+  json.states = declared.map((s) => ({ key: s.key, label: s.label || '', code: s.code ?? '' }))
+  const shapeStates = new Set((shapes || []).map((s) => s.state).filter(Boolean))
+  const coded = declared.filter((s) => s.code !== '' && s.code != null)
+  const cards = declared
+    .filter((s) => shapeStates.has(s.key))
+    .map((st) =>
+      stateCard(
+        `.${st.key}`,
+        tag,
+        coded.filter((o) => o.key !== st.key).map((o) => o.code)
+      )
+    )
+  if (cards.length) json.animationTemplate = cards
 }

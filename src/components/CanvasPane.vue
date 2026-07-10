@@ -58,7 +58,7 @@ const {
   removeFormPersist,
 } = useAutosave({ restoringHistory })
 
-const { initHistory, scheduleSnapshot, undo, redo, cancelPendingSnapshot } = useUndoRedo({
+const { initHistory, snapshot, scheduleSnapshot, undo, redo, cancelPendingSnapshot } = useUndoRedo({
   restoringHistory,
   saveAutosave: saveActiveForm,
 })
@@ -501,7 +501,24 @@ onMounted(async () => {
   canvas.setCanvasRefs(graph, paper)
 
   // ─── Restore проекта из IndexedDB (активная форма → граф) ───
-  const restored = await restoreProject()
+  // try/catch обязателен: битый graphJson в IndexedDB → fromJSON бросает, и без
+  // перехвата onMounted оборвался бы ДО initHistory / graph.on — холст навсегда
+  // без истории и хоткеев, лечится только ручной чисткой IDB. Ловим → пустой
+  // холст + error-тост; остальные формы не тронуты, их можно открыть из дерева.
+  let restored = 0
+  try {
+    restored = await restoreProject()
+  } catch (e) {
+    console.error('[Restore] не удалось поднять проект из IndexedDB:', e)
+    withRestoreGuard(restoringHistory, () => {
+      graph.clear()
+      canvas.bumpVersion()
+    })
+    notify.error(
+      'Не удалось восстановить проект',
+      'Локальные данные формы повреждены — открыт пустой холст. Переключите форму или переоткройте проект.'
+    )
+  }
 
   // ─── History: snapshot на «стабильных» событиях ───
   // Только pointerup (после действия) + add/remove. На 'change' JointJS шлёт
@@ -863,13 +880,16 @@ function onClearCanvas(event) {
 
 function performClearCanvas(count) {
   cancelPendingSnapshot()
+  // Снимок состояния ДО очистки (flush pending-правки в стек), затем чистим под
+  // guard'ом и снимаем пустое поверх. НЕ initHistory: сброс истории делал очистку
+  // безвозвратной (Ctrl+Z не спасал, autosave тут же перезаписывал пустоту).
+  snapshot()
   withRestoreGuard(restoringHistory, () => {
     graph.clear()
     canvas.bumpVersion()
   })
   clearActiveForm()
-  // Сбрасываем history до текущего пустого состояния
-  initHistory()
+  snapshot() // пустое состояние в стек — очистка теперь откатывается Ctrl+Z
   canvas.clearSelection()
   canvas.markDirty() // очистка формы → проект разошёлся с .zip
 
