@@ -1,13 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  outerKey,
-  innerKey,
-  innerPrefix,
-  wireKey,
-  valueTextKey,
-  resolveSlotTemplate,
-  hasSlotPlaceholder,
-} from './ids'
+import { outerKey, innerKey, innerPrefix, wireKey, valueTextKey, resolveSlotTemplate } from './ids'
 
 describe('id generators', () => {
   it('outerKey: cell_value → animation-cell-{tag} (рантайм-конвенция)', () => {
@@ -98,22 +90,5 @@ describe('resolveSlotTemplate', () => {
     expect(resolveSlotTemplate('{slot.x}', slots).value).toBe('V')
     expect(resolveSlotTemplate('{slot.x}', slots).value).toBe('V')
     expect(resolveSlotTemplate('{slot.x}', slots).value).toBe('V')
-  })
-})
-
-describe('hasSlotPlaceholder', () => {
-  it('находит указанный slot-ключ', () => {
-    expect(hasSlotPlaceholder('{slot.onoff}', 'onoff')).toBe(true)
-    expect(hasSlotPlaceholder('PRE{slot.onoff}POST', 'onoff')).toBe(true)
-  })
-
-  it('не путает разные ключи', () => {
-    expect(hasSlotPlaceholder('{slot.onoff}', 'alr')).toBe(false)
-  })
-
-  it('non-string → false', () => {
-    expect(hasSlotPlaceholder(null, 'x')).toBe(false)
-    expect(hasSlotPlaceholder(undefined, 'x')).toBe(false)
-    expect(hasSlotPlaceholder(42, 'x')).toBe(false)
   })
 })

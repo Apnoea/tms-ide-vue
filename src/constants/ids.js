@@ -109,11 +109,3 @@ export function resolveSlotTemplate(template, slots) {
   })
   return { value, hadUnresolved }
 }
-
-/**
- * Проверка: содержит ли строка хотя бы один `{slot.X}` placeholder (любой).
- * Для info-tooltip'ов в Inspector — «есть ли в шаблоне ссылка на этот слот».
- */
-export function hasSlotPlaceholder(str, slotKey) {
-  return typeof str === 'string' && str.includes(`{slot.${slotKey}}`)
-}

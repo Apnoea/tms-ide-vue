@@ -80,7 +80,7 @@ const sections = computed(() => [
     <div v-if="slotInfo" class="mb-1">
       <div class="text-[11px] text-surface-500 mb-1">
         Тег
-        <span class="text-surface-400">- для анимации элемента</span>
+        <span class="text-surface-400">для анимации элемента</span>
       </div>
       <TagField
         :value="slotInfo.value || ''"

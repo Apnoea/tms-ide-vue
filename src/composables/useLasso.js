@@ -3,10 +3,13 @@ import { useEventListener } from '@vueuse/core'
 import { useCanvas } from './useCanvas'
 
 /**
- * Lasso-выделение (Alt+ЛКМ-drag по пустому месту). startLasso вызывается из
- * blank:pointerdown в CanvasPane; move/up слушаются на document (drag уходит за
- * пределы холста) — auto-cleanup через useEventListener. lassoRect отдаём в
- * шаблон для overlay-рамки. Ctrl/Cmd на старте → добавление к выделению.
+ * Lasso-выделение (ЛКМ-drag по пустому месту — Figma-стандарт). startLasso
+ * вызывается из blank:pointerdown в CanvasPane; move/up слушаются на document
+ * (drag уходит за пределы холста) — auto-cleanup через useEventListener. lassoRect
+ * отдаём в шаблон для overlay-рамки. Ctrl/Cmd на старте → добавление к выделению.
+ *
+ * Клик по пустому без drag'а (рамка <3px) = снять выделение — этот кейс тоже
+ * приходит сюда (pan ушёл на среднюю кнопку/Space, ЛКМ по пустому всегда лассо).
  *
  * findModelsInArea ловит только ячейки; линии между ними добавляет
  * `selectCellsWithBridges` (общая логика выделения, живёт в CanvasPane).
@@ -30,7 +33,6 @@ export function useLasso(paperContainer, { selectCellsWithBridges }) {
     lassoStartLocal = paper.clientToLocalPoint(evt.clientX, evt.clientY)
     lassoStartClient = { x: evt.clientX, y: evt.clientY }
     lassoRect.value = { x: 0, y: 0, w: 0, h: 0 }
-    if (paperContainer.value) paperContainer.value.style.cursor = 'crosshair'
   }
 
   function onLassoMove(evt) {
@@ -46,7 +48,6 @@ export function useLasso(paperContainer, { selectCellsWithBridges }) {
   function onLassoEnd(evt) {
     if (!lassoActive) return
     lassoActive = false
-    if (paperContainer.value) paperContainer.value.style.cursor = '' // снимаем crosshair во всех ветках
 
     const paper = canvas.paperRef.value
     const graph = canvas.graphRef.value
@@ -57,8 +58,15 @@ export function useLasso(paperContainer, { selectCellsWithBridges }) {
     const h = Math.abs(endLocal.y - lassoStartLocal.y)
     lassoRect.value = null
 
-    // Слишком маленькая рамка — игнорируем (клик мимо без перетаскивания).
-    if (w < 3 && h < 3) return
+    // Слишком маленькая рамка — это клик по пустому, а не drag: снимаем выделение
+    // (кроме additive-клика с Ctrl/Cmd, где выделение осознанно сохраняем).
+    if (w < 3 && h < 3) {
+      if (!lassoAdditive) {
+        canvas.clearSelection()
+        if (canvas.highlightedTag.value) canvas.clearHighlightedTag()
+      }
+      return
+    }
     if (!graph) return
 
     const cells = graph.findModelsInArea({ x, y, width: w, height: h })
@@ -67,8 +75,10 @@ export function useLasso(paperContainer, { selectCellsWithBridges }) {
       .map((c) => ({ kind: 'cell', id: c.id }))
 
     if (lassoAdditive) {
-      // Объединяем с уже выделенными ячейками, дедуплицируя по id.
+      // Объединяем с уже выделенными ячейками, дедуплицируя по id. Ранее
+      // выделенные провода сохраняем (keepLinks) — additive не должен их ронять.
       const currentCells = canvas.selection.value.filter((i) => i.kind === 'cell')
+      const currentLinks = canvas.selection.value.filter((i) => i.kind === 'link')
       const ids = new Set(currentCells.map((c) => c.id))
       const merged = [...currentCells]
       for (const item of newCells) {
@@ -77,7 +87,7 @@ export function useLasso(paperContainer, { selectCellsWithBridges }) {
           ids.add(item.id)
         }
       }
-      selectCellsWithBridges(merged)
+      selectCellsWithBridges(merged, currentLinks)
     } else {
       selectCellsWithBridges(newCells)
     }

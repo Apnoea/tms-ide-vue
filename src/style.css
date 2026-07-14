@@ -116,6 +116,29 @@ body,
   padding: 0;
 }
 
+/* Единая высота компактных контролов (инпуты / селекты / степперы) — 30px, чтобы
+   поля в инспекторах не «плавали» по высоте. .p-inputtext покрывает и обычные
+   инпуты, и внутренний input у InputNumber; у Select центрируем label. */
+.p-inputtext {
+  height: 30px;
+}
+.p-select {
+  height: 30px;
+}
+.p-select .p-select-label {
+  display: flex;
+  align-items: center;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.p-inputnumber-button {
+  height: 30px;
+}
+/* Цвет-пикеры — в тот же ряд по высоте. */
+input[type='color'] {
+  height: 30px;
+}
+
 /* Close-кнопки (toast/dialog) не наследуют .p-button — снимаем кольцо явно. */
 .p-button:focus,
 .p-button:focus-visible,

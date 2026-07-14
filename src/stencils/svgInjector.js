@@ -71,7 +71,7 @@ export function buildBusExportSvg(width, height) {
 }
 
 /** Параметры рендера текстового стенсила (общие для редактора и экспорта). */
-export const TEXT_FONT_SIZE = 14 // дефолт (= пресет M)
+export const TEXT_FONT_SIZE = 14 // дефолт размера шрифта (pt)
 export const TEXT_PADDING_X = 4
 
 /** Lookup лейблов и единиц измерения для cell_value по суффиксу выбранного тега.
@@ -126,13 +126,6 @@ export function resolveValueDisplay(tag) {
   return { label: label || '?', unit }
 }
 
-/** Пресеты размера шрифта для текстового поля (S/M/L). */
-export const TEXT_SIZE_PRESETS = [
-  { label: 'S', size: 11 },
-  { label: 'M', size: 14 },
-  { label: 'L', size: 20 },
-]
-
 /** Высота cell'а под заданный размер шрифта — чтобы hit-area совпадала с текстом. */
 export function textCellHeight(fontSize) {
   return fontSize + 6
@@ -165,11 +158,15 @@ export function textCellWidth(text, fontSize, bold = false) {
  * SVG-строка текстового поля для экспорта. Текст вертикально по центру,
  * с небольшим отступом слева. Формат как у parser.instantiate().
  */
-export function buildTextExportSvg(text, height, { fontSize = TEXT_FONT_SIZE, bold = false } = {}) {
+export function buildTextExportSvg(
+  text,
+  height,
+  { fontSize = TEXT_FONT_SIZE, bold = false, color = '#000' } = {}
+) {
   const y = height / 2
   const weight = bold ? ' font-weight="bold"' : ''
-  // class="tms-voltage-fill" — текст красится цветом напряжения (это его основная заливка).
-  return `<svg xmlns="${SVG_NS}"><text class="tms-voltage-fill" x="${TEXT_PADDING_X}" y="${y}" dominant-baseline="central" font-size="${fontSize}" font-family="sans-serif"${weight} fill="#000">${escapeXml(text)}</text></svg>`
+  // Статичная подпись — цвет задаёт автор (tms.color), voltage-fill тут не нужен.
+  return `<svg xmlns="${SVG_NS}"><text x="${TEXT_PADDING_X}" y="${y}" dominant-baseline="central" font-size="${fontSize}" font-family="sans-serif"${weight} fill="${escapeAttr(color || '#000')}">${escapeXml(text)}</text></svg>`
 }
 
 // ─── cell_value: «card с accent-полоской» ───
@@ -276,7 +273,7 @@ function buildTextContent(cellView) {
         'font-size': fontSize,
         'font-family': 'sans-serif',
         'font-weight': tms.bold ? 'bold' : null,
-        fill: '#000',
+        fill: tms.color || '#000',
       },
       tms.text ?? ''
     ),

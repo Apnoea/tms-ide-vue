@@ -3,7 +3,7 @@
   "locked": true,
   "label": "Значение тега",
   "category": "Разметка и значения",
-  "layoutOnly": true,
+  "static": true,
   "noRotate": true,
   "defaults": { "valueTag": "" },
   "shapeFile": "shape.svg",

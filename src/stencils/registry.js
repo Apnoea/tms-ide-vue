@@ -60,7 +60,7 @@ export function validateStencilJson(path, json, svgText) {
   }
 
   // Известные поля верхнего уровня. Опечатки типа `slts` / `slosts` вылавливаем.
-  // Декларативные флаги (quality / layoutOnly / noRotate) — источник правды о
+  // Декларативные флаги (quality / static / noRotate) — источник правды о
   // специальном поведении стенсила: exporter / Inspector / Canvas читают их через
   // getStencilById, никаких хардкод-Set'ов.
   const known = new Set([
@@ -76,7 +76,7 @@ export function validateStencilJson(path, json, svgText) {
     'animationTemplate',
     'states',
     'quality',
-    'layoutOnly',
+    'static',
     'noRotate',
     'defaults',
     'locked',

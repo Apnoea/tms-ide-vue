@@ -19,6 +19,7 @@ import { useElementSize, useEventListener } from '@vueuse/core'
 import interact from 'interactjs'
 import Button from 'primevue/button'
 import Select from 'primevue/select'
+import InputNumber from 'primevue/inputnumber'
 import { useConfirm } from 'primevue/useconfirm'
 import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from '../composables/useNotify'
@@ -99,6 +100,21 @@ const renderShapes = computed(() => {
     return st === 'always' || st === previewState.value
   })
 })
+
+// При активном инструменте рисования фигуры «прозрачны» для указателя: pointerdown
+// уходит на холст (рисуем поверх), interact-драг над фигурой не стартует. В select
+// — интерактивны (выделение/перемещение). Порты/ручки не трогаем (у них своя роль).
+const shapePointerEvents = computed(() => (tool.value === 'select' ? null : 'none'))
+
+// Размер холста стенсила кратен 10 (порты и сам стенсил садятся на сетку схемы).
+// Инпуты размера — в тулбаре; снап к 10 держим здесь.
+watch(
+  () => [meta.width, meta.height],
+  () => {
+    meta.width = Math.max(10, snapToGrid(meta.width, 10))
+    meta.height = Math.max(10, snapToGrid(meta.height, 10))
+  }
+)
 
 // Цвет подсветки выделения (см. halo-слой в шаблоне): широкая обводка ПОД
 // фигурой, поэтому реальные цвет линии/заливки видны поверх и правятся на глазах.
@@ -602,6 +618,30 @@ onBeforeUnmount(() => {
 
       <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
 
+      <!-- Размер холста стенсила — рядом с инструментами рисования. -->
+      <div class="flex items-center gap-1.5 text-xs text-surface-500">
+        <span>Холст</span>
+        <InputNumber
+          v-model="meta.width"
+          :min="10"
+          :step="10"
+          :use-grouping="false"
+          size="small"
+          input-class="!w-14 text-center"
+        />
+        <span class="text-surface-400">×</span>
+        <InputNumber
+          v-model="meta.height"
+          :min="10"
+          :step="10"
+          :use-grouping="false"
+          size="small"
+          input-class="!w-14 text-center"
+        />
+      </div>
+
+      <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
+
       <Button
         v-tooltip.bottom="'Отменить (Ctrl+Z)'"
         icon="pi pi-undo"
@@ -635,28 +675,6 @@ onBeforeUnmount(() => {
         :disabled="!selectedId"
         @click="selectedId && removeShape(selectedId)"
       />
-
-      <!-- Превью состояния (когда включена анимация): эмуляция видимости на холсте,
-           чтобы автор проверил каждое положение глазами. Select компактен при N. -->
-      <template v-if="meta.stateful">
-        <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
-        <span
-          v-tooltip.bottom="
-            'Эмуляция: показать, как элемент выглядит в выбранном состоянии (только превью, на экспорт не влияет)'
-          "
-          class="text-sm text-surface-500"
-        >
-          Превью состояния
-        </span>
-        <Select
-          v-model="previewState"
-          :options="previewOptions"
-          option-label="label"
-          option-value="value"
-          size="small"
-          class="w-36"
-        />
-      </template>
 
       <div class="flex-1"></div>
 
@@ -708,7 +726,29 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <!-- Левая линейка (Y) + холст -->
-      <div class="flex flex-1 min-h-0">
+      <div class="relative flex flex-1 min-h-0">
+        <!-- Превью состояния — плавающий контрол слева-сверху НА холсте (эмуляция
+             видимости состояния; на экспорт не влияет). Виден при включённой анимации. -->
+        <div
+          v-if="meta.stateful"
+          class="absolute top-2 z-10 flex items-center gap-2 rounded border border-surface-200 bg-surface-0/90 px-2 py-1 shadow-sm backdrop-blur-sm"
+          :style="{ left: `${RULER + 8}px` }"
+        >
+          <span
+            v-tooltip.bottom="'Эмуляция: как элемент выглядит в состоянии (только превью)'"
+            class="text-xs text-surface-500"
+          >
+            Превью
+          </span>
+          <Select
+            v-model="previewState"
+            :options="previewOptions"
+            option-label="label"
+            option-value="value"
+            size="small"
+            class="w-32"
+          />
+        </div>
         <div
           class="shrink-0 overflow-hidden border-r border-surface-200 bg-surface-0"
           :style="{ width: `${RULER}px` }"
@@ -861,6 +901,7 @@ onBeforeUnmount(() => {
                 :fill="s.fill"
                 :stroke="s.stroke"
                 :stroke-width="s.strokeWidth"
+                :pointer-events="shapePointerEvents"
                 @pointerdown="tool === 'select' && select(s.id)"
               />
               <line
@@ -874,6 +915,7 @@ onBeforeUnmount(() => {
                 :stroke="s.stroke"
                 :stroke-width="s.strokeWidth"
                 :stroke-linecap="s.rounded ? 'round' : null"
+                :pointer-events="shapePointerEvents"
                 @pointerdown="tool === 'select' && select(s.id)"
               />
               <circle
@@ -886,6 +928,7 @@ onBeforeUnmount(() => {
                 :fill="s.fill"
                 :stroke="s.stroke"
                 :stroke-width="s.strokeWidth"
+                :pointer-events="shapePointerEvents"
                 @pointerdown="tool === 'select' && select(s.id)"
               />
               <polygon
@@ -897,6 +940,7 @@ onBeforeUnmount(() => {
                 :stroke="s.stroke"
                 :stroke-width="s.strokeWidth"
                 :stroke-linejoin="s.rounded ? 'round' : null"
+                :pointer-events="shapePointerEvents"
                 @pointerdown="tool === 'select' && select(s.id)"
               />
               <polyline
@@ -909,6 +953,7 @@ onBeforeUnmount(() => {
                 :stroke-width="s.strokeWidth"
                 :stroke-linecap="s.rounded ? 'round' : null"
                 :stroke-linejoin="s.rounded ? 'round' : null"
+                :pointer-events="shapePointerEvents"
                 @pointerdown="tool === 'select' && select(s.id)"
               />
             </template>

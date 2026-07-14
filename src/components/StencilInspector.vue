@@ -1,12 +1,12 @@
 <script setup>
 /**
  * Свойства стенсила — контент правой панели в режиме редактора. Секции:
- * идентификация (название/id/категория), холст (размер), поведение (флаги),
+ * идентификация (название/id/категория), поведение (флаги),
  * анимация состояния (свитч Выкл/Булево/По значению + список состояний) и
  * фигура (свойства выделенного элемента + его видимость по состоянию).
  * Стейт — синглтон useStencilEditor (тот же инстанс, что рисуется в центре).
  */
-import { computed, watch } from 'vue'
+import { computed } from 'vue'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
@@ -14,7 +14,6 @@ import Checkbox from 'primevue/checkbox'
 import SelectButton from 'primevue/selectbutton'
 import Button from 'primevue/button'
 import { getCategories, registryVersion } from '../stencils/registry'
-import { snapToGrid } from '../utils/grid'
 import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor'
 
 const {
@@ -138,15 +137,6 @@ const categories = computed(() => {
   return getCategories()
 })
 
-// Размер стенсила кратен 10 (порты и сам стенсил садятся на сетку схемы).
-watch(
-  () => [meta.width, meta.height],
-  () => {
-    meta.width = Math.max(10, snapToGrid(meta.width, 10))
-    meta.height = Math.max(10, snapToGrid(meta.height, 10))
-  }
-)
-
 // id = имя папки definitions/<id>/ → маска [a-z0-9_]. Фильтруем прямо в DOM
 // (watch/computed не годятся: значение уходит в кириллицу и обратно за тик,
 // Vue не перезатирает введённый символ). В правке id заблокирован.
@@ -159,191 +149,168 @@ function onIdInput(e) {
 
 <template>
   <aside class="h-full flex flex-col bg-surface-50">
-    <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
-      <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Стенсил</h2>
-    </div>
-
-    <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-4">
-      <label class="block">
-        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Название</div>
-        <InputText v-model="meta.label" size="small" class="w-full" placeholder="Задвижка" />
-      </label>
-
-      <label class="block">
-        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">id</div>
-        <!-- Нативный <input> (не PrimeVue): @input гарантированно нативный, onIdInput
-             правит e.target.value напрямую (обходя Vue-диффинг). -->
-        <input
-          :value="meta.id"
-          :disabled="!!editingId"
-          placeholder="cell_valve"
-          class="p-inputtext p-component p-inputtext-sm w-full font-mono"
-          @input="onIdInput"
-        />
-      </label>
-
-      <label class="block">
-        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Категория</div>
-        <Select
-          v-model="meta.category"
-          :options="categories"
-          editable
-          placeholder="Выберите или впишите"
-          size="small"
-          class="w-full"
-        />
-      </label>
-
-      <!-- Холст — область рисования стенсила -->
-      <div class="border-t border-surface-200 pt-4">
-        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Холст</div>
-        <div class="flex items-center gap-3">
-          <label class="flex items-center gap-1.5 text-xs text-surface-500">
-            Ш
-            <InputNumber
-              v-model="meta.width"
-              :min="10"
-              :step="10"
-              :use-grouping="false"
-              size="small"
-              input-class="!w-16 text-center"
-            />
-          </label>
-          <label class="flex items-center gap-1.5 text-xs text-surface-500">
-            В
-            <InputNumber
-              v-model="meta.height"
-              :min="10"
-              :step="10"
-              :use-grouping="false"
-              size="small"
-              input-class="!w-16 text-center"
-            />
-          </label>
-        </div>
+    <!-- Плашка «Стенсил»: свойства документа (идентификация/поведение/анимация) -->
+    <div class="flex-1 min-h-0 flex flex-col">
+      <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
+        <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Стенсил</h2>
       </div>
 
-      <div class="border-t border-surface-200 pt-4">
-        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Поведение</div>
-        <label class="flex items-center gap-2 mb-1.5 cursor-pointer">
+      <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-4">
+        <label class="block">
+          <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Название</div>
+          <InputText v-model="meta.label" size="small" class="w-full" placeholder="Задвижка" />
+        </label>
+
+        <label class="block">
+          <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">id</div>
+          <!-- Нативный <input> (не PrimeVue): @input гарантированно нативный, onIdInput
+             правит e.target.value напрямую (обходя Vue-диффинг). -->
+          <input
+            :value="meta.id"
+            :disabled="!!editingId"
+            placeholder="cell_valve"
+            class="p-inputtext p-component p-inputtext-sm w-full font-mono"
+            @input="onIdInput"
+          />
+        </label>
+
+        <label class="block">
+          <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Категория</div>
+          <Select
+            v-model="meta.category"
+            :options="categories"
+            editable
+            placeholder="Выберите или впишите"
+            size="small"
+            class="w-full"
+          />
+        </label>
+
+        <!-- Единственный флаг поведения — прямо после категории, без отдельной секции. -->
+        <label class="flex items-center gap-2 cursor-pointer">
           <Checkbox v-model="meta.noRotate" binary input-id="se-norotate" />
           <span class="text-surface-700">Запретить поворот</span>
         </label>
-        <label class="flex items-center gap-2 mb-1.5 cursor-pointer">
-          <Checkbox v-model="meta.layoutOnly" binary input-id="se-layoutonly" />
-          <span class="text-surface-700">Только разметка (без анимаций)</span>
-        </label>
-        <label class="flex items-center gap-2 cursor-pointer">
-          <Checkbox v-model="meta.quality" binary input-id="se-quality" />
-          <span class="text-surface-700">Анимация качества сигнала (Quality)</span>
-        </label>
-      </div>
 
-      <div class="border-t border-surface-200 pt-4">
-        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
-          Анимация состояния
+        <div class="border-t border-surface-200 pt-4">
+          <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
+            Анимация состояния
+          </div>
+          <SelectButton
+            v-model="animMode"
+            :options="ANIM_MODE_OPTIONS"
+            option-label="label"
+            option-value="value"
+            :allow-empty="false"
+            size="small"
+            class="mb-2"
+          />
+
+          <template v-if="meta.stateful">
+            <div v-if="meta.stateMode === 'boolean'" class="space-y-1.5 mb-2">
+              <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
+                <span class="flex-1 min-w-0">Подпись</span>
+                <span class="w-16">Значение</span>
+                <span class="w-6 shrink-0" aria-hidden="true"></span>
+              </div>
+              <div v-for="st in BOOLEAN_STATES" :key="st.value" class="flex items-center gap-1.5">
+                <InputText
+                  :model-value="st.label"
+                  disabled
+                  size="small"
+                  class="flex-1 min-w-0 !text-xs"
+                />
+                <InputText
+                  :model-value="st.value"
+                  disabled
+                  size="small"
+                  class="w-16 font-mono !text-xs"
+                />
+                <span class="w-6 shrink-0" aria-hidden="true"></span>
+              </div>
+            </div>
+
+            <div v-if="meta.stateMode === 'value'" class="space-y-1.5 mb-2">
+              <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
+                <span class="flex-1 min-w-0">Подпись</span>
+                <span class="w-16">Значение</span>
+                <span class="w-6 shrink-0" aria-hidden="true"></span>
+              </div>
+              <div v-for="st in meta.states" :key="st.key" class="flex items-center gap-1.5">
+                <Select
+                  :model-value="st.label"
+                  :options="PRESET_LABELS"
+                  editable
+                  placeholder="состояние"
+                  size="small"
+                  class="flex-1 min-w-0"
+                  @update:model-value="updateState(st.key, { label: $event })"
+                />
+                <InputText
+                  :model-value="st.code"
+                  placeholder="код"
+                  size="small"
+                  class="w-16 font-mono !text-xs"
+                  @update:model-value="updateState(st.key, { code: $event })"
+                />
+                <Button
+                  v-tooltip.bottom="'Убрать состояние'"
+                  icon="pi pi-times"
+                  severity="secondary"
+                  text
+                  size="small"
+                  class="!p-1 !w-6 !h-6"
+                  @click="removeState(st.key)"
+                />
+              </div>
+              <div class="flex gap-1.5">
+                <button
+                  type="button"
+                  class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
+                  @click="addState"
+                >
+                  <i class="pi pi-plus !text-[10px]" />
+                  состояние
+                </button>
+                <button
+                  type="button"
+                  v-tooltip.bottom="
+                    '4 состояния: Включен / Отключен / Промежуточное / Недостоверно'
+                  "
+                  class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
+                  @click="applyPositionPreset"
+                >
+                  <i class="pi pi-bolt !text-[10px]" />
+                  Сигнал положения
+                </button>
+              </div>
+            </div>
+
+            <!-- Quality: серость + «показать все положения» при bad-качестве
+                 драйвящего тега. Осмыслен только при анимации (нужен тег). -->
+            <label class="mt-2 flex items-center gap-2 cursor-pointer">
+              <Checkbox v-model="meta.quality" binary input-id="se-quality" />
+              <span class="text-surface-700">Учитывать качество сигнала (Quality)</span>
+            </label>
+          </template>
         </div>
-        <SelectButton
-          v-model="animMode"
-          :options="ANIM_MODE_OPTIONS"
-          option-label="label"
-          option-value="value"
-          :allow-empty="false"
-          size="small"
-          class="mb-2"
-        />
-
-        <template v-if="meta.stateful">
-          <div v-if="meta.stateMode === 'boolean'" class="space-y-1.5 mb-2">
-            <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
-              <span class="flex-1 min-w-0">Подпись</span>
-              <span class="w-16">Значение</span>
-              <span class="w-6 shrink-0" aria-hidden="true"></span>
-            </div>
-            <div v-for="st in BOOLEAN_STATES" :key="st.value" class="flex items-center gap-1.5">
-              <InputText
-                :model-value="st.label"
-                disabled
-                size="small"
-                class="flex-1 min-w-0 !text-xs"
-              />
-              <InputText
-                :model-value="st.value"
-                disabled
-                size="small"
-                class="w-16 font-mono !text-xs"
-              />
-              <span class="w-6 shrink-0" aria-hidden="true"></span>
-            </div>
-          </div>
-
-          <div v-if="meta.stateMode === 'value'" class="space-y-1.5 mb-2">
-            <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
-              <span class="flex-1 min-w-0">Подпись</span>
-              <span class="w-16">Значение</span>
-              <span class="w-6 shrink-0" aria-hidden="true"></span>
-            </div>
-            <div v-for="st in meta.states" :key="st.key" class="flex items-center gap-1.5">
-              <Select
-                :model-value="st.label"
-                :options="PRESET_LABELS"
-                editable
-                placeholder="состояние"
-                size="small"
-                class="flex-1 min-w-0"
-                @update:model-value="updateState(st.key, { label: $event })"
-              />
-              <InputText
-                :model-value="st.code"
-                placeholder="код"
-                size="small"
-                class="w-16 font-mono !text-xs"
-                @update:model-value="updateState(st.key, { code: $event })"
-              />
-              <Button
-                v-tooltip.bottom="'Убрать состояние'"
-                icon="pi pi-times"
-                severity="secondary"
-                text
-                size="small"
-                class="!p-1 !w-6 !h-6"
-                @click="removeState(st.key)"
-              />
-            </div>
-            <div class="flex gap-1.5">
-              <button
-                type="button"
-                class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
-                @click="addState"
-              >
-                <i class="pi pi-plus !text-[10px]" />
-                состояние
-              </button>
-              <button
-                type="button"
-                v-tooltip.bottom="'4 состояния: Включен / Отключен / Промежуточное / Недостоверно'"
-                class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
-                @click="applyPositionPreset"
-              >
-                <i class="pi pi-bolt !text-[10px]" />
-                Сигнал положения
-              </button>
-            </div>
-          </div>
-        </template>
       </div>
+    </div>
 
-      <!-- Фигура — свойства выделенного элемента (контекстно). Видимость (состояние
-           фигуры) живёт здесь же: это свойство элемента, а не стенсила. -->
-      <div class="border-t border-surface-200 pt-4">
-        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">Фигура</div>
+    <!-- Плашка «Фигура»: свойства выделенного элемента (контекстно). Видимость
+         (в каком состоянии видна фигура) живёт здесь — это свойство элемента. -->
+    <div class="flex min-h-0 max-h-[50%] shrink-0 flex-col border-t border-surface-200">
+      <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
+        <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Фигура</h2>
+      </div>
+      <div class="p-4 overflow-y-auto text-sm">
         <div v-if="selectedShape" class="space-y-2.5">
           <label class="flex items-center justify-between cursor-pointer">
             <span class="text-surface-700">Цвет линии</span>
             <input
               type="color"
               :value="strokeColor"
-              class="h-7 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+              class="w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
               @input="setStroke"
               @change="commit"
             />
@@ -364,7 +331,9 @@ function onIdInput(e) {
               @blur="commit"
             />
           </label>
-          <template v-if="hasFill">
+          <!-- Свотч заливки — справа на строке чекбокса (появляется при включении),
+               чтобы тумблер не добавлял новую строку и layout не прыгал. -->
+          <div v-if="hasFill" class="flex min-h-7 items-center justify-between">
             <label class="flex items-center gap-2 cursor-pointer">
               <Checkbox
                 :model-value="fillEnabled"
@@ -374,17 +343,15 @@ function onIdInput(e) {
               />
               <span class="text-surface-700">Заливка</span>
             </label>
-            <label v-if="fillEnabled" class="flex items-center justify-between cursor-pointer">
-              <span class="text-surface-700">Цвет заливки</span>
-              <input
-                type="color"
-                :value="fillColor"
-                class="h-7 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                @input="setFill"
-                @change="commit"
-              />
-            </label>
-          </template>
+            <input
+              v-if="fillEnabled"
+              type="color"
+              :value="fillColor"
+              class="w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+              @input="setFill"
+              @change="commit"
+            />
+          </div>
           <label v-if="hasRounding" class="flex items-center gap-2 cursor-pointer">
             <Checkbox
               :model-value="roundedEnabled"

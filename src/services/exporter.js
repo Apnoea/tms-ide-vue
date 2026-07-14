@@ -347,6 +347,7 @@ export function exportProject(graph, paper = null) {
       cellSvg = buildTextExportSvg(tms.text ?? '', size.height, {
         fontSize: tms.fontSize,
         bold: tms.bold,
+        color: tms.color,
       })
     } else if (tms.stencilId === 'cell_value') {
       cellSvg = buildValueExportSvg(animId, tms.valueTag || '', size.width, size.height)
@@ -596,7 +597,7 @@ export function exportProject(graph, paper = null) {
   // (`slots`, `voltageSource`, `switchSources` на верхнем уровне), так что
   // тот же getCellTagsFromTms что и для поиска — без дубля сборки тегов.
   for (const c of cellExports) {
-    if (getStencilById(c.stencilId)?.layoutOnly) continue
+    if (getStencilById(c.stencilId)?.static) continue
     attachDetailTags(outerKeyFor(c.stencilId, c.animId), getCellTagsFromTms(c))
   }
   for (const l of linkExports) {

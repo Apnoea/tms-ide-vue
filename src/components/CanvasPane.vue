@@ -79,9 +79,15 @@ let graph = null
 // paperContainer-target: ref наполнится после mount, listener зацепится тогда.
 useEventListener(paperContainer, 'wheel', onWheel, { passive: false })
 useEventListener(paperContainer, 'mousemove', onCanvasMouseMove)
+useEventListener(paperContainer, 'mouseenter', onCanvasEnter)
 useEventListener(paperContainer, 'mouseleave', onCanvasMouseLeave)
 // Capture-phase mousedown для resize шины — раньше JointJS, чтобы он не начал drag.
 useEventListener(paperContainer, 'mousedown', bus.onMaybeStartResize, true)
+// Capture-phase mousedown для pan (MMB / Space+ЛКМ) — тоже раньше JointJS.
+useEventListener(paperContainer, 'mousedown', onPanMouseDown, true)
+useEventListener(document, 'mouseup', onPanMouseUp)
+useEventListener(window, 'keydown', onSpaceDown)
+useEventListener(window, 'keyup', onSpaceUp)
 // Pan/lasso/palette-drag слушают свои document/window-события сами
 // (usePan/useLasso/usePaletteDrag).
 
@@ -189,8 +195,9 @@ const MAX_ZOOM = 4
 // Шаг зума кнопками тулбара (крупнее колеса 0.9/1.1 — клик должен ощутимо двигать).
 const ZOOM_STEP = 1.2
 
-// Pan — в usePan (свои document move/up). onPanStart дёргаем из blank:pointerdown.
-const { onPanStart, isPanning } = usePan(paperContainer)
+// Pan — в usePan (свои document move/up). onPanStart дёргаем из capture-mousedown
+// ниже (средняя кнопка или Space+ЛКМ).
+const { onPanStart, isPanning } = usePan()
 
 // Multi-drag: id ячейки, за которую пользователь начал drag, и снимок
 // исходных позиций всех selected-ячеек. Очищается на element:pointerup.
@@ -214,17 +221,77 @@ const { ctxMenuRef, ctxItems, showContextMenu } = useContextMenu({
   copySelection,
   duplicateSelection,
 })
-// Lasso — startLasso дёргаем из blank:pointerdown (Alt+ЛКМ); move/up свои.
+// Lasso — startLasso дёргаем из blank:pointerdown (обычный ЛКМ); move/up свои.
 const { lassoRect, startLasso } = useLasso(paperContainer, { selectCellsWithBridges })
+
+// ─── Pan-жесты (Figma-модель) ───────────────────────────────────────────────
+// Средняя кнопка или Space+ЛКМ панят холст; обычный ЛКМ по пустому — лассо.
+// Курсор: Space (наведён на холст) → grab, во время pan → grabbing, иначе обычный.
+// spaceHeld/overCanvas — модульные флаги (не reactive, читаются в raw-хендлерах).
+let spaceHeld = false
+let overCanvas = false
+
+function setCursor(value) {
+  if (paperContainer.value) paperContainer.value.style.cursor = value
+}
+
+// Space-pan включаем только когда курсор над холстом — иначе перехватывали бы
+// пробел в остальном UI (кнопки/скролл страницы).
+function onCanvasEnter() {
+  overCanvas = true
+}
+function onSpaceDown(event) {
+  if (event.code !== 'Space' || spaceHeld || !overCanvas) return
+  const t = event.target
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+  spaceHeld = true
+  event.preventDefault() // пробел не должен скроллить страницу / жать фокус-кнопку
+  setCursor('grab')
+}
+function onSpaceUp(event) {
+  if (event.code !== 'Space') return
+  spaceHeld = false
+  if (!isPanning()) setCursor('')
+}
+
+// Capture-phase: перехватываем ДО JointJS, чтобы MMB/Space+ЛКМ не начали drag
+// элемента и не всплыли в blank:pointerdown как лассо. preventDefault на средней
+// кнопке гасит autoscroll-кружок Windows.
+function onPanMouseDown(event) {
+  const wantPan = event.button === 1 || (event.button === 0 && spaceHeld)
+  if (!wantPan) return
+  event.preventDefault()
+  event.stopPropagation()
+  onPanStart(event)
+  setCursor('grabbing')
+}
+// После любого mouseup возвращаем курсор в покой: grab, если Space ещё зажат
+// (над холстом), иначе обычный. Отрабатывает конец pan'а во всех ветках.
+function onPanMouseUp() {
+  setCursor(spaceHeld ? 'grab' : '')
+}
 
 /**
  * Заменяет выделение на cells + автодобавленные «мостовые» линии между ними.
  * computeBridgeLinks — в utils/bridgeLinks.js, общая логика c useCanvas.
+ *
+ * keepLinks — провода, которые нужно сохранить в выделении (уже выделены вручную).
+ * Нужен для toggle-веток (Ctrl+клик по ячейке, additive-лассо): без него любой
+ * выделенный провод слетал бы, т.к. selection пересобирается из ячеек + мостов.
+ * Дедуп по id — мост мог совпасть с уже выделённым проводом.
  */
-function selectCellsWithBridges(cellItems) {
+function selectCellsWithBridges(cellItems, keepLinks = []) {
   const cellIds = cellItems.map((c) => c.id)
   const bridges = computeBridgeLinks(graph, cellIds)
-  canvas.setSelection([...cellItems, ...bridges])
+  const seen = new Set(bridges.map((l) => l.id))
+  const links = [...bridges]
+  for (const l of keepLinks) {
+    if (!seen.has(l.id)) {
+      links.push(l)
+      seen.add(l.id)
+    }
+  }
+  canvas.setSelection([...cellItems, ...links])
 }
 
 function prepareMultiDrag(cellId) {
@@ -364,19 +431,13 @@ onMounted(async () => {
     },
   })
 
-  // ─── Pan vs Lasso + reset selection на blank-клике ───
-  // Plain LMB-drag = pan + сброс выделения/подсветки (естественный «выход»).
-  // Alt+LMB-drag = lasso (выделение рамкой), selection не трогаем — юзер
-  // расширяет его рамкой.
+  // ─── Клик по пустому месту ───
   paper.on('blank:pointerdown', (evt) => {
     hideCellTooltip()
-    if (evt.altKey) {
-      startLasso(evt)
-      return
-    }
-    onPanStart(evt)
-    canvas.clearSelection()
-    if (canvas.highlightedTag.value) canvas.clearHighlightedTag()
+    // ЛКМ по пустому — всегда лассо. Pan (MMB / Space+ЛКМ) перехватывается
+    // capture-mousedown'ом и сюда не доходит. Снятие выделения при клике без
+    // drag'а делает сам onLassoEnd (маленькая рамка).
+    startLasso(evt)
   })
 
   // ─── Selection ───
@@ -385,15 +446,17 @@ onMounted(async () => {
   paper.on('element:pointerdown', (elementView, evt) => {
     const cellId = elementView.model.id
     if (evt.ctrlKey || evt.metaKey) {
-      // Toggle этой ячейки в выделении + пересчёт «мостов»
+      // Toggle этой ячейки в выделении + пересчёт «мостов». Ранее выделенные
+      // провода сохраняем (keepLinks) — иначе они слетали при Ctrl+клике.
       const currentCells = canvas.selection.value.filter((i) => i.kind === 'cell')
+      const currentLinks = canvas.selection.value.filter((i) => i.kind === 'link')
       let nextCells
       if (currentCells.some((c) => c.id === cellId)) {
         nextCells = currentCells.filter((c) => c.id !== cellId)
       } else {
         nextCells = [...currentCells, { kind: 'cell', id: cellId }]
       }
-      selectCellsWithBridges(nextCells)
+      selectCellsWithBridges(nextCells, currentLinks)
     } else if (!canvas.isSelected(cellId)) {
       canvas.selectOnly('cell', cellId)
     }
@@ -775,6 +838,7 @@ function onCanvasMouseMove(event) {
 
 function onCanvasMouseLeave() {
   canvas.setCursorLocal(null)
+  overCanvas = false
 }
 
 function onWheel(event) {
@@ -1013,7 +1077,7 @@ function performClearCanvas(count) {
  любой re-render :class перетёр бы className и убил бы метку. -->
       <div
         ref="paperContainer"
-        class="absolute inset-0 bg-white cursor-grab"
+        class="absolute inset-0 bg-white cursor-default"
         :class="simulating ? 'tms-simulating ring-2 ring-inset ring-emerald-400/60 ' : ''"
       ></div>
 
@@ -1162,7 +1226,7 @@ function performClearCanvas(count) {
         </span>
       </div>
 
-      <!-- Lasso overlay (Alt+LMB drag): рамка выделения, координаты в container-px -->
+      <!-- Lasso overlay (ЛКМ-drag по пустому): рамка выделения, координаты в container-px -->
       <div
         v-if="lassoRect"
         class="absolute pointer-events-none border border-primary-500 bg-primary-500/10"

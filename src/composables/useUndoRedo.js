@@ -18,7 +18,7 @@ const HISTORY_LIMIT = 50
  *    форму (в IndexedDB через useAutosave), чтобы перезагрузка давала актуальное
  *    состояние.
  *
- * После создания composable нужно вызвать `init()` когда graph готов, чтобы
+ * После создания composable нужно вызвать `initHistory()` когда graph готов, чтобы
  * стартовая позиция (пустой граф или восстановленный автосейв) попала в стек.
  */
 export function useUndoRedo({ restoringHistory, saveAutosave }) {

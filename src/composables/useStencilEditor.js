@@ -49,8 +49,10 @@ let seq = 0
 const nextId = () => `s${++seq}`
 
 export function createStencilEditor() {
-  // noRotate/layoutOnly/quality — декл-флаги стенсила, моделируем как поля
-  // (генератор их пишет в json, не теряются при пересохранении).
+  // noRotate/quality — декл-флаги стенсила, моделируем как поля (генератор их
+  // пишет в json, не теряются при пересохранении). Флаг `static` в редакторе не
+  // редактируется: его несут только встроенные text/value (locked), а на холсте
+  // он гейтит bulk-apply/detailTags (см. CanvasInspector.isStatic / exporter).
   // stateful — мастер-тумблер внутренней анимации: пока выключен, стенсил по
   // всем следам статичен (в json нет slots/animationTemplate). Включён — режим
   // (stateMode) решает форму: `boolean` (частный случай, слот onoff, фигуры
@@ -63,7 +65,6 @@ export function createStencilEditor() {
     width: 40,
     height: 40,
     noRotate: false,
-    layoutOnly: false,
     quality: false,
     stateful: false,
     stateMode: 'boolean', // 'boolean' | 'value'
@@ -79,10 +80,15 @@ export function createStencilEditor() {
   // иначе ключ состояния. В синглтоне, т.к. селектор рисуется в инспекторе, а
   // фильтрация фигур — в StencilEditor. Выключение анимации → сброс на 'all'.
   const previewState = ref('all')
+  // Выключение анимации → сброс превью и quality (quality завязан на драйвящий
+  // тег анимации: без анимации бессмыслен, чекбокс живёт внутри её блока).
   watch(
     () => meta.stateful,
     (on) => {
-      if (!on) previewState.value = 'all'
+      if (!on) {
+        previewState.value = 'all'
+        meta.quality = false
+      }
     }
   )
   // id редактируемого стенсила (null = создание нового). В режиме правки id
@@ -274,7 +280,6 @@ export function createStencilEditor() {
     meta.width = def.width || 40
     meta.height = def.height || 40
     meta.noRotate = !!def.noRotate
-    meta.layoutOnly = !!def.layoutOnly
     meta.quality = !!def.quality
     // Анимация состояния. Режим «по значению» опознаём по полю `states` в json
     // (редакторные подписи/коды, рантайм их игнорит); иначе — булев (slots +
@@ -309,7 +314,6 @@ export function createStencilEditor() {
     meta.width = 40
     meta.height = 40
     meta.noRotate = false
-    meta.layoutOnly = false
     meta.quality = false
     meta.stateful = false
     meta.stateMode = 'boolean'

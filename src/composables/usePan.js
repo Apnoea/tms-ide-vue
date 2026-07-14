@@ -2,14 +2,15 @@ import { useEventListener } from '@vueuse/core'
 import { useCanvas } from './useCanvas'
 
 /**
- * Pan холста: ЛКМ-drag по пустому месту двигает paper (translate). onPanStart
- * вызывается из blank:pointerdown в CanvasPane; move/up слушаются на document
- * (drag может уйти за пределы холста) — auto-cleanup через useEventListener.
+ * Pan холста: drag двигает paper (translate). onPanStart вызывается из CanvasPane
+ * при нажатии средней кнопки или Space+ЛКМ; move/up слушаются на document (drag
+ * может уйти за пределы холста) — auto-cleanup через useEventListener.
  * `isPanning()` отдаём наружу — hover-tooltip гасится во время pan'а.
  *
- * @param {import('vue').Ref<HTMLElement|null>} paperContainer — для cursor-стиля.
+ * Курсор (grab/grabbing) не трогаем — им единолично управляет CanvasPane
+ * (там же живёт состояние Space), чтобы не было двух владельцев одного стиля.
  */
-export function usePan(paperContainer) {
+export function usePan() {
   const canvas = useCanvas()
   let isPanning = false
   let panStart = null
@@ -20,7 +21,6 @@ export function usePan(paperContainer) {
     isPanning = true
     const { tx, ty } = paper.translate()
     panStart = { clientX: event.clientX, clientY: event.clientY, tx, ty }
-    if (paperContainer.value) paperContainer.value.style.cursor = 'grabbing'
   }
 
   function onPanMove(event) {
@@ -36,7 +36,6 @@ export function usePan(paperContainer) {
     if (!isPanning) return
     isPanning = false
     panStart = null
-    if (paperContainer.value) paperContainer.value.style.cursor = ''
   }
 
   useEventListener(document, 'mousemove', onPanMove)

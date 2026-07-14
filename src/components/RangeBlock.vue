@@ -50,7 +50,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
       <div>
         <div class="text-[11px] text-surface-500 mb-1">
           Тег
-          <span class="text-surface-400">- для анимации элемента</span>
+          <span class="text-surface-400">для анимации элемента</span>
         </div>
         <TagField
           :value="voltageSource?.tag || ''"

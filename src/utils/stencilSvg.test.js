@@ -119,16 +119,12 @@ describe('buildStencilJson', () => {
     expect(json.ports).toBeUndefined()
   })
 
-  it('пишет декл-флаги (noRotate/layoutOnly/quality) когда включены, иначе опускает', () => {
+  it('пишет декл-флаги (noRotate/quality) когда включены, иначе опускает', () => {
     const base = { id: 'cell_x', label: 'X', category: 'Прочее', width: 20, height: 20 }
-    const on = buildStencilJson({ ...base, noRotate: true, layoutOnly: true, quality: true }, [])
-    expect(on).toMatchObject({ noRotate: true, layoutOnly: true, quality: true })
-    const off = buildStencilJson(
-      { ...base, noRotate: false, layoutOnly: false, quality: false },
-      []
-    )
+    const on = buildStencilJson({ ...base, noRotate: true, quality: true }, [])
+    expect(on).toMatchObject({ noRotate: true, quality: true })
+    const off = buildStencilJson({ ...base, noRotate: false, quality: false }, [])
     expect(off.noRotate).toBeUndefined()
-    expect(off.layoutOnly).toBeUndefined()
     expect(off.quality).toBeUndefined()
   })
 })

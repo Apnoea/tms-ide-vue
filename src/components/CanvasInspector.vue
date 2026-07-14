@@ -2,8 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
+import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
-import SelectButton from 'primevue/selectbutton'
 import ToggleButton from 'primevue/togglebutton'
 import ToggleSwitch from 'primevue/toggleswitch'
 import { useNotify } from '../composables/useNotify'
@@ -14,7 +14,6 @@ import { getStencilById, hasBoolSlot } from '../stencils/registry'
 import {
   injectStencilSvg,
   TEXT_FONT_SIZE,
-  TEXT_SIZE_PRESETS,
   textCellHeight,
   textCellWidth,
   resolveValueDisplay,
@@ -43,11 +42,11 @@ const VOLTAGE_RANGE_DEFAULTS = [
   { min: 7, max: 10, class: 'animation-high' },
 ]
 
-// «Layout-only» стенсилы (флаг `layoutOnly: true` в stencil.json) — без
-// визуальной реакции на animation-классы; voltage/switch source на них
-// бессмыслен, в multi-select их пропускаем.
-function isLayoutOnly(stencilId) {
-  return !!getStencilById(stencilId)?.layoutOnly
+// Статичные стенсилы (флаг `static: true` в stencil.json) — без визуальной
+// реакции на animation-классы; voltage/switch source на них бессмыслен, в
+// multi-select их пропускаем.
+function isStatic(stencilId) {
+  return !!getStencilById(stencilId)?.static
 }
 
 const canvas = useCanvas()
@@ -80,6 +79,7 @@ const details = computed(() => {
       text: tms.text ?? '',
       fontSize: tms.fontSize ?? TEXT_FONT_SIZE,
       bold: !!tms.bold,
+      color: tms.color || '',
       isValue: tms.stencilId === 'cell_value',
       valueTag: tms.valueTag ?? '',
       // id outer-карточки в animations.json/SVG (тот же, что эмитит exporter).
@@ -208,7 +208,10 @@ function patchTextCell(patch) {
       // Если ничего реально не меняется — выходим, чтобы не плодить snapshot'ы.
       const next = { ...tms, ...patch }
       const same =
-        next.text === tms.text && next.fontSize === tms.fontSize && next.bold === tms.bold
+        next.text === tms.text &&
+        next.fontSize === tms.fontSize &&
+        next.bold === tms.bold &&
+        next.color === tms.color
       if (same) return false
       cell.set('tms', next)
       // Размер cell'а подгоняем и по ширине (под содержимое), и по высоте (под шрифт) —
@@ -227,6 +230,10 @@ function applyFontSize(size) {
 
 function applyBold(value) {
   patchTextCell({ bold: value })
+}
+
+function applyColor(color) {
+  patchTextCell({ color })
 }
 
 // ─── Диапазоны значений (аналоговый источник: значение тега → класс по диапазону) ───
@@ -367,7 +374,7 @@ watch(
   }
 )
 
-/** Прогон по выделению: резолвит ячейки, пропускает layoutOnly (текст/значение),
+/** Прогон по выделению: резолвит ячейки, пропускает статичные (текст/значение),
  *  зовёт fn(cell, tms), затем один bumpVersion + requestSnapshot. */
 function forEachSelectedCell(fn) {
   const graph = canvas.graphRef.value
@@ -376,7 +383,7 @@ function forEachSelectedCell(fn) {
     const cell = graph.getCell(item.id)
     if (!cell) continue
     const tms = cell.get('tms') || {}
-    if (isLayoutOnly(tms.stencilId)) continue
+    if (isStatic(tms.stencilId)) continue
     fn(cell, tms)
   }
   canvas.bumpVersion()
@@ -547,7 +554,7 @@ function onPickMultiSwitchTag(tag) {
     const cell = graph.getCell(item.id)
     if (!cell) continue
     const tms = cell.get('tms') || {}
-    if (isLayoutOnly(tms.stencilId)) {
+    if (isStatic(tms.stencilId)) {
       skipped++
       continue
     }
@@ -806,21 +813,30 @@ const switchPickerTags = computed(() => {
                 />
               </div>
 
-              <div class="grid grid-cols-2 gap-3">
+              <div class="flex items-end gap-3">
                 <div>
                   <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
-                    Размер
+                    Размер, pt
                   </div>
-                  <!-- allow-empty=false — один размер всегда активен; клик по
-                       выбранному не снимает выделение (иначе fontSize → undefined). -->
-                  <SelectButton
+                  <InputNumber
                     :model-value="details.fontSize"
-                    :options="TEXT_SIZE_PRESETS"
-                    option-label="label"
-                    option-value="size"
-                    :allow-empty="false"
+                    :min="6"
+                    :max="72"
+                    :step="1"
+                    show-buttons
+                    button-layout="horizontal"
                     size="small"
+                    input-class="!w-12 text-center"
                     @update:model-value="applyFontSize"
+                  />
+                </div>
+                <div>
+                  <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Цвет</div>
+                  <input
+                    type="color"
+                    :value="details.color || '#000000'"
+                    class="w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                    @input="applyColor($event.target.value)"
                   />
                 </div>
                 <div>
@@ -832,7 +848,7 @@ const switchPickerTags = computed(() => {
                     on-label="B"
                     off-label="B"
                     size="small"
-                    class="!font-bold"
+                    class="box-border !h-[30px] !min-h-[30px] !w-[30px] !min-w-0 !border-0 !p-0 !font-bold [&_.p-togglebutton-content]:!h-full [&_.p-togglebutton-content]:!w-full [&_.p-togglebutton-content]:!items-center [&_.p-togglebutton-content]:!justify-center [&_.p-togglebutton-content]:!p-0"
                     v-tooltip.top="'Жирный'"
                     @update:model-value="applyBold"
                   />

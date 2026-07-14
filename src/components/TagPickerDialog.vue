@@ -30,6 +30,21 @@ const emit = defineEmits(['select', 'cancel', 'update:visible'])
 
 const search = ref('')
 const picked = ref(null)
+const searchRef = ref(null)
+
+// Автофокус поиска после появления диалога (@show — уже отрисован/анимирован).
+function onShow() {
+  searchRef.value?.$el?.focus()
+}
+
+// Enter из поля поиска подтверждает «активный» тег: текущий picked, если он ещё
+// в результатах, иначе — первый из отфильтрованных (кейс «набрал → Enter»).
+function confirmActive() {
+  const t = picked.value && filtered.value.includes(picked.value) ? picked.value : filtered.value[0]
+  if (!t) return
+  emit('select', t.name)
+  emit('update:visible', false)
+}
 
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -87,6 +102,7 @@ function cancel() {
     :close-on-escape="true"
     :dismissable-mask="true"
     :draggable="false"
+    @show="onShow"
     @update:visible="emit('update:visible', $event)"
   >
     <div class="space-y-3">
@@ -97,7 +113,15 @@ function cancel() {
 
       <IconField v-if="tags.length">
         <InputIcon class="pi pi-search" />
-        <InputText v-model="search" size="small" class="w-full" placeholder="Поиск по имени..." />
+        <InputText
+          ref="searchRef"
+          v-model="search"
+          autofocus
+          size="small"
+          class="w-full"
+          placeholder="Поиск по имени..."
+          @keydown.enter.prevent="confirmActive"
+        />
       </IconField>
 
       <Listbox

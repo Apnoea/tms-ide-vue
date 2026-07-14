@@ -166,14 +166,12 @@ describe('useStencilEditor', () => {
       width: 20,
       height: 20,
       noRotate: true,
-      layoutOnly: true,
       svgText:
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">' +
         '<rect x="0" y="0" width="20" height="20" fill="none" stroke="#000" stroke-width="2"/></svg>',
     })
     expect(ed.meta.noRotate).toBe(true)
-    expect(ed.meta.layoutOnly).toBe(true)
-    expect(ed.output().json).toMatchObject({ noRotate: true, layoutOnly: true })
+    expect(ed.output().json).toMatchObject({ noRotate: true })
   })
 
   it('addShape по умолчанию даёт state=always; setShapeState меняет и коммитит', () => {
@@ -310,7 +308,6 @@ describe('useStencilEditor', () => {
       width: 40,
       height: 40,
       noRotate: false,
-      layoutOnly: false,
       stateful: false,
     })
     expect(ed.shapes.value).toHaveLength(0)
