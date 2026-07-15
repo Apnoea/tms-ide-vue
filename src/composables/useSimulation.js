@@ -4,11 +4,14 @@ import {
   ANIMATION_CLASS_OPTIONS,
   CLASS_OFF,
   CLASS_HIDDEN,
+  STATE_COLOR_PREFIX,
   buildVoltageCssRules,
+  buildStateColorCssRules,
+  stateColorClass,
 } from '../constants/animation'
 import { innerKey, resolveSlotTemplate } from '../constants/ids'
 import { normalizeSwitchSources } from '../utils/switchSources'
-import { getStencilById } from '../stencils/registry'
+import { getStencilById, getAllStencils } from '../stencils/registry'
 import { useCanvas } from './useCanvas'
 
 const SIM_CYCLE_MS = 1500
@@ -35,6 +38,9 @@ export function useSimulation() {
   const notify = useNotify()
   const simulating = ref(false)
   let simIntervalId = null
+  // Счётчик тиков — циклическая смена value-состояний (states[simTick % N]).
+  // Персистентен между тиками (в отличие от per-tag rolling, что случаен каждый тик).
+  let simTick = 0
   const SIM_CSS_ID = 'tms-sim-css'
 
   function pickRandomVoltageClass() {
@@ -52,9 +58,10 @@ export function useSimulation() {
   }
 
   function injectSimulationCss() {
-    // Проверяем по id, а не флагу — флаг локален к instance композабла,
-    // а после HMR/re-mount instance новый, но <style> в DOM уже есть.
-    if (document.getElementById(SIM_CSS_ID)) return
+    // Пересобираем на каждый старт (remove + add): цвета состояний (stateColors)
+    // автор мог изменить и пересохранить — кэш дал бы старый цвет. Заодно это
+    // снимает дубль <style> после HMR/re-mount (id тот же, старый удаляется).
+    document.getElementById(SIM_CSS_ID)?.remove()
     const style = document.createElement('style')
     style.id = SIM_CSS_ID
     // Те же voltage/off-правила, что эмитит exporter, но scope'нуты под
@@ -63,11 +70,16 @@ export function useSimulation() {
     // (без exclusion с !important красится и толстеет); .tms-hit-area — наш
     // прозрачный rect-хитбокс ячейки (иначе зелёная «рамка» у стенсилов без
     // своей rect-обёртки). animation-hidden гасим отдельно (в экспорте — без !important).
-    const voltageOffCss = buildVoltageCssRules({
+    const strokeExtra = ':not([joint-selector="wrapper"]):not(.tms-hit-area)'
+    const voltageOffCss = buildVoltageCssRules({ scope: '.tms-simulating ', strokeExtra }).join(
+      '\n'
+    )
+    // State-color: те же правила, что в exporter, но scope'нуты под .tms-simulating.
+    const stateColorCss = buildStateColorCssRules(getAllStencils(), {
       scope: '.tms-simulating ',
-      strokeExtra: ':not([joint-selector="wrapper"]):not(.tms-hit-area)',
+      strokeExtra,
     }).join('\n')
-    style.textContent = `.tms-simulating .${CLASS_HIDDEN} { display: none !important; }\n${voltageOffCss}`
+    style.textContent = `.tms-simulating .${CLASS_HIDDEN} { display: none !important; }\n${voltageOffCss}\n${stateColorCss}`
     document.head.appendChild(style)
   }
 
@@ -80,6 +92,10 @@ export function useSimulation() {
       const view = paper.findViewByModel(cell)
       if (!view?.el) continue
       for (const cls of ANIMATION_CLASS_OPTIONS) view.el.classList.remove(cls)
+      // Цвет состояния (animation-color-<ключ>) — ключи динамические, чистим по префиксу.
+      for (const cls of [...view.el.classList]) {
+        if (cls.startsWith(STATE_COLOR_PREFIX)) view.el.classList.remove(cls)
+      }
       // animation-off от switchSource висит на outer-g (затемнение всей ячейки),
       // от стенсильного template — на внутренних элементах. Чистим оба места.
       view.el.classList.remove(CLASS_OFF)
@@ -156,6 +172,47 @@ export function useSimulation() {
         }
       }
     }
+    // State-color БУЛЕВ: класс перекраса по активной bool-фазе (согласовано с
+    // видимостью выше). Value-стенсилы обрабатываются циклом ниже.
+    for (const cell of graph.getElements()) {
+      const tms = cell.get('tms') || {}
+      const stencil = getStencilById(tms.stencilId)
+      const colors = stencil?.stateColors
+      if (!colors || !Object.keys(colors).length) continue
+      if (Array.isArray(stencil.states) && stencil.states.length) continue // value — ниже
+      const slotKey = stencil.slots?.[0]?.key
+      const tag = slotKey ? tms.slots?.[slotKey] : null
+      if (!tag) continue
+      const key = boolFalseFor(tag) ? 'false' : 'true'
+      if (colors[key])
+        paper.findViewByModel(cell)?.el?.classList.add(stateColorClass(stencil.id, key))
+    }
+
+    // Value-состояния: ЦИКЛИЧЕСКАЯ смена (видимость групп + цвет). Активное =
+    // states[simTick % N] — автор видит каждое состояние по кругу; ячейки одного
+    // стенсила синхронны (общий tick). Прячем не-активные группы (animation-hidden),
+    // на outer вешаем цвет активного. Гейт по привязанному тегу слота value: без
+    // тега рантайм значения не имеет и показал бы все группы — эмулируем так же.
+    for (const cell of graph.getElements()) {
+      const tms = cell.get('tms') || {}
+      const stencil = getStencilById(tms.stencilId)
+      const states = stencil?.states
+      if (!Array.isArray(states) || !states.length) continue
+      const slotKey = stencil.slots?.[0]?.key
+      const tag = slotKey ? tms.slots?.[slotKey] : null
+      if (!tag) continue
+      const view = paper.findViewByModel(cell)
+      if (!view?.el) continue
+      const active = states[simTick % states.length]
+      for (const st of states) {
+        if (st.key === active.key) continue
+        const el = view.el.querySelector(`[id="${innerKey(stencil.id, cell.id, '.' + st.key)}"]`)
+        if (el) el.classList.add(CLASS_HIDDEN)
+      }
+      const color = stencil.stateColors?.[active.key]
+      if (color) view.el.classList.add(stateColorClass(stencil.id, active.key))
+    }
+
     // switchSources: каждый тег делит состояние со всеми использованиями
     // (ОБЩИЙ.ONOFF=false гасит все зависящие ячейки). Активен =
     // (любой «Параллельно» = true) ИЛИ (все «Последовательно» = true).
@@ -167,6 +224,8 @@ export function useSimulation() {
       if (orLive || andLive) continue
       paper.findViewByModel(cell)?.el?.classList.add(CLASS_OFF)
     }
+
+    simTick++ // следующий тик — следующее value-состояние по кругу
   }
 
   function startSimulation() {
@@ -175,6 +234,7 @@ export function useSimulation() {
     // Класс tms-simulating вешает Vue через :class binding на paperContainer
     // — реактивно на simulating ref. Manual classList.add тут не нужен.
     simulating.value = true
+    simTick = 0 // начинаем цикл value-состояний с первого
     applySimClass()
     simIntervalId = setInterval(applySimClass, SIM_CYCLE_MS)
   }

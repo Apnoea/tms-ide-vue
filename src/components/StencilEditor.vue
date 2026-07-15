@@ -95,10 +95,20 @@ const previewOptions = computed(() => {
 })
 const renderShapes = computed(() => {
   if (!meta.stateful || previewState.value === 'all') return shapes.value
-  return shapes.value.filter((s) => {
+  const key = previewState.value
+  const visible = shapes.value.filter((s) => {
     const st = s.state || 'always'
-    return st === 'always' || st === previewState.value
+    return st === 'always' || st === key
   })
+  // Превью цвета состояния: тонируем видимые фигуры цветом состояния (как перекрас
+  // на экспорте). Заливку трогаем только там, где она есть (не none).
+  const tint = meta.stateColors?.[key]
+  if (!tint) return visible
+  return visible.map((s) => ({
+    ...s,
+    stroke: tint,
+    fill: s.fill && s.fill !== 'none' ? tint : s.fill,
+  }))
 })
 
 // При активном инструменте рисования фигуры «прозрачны» для указателя: pointerdown

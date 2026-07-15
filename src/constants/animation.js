@@ -32,6 +32,43 @@ const ANIMATION_OFF_COLOR = '#64748b'
 export const CLASS_OFF = 'animation-off'
 export const CLASS_HIDDEN = 'animation-hidden'
 
+// Класс перекраса всего символа по состоянию (stateColors в stencil.json). Вешается
+// рантаймом на outer при совпадении значения слота с кодом состояния; CSS красит
+// потомков. Класс несёт stencilId — так он глобально уникален и селектор НЕ зависит
+// от data-tms-stencil (в живом DOM симуляции этого атрибута нет, только в экспорте).
+// Синхронизировано: buildStateColorCard (exporter) + buildStateColorCssRules.
+export const STATE_COLOR_PREFIX = 'animation-color-'
+export function stateColorClass(stencilId, key) {
+  return `${STATE_COLOR_PREFIX}${stencilId}-${key}`
+}
+
+/**
+ * CSS-правила перекраса символа по состоянию. Единый источник для экспорта
+ * (scope '') и симуляции (scope '.tms-simulating '). Для каждого (стенсил, ключ):
+ * при классе `animation-color-<ключ>` на outer красим stroke всех потомков и fill
+ * там, где он не none. `:not(.animation-off)` — обесточивание (серый) бьёт цвет
+ * состояния. `strokeExtra`/`scope` — как в buildVoltageCssRules (живой DOM редактора).
+ *
+ * @param {Array<{id:string, stateColors?:Object}>} stencils
+ */
+export function buildStateColorCssRules(stencils, { scope = '', strokeExtra = '' } = {}) {
+  const rules = []
+  for (const s of stencils || []) {
+    const colors = s.stateColors
+    if (!colors) continue
+    for (const [key, color] of Object.entries(colors)) {
+      const sel = `${scope}.${stateColorClass(s.id, key)}:not(.${CLASS_OFF})`
+      // strokeExtra (исключения wrapper/hit-area живого DOM) нужны и для fill —
+      // иначе прозрачный хит-бокс-rect ячейки (fill ≠ none) заливается целиком.
+      rules.push(
+        `${sel}, ${sel} *:not(text)${strokeExtra} { stroke: ${color} !important; }`,
+        `${sel} *:not(text):not([fill="none"])${strokeExtra} { fill: ${color} !important; }`
+      )
+    }
+  }
+  return rules
+}
+
 /**
  * CSS-правила voltage/off для outer-g: stroke по всем потомкам кроме text +
  * opt-in fill (`.tms-voltage-fill`), и `animation-off` серым ПОСЛЕ voltage

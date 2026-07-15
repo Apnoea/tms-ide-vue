@@ -32,6 +32,31 @@ describe('useStencilEditor', () => {
     expect(ed.selectedId.value).toBeNull()
   })
 
+  it('setStateColor задаёт и снимает цвет состояния', () => {
+    const ed = createStencilEditor()
+    ed.setStateColor('false', '#64748b')
+    expect(ed.meta.stateColors.false).toBe('#64748b')
+    ed.setStateColor('false', '')
+    expect(ed.meta.stateColors.false).toBeUndefined()
+  })
+
+  it('setStateMode сбрасывает цвета состояний (ключи режимов разные)', () => {
+    const ed = createStencilEditor()
+    ed.setStateColor('false', '#64748b')
+    ed.setStateMode('value')
+    expect(ed.meta.stateColors).toEqual({})
+  })
+
+  it('removeState снимает цвет удалённого состояния', () => {
+    const ed = createStencilEditor()
+    ed.setStateMode('value')
+    ed.addState()
+    const key = ed.meta.states[0].key
+    ed.setStateColor(key, '#ef4444')
+    ed.removeState(key)
+    expect(ed.meta.stateColors[key]).toBeUndefined()
+  })
+
   it('addPort снапит к PORT_GRID, кладёт на ближайшую границу и авто-именует', () => {
     const ed = createStencilEditor() // 40×40 по умолчанию
     const p = ed.addPort(12, 3) // снап (10,0) → ближайшая сторона top → (10,0)

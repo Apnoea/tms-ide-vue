@@ -347,6 +347,27 @@ describe('exportProject', () => {
     expect(cell.tms.navigation).toBe('view_substation_a')
   })
 
+  it('cell_text: цвет/шрифт (tms.color/fontSize/bold) переживают round-trip через data-tms-meta', () => {
+    const graph = mockGraph([
+      mockCell({
+        id: 't1',
+        stencilId: 'cell_text',
+        text: 'Секция',
+        color: '#ff0000',
+        fontSize: 20,
+        bold: true,
+      }),
+    ])
+    const exported = exportProject(graph)
+    const parsed = parseSvgProject(exported.svgText)
+    expect(parsed.ok).toBe(true)
+    const cell = parsed.cells.find((c) => c.id === 't1')
+    expect(cell.tms.color).toBe('#ff0000')
+    expect(cell.tms.text).toBe('Секция')
+    expect(cell.tms.fontSize).toBe(20)
+    expect(cell.tms.bold).toBe(true)
+  })
+
   it('navigation у ячейки без других анимаций → создаётся пустая shape-карточка', () => {
     // cell_bus не имеет slots/animationTemplate — обычно без anim-карточки.
     // Но navigation требует animation-entry, чтобы рантайм повесил обработчик клика.

@@ -93,6 +93,9 @@ async function tryRestoreTagListHandle() {
       const parsed = parseTagList(content)
       if (parsed.length === 0) return
       project.setTags(parsed)
+      // Синхронизируем IDB со свежим содержимым файла — экспорт берёт taglist
+      // именно из 'project:tags', иначе в архив уйдёт устаревшая версия.
+      await idbSet('project:tags', content)
     } else if (!(await idbGet('project:tags'))) {
       notify.warn(
         'Tag-list требует разрешения',

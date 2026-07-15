@@ -1,7 +1,13 @@
 import { getStencilById, getAllStencils } from '../stencils/registry'
 import { instantiate } from '../stencils/parser'
 import { buildBusExportSvg, buildTextExportSvg, buildValueExportSvg } from '../stencils/svgInjector'
-import { CLASS_OFF, CLASS_HIDDEN, buildVoltageCssRules } from '../constants/animation'
+import {
+  CLASS_OFF,
+  CLASS_HIDDEN,
+  buildVoltageCssRules,
+  buildStateColorCssRules,
+  stateColorClass,
+} from '../constants/animation'
 import {
   outerKey,
   innerPrefix,
@@ -222,6 +228,38 @@ function buildMultiCard(c) {
 }
 
 /**
+ * Биндинг перекраса всего символа по состоянию (stateColors в stencil.json):
+ * значение тега-слота состояния → класс `animation-color-<ключ>` на outer, цвет
+ * каскадит на потомков через CSS (см. inlineStyles). Кладётся слоем на outer
+ * (assignOrMerge — уживается с voltage/switch/quality). Коды: режим значения —
+ * из states, булев — сами ключи 'true'/'false'. null, если красить нечего или
+ * тег слота не привязан. Обесточивание (animation-off) бьёт цвет в CSS.
+ */
+function buildStateColorCard(c) {
+  const stencil = getStencilById(c.stencilId)
+  const colors = stencil?.stateColors
+  if (!colors || !Object.keys(colors).length) return null
+  const slotKey = stencil.slots?.[0]?.key
+  const tag = slotKey ? c.slots?.[slotKey] : null
+  if (!tag) return null
+  const cases = {}
+  if (Array.isArray(stencil.states) && stencil.states.length) {
+    for (const st of stencil.states) {
+      const color = colors[st.key]
+      if (color && st.code !== '' && st.code != null) {
+        cases[String(st.code)] = { apply: { addClass: stateColorClass(c.stencilId, st.key) } }
+      }
+    }
+  } else {
+    for (const k of ['true', 'false']) {
+      if (colors[k]) cases[k] = { apply: { addClass: stateColorClass(c.stencilId, k) } }
+    }
+  }
+  if (!Object.keys(cases).length) return null
+  return { animation: 'shape', bindings: [{ tag, when: { source: 'value', type: 'map', cases } }] }
+}
+
+/**
  * Карточка под ключ либо создаётся, либо в существующую дописываются
  * bindings. Нужно потому что несколько источников (voltage + switch) могут
  * хотеть навесить биндинги на один и тот же outer-wrapper или link-id —
@@ -390,6 +428,7 @@ export function exportProject(graph, paper = null) {
       text: tms.text,
       fontSize: tms.fontSize,
       bold: tms.bold,
+      color: tms.color,
       valueTag: tms.valueTag,
       // Геометрический трансформ — для round-trip. angle применяется в SVG
       // как rotate вокруг центра ячейки на outer-`<g>`.
@@ -537,6 +576,14 @@ export function exportProject(graph, paper = null) {
       if (needsMulti(t.src) || !has(t.src)) continue
       addShapeCard(t, build(t.src))
     }
+  }
+
+  // ─── State-color: перекрас всего символа по состоянию (stateColors стенсила) ───
+  // Слой на outer (assignOrMerge уживается с voltage/switch/quality); на потомков
+  // цвет каскадит через CSS. Работает и для needsMulti-целей (мержится в их multi).
+  for (const c of cellExports) {
+    const card = buildStateColorCard(c)
+    if (card) assignOrMergeAnimation(animations, outerKeyFor(c.stencilId, c.animId), card)
   }
 
   // ─── cell_node наследует voltage от соединённого провода ───
@@ -699,6 +746,7 @@ export function exportProject(graph, paper = null) {
       if (c.text !== undefined) meta.text = c.text
       if (c.fontSize !== undefined) meta.fontSize = c.fontSize
       if (c.bold !== undefined) meta.bold = c.bold
+      if (c.color !== undefined) meta.color = c.color
       if (c.valueTag !== undefined) meta.valueTag = c.valueTag
       if (c.voltageSource) meta.voltageSource = c.voltageSource
       if (c.switchSources) meta.switchSources = c.switchSources
@@ -723,10 +771,15 @@ export function exportProject(graph, paper = null) {
   const voltageCss = buildVoltageCssRules()
     .map((r) => `    ${r}`)
     .join('\n')
+  // State-color: перекрас символа по состоянию. Тот же генератор, что в симуляции.
+  const stateColorCss = buildStateColorCssRules(getAllStencils())
+    .map((r) => `    ${r}`)
+    .join('\n')
   const inlineStyles = `  <style>
     <![CDATA[
     .${CLASS_HIDDEN} { display: none; }
 ${voltageCss}
+${stateColorCss}
     /* Quality-stencils: при bad-качестве (animation-off на outer) показываем
        обе позиции рычага одновременно — отменяем animation-hidden у потомков.
        Конвенция «данные ненадёжны → не врём про конкретное состояние». */

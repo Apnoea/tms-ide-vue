@@ -28,6 +28,7 @@ const {
   addState,
   updateState,
   removeState,
+  setStateColor,
   applyPositionPreset,
 } = useStencilEditor()
 
@@ -211,7 +212,7 @@ function onIdInput(e) {
               <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
                 <span class="flex-1 min-w-0">Подпись</span>
                 <span class="w-16">Значение</span>
-                <span class="w-6 shrink-0" aria-hidden="true"></span>
+                <span class="w-14 shrink-0 text-center">Цвет</span>
               </div>
               <div v-for="st in BOOLEAN_STATES" :key="st.value" class="flex items-center gap-1.5">
                 <InputText
@@ -226,7 +227,26 @@ function onIdInput(e) {
                   size="small"
                   class="w-16 font-mono !text-xs"
                 />
-                <span class="w-6 shrink-0" aria-hidden="true"></span>
+                <div class="flex w-14 shrink-0 items-center justify-center gap-0.5">
+                  <input
+                    type="color"
+                    v-tooltip.top="'Цвет всего символа в этом состоянии'"
+                    :value="meta.stateColors[st.value] || '#64748b'"
+                    :class="{ 'opacity-40': !meta.stateColors[st.value] }"
+                    class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                    @input="setStateColor(st.value, $event.target.value)"
+                  />
+                  <button
+                    v-if="meta.stateColors[st.value]"
+                    type="button"
+                    v-tooltip.top="'Убрать цвет'"
+                    class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
+                    @click="setStateColor(st.value, '')"
+                  >
+                    <i class="pi pi-times !text-[9px]" />
+                  </button>
+                  <span v-else class="w-4 shrink-0" aria-hidden="true"></span>
+                </div>
               </div>
             </div>
 
@@ -234,6 +254,7 @@ function onIdInput(e) {
               <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
                 <span class="flex-1 min-w-0">Подпись</span>
                 <span class="w-16">Значение</span>
+                <span class="w-14 shrink-0 text-center">Цвет</span>
                 <span class="w-6 shrink-0" aria-hidden="true"></span>
               </div>
               <div v-for="st in meta.states" :key="st.key" class="flex items-center gap-1.5">
@@ -253,6 +274,26 @@ function onIdInput(e) {
                   class="w-16 font-mono !text-xs"
                   @update:model-value="updateState(st.key, { code: $event })"
                 />
+                <div class="flex w-14 shrink-0 items-center justify-center gap-0.5">
+                  <input
+                    type="color"
+                    v-tooltip.top="'Цвет всего символа в этом состоянии'"
+                    :value="meta.stateColors[st.key] || '#64748b'"
+                    :class="{ 'opacity-40': !meta.stateColors[st.key] }"
+                    class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                    @input="setStateColor(st.key, $event.target.value)"
+                  />
+                  <button
+                    v-if="meta.stateColors[st.key]"
+                    type="button"
+                    v-tooltip.top="'Убрать цвет'"
+                    class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
+                    @click="setStateColor(st.key, '')"
+                  >
+                    <i class="pi pi-times !text-[9px]" />
+                  </button>
+                  <span v-else class="w-4 shrink-0" aria-hidden="true"></span>
+                </div>
                 <Button
                   v-tooltip.bottom="'Убрать состояние'"
                   icon="pi pi-times"

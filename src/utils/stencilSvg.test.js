@@ -314,6 +314,64 @@ describe('внутренняя анимация по значению (stateMode
   })
 })
 
+describe('stateColors (перекрас символа по состоянию)', () => {
+  const shapes = [
+    { type: 'line', x1: 10, y1: 12, x2: 10, y2: 28, stroke: '#000', strokeWidth: 2, state: 'on' },
+    { type: 'line', x1: 0, y1: 20, x2: 20, y2: 20, stroke: '#000', strokeWidth: 2, state: 'off' },
+  ]
+  const valueMeta = {
+    id: 'cell_x',
+    label: 'X',
+    category: 'C',
+    width: 20,
+    height: 40,
+    stateful: true,
+    stateMode: 'value',
+    stateSlot: { key: 'value' },
+    states: [
+      { key: 'on', label: 'Включен', code: '01' },
+      { key: 'off', label: 'Отключен', code: '10' },
+    ],
+  }
+
+  it('value: пишет непустые цвета объявленных состояний', () => {
+    const json = buildStencilJson({ ...valueMeta, stateColors: { off: '#64748b' } }, [], shapes)
+    expect(json.stateColors).toEqual({ off: '#64748b' })
+  })
+
+  it('boolean: пишет цвет по ключам true/false', () => {
+    const boolShapes = [{ type: 'rect', x: 0, y: 0, w: 10, h: 10, state: 'false' }]
+    const json = buildStencilJson(
+      {
+        id: 'cell_b',
+        label: 'B',
+        category: 'C',
+        width: 10,
+        height: 10,
+        stateful: true,
+        stateMode: 'boolean',
+        stateSlot: { key: 'onoff' },
+        stateColors: { false: '#64748b' },
+      },
+      [],
+      boolShapes
+    )
+    expect(json.stateColors).toEqual({ false: '#64748b' })
+  })
+
+  it('пусто / нет цветов → поле не пишется', () => {
+    const json = buildStencilJson({ ...valueMeta, stateColors: {} }, [], shapes)
+    expect(json.stateColors).toBeUndefined()
+    const json2 = buildStencilJson({ ...valueMeta }, [], shapes)
+    expect(json2.stateColors).toBeUndefined()
+  })
+
+  it('игнорит цвет для несуществующего состояния', () => {
+    const json = buildStencilJson({ ...valueMeta, stateColors: { ghost: '#fff' } }, [], shapes)
+    expect(json.stateColors).toBeUndefined()
+  })
+})
+
 describe('cropToContent', () => {
   it('обрезает поля и сдвигает контент в (0,0)', () => {
     const { shapes, width, height } = cropToContent(

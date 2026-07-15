@@ -542,16 +542,22 @@ onMounted(async () => {
   // Снап ручных изломов (linkTools.Vertices) к сетке: тул кладёт vertex в сырых
   // координатах, а линию gridRightAngleRouter держит на сетке — без снапа хэндл
   // отрывался бы от линии. vertexSnap-флаг гасит реентри (наш же set → событие).
+  // + snapshot: linkTools.Vertices делает stopPropagation/undelegateEvents, поэтому
+  // cell:pointerup для линка НЕ эмитится — без явного scheduleSnapshot правка изломов
+  // (добавить/двигать/убрать) не попадала бы ни в undo, ни в autosave.
   graph.on('change:vertices', (link, vertices, opt) => {
-    if (opt?.vertexSnap || !paper || !vertices?.length) return
-    const g = paper.options.gridSize || 10
-    const snapped = vertices.map((v) => ({
-      x: Math.round(v.x / g) * g,
-      y: Math.round(v.y / g) * g,
-    }))
-    if (snapped.some((s, i) => s.x !== vertices[i].x || s.y !== vertices[i].y)) {
-      link.vertices(snapped, { vertexSnap: true })
+    if (opt?.vertexSnap) return
+    if (paper && vertices?.length) {
+      const g = paper.options.gridSize || 10
+      const snapped = vertices.map((v) => ({
+        x: Math.round(v.x / g) * g,
+        y: Math.round(v.y / g) * g,
+      }))
+      if (snapped.some((s, i) => s.x !== vertices[i].x || s.y !== vertices[i].y)) {
+        link.vertices(snapped, { vertexSnap: true })
+      }
     }
+    scheduleSnapshot() // сам no-op во время restore (см. change:source/target выше)
   })
 
   // Линии — всегда за ячейками, чтобы порты не перекрывались линией в точке anchor.

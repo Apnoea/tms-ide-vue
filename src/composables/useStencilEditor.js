@@ -71,6 +71,11 @@ export function createStencilEditor() {
     stateSlot: boolSlot(),
     // Режим «по значению»: [{ key (стабильный, → суффикс), label, code }].
     states: [],
+    // Цвет перекраса ВСЕГО символа по состоянию: { <ключ состояния>: '#rrggbb' }.
+    // Ключи булева — 'true'/'false', режима значения — key из states. Пусто =
+    // состояние меняет только видимость. Обесточивание (серый) остаётся на холсте
+    // и бьёт этот цвет (см. CSS-приоритет в exporter).
+    stateColors: {},
   })
   const shapes = ref([])
   const ports = ref([])
@@ -193,11 +198,21 @@ export function createStencilEditor() {
     if (meta.stateMode === mode) return
     meta.stateMode = mode
     meta.stateSlot = mode === 'value' ? valueSlot() : boolSlot()
+    meta.stateColors = {} // ключи состояний между режимами разные — цвета не переносим
     previewState.value = 'all' // ключи состояний между режимами разные
     shapes.value = shapes.value.map((s) =>
       s.state && s.state !== 'always' ? { ...s, state: 'always' } : s
     )
     commit()
+  }
+
+  // Цвет перекраса символа для состояния. Пустой color = снять (состояние снова
+  // только по видимости). meta.stateColors переприсваиваем целиком — reactive.
+  function setStateColor(key, color) {
+    const next = { ...meta.stateColors }
+    if (color) next[key] = color
+    else delete next[key]
+    meta.stateColors = next
   }
 
   // Стабильный ключ нового состояния (s1/s2/…) — идёт в суффикс группы, не зависит
@@ -219,6 +234,7 @@ export function createStencilEditor() {
 
   function removeState(key) {
     meta.states = meta.states.filter((s) => s.key !== key)
+    setStateColor(key, '') // снять цвет удалённого состояния
     // Осиротевшие фигуры (были в этом состоянии) → снова always.
     shapes.value = shapes.value.map((s) => (s.state === key ? { ...s, state: 'always' } : s))
     commit()
@@ -290,6 +306,7 @@ export function createStencilEditor() {
     meta.states = hasValueStates
       ? def.states.map((s) => ({ key: s.key, label: s.label || '', code: s.code ?? '' }))
       : []
+    meta.stateColors = def.stateColors ? { ...def.stateColors } : {}
     meta.stateful = hasValueStates || !!(def.slots?.length && def.animationTemplate?.length)
     const loadedKey = def.slots?.[0]?.key
     const fallbackKey = hasValueStates ? 'value' : 'onoff'
@@ -319,6 +336,7 @@ export function createStencilEditor() {
     meta.stateMode = 'boolean'
     meta.stateSlot = boolSlot()
     meta.states = []
+    meta.stateColors = {}
     previewState.value = 'all'
     shapes.value = []
     ports.value = []
@@ -369,6 +387,7 @@ export function createStencilEditor() {
     addState,
     updateState,
     removeState,
+    setStateColor,
     applyPositionPreset,
     addPort,
     movePort,

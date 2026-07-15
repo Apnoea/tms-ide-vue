@@ -336,6 +336,16 @@ export function buildStencilJson(meta, ports, shapes = []) {
   if (meta.stateful) {
     if (meta.stateMode === 'value') buildValueState(json, meta, shapes)
     else buildBooleanState(json, meta, shapes)
+    // Цвета состояний (перекрас всего символа) — непустые, только для объявленных
+    // состояний. Рантайм-биндинг и CSS строит exporter по этому полю + slots/states.
+    const keys =
+      meta.stateMode === 'value' ? (meta.states || []).map((s) => s.key) : ['true', 'false']
+    const stateColors = {}
+    for (const k of keys) {
+      const c = meta.stateColors?.[k]
+      if (c) stateColors[k] = c
+    }
+    if (Object.keys(stateColors).length) json.stateColors = stateColors
   }
   return json
 }
@@ -346,13 +356,17 @@ function buildBooleanState(json, meta, shapes) {
   const states = new Set(
     (shapes || []).map((s) => s.state).filter((st) => st === 'true' || st === 'false')
   )
-  if (!states.size) return
+  // Слот нужен и без state-фигур, если задан цвет состояния (символ реагирует на
+  // тег только перекраской) — иначе тег некуда привязать и цвет ничем не драйвится.
+  const hasColor = !!(meta.stateColors?.true || meta.stateColors?.false)
+  if (!states.size && !hasColor) return
   const key = meta.stateSlot?.key || 'onoff'
   const tag = `{slot.${key}}`
   json.slots = [{ key, type: 'Boolean' }]
-  json.animationTemplate = []
-  if (states.has('true')) json.animationTemplate.push(stateCard('.true', tag, ['false']))
-  if (states.has('false')) json.animationTemplate.push(stateCard('.false', tag, ['true']))
+  const cards = []
+  if (states.has('true')) cards.push(stateCard('.true', tag, ['false']))
+  if (states.has('false')) cards.push(stateCard('.false', tag, ['true']))
+  if (cards.length) json.animationTemplate = cards
 }
 
 // Режим «по значению»: слот value + список состояний (states — редакторные
