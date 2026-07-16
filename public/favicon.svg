@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Мнемосхемный мотив «одна линия» фирменным cyan на прозрачном фоне: два узла,
+       вертикальный провод и аппарат (бокс) посередине. Провод — двумя сегментами
+       (узел→бокс, бокс→узел), чтобы линия не шла сквозь бокс. -->
+  <g fill="none" stroke="#06b6d4" stroke-width="2.6" stroke-linecap="round">
+    <line x1="16" y1="7.5" x2="16" y2="12" />
+    <rect x="11" y="12" width="10" height="8" rx="2" />
+    <line x1="16" y1="20" x2="16" y2="24.5" />
+    <circle cx="16" cy="5" r="2.5" fill="#06b6d4" stroke="none" />
+    <circle cx="16" cy="27" r="2.5" fill="#06b6d4" stroke="none" />
+  </g>
+</svg>

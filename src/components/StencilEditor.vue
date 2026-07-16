@@ -126,10 +126,11 @@ watch(
   }
 )
 
-// Цвет подсветки выделения (см. halo-слой в шаблоне): широкая обводка ПОД
-// фигурой, поэтому реальные цвет линии/заливки видны поверх и правятся на глазах.
-// SVG-атрибут stroke не принимает CSS-var → цвет литералом.
-const SEL_STROKE = '#06b6d4'
+// Цвет подсветки выделения (halo) и превью рисования = primary темы. Берём токен
+// var(--p-primary-500), а не литерал, — при смене primary редактор поедет за темой
+// (иначе останется старый cyan). Применяем через :style (CSS-свойство stroke), т.к.
+// SVG-АТРИБУТ stroke значение var() не резолвит; CSS-свойство — резолвит и наследуется.
+const SEL_STROKE = 'var(--p-primary-500)'
 
 // Режим определяется таргетом из store: задан id → правка (грузим стенсил в
 // модель, id блокируется), иначе создание нового (префилл `cell_` в поле id).
@@ -875,7 +876,7 @@ onBeforeUnmount(() => {
                 v-if="s.id === selectedId"
                 pointer-events="none"
                 fill="none"
-                :stroke="SEL_STROKE"
+                :style="{ stroke: SEL_STROKE }"
                 :stroke-width="haloWidth"
                 :stroke-linecap="s.rounded ? 'round' : null"
                 :stroke-linejoin="s.rounded ? 'round' : null"
@@ -976,7 +977,7 @@ onBeforeUnmount(() => {
               :width="draftRect.w"
               :height="draftRect.h"
               fill="none"
-              stroke="#06b6d4"
+              :style="{ stroke: SEL_STROKE }"
               stroke-width="1"
               stroke-dasharray="3 2"
               vector-effect="non-scaling-stroke"
@@ -987,7 +988,7 @@ onBeforeUnmount(() => {
               :y1="drawing.sy"
               :x2="drawing.cx"
               :y2="drawing.cy"
-              stroke="#06b6d4"
+              :style="{ stroke: SEL_STROKE }"
               stroke-width="1"
               stroke-dasharray="3 2"
               vector-effect="non-scaling-stroke"
@@ -998,7 +999,7 @@ onBeforeUnmount(() => {
               :cy="drawing.sy"
               :r="draftCircleR"
               fill="none"
-              stroke="#06b6d4"
+              :style="{ stroke: SEL_STROKE }"
               stroke-width="1"
               stroke-dasharray="3 2"
               vector-effect="non-scaling-stroke"
@@ -1007,7 +1008,7 @@ onBeforeUnmount(() => {
               v-if="polyPreview"
               :points="polyPreview"
               fill="none"
-              stroke="#06b6d4"
+              :style="{ stroke: SEL_STROKE }"
               stroke-width="1"
               stroke-dasharray="3 2"
               vector-effect="non-scaling-stroke"
@@ -1024,7 +1025,7 @@ onBeforeUnmount(() => {
               :cy="hnd.y"
               :r="hr"
               fill="#fff"
-              stroke="#06b6d4"
+              :style="{ stroke: SEL_STROKE }"
               stroke-width="1.5"
               vector-effect="non-scaling-stroke"
               class="cursor-pointer"

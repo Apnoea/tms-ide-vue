@@ -41,6 +41,10 @@ app.use(PrimeVue, {
     preset: TmsTheme,
     options: {
       cssLayer: false,
+      // Тёмная тема отключена: холст/сетка/тумбы/редактор захардкожены светлыми,
+      // а Aura по умолчанию `darkModeSelector: 'system'` уводил бы компоненты в
+      // тёмную по ОС → тёмные панели вокруг светлого холста. false = всегда светло.
+      darkModeSelector: false,
     },
   },
 })

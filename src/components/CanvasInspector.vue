@@ -8,6 +8,7 @@ import ToggleButton from 'primevue/togglebutton'
 import ToggleSwitch from 'primevue/toggleswitch'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
+import { useAlign } from '../composables/useAlign'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { getStencilById, hasBoolSlot } from '../stencils/registry'
@@ -50,6 +51,8 @@ function isStatic(stencilId) {
 }
 
 const canvas = useCanvas()
+// Выравнивание выделенных ячеек (секция «Выравнивание» в мульти-режиме).
+const { canAlign, alignCells } = useAlign()
 const project = useProjectStore()
 const workspace = useWorkspaceStore()
 const notify = useNotify()
@@ -689,6 +692,93 @@ const switchPickerTags = computed(() => {
               Ячейки можно тащить группой, удалить клавишей Del. Анимации ниже применяются ко всему
               выделению; остальные свойства — при одном выделенном.
             </p>
+          </div>
+
+          <!-- Выравнивание ячеек по рамке выделения. Показываем только когда ячеек
+               ≥2 (в выделении могут быть и мостовые линки — canAlign считает ячейки).
+               Слева — по X (левый/центр/правый), справа — по Y (верх/центр/низ);
+               центры снапятся к сетке (useAlign). Иконки — инлайновый SVG (не v-html). -->
+          <div v-if="canAlign">
+            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
+              Выравнивание
+            </div>
+            <div class="flex items-center gap-1">
+              <button
+                type="button"
+                v-tooltip.bottom="'По левому краю'"
+                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
+                @click="alignCells('left')"
+              >
+                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                  <rect x="1" y="2" width="1.4" height="12" rx="0.5" />
+                  <rect x="3.4" y="4" width="9" height="3" rx="1" opacity="0.8" />
+                  <rect x="3.4" y="9" width="5.5" height="3" rx="1" opacity="0.8" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                v-tooltip.bottom="'По центру (горизонт.)'"
+                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
+                @click="alignCells('centerX')"
+              >
+                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                  <rect x="7.3" y="2" width="1.4" height="12" rx="0.5" />
+                  <rect x="3.5" y="4" width="9" height="3" rx="1" opacity="0.8" />
+                  <rect x="5.25" y="9" width="5.5" height="3" rx="1" opacity="0.8" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                v-tooltip.bottom="'По правому краю'"
+                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
+                @click="alignCells('right')"
+              >
+                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                  <rect x="13.2" y="2" width="1.4" height="12" rx="0.5" />
+                  <rect x="4.2" y="4" width="9" height="3" rx="1" opacity="0.8" />
+                  <rect x="7.7" y="9" width="5.5" height="3" rx="1" opacity="0.8" />
+                </svg>
+              </button>
+
+              <span class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></span>
+
+              <button
+                type="button"
+                v-tooltip.bottom="'По верхнему краю'"
+                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
+                @click="alignCells('top')"
+              >
+                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                  <rect x="2" y="1" width="12" height="1.4" rx="0.5" />
+                  <rect x="4" y="3.4" width="3" height="9" rx="1" opacity="0.8" />
+                  <rect x="9" y="3.4" width="3" height="5.5" rx="1" opacity="0.8" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                v-tooltip.bottom="'По центру (вертик.)'"
+                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
+                @click="alignCells('centerY')"
+              >
+                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                  <rect x="2" y="7.3" width="12" height="1.4" rx="0.5" />
+                  <rect x="4" y="3.5" width="3" height="9" rx="1" opacity="0.8" />
+                  <rect x="9" y="5.25" width="3" height="5.5" rx="1" opacity="0.8" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                v-tooltip.bottom="'По нижнему краю'"
+                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
+                @click="alignCells('bottom')"
+              >
+                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                  <rect x="2" y="13.2" width="12" height="1.4" rx="0.5" />
+                  <rect x="4" y="4.2" width="3" height="9" rx="1" opacity="0.8" />
+                  <rect x="9" y="7.7" width="3" height="5.5" rx="1" opacity="0.8" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <!-- Multi-select: те же блоки, что в single, как «применить ко всем»
