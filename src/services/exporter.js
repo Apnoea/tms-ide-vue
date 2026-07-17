@@ -20,11 +20,6 @@ import { SVG_NS, escapeAttr } from '../utils/xml'
 import { getCellTagsFromTms } from '../utils/cellSearch'
 import { normalizeSwitchSources, switchSourceTags } from '../utils/switchSources'
 
-// Какие стенсилы получают quality-биндинги и CSS-override для bad-качества —
-// определяется флагом `quality: true` в их stencil.json. См. cell_qk / cell_qr
-// / cell_qf. CSS-override (показ обеих позиций рычага при animation-off) —
-// конвенция «данные ненадёжны → показываем все возможные состояния».
-
 /**
  * Короткий стабильный id из JointJS-UUID: берём первый сегмент (8 hex ≈ 4B
  * комбинаций), при коллизии в пределах одного экспорта расширяем следующим
@@ -52,7 +47,7 @@ function uniqueShortId(fullId, isTaken) {
  * linkPinning=false на paper'е запрещает свободные endpoint'ы, поэтому ждём
  * только { id, port } или { id } (центр ячейки).
  */
-function getEndpointPos(end, graph) {
+function getEndpointPos(end, graph, warnings) {
   const cell = graph.getCell(end.id)
   if (!cell) return null
 
@@ -69,8 +64,11 @@ function getEndpointPos(end, graph) {
       }
     }
     // Порт не найден (рассинхрон портов после ресайза шины и т.п.) — уходим в
-    // центр ячейки, но сигналим: тихий сдвиг провода заметить трудно.
-    console.warn(`[Export] Порт "${end.port}" не найден у ячейки ${end.id} — провод уходит в центр`)
+    // центр ячейки, но сигналим: тихий сдвиг провода заметить трудно. В warnings
+    // (доходит до пользователя), а не только в консоль.
+    const msg = `Провод: порт "${end.port}" у ячейки ${end.id} не найден — конец уехал в центр`
+    console.warn(`[Export] ${msg}`)
+    warnings?.push(msg)
   }
   // fallback: центр ячейки
   const size = cell.get('size')
@@ -155,7 +153,7 @@ function singleMultiBinding(tag, source, when, addClass) {
  * `expression` по нескольким тегам (единственный способ выразить «серый только
  * когда ВСЕ открыты», union-биндинги дают AND). Несёт ВСЕ outer-эффекты слоями
  * (бинды независимы, ActionApplier складывает классы): voltage по диапазонам,
- * intrinsic onoff, OR-группа, quality. Кладётся на outer-id; на потомков классы
+ * OR-группа, quality. Кладётся на outer-id; на потомков классы
  * каскадят через CSS, поэтому merge во внутренние shape-карточки не нужен.
  * Генерируется напрямую из tms (а не конвертацией shape) — только здесь есть
  * семантика «какие теги образуют OR-группу».
@@ -229,7 +227,7 @@ function buildMultiCard(c) {
 
 /**
  * Биндинг перекраса всего символа по состоянию (stateColors в stencil.json):
- * значение тега-слота состояния → класс `animation-color-<ключ>` на outer, цвет
+ * значение тега-слота состояния → класс `animation-color-<stencilId>-<ключ>` на outer, цвет
  * каскадит на потомков через CSS (см. inlineStyles). Кладётся слоем на outer
  * (assignOrMerge — уживается с voltage/switch/quality). Коды: режим значения —
  * из states, булев — сами ключи 'true'/'false'. null, если красить нечего или
@@ -274,9 +272,9 @@ function assignOrMergeAnimation(animations, key, card) {
 }
 
 // Алиасы под импортами outerKey/innerPrefix (constants/ids.js — единый источник
-// id-формата). Нужны из-за шадовинга: ниже в нескольких блоках объявляется
-// локальная `const outerKey = …`, которая перекрыла бы импорт — зовём функцию
-// через *For-алиас, не конфликтуя с локальной переменной.
+// id-формата). Нужны из-за шадовинга `outerKey`: ниже в нескольких блоках
+// объявляется локальная `const outerKey = …`, которая перекрыла бы импорт — зовём
+// через *For-алиас. innerPrefixFor — для симметрии.
 const outerKeyFor = outerKey
 const innerPrefixFor = innerPrefix
 
@@ -474,10 +472,12 @@ export function exportProject(graph, paper = null) {
 
     // Fallback: вычисляем source/target и строим прямую
     if (!pathD) {
-      const source = getEndpointPos(link.get('source'), graph)
-      const target = getEndpointPos(link.get('target'), graph)
+      const source = getEndpointPos(link.get('source'), graph, warnings)
+      const target = getEndpointPos(link.get('target'), graph, warnings)
       if (!source || !target) {
-        console.warn(`[Export] Линк ${link.id}: не вычислить геометрию endpoint'а — пропускаю`)
+        const msg = `Провод ${link.id}: не удалось вычислить геометрию — пропущен (не попадёт в экспорт)`
+        console.warn(`[Export] ${msg}`)
+        warnings.push(msg)
         continue
       }
       pathD = `M ${source.x},${source.y} L ${target.x},${target.y}`
@@ -535,7 +535,7 @@ export function exportProject(graph, paper = null) {
   // ─── Voltage / switch sources ───
   // Карточка на outer-id ячейки (+ merge во внутренние shape-карточки стенсила)
   // либо на wire-id линка. needsMulti-цели получают одну `multi` (voltage +
-  // onoff + switch + quality слоями); остальные — shape (voltage + switch).
+  // switch + quality слоями); остальные — shape (voltage + switch).
   // Единый список целей: ячейки (с stencilId/animId для inner-merge) и линки.
   const bindingTargets = [
     ...cellExports.map((c) => ({
@@ -547,9 +547,9 @@ export function exportProject(graph, paper = null) {
     ...linkExports.map((l) => ({ src: l, key: l.id })),
   ]
 
-  // needsMulti → вся outer-карточка одной `multi` (voltage + onoff + switch +
-  // quality слоями). buildMultiCard работает и для линка (нет stencilId →
-  // onoff/quality пропускаются).
+  // needsMulti → вся outer-карточка одной `multi` (voltage + switch + quality
+  // слоями). buildMultiCard работает и для линка (нет stencilId → quality
+  // пропускается).
   for (const t of bindingTargets) {
     if (needsMulti(t.src)) animations[t.key] = buildMultiCard(t.src)
   }

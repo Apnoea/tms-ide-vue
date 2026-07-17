@@ -100,15 +100,11 @@ const renderShapes = computed(() => {
     const st = s.state || 'always'
     return st === 'always' || st === key
   })
-  // Превью цвета состояния: тонируем видимые фигуры цветом состояния (как перекрас
-  // на экспорте). Заливку трогаем только там, где она есть (не none).
+  // Превью цвета состояния: тонируем ТОЛЬКО обводку видимых фигур (как перекрас
+  // на экспорте — заливку не трогаем).
   const tint = meta.stateColors?.[key]
   if (!tint) return visible
-  return visible.map((s) => ({
-    ...s,
-    stroke: tint,
-    fill: s.fill && s.fill !== 'none' ? tint : s.fill,
-  }))
+  return visible.map((s) => ({ ...s, stroke: tint }))
 })
 
 // При активном инструменте рисования фигуры «прозрачны» для указателя: pointerdown

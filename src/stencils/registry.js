@@ -9,10 +9,9 @@
  *
  * Регистрация автоматическая — добавили папку, файл подхватился.
  *
- * Публичное API:
- *   getAllStencils()         — массив всех стенсилов
- *   getStencilById(id)       — один стенсил по id или undefined
- *   getCategories()          — список уникальных категорий
+ * Экспортирует сборку/поиск (getAllStencils / getStencilById / getCategories /
+ * hasBoolSlot), рантайм-регистрацию (registerStencil / unregisterStencil /
+ * registryVersion) и валидацию (validateStencilJson) — см. экспорты ниже.
  */
 
 import { ref } from 'vue'

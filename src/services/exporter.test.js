@@ -642,6 +642,8 @@ describe('exportProject', () => {
     expect(() => (result = exportProject(graph))).not.toThrow()
     const parsed = parseSvgProject(result.svgText)
     expect(parsed.cells.filter((c) => c.type === 'standard.Link')).toHaveLength(0)
+    // Пропущенный провод — не молча: попадает в warnings (доходит до пользователя).
+    expect(result.warnings.some((w) => w.includes('L1'))).toBe(true)
     warn.mockRestore()
   })
 
@@ -653,9 +655,11 @@ describe('exportProject', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const result = exportProject(mockGraph([a, b], [link]))
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Порт "ghost" не найден'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('порт "ghost"'))
     const parsed = parseSvgProject(result.svgText)
     expect(parsed.cells.filter((c) => c.type === 'standard.Link')).toHaveLength(1)
+    // Тихий сдвиг в центр — тоже в warnings.
+    expect(result.warnings.some((w) => w.includes('ghost'))).toBe(true)
     warn.mockRestore()
   })
 })

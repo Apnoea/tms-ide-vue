@@ -20,12 +20,12 @@ const paperRef = shallowRef(null)
 
 // Переключение формы: панель форм (сосед по layout) дёргает selectForm(id), а
 // оркестрацию (сохранить текущую → загрузить выбранную + сброс undo) держит
-// CanvasPane (ей доступны graph/paper/undo).
+// useProject (смонтирован в CanvasPane, там graph/paper/undo).
 const selectFormFn = shallowRef(null)
 
 // Импорт из .zip + экспорт проекта в .zip (единственный формат ввода-вывода):
 // кнопки в ProjectActions дёргают эти fn, оркестрацию (распаковка / прогон форм
-// через paper → бандл → download) держит CanvasPane.
+// через paper → бандл → download) держит useProject (смонтирован в CanvasPane).
 const importArchiveFn = shallowRef(null)
 const exportArchiveFn = shallowRef(null)
 
@@ -44,8 +44,8 @@ const selection = ref([]) // Array<{ kind, id }>
 
 const graphVersion = ref(0)
 // Тик paper-view: bump'ается на pan/zoom/fit. Нужен для overlay'ев, чьё
-// положение зависит от paper.translate()/scale() (× кнопка, hover-tooltip
-// при будущем расширении). Отделён от graphVersion чтобы не дёргать Inspector
+// положение зависит от paper.translate()/scale() (кнопки выделенной ячейки —
+// useSelectionOverlay). Отделён от graphVersion чтобы не дёргать Inspector
 // и прочих consumer'ов graph-данных на каждый mousemove во время pan'а.
 const paperViewTick = ref(0)
 

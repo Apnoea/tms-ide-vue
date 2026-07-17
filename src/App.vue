@@ -79,7 +79,15 @@ useEventListener(window, 'keydown', (event) => {
          (inert), чтобы drag/переключение формы не уходили в скрытый под оверлеем
          холст. Правую (инспектор) НЕ гейтим — там свойства стенсила (StencilInspector),
          с ней работают. Оверлей физически накрывает только холст. -->
-    <div class="flex-1 min-h-0 flex gap-2 px-2 pb-2">
+    <!-- Идёт проектная операция (экспорт/импорт/переключение формы/CRUD): всю
+         область редактирования гейтим `inert` + затемняем, чтобы клики/правки
+         (overlay-кнопки, контекст-меню, инспектор, drag) не уехали под ключ чужой
+         формы — живой граф между await'ами держит другую форму (ui.projectBusy). -->
+    <div
+      class="flex-1 min-h-0 flex gap-2 px-2 pb-2 transition-opacity"
+      :class="{ 'opacity-60': ui.projectBusy }"
+      :inert="ui.projectBusy"
+    >
       <div
         class="w-[380px] shrink-0 rounded-lg overflow-hidden shadow-md flex flex-col transition-opacity"
         :class="{ 'pointer-events-none opacity-60': ui.stencilEditorOpen }"

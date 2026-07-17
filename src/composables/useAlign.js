@@ -70,6 +70,66 @@ export function computeAlignMoves(mode, boxes, grid = 10) {
   return moves
 }
 
+// Осевыровненный bbox ячейки С УЧЁТОМ поворота. `cell.getBBox()` даёт
+// неповёрнутую рамку (position+size), поэтому у развёрнутого стенсила (вертикальный
+// положили горизонтально) выравнивание считало бы по исходным габаритам → щели/
+// наложения. Здесь: поворачиваем вокруг центра и берём охватывающий прямоугольник.
+// Углы в проекте кратны 90°, поэтому округляем (гасим float-эпсилон cos/sin).
+export function rotatedAabb(pos, size, angle) {
+  const w = size.width
+  const h = size.height
+  const a = ((angle || 0) * Math.PI) / 180
+  const cos = Math.abs(Math.cos(a))
+  const sin = Math.abs(Math.sin(a))
+  const rw = w * cos + h * sin
+  const rh = w * sin + h * cos
+  const cx = pos.x + w / 2
+  const cy = pos.y + h / 2
+  return {
+    x: Math.round(cx - rw / 2),
+    y: Math.round(cy - rh / 2),
+    width: Math.round(rw),
+    height: Math.round(rh),
+  }
+}
+
+// Сдвиги для РАСПРЕДЕЛЕНИЯ: равные интервалы по оси (axis 'x'/'y'). Группируем ПО
+// ОСИ распределения (колонки для 'x', строки для 'y' — пересечение ВДОЛЬ оси):
+// элементы одной колонки/строки двигаются как одна группа, распределяются сами
+// группы. Так сетка не схлопывается (колонка едет целиком), а «3 элемента в ряд»
+// корректно расходятся (каждый — своя группа). Нужно ≥3 групп. Крайние держат
+// концы, середины — равный gap (снап к сетке); gap<0 → 0. Чистая.
+export function computeDistributeMoves(axis, boxes, grid = 10) {
+  const size = axis === 'x' ? 'width' : 'height'
+  const moves = boxes.map(() => ({ dx: 0, dy: 0 }))
+  const groups = overlapLanes(boxes, axis, size).map((idxs) => {
+    const start = Math.min(...idxs.map((i) => boxes[i][axis]))
+    const end = Math.max(...idxs.map((i) => boxes[i][axis] + boxes[i][size]))
+    return { idxs, start, end, len: end - start }
+  })
+  if (groups.length < 3) return moves
+  groups.sort((a, b) => a.start - b.start)
+  const last = groups.length - 1
+  const spanStart = groups[0].start
+  const spanEnd = groups[last].end
+  const sumLen = groups.reduce((s, g) => s + g.len, 0)
+  const gap = Math.max(0, (spanEnd - spanStart - sumLen) / last)
+  let cursor = spanStart
+  groups.forEach((g, k) => {
+    let targetStart
+    if (k === 0) targetStart = spanStart
+    else if (k === last) targetStart = spanEnd - g.len
+    else targetStart = snapToGrid(cursor, grid)
+    const delta = targetStart - g.start
+    for (const i of g.idxs) {
+      if (axis === 'x') moves[i].dx = delta
+      else moves[i].dy = delta
+    }
+    cursor += g.len + gap
+  })
+  return moves
+}
+
 export function useAlign() {
   const canvas = useCanvas()
 
@@ -83,20 +143,19 @@ export function useAlign() {
       .filter((c) => c && c.isElement?.())
   }
 
-  // Выравнивать есть смысл от двух ячеек — гейт для показа кнопок.
-  const canAlign = computed(
-    () => canvas.selection.value.filter((s) => s.kind === 'cell').length >= 2
-  )
+  // Выравнивать есть смысл от двух ячеек, распределять — от трёх (крайние держат
+  // концы, распределяются середины). Гейты для показа/дизейбла кнопок.
+  const cellCount = computed(() => canvas.selection.value.filter((s) => s.kind === 'cell').length)
+  const canAlign = computed(() => cellCount.value >= 2)
+  const canDistribute = computed(() => cellCount.value >= 3)
 
-  function alignCells(mode) {
-    const graph = canvas.graphRef.value
-    const cells = selectedCells()
-    if (!graph || cells.length < 2) return
-    const grid = canvas.paperRef.value?.options?.gridSize || 10
+  // Рамки с учётом поворота (см. rotatedAabb) — иначе развёрнутый стенсил считается
+  // по исходным габаритам.
+  const cellBoxes = (cells) =>
+    cells.map((c) => rotatedAabb(c.get('position'), c.get('size'), c.angle?.() || 0))
 
-    const boxes = cells.map((c) => c.getBBox())
-    const moves = computeAlignMoves(mode, boxes, grid)
-
+  // Применяет сдвиги: translate({uiNudge}) мимо multi-drag-хендлера, один snapshot.
+  function applyMoves(cells, moves) {
     let moved = false
     moves.forEach((m, i) => {
       if (m.dx || m.dy) {
@@ -109,5 +168,19 @@ export function useAlign() {
     canvas.requestSnapshot()
   }
 
-  return { canAlign, alignCells }
+  function alignCells(mode) {
+    const cells = selectedCells()
+    if (cells.length < 2) return
+    const grid = canvas.paperRef.value?.options?.gridSize || 10
+    applyMoves(cells, computeAlignMoves(mode, cellBoxes(cells), grid))
+  }
+
+  function distributeCells(axis) {
+    const cells = selectedCells()
+    if (cells.length < 3) return
+    const grid = canvas.paperRef.value?.options?.gridSize || 10
+    applyMoves(cells, computeDistributeMoves(axis, cellBoxes(cells), grid))
+  }
+
+  return { canAlign, canDistribute, alignCells, distributeCells }
 }

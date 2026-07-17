@@ -14,6 +14,7 @@ import { persistStencilsToDisk } from '../services/stencilLibrary'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { nplural } from '../utils/plural'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
+import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from './useNotify'
 import { useCanvas } from './useCanvas'
 
@@ -45,6 +46,7 @@ export function useProject({
 }) {
   const canvas = useCanvas()
   const workspace = useWorkspaceStore()
+  const ui = useUiStore()
   const notify = useNotify()
   const {
     saveActiveForm,
@@ -459,6 +461,7 @@ export function useProject({
     async (...args) => {
       if (projectBusy.value) return
       projectBusy.value = true
+      ui.setProjectBusy(true) // App гейтит всю область редактирования (inert) на это время
       try {
         return await fn(...args)
       } catch (e) {
@@ -468,6 +471,7 @@ export function useProject({
         notify.error('Операция не выполнена', e?.message || String(e))
       } finally {
         projectBusy.value = false
+        ui.setProjectBusy(false)
       }
     }
 

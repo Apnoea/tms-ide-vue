@@ -32,6 +32,7 @@ const SIM_CYCLE_MS = 1500
  * Возвращает:
  *  • `simulating` — Ref<boolean> для template (`:class`/`:icon`)
  *  • `toggleSimulation`
+ *  • `stopSimulation` — принудительная остановка (зовёт useProject перед экспортом/импортом)
  */
 export function useSimulation() {
   const canvas = useCanvas()
@@ -116,7 +117,7 @@ export function useSimulation() {
     // Per-tag stateful pickers. Lazy: rolling state кэшируется при первом
     // обращении, последующие cell'ы с тем же тегом получают то же значение.
     const voltageByTag = new Map() // tag → class | null
-    const boolByTag = new Map() // tag → boolean (true = on, false = off-фаза)
+    const boolByTag = new Map() // tag → boolean (true = false-фаза/off, false = on)
     const voltageFor = (tag) => {
       if (!voltageByTag.has(tag)) voltageByTag.set(tag, pickRandomVoltageClass())
       return voltageByTag.get(tag)

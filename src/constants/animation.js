@@ -44,10 +44,12 @@ export function stateColorClass(stencilId, key) {
 
 /**
  * CSS-правила перекраса символа по состоянию. Единый источник для экспорта
- * (scope '') и симуляции (scope '.tms-simulating '). Для каждого (стенсил, ключ):
- * при классе `animation-color-<ключ>` на outer красим stroke всех потомков и fill
- * там, где он не none. `:not(.animation-off)` — обесточивание (серый) бьёт цвет
- * состояния. `strokeExtra`/`scope` — как в buildVoltageCssRules (живой DOM редактора).
+ * (scope '') и симуляции (scope '.tms-simulating '). Красим ТОЛЬКО stroke
+ * (контуры/линии) всех потомков — заливку не трогаем: state-цвет = перекрас
+ * символа, а не заливка (иначе контурные/блочные стенсилы становятся «блобом», и
+ * это семантика де-энергизации, а не «залить»). `:not(.animation-off)` —
+ * обесточивание (серый) бьёт цвет состояния. `strokeExtra`/`scope` — как в
+ * buildVoltageCssRules (живой DOM редактора).
  *
  * @param {Array<{id:string, stateColors?:Object}>} stencils
  */
@@ -58,12 +60,7 @@ export function buildStateColorCssRules(stencils, { scope = '', strokeExtra = ''
     if (!colors) continue
     for (const [key, color] of Object.entries(colors)) {
       const sel = `${scope}.${stateColorClass(s.id, key)}:not(.${CLASS_OFF})`
-      // strokeExtra (исключения wrapper/hit-area живого DOM) нужны и для fill —
-      // иначе прозрачный хит-бокс-rect ячейки (fill ≠ none) заливается целиком.
-      rules.push(
-        `${sel}, ${sel} *:not(text)${strokeExtra} { stroke: ${color} !important; }`,
-        `${sel} *:not(text):not([fill="none"])${strokeExtra} { fill: ${color} !important; }`
-      )
+      rules.push(`${sel}, ${sel} *:not(text)${strokeExtra} { stroke: ${color} !important; }`)
     }
   }
   return rules

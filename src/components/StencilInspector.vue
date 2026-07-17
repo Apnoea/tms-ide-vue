@@ -230,7 +230,7 @@ function onIdInput(e) {
                 <div class="flex w-14 shrink-0 items-center justify-center gap-0.5">
                   <input
                     type="color"
-                    v-tooltip.top="'Цвет всего символа в этом состоянии'"
+                    v-tooltip.top="'Цвет контуров символа в этом состоянии'"
                     :value="meta.stateColors[st.value] || '#64748b'"
                     :class="{ 'opacity-40': !meta.stateColors[st.value] }"
                     class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
@@ -277,7 +277,7 @@ function onIdInput(e) {
                 <div class="flex w-14 shrink-0 items-center justify-center gap-0.5">
                   <input
                     type="color"
-                    v-tooltip.top="'Цвет всего символа в этом состоянии'"
+                    v-tooltip.top="'Цвет контуров символа в этом состоянии'"
                     :value="meta.stateColors[st.key] || '#64748b'"
                     :class="{ 'opacity-40': !meta.stateColors[st.key] }"
                     class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"

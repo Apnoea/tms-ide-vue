@@ -113,7 +113,7 @@ export function useBusResize({ scheduleSnapshot }) {
     // вместе с ним и потащили подключённые провода. Сдвигаем порт-рефы линков на
     // число добавленных/убранных слотов → провода остаются на месте.
     if (activeResize.edge === 'left') {
-      // round — на случай легаси-шины с шириной не кратной шагу (первый кадр).
+      // round — на случай шины с шириной не кратной шагу порта (первый кадр).
       const k = Math.round((newWidth - activeResize.lastWidth) / BUS_PORT_SPACING)
       if (k !== 0) shiftBusLinkPorts(cell, k)
     }

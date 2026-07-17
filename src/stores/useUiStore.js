@@ -20,6 +20,12 @@ export const useUiStore = defineStore('ui', () => {
   // при монтировании и префиллит модель через loadStencil.
   const stencilEditorTargetId = ref(null)
 
+  // Идёт проектная операция (экспорт/импорт/переключение формы/CRUD) — живой граф
+  // между await'ами держит ЧУЖУЮ форму, поэтому App гейтит всю область
+  // редактирования (`inert`), чтобы клики/правки не уехали под чужой ключ.
+  // Зеркалит `projectBusy` из useProject (там источник, тут — глобальный доступ).
+  const projectBusy = ref(false)
+
   function setLastTagListPickerStartIn(handle) {
     lastTagListPickerStartIn.value = handle
   }
@@ -58,6 +64,10 @@ export const useUiStore = defineStore('ui', () => {
     stencilEditorTargetId.value = null
   }
 
+  function setProjectBusy(value) {
+    projectBusy.value = value
+  }
+
   return {
     lastTagListPickerStartIn,
     dragging,
@@ -65,6 +75,8 @@ export const useUiStore = defineStore('ui', () => {
     searchOpen,
     stencilEditorOpen,
     stencilEditorTargetId,
+    projectBusy,
+    setProjectBusy,
     setLastTagListPickerStartIn,
     startDragging,
     stopDragging,

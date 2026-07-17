@@ -116,6 +116,28 @@ describe('useClipboard', () => {
     expect(scheduleSnapshot).toHaveBeenCalledOnce()
   })
 
+  it('paste: изломы bridge-провода сохраняются (сдвинуты на offset)', () => {
+    const a = makeCell({ x: 0 })
+    const b = makeCell({ x: 100 })
+    const link = new shapes.standard.Link({
+      source: { id: a.id, port: 'p1' },
+      target: { id: b.id, port: 'p1' },
+      vertices: [{ x: 50, y: 30 }],
+    })
+    graph.addCells([a, b, link])
+    mockCanvas.selection.value = [
+      { kind: 'cell', id: a.id },
+      { kind: 'cell', id: b.id },
+    ]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard() // первый paste → offset = 20
+
+    const newLink = graph.getLinks().find((l) => l.id !== link.id)
+    expect(newLink.get('vertices')).toEqual([{ x: 70, y: 50 }])
+  })
+
   it('paste: rotated cell сохраняет angle', () => {
     const rotated = makeCell({ angle: 90 })
     graph.addCell(rotated)

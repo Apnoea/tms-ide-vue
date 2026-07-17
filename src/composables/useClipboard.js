@@ -72,6 +72,8 @@ export function useClipboard({ scheduleSnapshot }) {
         targetPort: tgt.port || undefined,
         sourceCellId: src.id,
         targetCellId: tgt.id,
+        // Ручные изломы — иначе выправленный маршрут спрямился бы на paste'е.
+        vertices: (link.get('vertices') || []).map((v) => ({ x: v.x, y: v.y })),
         tms: link.get('tms') ? JSON.parse(JSON.stringify(link.get('tms'))) : null,
       })
     }
@@ -135,6 +137,10 @@ export function useClipboard({ scheduleSnapshot }) {
         ...LINK_DEFAULTS,
         source: { id: newSrcId, ...(linkSnap.sourcePort ? { port: linkSnap.sourcePort } : {}) },
         target: { id: newTgtId, ...(linkSnap.targetPort ? { port: linkSnap.targetPort } : {}) },
+        // Изломы сдвигаем на тот же offset, что и ячейки — маршрут сохраняет форму.
+        ...(linkSnap.vertices?.length
+          ? { vertices: linkSnap.vertices.map((v) => ({ x: v.x + offset, y: v.y + offset })) }
+          : {}),
         ...(linkSnap.tms ? { tms: linkSnap.tms } : {}),
       })
       graph.addCell(linkModel)

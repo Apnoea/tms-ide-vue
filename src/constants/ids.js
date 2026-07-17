@@ -8,8 +8,8 @@
 //
 // Конвенции:
 //  • Outer-wrapper ячейки   — id="animation-{stencilId}-{animId}" (кроме
-//    cell_value, у которого outer="animation-cell-{valueTag}" — историческая
-//    рантайм-конвенция).
+//    cell_value, у которого outer="animation-cell-{valueTag}" — рантайм
+//    адресует его text-карточку по id, равному тегу).
 //  • Inner анимируемый узел — id="animation-{stencilId}-{animId}{suffix}",
 //    где suffix приходит из `data-anim-suffix` в shape.svg.
 //  • Провод                  — id="animation-wire-{shortId}".
@@ -32,7 +32,7 @@ export const ATTR_SUFFIX = 'data-anim-suffix'
 
 // ─── ID-генераторы ──────────────────────────────────────────────────────────
 
-/** Outer-key карточки ячейки. cell_value — историческая `animation-cell-{tag}`-конвенция. */
+/** Outer-key карточки ячейки. cell_value — конвенция `animation-cell-{tag}`. */
 export function outerKey(stencilId, animId) {
   if (stencilId === 'cell_value') return `${CELL_VALUE_PREFIX}${animId}`
   return `${ANIM_PREFIX}${stencilId}-${animId}`

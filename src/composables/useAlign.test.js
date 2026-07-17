@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeAlignMoves } from './useAlign'
+import { computeAlignMoves, computeDistributeMoves, rotatedAabb } from './useAlign'
 
 describe('computeAlignMoves', () => {
   it('край: разные полосы (не пересекаются по перпендикуляру) — обычное выравнивание', () => {
@@ -56,5 +56,97 @@ describe('computeAlignMoves', () => {
     expect(moves[0]).toEqual({ dx: 60, dy: 0 })
     // box1(w40): старт snap(75-20)=snap(55)=60 → dx=60-100=-40
     expect(moves[1]).toEqual({ dx: -40, dy: 0 })
+  })
+})
+
+describe('rotatedAabb', () => {
+  it('0° — рамка как есть', () => {
+    expect(rotatedAabb({ x: 5, y: 6 }, { width: 20, height: 30 }, 0)).toEqual({
+      x: 5,
+      y: 6,
+      width: 20,
+      height: 30,
+    })
+  })
+
+  it('90° — ширина/высота меняются местами вокруг центра', () => {
+    // центр (20,20); повёрнутые габариты 40×20 → x=0, y=10
+    expect(rotatedAabb({ x: 10, y: 0 }, { width: 20, height: 40 }, 90)).toEqual({
+      x: 0,
+      y: 10,
+      width: 40,
+      height: 20,
+    })
+  })
+})
+
+describe('computeDistributeMoves', () => {
+  it('3 ячейки по X — равный интервал, крайние не двигаются', () => {
+    // span 0..120, sumW=60, gap=(120-60)/2=30; средняя 30 → 50
+    const boxes = [
+      { x: 0, y: 0, width: 20, height: 20 },
+      { x: 30, y: 0, width: 20, height: 20 },
+      { x: 100, y: 0, width: 20, height: 20 },
+    ]
+    const moves = computeDistributeMoves('x', boxes, 10)
+    expect(moves[0]).toEqual({ dx: 0, dy: 0 })
+    expect(moves[1]).toEqual({ dx: 20, dy: 0 })
+    expect(moves[2]).toEqual({ dx: 0, dy: 0 })
+  })
+
+  it('<3 ячеек — нулевые сдвиги', () => {
+    const boxes = [
+      { x: 0, y: 0, width: 20, height: 20 },
+      { x: 50, y: 0, width: 20, height: 20 },
+    ]
+    expect(computeDistributeMoves('x', boxes, 10)).toEqual([
+      { dx: 0, dy: 0 },
+      { dx: 0, dy: 0 },
+    ])
+  })
+
+  it('сетка 2×3 — распределяет каждую строку отдельно (сетку не схлопывает)', () => {
+    const boxes = [
+      { x: 0, y: 0, width: 20, height: 20 }, // строка A
+      { x: 30, y: 0, width: 20, height: 20 },
+      { x: 100, y: 0, width: 20, height: 20 },
+      { x: 0, y: 50, width: 20, height: 20 }, // строка B (не пересекается по Y с A)
+      { x: 30, y: 50, width: 20, height: 20 },
+      { x: 100, y: 50, width: 20, height: 20 },
+    ]
+    const moves = computeDistributeMoves('x', boxes, 10)
+    expect(moves[1]).toEqual({ dx: 20, dy: 0 }) // середина строки A: 30 → 50
+    expect(moves[4]).toEqual({ dx: 20, dy: 0 }) // середина строки B: 30 → 50
+    expect(moves[0]).toEqual({ dx: 0, dy: 0 })
+    expect(moves[2]).toEqual({ dx: 0, dy: 0 })
+    expect(moves[3]).toEqual({ dx: 0, dy: 0 })
+    expect(moves[5]).toEqual({ dx: 0, dy: 0 })
+  })
+
+  it('3 элемента с разными X и Y — распределяются по X (группы по оси, не по строке)', () => {
+    // разные Y (не одна строка), но 3 разные X → 3 группы-колонки → середина едет
+    const boxes = [
+      { x: 0, y: 0, width: 20, height: 20 },
+      { x: 20, y: 40, width: 20, height: 20 }, // середина: 20 → 50
+      { x: 100, y: 80, width: 20, height: 20 },
+    ]
+    const moves = computeDistributeMoves('x', boxes, 10)
+    expect(moves[0]).toEqual({ dx: 0, dy: 0 })
+    expect(moves[1]).toEqual({ dx: 30, dy: 0 })
+    expect(moves[2]).toEqual({ dx: 0, dy: 0 })
+  })
+
+  it('3 в стопке по одному X — распределение по X = no-op (нечего расходить)', () => {
+    const boxes = [
+      { x: 10, y: 0, width: 20, height: 20 },
+      { x: 10, y: 40, width: 20, height: 20 },
+      { x: 10, y: 90, width: 20, height: 20 },
+    ]
+    // одна X-группа (все перекрываются по X) → <3 групп → no-op по горизонтали
+    expect(computeDistributeMoves('x', boxes, 10)).toEqual([
+      { dx: 0, dy: 0 },
+      { dx: 0, dy: 0 },
+      { dx: 0, dy: 0 },
+    ])
   })
 })

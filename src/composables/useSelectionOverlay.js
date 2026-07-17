@@ -9,9 +9,9 @@ import { projectToScreen } from '../utils/paperGeom'
  * местами, центр прежний). Позиция reactive через graphVersion + paperViewTick +
  * selection. HTML-overlay, а не JointJS elementTools — те кэшируют bbox при
  * addTools и не следуют за resize. rotate скрыт для noRotate-стенсилов
- * (cell_text / cell_value / cell_bus) — `canCellTransform`.
+ * (`canCellTransform`).
  */
-export function useSelectionOverlay({ scheduleSnapshot, textEditing }) {
+export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging }) {
   const canvas = useCanvas()
 
   function canCellTransform(cell) {
@@ -21,6 +21,10 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing }) {
   const overlayBtns = computed(() => {
     canvas.graphVersion.value
     canvas.paperViewTick.value
+    // Прячем на время drag'а ячейки: bumpVersion в drag-окне подавлен, поэтому
+    // кнопки иначе замерли бы на старом месте. Флаг реактивный — computed
+    // пересчитывается на старте/конце drag'а (не на каждый mousemove).
+    if (dragging?.value) return null
     const sel = canvas.selection.value
     if (sel.length !== 1 || sel[0].kind !== 'cell') return null
     if (textEditing.value) return null

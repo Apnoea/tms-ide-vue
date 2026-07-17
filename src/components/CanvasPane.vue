@@ -106,9 +106,14 @@ useResizeObserver(paperContainer, () => {
 // paper), а document-mouseup — fallback на отпускание вне холста — здесь, в
 // синхронном скоупе: в async onMounted (после await) auto-cleanup не встал бы.
 let isPointerDownOnCell = false
+// Реактивный флаг «ячейку тащат» — взводится на ПЕРВОМ change в окне pointer-down
+// (реальный drag), не на клике без движения. overlayBtns прячет кнопки, пока true
+// (иначе они замерли бы на старом месте: bumpVersion в drag-окне подавлен).
+const cellDragging = ref(false)
 function releasePointerDrag() {
   if (!isPointerDownOnCell) return
   isPointerDownOnCell = false
+  cellDragging.value = false
   canvas.bumpVersion()
 }
 useEventListener(document, 'mouseup', releasePointerDrag, { capture: true })
@@ -203,6 +208,9 @@ const { onPanStart, isPanning } = usePan()
 // исходных позиций всех selected-ячеек. Очищается на element:pointerup.
 let activeDragCellId = null
 let dragSnapshot = null
+// Снимок исходных изломов выделенных проводов, ОБА конца которых среди двигаемых
+// ячеек — двигаются жёстко вместе с группой (иначе маршрут остался бы на месте).
+let dragLinkSnapshot = null
 
 // ─── Overlay-фичи холста (вынесены в composables) ───
 // overlay-кнопки выделенной ячейки, hover-tooltip и контекстное меню. Все читают
@@ -211,6 +219,7 @@ let dragSnapshot = null
 const { overlayBtns, rotateSelectedBy, onDeleteSelected } = useSelectionOverlay({
   scheduleSnapshot,
   textEditing,
+  dragging: cellDragging,
 })
 const { cellHoverTooltip, showCellTooltip, hideCellTooltip } = useHoverTooltip({
   suppress: () => isPanning() || !!activeDragCellId || bus.isResizing() || textEditing.value,
@@ -302,12 +311,27 @@ function prepareMultiDrag(cellId) {
   }
   activeDragCellId = cellId
   dragSnapshot = {}
+  dragLinkSnapshot = {}
+  const cellIds = new Set()
   for (const item of canvas.selection.value) {
     if (item.kind !== 'cell') continue
     const c = graph?.getCell(item.id)
     if (c) {
       const p = c.get('position')
       dragSnapshot[item.id] = { x: p.x, y: p.y }
+      cellIds.add(item.id)
+    }
+  }
+  // Изломы выделенных проводов между двигаемыми ячейками (оба конца в наборе) —
+  // сдвинутся жёстко вместе с группой. Если конец у неподвижной ячейки — не трогаем
+  // (провод перестроится сам за портом).
+  for (const item of canvas.selection.value) {
+    if (item.kind !== 'link') continue
+    const l = graph?.getCell(item.id)
+    const verts = l?.get('vertices')
+    if (!verts?.length) continue
+    if (cellIds.has(l.get('source')?.id) && cellIds.has(l.get('target')?.id)) {
+      dragLinkSnapshot[item.id] = verts.map((v) => ({ x: v.x, y: v.y }))
     }
   }
 }
@@ -488,10 +512,19 @@ onMounted(async () => {
         other.set('position', { x: startPos.x + dx, y: startPos.y + dy }, { multiDrag: true })
       }
     }
+    // Изломы проводов между двигаемыми ячейками — тем же delta (от исходных, без
+    // дрейфа). vertexSnap гасит снап-хендлер: delta кратен сетке (края на сетке).
+    for (const linkId in dragLinkSnapshot) {
+      const link = graph.getCell(linkId)
+      if (!link) continue
+      const shifted = dragLinkSnapshot[linkId].map((v) => ({ x: v.x + dx, y: v.y + dy }))
+      link.vertices(shifted, { vertexSnap: true })
+    }
   })
   paper.on('element:pointerup', () => {
     activeDragCellId = null
     dragSnapshot = null
+    dragLinkSnapshot = null
   })
 
   // Double-click по cell_text — открыть inline-редактор поверх ячейки.
@@ -531,7 +564,10 @@ onMounted(async () => {
   paper.on('cell:pointerup', releasePointerDrag)
 
   graph.on('change add remove', () => {
-    if (isPointerDownOnCell) return
+    if (isPointerDownOnCell) {
+      cellDragging.value = true // первый change в drag-окне → прячем overlay-кнопки
+      return
+    }
     canvas.bumpVersion()
   })
 
@@ -727,7 +763,7 @@ watch(
     // cell.resize → × застревал после ресайза cell_text / cell_bus.
   }
   // deep НЕ нужен: selection всегда ЗАМЕНЯЕТСЯ новым массивом (selectOnly/
-  // setSelection/toggle/clear), ref-сравнения достаточно — дип-обход был впустую.
+  // setSelection/toggle/clear), ref-сравнения достаточно.
 )
 
 // ─── Подсветка элементов по тегу (кнопка «Подсветить на схеме»). ───
@@ -959,7 +995,7 @@ function performClearCanvas(count) {
     canvas.bumpVersion()
   })
   clearActiveForm()
-  snapshot() // пустое состояние в стек — очистка теперь откатывается Ctrl+Z
+  snapshot() // пустое состояние в стек — очистка откатывается Ctrl+Z
   canvas.clearSelection()
   canvas.markDirty() // очистка формы → проект разошёлся с .zip
 
@@ -1176,7 +1212,7 @@ function performClearCanvas(count) {
       <!-- Inline-overlay одиночной выделенной ячейки: rotate-ccw /
            rotate-cw / delete. Reactive HTML-overlay (а не JointJS
            elementTools.Remove — кэширует позицию, не следует за resize).
-           rotate скрыт для cell_text/cell_value/cell_bus. -->
+           rotate скрыт для noRotate-стенсилов. -->
       <template v-if="overlayBtns">
         <Button
           v-if="overlayBtns.canTransform"

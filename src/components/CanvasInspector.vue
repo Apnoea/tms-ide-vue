@@ -51,8 +51,8 @@ function isStatic(stencilId) {
 }
 
 const canvas = useCanvas()
-// Выравнивание выделенных ячеек (секция «Выравнивание» в мульти-режиме).
-const { canAlign, alignCells } = useAlign()
+// Выравнивание + распределение выделенных ячеек (секция «Выравнивание» в мульти-режиме).
+const { canAlign, canDistribute, alignCells, distributeCells } = useAlign()
 const project = useProjectStore()
 const workspace = useWorkspaceStore()
 const notify = useNotify()
@@ -778,6 +778,36 @@ const switchPickerTags = computed(() => {
                   <rect x="9" y="7.7" width="3" height="5.5" rx="1" opacity="0.8" />
                 </svg>
               </button>
+
+              <span class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></span>
+
+              <!-- Распределение: равные интервалы. Нужно ≥3 ячеек (иначе disabled). -->
+              <button
+                type="button"
+                v-tooltip.bottom="'Распределить по горизонтали (равные интервалы)'"
+                :disabled="!canDistribute"
+                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900 disabled:cursor-not-allowed disabled:opacity-40"
+                @click="distributeCells('x')"
+              >
+                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                  <rect x="2" y="3" width="2.6" height="10" rx="0.8" />
+                  <rect x="6.7" y="3" width="2.6" height="10" rx="0.8" />
+                  <rect x="11.4" y="3" width="2.6" height="10" rx="0.8" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                v-tooltip.bottom="'Распределить по вертикали (равные интервалы)'"
+                :disabled="!canDistribute"
+                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900 disabled:cursor-not-allowed disabled:opacity-40"
+                @click="distributeCells('y')"
+              >
+                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                  <rect x="3" y="2" width="10" height="2.6" rx="0.8" />
+                  <rect x="3" y="6.7" width="10" height="2.6" rx="0.8" />
+                  <rect x="3" y="11.4" width="10" height="2.6" rx="0.8" />
+                </svg>
+              </button>
             </div>
           </div>
 
@@ -1055,7 +1085,7 @@ const switchPickerTags = computed(() => {
               @edit-tag="editSwitchTagAt"
             />
 
-            <!-- C. Диапазоны значений (аналоговое значение) — виден всегда.
+            <!-- Диапазоны значений (аналоговое значение) — виден всегда.
                  voltageSource создаётся лениво при выборе тега (onPickTag),
                  очищается через × (виден при непустом). -->
             <RangeBlock

@@ -10,8 +10,10 @@ import Button from 'primevue/button'
 import { useConfirm } from 'primevue/useconfirm'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
+import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 
 const canvas = useCanvas()
+const workspace = useWorkspaceStore()
 const notify = useNotify()
 const confirm = useConfirm()
 
@@ -27,7 +29,12 @@ useEventListener(window, 'tms-open-project', () => openProject())
 // Импорт проекта (.zip). Подтверждаем замену текущей работы; picker открывается
 // внутри accept-клика (свежая user-activation для FSA). Оркестрация — в CanvasPane.
 async function openProject() {
-  const hasContent = canvas.cellsCount.value + canvas.linksCount.value > 0
+  // Контент считаем по ВСЕМУ проекту, а не только по активной форме: 10 полных
+  // форм с пустой активной иначе прошли бы без confirm, и replaceProject затёр бы
+  // их безвозвратно. >1 формы = многоформенный проект (подтверждаем всегда), либо
+  // есть контент в текущей форме.
+  const hasContent =
+    workspace.formIds.length > 1 || canvas.cellsCount.value + canvas.linksCount.value > 0
   if (hasContent) {
     const accepted = await new Promise((resolve) => {
       confirm.require({
