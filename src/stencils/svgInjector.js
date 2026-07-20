@@ -155,6 +155,27 @@ export function textCellWidth(text, fontSize, bold = false) {
 }
 
 /**
+ * Ресайз текстовой ячейки с сохранением якоря (tms.align). Блок cell_text всегда
+ * обтягивает текст (авто-ширина), поэтому «выравнивание» = какой край блока
+ * остаётся на месте при изменении ширины (сам текст внутри всегда прижат влево):
+ *   • 'left'  (дефолт) — левый край на месте, блок растёт вправо (JointJS-дефолт);
+ *   • 'center'         — центр на месте, блок растёт симметрично;
+ *   • 'right'          — правый край на месте, блок растёт влево.
+ * Высота меняется вниз в любом случае (baseline у текста один). Возвращает
+ * применённую ширину — удобно для пересчёта overlay-инпута при inline-правке.
+ */
+export function resizeTextCell(cell, newW, newH, align = 'left') {
+  const oldW = cell.get('size').width
+  cell.resize(newW, newH)
+  if (oldW !== newW && (align === 'center' || align === 'right')) {
+    const pos = cell.get('position')
+    const dx = align === 'center' ? (oldW - newW) / 2 : oldW - newW
+    cell.position(pos.x + dx, pos.y)
+  }
+  return newW
+}
+
+/**
  * SVG-строка текстового поля для экспорта. Текст вертикально по центру,
  * с небольшим отступом слева. Формат как у parser.instantiate().
  */

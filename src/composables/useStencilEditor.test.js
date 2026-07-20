@@ -40,6 +40,19 @@ describe('useStencilEditor', () => {
     expect(ed.meta.stateColors.false).toBeUndefined()
   })
 
+  it('setStateColor: stroke+fill → объект; снятие одного канала оставляет другой', () => {
+    const ed = createStencilEditor()
+    ed.setStateColor('false', '#111', 'stroke')
+    ed.setStateColor('false', '#222', 'fill')
+    expect(ed.meta.stateColors.false).toEqual({ stroke: '#111', fill: '#222' })
+    // сняли контур → остаётся только заливка (объект { fill })
+    ed.setStateColor('false', '', 'stroke')
+    expect(ed.meta.stateColors.false).toEqual({ fill: '#222' })
+    // сняли заливку → ключ исчезает
+    ed.setStateColor('false', '', 'fill')
+    expect(ed.meta.stateColors.false).toBeUndefined()
+  })
+
   it('setStateMode сбрасывает цвета состояний (ключи режимов разные)', () => {
     const ed = createStencilEditor()
     ed.setStateColor('false', '#64748b')

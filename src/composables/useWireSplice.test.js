@@ -50,7 +50,7 @@ function makeScene({ withView = true, vertices = [] } = {}) {
   })
   link.set('tms', {
     voltageSource: { tag: 'V', ranges: [] },
-    switchSources: { or: ['S'], and: [] },
+    switchSources: { groups: [['S']] },
   })
   graph.addCells([a, b, cell, link])
 
@@ -96,7 +96,7 @@ describe('spliceCellIntoLink', () => {
     useWireSplice().spliceCellIntoLink(link, cell, { x: 100, y: 50 })
 
     expect(cell.get('tms').voltageSource).toEqual({ tag: 'V', ranges: [] })
-    expect(cell.get('tms').switchSources).toEqual({ or: ['S'], and: [] })
+    expect(cell.get('tms').switchSources).toEqual({ groups: [['S']] })
     // seg2 получает собственный клон (не общая ссылка с ячейкой).
     const seg2 = graph.getLinks().find((l) => l.id !== link.id)
     expect(seg2.get('tms').voltageSource).not.toBe(cell.get('tms').voltageSource)
@@ -110,7 +110,7 @@ describe('spliceCellIntoLink', () => {
     // voltage у ячейки был свой → не перетёрт проводом.
     expect(cell.get('tms').voltageSource).toEqual({ tag: 'OWN', ranges: [] })
     // switch ячейка не имела → наследует от провода.
-    expect(cell.get('tms').switchSources).toEqual({ or: ['S'], and: [] })
+    expect(cell.get('tms').switchSources).toEqual({ groups: [['S']] })
   })
 
   it('распределяет изломы по сегментам относительно точки врезки', () => {

@@ -158,7 +158,7 @@ describe('useClipboard', () => {
     const link = new shapes.standard.Link({
       source: { id: a.id },
       target: { id: b.id },
-      tms: { switchSources: { or: ['BR1.ONOFF'], and: [] } },
+      tms: { switchSources: { groups: [['BR1.ONOFF']] } },
     })
     graph.addCells([a, b, link])
     mockCanvas.selection.value = [
@@ -171,7 +171,7 @@ describe('useClipboard', () => {
     pasteClipboard()
 
     const newLink = graph.getLinks().find((l) => l.id !== link.id)
-    expect(newLink.get('tms')?.switchSources).toEqual({ or: ['BR1.ONOFF'], and: [] })
+    expect(newLink.get('tms')?.switchSources).toEqual({ groups: [['BR1.ONOFF']] })
   })
 
   it('copySelection: пустое выделение → info-toast, буфер не меняется', () => {

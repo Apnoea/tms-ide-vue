@@ -46,7 +46,6 @@ const canvas = useCanvas()
 
     <div class="h-4 w-px bg-surface-200" aria-hidden="true"></div>
 
-    <!-- Справка по хоткеям. -->
     <button
       v-tooltip.bottom="'Горячие клавиши · ? или F1'"
       type="button"

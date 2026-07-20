@@ -189,7 +189,7 @@ describe('exportProject', () => {
         id: 'c1',
         stencilId: 'cell_qw',
         slots: { onoff: 'LOCAL.ONOFF' },
-        switchSources: { and: ['ОБЩИЙ.ONOFF', 'SECTION.ONOFF'] },
+        switchSources: { groups: [['ОБЩИЙ.ONOFF', 'SECTION.ONOFF']] },
       }),
     ])
     const anims = exportProject(graph).animations.animations
@@ -220,7 +220,7 @@ describe('exportProject', () => {
       id: 'l1',
       source: { id: 'a', port: 'right' },
       target: { id: 'b', port: 'left' },
-      tms: { switchSources: { and: ['PS031VK001.ONOFF'] } },
+      tms: { switchSources: { groups: [['PS031VK001.ONOFF']] } },
     })
     const graph = mockGraph([cellA, cellB], [link])
     const anims = exportProject(graph).animations.animations
@@ -232,46 +232,47 @@ describe('exportProject', () => {
     expect(anims[wireKey].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
   })
 
-  it('switchSources or (Параллельно): multi, серый только когда ВСЕ открыты', () => {
+  it('switchSources 2 группы по 1 тегу: multi, серый только когда ВСЕ открыты', () => {
+    // Две одиночные группы = «две независимые ветки»: жива, если замкнута любая.
     const graph = mockGraph([
       mockCell({
         id: 'b1',
         stencilId: 'cell_bus',
         w: 80,
         h: 8,
-        switchSources: { or: ['BR1.ONOFF', 'BR2.ONOFF'], and: [] },
+        switchSources: { groups: [['BR1.ONOFF'], ['BR2.ONOFF']] },
       }),
     ])
     const card = exportProject(graph).animations.animations['animation-cell_bus-b1']
     expect(card.animation).toBe('multi')
     const mc = card.bindings.find((b) => b.multiCondition)?.multiCondition
-    // все «Параллельно» открыты → AND условий «открыт»
-    expect(mc.expression).toBe('(o0 && o1)')
+    // серый = в каждой группе тег открыт → И по группам (внутри — ИЛИ «открыт»)
+    expect(mc.expression).toBe('(g0t0) && (g1t0)')
     expect(mc.conditions.map((c) => c.tag)).toEqual(['BR1.ONOFF', 'BR2.ONOFF'])
     expect(mc.conditions[0].when).toEqual({ type: 'map', cases: { false: true } })
     expect(mc.apply.addClass).toBe('animation-off')
   })
 
-  it('switchSources mixed (Параллельно + Последовательно): (o0) && (a0 || a1)', () => {
-    // Кейс «шина с двух сторон»: путь A = №1&№2 последовательно, путь B = №3.
-    // Жива = №3 ИЛИ (№1 И №2). Серая = №3откр И (№1откр ИЛИ №2откр).
+  it('switchSources 2 группы (И внутри, ИЛИ между): (g0t0 || g0t1) && (g1t0)', () => {
+    // Кейс «шина с двух сторон»: группа A = №1&№2 (последовательно), группа B = №3.
+    // Жива = (№1 И №2) ИЛИ №3. Серая = (№1откр ИЛИ №2откр) И №3откр.
     const graph = mockGraph([
       mockCell({
         id: 'b1',
         stencilId: 'cell_bus',
         w: 80,
         h: 8,
-        switchSources: { or: ['BR3.ONOFF'], and: ['BR1.ONOFF', 'BR2.ONOFF'] },
+        switchSources: { groups: [['BR1.ONOFF', 'BR2.ONOFF'], ['BR3.ONOFF']] },
       }),
     ])
     const card = exportProject(graph).animations.animations['animation-cell_bus-b1']
     expect(card.animation).toBe('multi')
     const mc = card.bindings.find((b) => b.multiCondition)?.multiCondition
-    expect(mc.expression).toBe('(o0) && (a0 || a1)')
-    expect(mc.conditions.map((c) => c.tag)).toEqual(['BR3.ONOFF', 'BR1.ONOFF', 'BR2.ONOFF'])
+    expect(mc.expression).toBe('(g0t0 || g0t1) && (g1t0)')
+    expect(mc.conditions.map((c) => c.tag)).toEqual(['BR1.ONOFF', 'BR2.ONOFF', 'BR3.ONOFF'])
   })
 
-  it('switchSources or + voltage: один multi-card со слоями (voltage + switch)', () => {
+  it('switchSources группы + voltage: один multi-card со слоями (voltage + switch)', () => {
     const graph = mockGraph([
       mockCell({
         id: 'b1',
@@ -279,7 +280,7 @@ describe('exportProject', () => {
         w: 80,
         h: 8,
         voltageSource: { tag: 'PS.UA', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
-        switchSources: { or: ['BR1.ONOFF', 'BR2.ONOFF'], and: [] },
+        switchSources: { groups: [['BR1.ONOFF'], ['BR2.ONOFF']] },
       }),
     ])
     const card = exportProject(graph).animations.animations['animation-cell_bus-b1']
@@ -287,18 +288,18 @@ describe('exportProject', () => {
     const vBind = card.bindings.find((b) => b.multiCondition?.apply?.addClass === 'animation-low')
     expect(vBind.multiCondition.conditions[0].tag).toBe('PS.UA')
     expect(vBind.multiCondition.conditions[0].when.type).toBe('range')
-    const orBind = card.bindings.find((b) => b.multiCondition?.expression === '(o0 && o1)')
+    const orBind = card.bindings.find((b) => b.multiCondition?.expression === '(g0t0) && (g1t0)')
     expect(orBind.multiCondition.apply.addClass).toBe('animation-off')
   })
 
-  it('switchSources and-only (Последовательно) → дешёвый shape, не multi', () => {
+  it('switchSources одна группа (И) → дешёвый shape, не multi', () => {
     const graph = mockGraph([
       mockCell({
         id: 'b1',
         stencilId: 'cell_bus',
         w: 80,
         h: 8,
-        switchSources: { or: [], and: ['BR1.ONOFF', 'BR2.ONOFF'] },
+        switchSources: { groups: [['BR1.ONOFF', 'BR2.ONOFF']] },
       }),
     ])
     const card = exportProject(graph).animations.animations['animation-cell_bus-b1']
@@ -306,23 +307,23 @@ describe('exportProject', () => {
     expect(card.bindings).toHaveLength(2)
   })
 
-  it('switchSources or/mixed на ПРОВОДЕ → wire-карточка multi (не плоский AND)', () => {
-    // Регрессия: OR/mixed работал на ячейках, а линк флэтил в AND (любой
-    // открыт → серый), игнорируя «Параллельно». Должен быть multi с выражением.
+  it('switchSources ≥2 групп на ПРОВОДЕ → wire-карточка multi (не плоский AND)', () => {
+    // Регрессия: OR-агрегация работала на ячейках, а линк флэтил в AND (любой
+    // открыт → серый), игнорируя ветвление. Должен быть multi с выражением.
     const cellA = mockCell({ id: 'a', stencilId: 'cell_qw', x: 0, y: 0 })
     const cellB = mockCell({ id: 'b', stencilId: 'cell_qw', x: 100, y: 0 })
     const link = mockLink({
       id: 'l1',
       source: { id: 'a', port: 'right' },
       target: { id: 'b', port: 'left' },
-      tms: { switchSources: { or: ['BR3.ONOFF'], and: ['BR1.ONOFF', 'BR2.ONOFF'] } },
+      tms: { switchSources: { groups: [['BR1.ONOFF', 'BR2.ONOFF'], ['BR3.ONOFF']] } },
     })
     const anims = exportProject(mockGraph([cellA, cellB], [link])).animations.animations
     const card = anims['animation-wire-l1']
     expect(card.animation).toBe('multi')
     const mc = card.bindings.find((b) => b.multiCondition)?.multiCondition
-    expect(mc.expression).toBe('(o0) && (a0 || a1)')
-    expect(mc.conditions.map((c) => c.tag)).toEqual(['BR3.ONOFF', 'BR1.ONOFF', 'BR2.ONOFF'])
+    expect(mc.expression).toBe('(g0t0 || g0t1) && (g1t0)')
+    expect(mc.conditions.map((c) => c.tag)).toEqual(['BR1.ONOFF', 'BR2.ONOFF', 'BR3.ONOFF'])
     expect(mc.apply.addClass).toBe('animation-off')
   })
 
@@ -347,7 +348,7 @@ describe('exportProject', () => {
     expect(cell.tms.navigation).toBe('view_substation_a')
   })
 
-  it('cell_text: цвет/шрифт (tms.color/fontSize/bold) переживают round-trip через data-tms-meta', () => {
+  it('cell_text: цвет/шрифт/align (color/fontSize/bold/align) переживают round-trip через data-tms-meta', () => {
     const graph = mockGraph([
       mockCell({
         id: 't1',
@@ -356,6 +357,7 @@ describe('exportProject', () => {
         color: '#ff0000',
         fontSize: 20,
         bold: true,
+        align: 'right',
       }),
     ])
     const exported = exportProject(graph)
@@ -366,6 +368,16 @@ describe('exportProject', () => {
     expect(cell.tms.text).toBe('Секция')
     expect(cell.tms.fontSize).toBe(20)
     expect(cell.tms.bold).toBe(true)
+    expect(cell.tms.align).toBe('right')
+  })
+
+  it('cell_text: align=left (дефолт) в meta не пишется', () => {
+    const graph = mockGraph([
+      mockCell({ id: 't1', stencilId: 'cell_text', text: 'Секция', align: 'left' }),
+    ])
+    const parsed = parseSvgProject(exportProject(graph).svgText)
+    // При дефолтном left поле align в meta отсутствует (json чище).
+    expect(parsed.cells.find((c) => c.id === 't1').tms.align).toBeUndefined()
   })
 
   it('navigation у ячейки без других анимаций → создаётся пустая shape-карточка', () => {
@@ -431,7 +443,7 @@ describe('exportProject', () => {
         id: 'c1',
         stencilId: 'cell_qk',
         slots: { onoff: 'LOCAL.ONOFF' },
-        switchSources: { and: ['ОБЩИЙ.ONOFF'] },
+        switchSources: { groups: [['ОБЩИЙ.ONOFF']] },
         voltageSource: {
           tag: 'PS031.UA',
           ranges: [{ min: 0, max: 5, class: 'animation-low' }],

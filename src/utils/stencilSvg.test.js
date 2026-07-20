@@ -26,6 +26,55 @@ describe('serializeSvg', () => {
     )
   })
 
+  it('stateful: заливаемый примитив получает class="tms-state-fill" (в т.ч. контурный)', () => {
+    // Гейт по ТИПУ, не по текущему fill: контурный круг (fill=none) тоже можно
+    // залить в конкретном состоянии → маркер должен быть. Только у stateful.
+    const svg = serializeSvg(
+      [
+        { type: 'rect', x: 0, y: 0, w: 20, h: 20, fill: '#ff0000', stroke: '#000' },
+        { type: 'circle', cx: 10, cy: 10, r: 9, fill: 'none' },
+        {
+          type: 'polyline',
+          points: [
+            [0, 0],
+            [5, 5],
+            [0, 5],
+          ],
+          closed: true,
+        },
+      ],
+      { width: 20, height: 20, stateful: true }
+    )
+    expect(svg).toContain('<rect class="tms-state-fill" x="0" y="0"')
+    expect(svg).toContain('<circle class="tms-state-fill" cx="10"')
+    expect(svg).toContain('<polygon class="tms-state-fill" points=')
+  })
+
+  it('линия и открытая ломаная — без class tms-state-fill (заливать нечего)', () => {
+    const svg = serializeSvg(
+      [
+        { type: 'line', x1: 0, y1: 0, x2: 10, y2: 10 },
+        {
+          type: 'polyline',
+          points: [
+            [0, 0],
+            [5, 5],
+          ],
+        },
+      ],
+      { width: 20, height: 20, stateful: true }
+    )
+    expect(svg).not.toContain('tms-state-fill')
+  })
+
+  it('НЕ-stateful стенсил — без class tms-state-fill даже у заливаемых фигур', () => {
+    const svg = serializeSvg([{ type: 'rect', x: 0, y: 0, w: 20, h: 20, fill: '#ff0000' }], {
+      width: 20,
+      height: 20,
+    })
+    expect(svg).not.toContain('tms-state-fill')
+  })
+
   it('line — без fill', () => {
     const svg = serializeSvg([{ type: 'line', x1: 5, y1: 10, x2: 15, y2: 10 }], {
       width: 20,
@@ -369,6 +418,56 @@ describe('stateColors (перекрас символа по состоянию)'
   it('игнорит цвет для несуществующего состояния', () => {
     const json = buildStencilJson({ ...valueMeta, stateColors: { ghost: '#fff' } }, [], shapes)
     expect(json.stateColors).toBeUndefined()
+  })
+
+  // Заливаемая фигура (rect с fill) — заливка по состоянию имеет смысл.
+  const fillShapes = [{ type: 'rect', x: 0, y: 0, w: 20, h: 20, fill: '#000', state: 'on' }]
+
+  it('stroke+fill → объект { stroke, fill } при наличии заливаемой фигуры', () => {
+    const json = buildStencilJson(
+      { ...valueMeta, stateColors: { on: { stroke: '#111', fill: '#222' } } },
+      [],
+      fillShapes
+    )
+    expect(json.stateColors).toEqual({ on: { stroke: '#111', fill: '#222' } })
+  })
+
+  it('только fill → объект { fill }', () => {
+    const json = buildStencilJson(
+      { ...valueMeta, stateColors: { on: { fill: '#222' } } },
+      [],
+      fillShapes
+    )
+    expect(json.stateColors).toEqual({ on: { fill: '#222' } })
+  })
+
+  it('только stroke → компактная строка (legacy-форма)', () => {
+    const json = buildStencilJson(
+      { ...valueMeta, stateColors: { on: { stroke: '#111' } } },
+      [],
+      fillShapes
+    )
+    expect(json.stateColors).toEqual({ on: '#111' })
+  })
+
+  it('контурный круг (fill=none) считается заливаемым → fill пишется', () => {
+    const contourCircle = [{ type: 'circle', cx: 10, cy: 10, r: 9, fill: 'none', state: 'on' }]
+    const json = buildStencilJson(
+      { ...valueMeta, stateColors: { on: { fill: '#222' } } },
+      [],
+      contourCircle
+    )
+    expect(json.stateColors).toEqual({ on: { fill: '#222' } })
+  })
+
+  it('fill отбрасывается, если в стенсиле нет заливаемых фигур', () => {
+    // shapes — только линии (fill некуда применить) → остаётся лишь stroke-строка.
+    const json = buildStencilJson(
+      { ...valueMeta, stateColors: { on: { stroke: '#111', fill: '#222' } } },
+      [],
+      shapes
+    )
+    expect(json.stateColors).toEqual({ on: '#111' })
   })
 })
 

@@ -122,12 +122,11 @@ function buildSwitchCard(tags) {
   }
 }
 
-/** Нужна ли multi-карточка: есть параллельные вводы (OR-агрегация «серый только
- *  когда все открыты» невыразима union-биндингами) либо смешанные ввод+цепочка.
- *  Чистая последовательность / одиночный параллельный тег → дешёвый shape. */
+/** Нужна ли multi-карточка: ≥2 групп switchSources (ИЛИ-агрегация невыразима
+ *  union-биндингами shape-карточки). Одна группа (чистое И) / нет групп → дешёвый
+ *  shape (buildSwitchCard: любой тег группы false → animation-off). */
 function needsMulti(c) {
-  const { or, and } = normalizeSwitchSources(c.switchSources)
-  return or.length >= 1 && or.length + and.length >= 2
+  return normalizeSwitchSources(c.switchSources).groups.length >= 2
 }
 
 /** Условие «выключатель открыт» (value=false). ConditionEvaluator(map) вернёт
@@ -149,14 +148,13 @@ function singleMultiBinding(tag, source, when, addClass) {
 }
 
 /**
- * Outer-карточка типа `multi` для OR-элемента — рантайм-тип с булевым
- * `expression` по нескольким тегам (единственный способ выразить «серый только
- * когда ВСЕ открыты», union-биндинги дают AND). Несёт ВСЕ outer-эффекты слоями
- * (бинды независимы, ActionApplier складывает классы): voltage по диапазонам,
- * OR-группа, quality. Кладётся на outer-id; на потомков классы
- * каскадят через CSS, поэтому merge во внутренние shape-карточки не нужен.
- * Генерируется напрямую из tms (а не конвертацией shape) — только здесь есть
- * семантика «какие теги образуют OR-группу».
+ * Outer-карточка типа `multi` — рантайм-тип с булевым `expression` по нескольким
+ * тегам (единственный способ выразить ИЛИ-агрегацию групп switchSources, где
+ * union-биндинги дают только AND). Несёт ВСЕ outer-эффекты слоями (бинды
+ * независимы, ActionApplier складывает классы): voltage по диапазонам, группы
+ * switchSources, quality. Кладётся на outer-id; на потомков классы каскадят через
+ * CSS, поэтому merge во внутренние shape-карточки не нужен. Генерируется напрямую
+ * из tms — только здесь есть семантика «какие теги в какой группе».
  */
 function buildMultiCard(c) {
   const stencil = getStencilById(c.stencilId)
@@ -176,28 +174,21 @@ function buildMultiCard(c) {
     }
   }
 
-  // switchSources: «Параллельно» (or) гасит только когда ВСЕ открыты → AND
-  // условий «открыт»; «Последовательно» (and) гасит когда ЛЮБОЙ открыт → OR.
-  // off = (все or открыты) И (любой and открыт), пустой фактор выпадает.
-  const { or, and } = normalizeSwitchSources(c.switchSources)
+  // switchSources — группы условий: активен, если ЛЮБАЯ группа выполнена целиком
+  // (все теги замкнуты). Гасим (animation-off), когда НИ одна не выполнена =
+  // в КАЖДОЙ группе хотя бы один тег открыт. Без отрицания (рантайм-expression его
+  // не даёт): произведение сумм — И по группам ( ИЛИ «открыт» внутри группы ).
+  const { groups } = normalizeSwitchSources(c.switchSources)
   const conditions = []
   const factors = []
-  if (or.length) {
-    const ids = or.map((tag, i) => {
-      const id = `o${i}`
-      conditions.push(openCondition(id, tag))
-      return id
-    })
-    factors.push(`(${ids.join(' && ')})`)
-  }
-  if (and.length) {
-    const ids = and.map((tag, i) => {
-      const id = `a${i}`
+  groups.forEach((group, gi) => {
+    const ids = group.map((tag, ti) => {
+      const id = `g${gi}t${ti}`
       conditions.push(openCondition(id, tag))
       return id
     })
     factors.push(`(${ids.join(' || ')})`)
-  }
+  })
   if (conditions.length) {
     bindings.push({
       multiCondition: {
@@ -209,7 +200,9 @@ function buildMultiCard(c) {
   }
 
   if (stencil?.quality) {
-    const qTags = [...new Set([vs?.tag, c.slots?.onoff, ...or, ...and].filter(Boolean))]
+    const qTags = [
+      ...new Set([vs?.tag, c.slots?.onoff, ...switchSourceTags(c.switchSources)].filter(Boolean)),
+    ]
     for (const tag of qTags) {
       bindings.push(
         singleMultiBinding(
@@ -326,9 +319,8 @@ export function exportProject(graph, paper = null) {
   // `animation-{stencilId}-...` и `animation-wire-...` пересекаться не могут,
   // но один Set проще двух.
   const usedOuterKeys = new Set()
-  // Список пред-/предупреждений для caller'а (CanvasPane показывает toast).
-  // Console.warn оставляем для DevTools — но без UI-показа SCADA-инженер бы
-  // их не увидел.
+  // Предупреждения для caller'а (CanvasPane показывает toast). Console.warn
+  // оставляем для DevTools — без UI-показа SCADA-инженер их не увидел бы.
   const warnings = []
 
   let minX = Infinity
@@ -427,6 +419,10 @@ export function exportProject(graph, paper = null) {
       fontSize: tms.fontSize,
       bold: tms.bold,
       color: tms.color,
+      // align (якорь роста текста) влияет только на позицию блока в редакторе —
+      // сама позиция уже в c.x/c.y; поле нужно, чтобы после reload правки текста
+      // блок продолжал расти от того же края.
+      align: tms.align,
       valueTag: tms.valueTag,
       // Геометрический трансформ — для round-trip. angle применяется в SVG
       // как rotate вокруг центра ячейки на outer-`<g>`.
@@ -547,9 +543,7 @@ export function exportProject(graph, paper = null) {
     ...linkExports.map((l) => ({ src: l, key: l.id })),
   ]
 
-  // needsMulti → вся outer-карточка одной `multi` (voltage + switch + quality
-  // слоями). buildMultiCard работает и для линка (нет stencilId → quality
-  // пропускается).
+  // buildMultiCard работает и для линка (нет stencilId → quality пропускается).
   for (const t of bindingTargets) {
     if (needsMulti(t.src)) animations[t.key] = buildMultiCard(t.src)
   }
@@ -652,26 +646,20 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── Quality (OPC DA): non-good → animation-off ───
-  // У каждого тега в SCADA-payload есть quality (192-255 = good, 64-191 =
-  // uncertain, 0-63 = bad). Для стенсилов с флагом quality (cell_qk/qr/qf) эмитим один range-кейс
-  // [0, 191] с addClass: animation-off — cell станет серым, юзер видит что
-  // данные ненадёжны. При quality ≥ 192 в этот range не попадёт, animation-off
-  // не накинется (рантайм auto-cleanup'ит классы при выходе из case-диапазона).
-  // WebScada сравнивает inclusive (numValue >= min && numValue <= max), поэтому
-  // max=191 — последнее non-good значение; 192 уже good и не попадает.
+  // quality тега: 192-255 = good, 64-191 = uncertain, 0-63 = bad. Стенсилы с
+  // флагом `quality: true` в stencil.json (cell_qk/qr/qf) получают range-кейс
+  // [0, 191] → addClass: animation-off — cell станет серым, если данные
+  // ненадёжны. WebScada сравнивает inclusive (>=min && <=max), поэтому
+  // max=191 — последнее non-good значение, 192 уже good и в range не попадёт.
   //
   // Биндинги кладём ТОЛЬКО на outer-карточку — оттуда CSS-каскад
   // `.animation-off *:not(text) { stroke }` затемняет ВСЕ stroke-элементы
-  // стенсила (хвосты, контакты, шарнир, рычаги, заземление). Если класть на
-  // inner-карточки (.true / .false), серым станет только текущий видимый
-  // рычаг — остальной корпус останется чёрным.
+  // стенсила. На inner-карточках (.true / .false) серым стал бы только
+  // текущий видимый рычаг — остальной корпус остался бы чёрным.
   //
-  // Outer-карточку создаём если её ещё нет (cell без voltage/switch — просто
-  // голый стенсил со slot.onoff). Аналогично navigation-логике выше.
-  //
-  // Выпускаем quality для стенсилов с флагом `quality: true` в stencil.json
-  // (сейчас — cell_qk / cell_qr / cell_qf). text/value-карточки рантайм
-  // обрабатывает с собственной quality-семантикой и сюда не включаются.
+  // Outer-карточку создаём если её ещё нет (аналогично navigation-логике
+  // выше). text/value-карточки сюда не включаются — у них своя
+  // quality-семантика в рантайме.
   for (const c of cellExports) {
     if (needsMulti(c)) continue
     if (!getStencilById(c.stencilId)?.quality) continue
@@ -747,6 +735,8 @@ export function exportProject(graph, paper = null) {
       if (c.fontSize !== undefined) meta.fontSize = c.fontSize
       if (c.bold !== undefined) meta.bold = c.bold
       if (c.color !== undefined) meta.color = c.color
+      // 'left' — дефолт, в meta не пишем (json чище; отсутствие = left).
+      if (c.align && c.align !== 'left') meta.align = c.align
       if (c.valueTag !== undefined) meta.valueTag = c.valueTag
       if (c.voltageSource) meta.voltageSource = c.voltageSource
       if (c.switchSources) meta.switchSources = c.switchSources

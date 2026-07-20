@@ -29,7 +29,7 @@ describe('getCellSearchStrings', () => {
   it('подхватывает voltageSource.tag, switchSources, valueTag', () => {
     const cell = makeCell({
       voltageSource: { tag: 'PS031TN001.U' },
-      switchSources: { and: ['ОБЩИЙ.ONOFF', 'LOCAL.ONOFF'] },
+      switchSources: { groups: [['ОБЩИЙ.ONOFF', 'LOCAL.ONOFF']] },
       valueTag: 'PS031TN001.UA',
     })
     const strings = getCellSearchStrings(cell)
@@ -84,7 +84,7 @@ describe('getCellTags / cellHasTag', () => {
     const cell = makeCell({
       slots: { onoff: 'A.ONOFF', alr: 'A.ALR' },
       voltageSource: { tag: 'A.U' },
-      switchSources: { and: ['B.ONOFF', 'C.ONOFF'] },
+      switchSources: { groups: [['B.ONOFF', 'C.ONOFF']] },
       valueTag: 'A.IA',
     })
     expect(getCellTags(cell).sort()).toEqual(
@@ -100,7 +100,7 @@ describe('getCellTags / cellHasTag', () => {
   it('cellHasTag exact-match по любому tag-полю', () => {
     const cell = makeCell({
       slots: { onoff: 'A.ONOFF' },
-      switchSources: { and: ['B.ONOFF'] },
+      switchSources: { groups: [['B.ONOFF']] },
     })
     expect(cellHasTag(cell, 'A.ONOFF')).toBe(true)
     expect(cellHasTag(cell, 'B.ONOFF')).toBe(true)
@@ -115,7 +115,7 @@ describe('getCellTagsFromTms', () => {
     const tms = {
       slots: { onoff: 'X.ONOFF' },
       voltageSource: { tag: 'V.U' },
-      switchSources: { and: ['S1', 'S2'] },
+      switchSources: { groups: [['S1', 'S2']] },
       valueTag: 'VT',
     }
     expect(getCellTagsFromTms(tms)).toEqual(['X.ONOFF', 'V.U', 'S1', 'S2', 'VT'])
@@ -131,7 +131,7 @@ describe('getCellTagsFromTms', () => {
     expect(
       getCellTagsFromTms({
         slots: { a: 'A', b: '', c: null },
-        switchSources: { and: ['X', '', 'Y'] },
+        switchSources: { groups: [['X', '', 'Y']] },
       })
     ).toEqual(['A', 'X', 'Y'])
   })

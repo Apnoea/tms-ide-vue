@@ -1,5 +1,4 @@
 <script setup>
-import { computed } from 'vue'
 import Button from 'primevue/button'
 import TagField from './TagField.vue'
 
@@ -7,24 +6,24 @@ import TagField from './TagField.vue'
  * Блок «Булево значение». Два независимых источника:
  *  • `slotInfo` — булев слот стенсила (cell_qw slot.onoff): свой тег элемента,
  *    рендерится первой строкой без ×.
- *  • Зависимости-теги в двух секциях:
- *     - `parallel` («Параллельно») — достаточно ЛЮБОГО = true (OR).
- *     - `series` («Последовательно») — нужны ВСЕ = true (AND).
- *    Активен = (любой parallel = true) ИЛИ (все series = true); иначе элемент
- *    тускнеет (animation-off).
+ *  • Зависимости-теги ГРУППАМИ (`groups`: массив групп, каждая — массив тегов):
+ *    внутри группы теги через И, группы между собой через ИЛИ. Активен, если
+ *    выполнена ЛЮБАЯ группа целиком; иначе элемент тускнеет (animation-off).
+ *    Нейтрально к домену (сеть/жидкости/…): группа = произвольное И-условие.
  *
- * Эмиты (bucket = 'parallel' | 'series'):
- *   open-slot-picker          — клик по slot-row (свой тег стенсила)
- *   open-tag-picker(bucket)   — клик по пустому полю-тегу секции (добавить)
- *   edit-tag(bucket, idx)     — замена тега по индексу
- *   remove-tag(bucket, idx)   — × на строке
- *   remove                    — × в шапке: очистить все зависимости (виден при непустом)
- *   highlight-tag(t)          — подсветить тег на холсте
+ * Эмиты (gi — индекс группы, ti — индекс тега в группе):
+ *   open-slot-picker     — клик по slot-row (свой тег стенсила)
+ *   add-group            — «+ группа» (открывает picker, группа рождается с тегом)
+ *   add-tag(gi)          — «+ тег» внутри группы
+ *   edit-tag(gi, ti)     — замена тега по индексу
+ *   remove-tag(gi, ti)   — × на строке тега
+ *   remove-group(gi)     — × в шапке группы
+ *   remove               — × в шапке блока: очистить все группы
+ *   highlight-tag(t)     — подсветить тег на холсте
  */
-const props = defineProps({
+defineProps({
   slotInfo: { type: Object, default: null }, // { value } — свой тег элемента
-  parallel: { type: Array, default: null },
-  series: { type: Array, default: null },
+  groups: { type: Array, default: () => [] }, // Array<Array<string>>
   removable: { type: Boolean, default: false },
   tagsLoaded: { type: Boolean, default: false },
   title: { type: String, default: 'Булево значение' },
@@ -32,28 +31,13 @@ const props = defineProps({
 
 defineEmits([
   'open-slot-picker',
-  'open-tag-picker',
+  'add-group',
+  'add-tag',
   'edit-tag',
   'remove-tag',
+  'remove-group',
   'remove',
   'highlight-tag',
-])
-
-// «Последовательно» выше «Параллельно»: последовательных условий обычно в разы
-// меньше, держим компактный список наверху.
-const sections = computed(() => [
-  {
-    key: 'series',
-    label: 'Последовательно',
-    hint: 'нужны все true (логическое И)',
-    tags: props.series || [],
-  },
-  {
-    key: 'parallel',
-    label: 'Параллельно',
-    hint: 'достаточно любого true (логическое ИЛИ)',
-    tags: props.parallel || [],
-  },
 ])
 </script>
 
@@ -91,50 +75,70 @@ const sections = computed(() => [
       />
     </div>
 
-    <!-- Зависимости от ДРУГИХ тегов (послед/парал) — отделены от прямой привязки
-         разделителем сверху. -->
+    <!-- Зависимости от ДРУГИХ тегов, группами. Внутри группы И, между группами ИЛИ. -->
     <div :class="slotInfo ? 'mt-2 border-t border-surface-200 pt-2' : ''">
       <div class="text-[11px] font-medium text-surface-600 mb-1">
         Зависимость от других элементов
       </div>
       <p class="text-[11px] text-surface-500 mb-2 leading-snug">
-        Элемент активен, пока выполняются условия. Иначе — тускнеет.
+        Активен, если выполнена любая группа условий. Иначе — тускнеет.
       </p>
 
-      <!-- Две секции: Последовательно (AND) / Параллельно (OR) -->
-      <div v-for="sec in sections" :key="sec.key" class="mb-2">
-        <div class="text-[11px] text-surface-500 mb-1">
-          {{ sec.label }}
-          <span class="text-surface-400">- {{ sec.hint }}</span>
+      <template v-for="(group, gi) in groups" :key="gi">
+        <div v-if="gi > 0" class="text-[10px] text-surface-400 text-center my-1">ИЛИ</div>
+        <div class="rounded border border-surface-200 bg-surface-50 p-2">
+          <div class="flex items-center gap-1.5 mb-1.5">
+            <span class="text-[11px] font-medium text-surface-600">Группа {{ gi + 1 }}</span>
+            <span class="text-surface-400 text-[10px]">(все теги — И)</span>
+            <Button
+              v-tooltip.bottom="'Удалить группу'"
+              icon="pi pi-times"
+              severity="secondary"
+              text
+              size="small"
+              class="!p-1 !w-5 !h-5 ml-auto"
+              @click="$emit('remove-group', gi)"
+            />
+          </div>
+          <div class="space-y-1.5">
+            <TagField
+              v-for="(t, ti) in group"
+              :key="ti"
+              :value="t || ''"
+              :can-pick="tagsLoaded"
+              pick-label="Заменить тег"
+              highlightable
+              removable
+              @pick="$emit('edit-tag', gi, ti)"
+              @highlight="$emit('highlight-tag', t)"
+              @remove="$emit('remove-tag', gi, ti)"
+            />
+            <button
+              type="button"
+              class="flex w-full items-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700"
+              :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
+              v-tooltip.bottom="tagsLoaded ? 'Добавить тег (И)' : 'Загрузи tag-list'"
+              @click="tagsLoaded && $emit('add-tag', gi)"
+            >
+              <i class="pi pi-plus !text-[10px]" />
+              тег (И)
+            </button>
+          </div>
         </div>
-        <div class="space-y-1.5">
-          <TagField
-            v-for="(t, idx) in sec.tags"
-            :key="idx"
-            :value="t || ''"
-            :can-pick="tagsLoaded"
-            empty-label="- пусто -"
-            pick-label="Заменить тег"
-            highlightable
-            removable
-            @pick="$emit('edit-tag', sec.key, idx)"
-            @highlight="$emit('highlight-tag', t)"
-            @remove="$emit('remove-tag', sec.key, idx)"
-          />
-          <!-- Добавить тег: пунктирная кнопка-«добавить» (явный affordance vs
-                 поля-значения с цельным бордером) — клик открывает picker секции. -->
-          <button
-            type="button"
-            class="flex w-full items-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700"
-            :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
-            v-tooltip.bottom="tagsLoaded ? 'Добавить тег' : 'Загрузи tag-list, чтобы выбрать тег'"
-            @click="tagsLoaded && $emit('open-tag-picker', sec.key)"
-          >
-            <i class="pi pi-plus !text-[10px]" />
-            добавить тег
-          </button>
-        </div>
-      </div>
+      </template>
+
+      <div v-if="groups.length" class="text-[10px] text-surface-400 text-center my-1">ИЛИ</div>
+      <!-- «+ группа» открывает picker — группа рождается с первым тегом (пустых нет). -->
+      <button
+        type="button"
+        class="flex w-full items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700"
+        :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
+        v-tooltip.bottom="tagsLoaded ? 'Новая группа условий (ИЛИ)' : 'Загрузи tag-list'"
+        @click="tagsLoaded && $emit('add-group')"
+      >
+        <i class="pi pi-plus !text-[10px]" />
+        группа (ИЛИ)
+      </button>
     </div>
 
     <p v-if="!tagsLoaded" class="text-[11px] text-surface-400 leading-snug mt-1">

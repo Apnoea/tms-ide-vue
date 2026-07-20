@@ -16,6 +16,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { snapToGrid } from '../utils/grid'
 import { serializeSvg, buildStencilJson, cropToContent, parseStencilSvg } from '../utils/stencilSvg'
+import { normalizeStateColor } from '../constants/animation'
 
 export const SHAPE_GRID = 1
 export const PORT_GRID = 10
@@ -206,11 +207,17 @@ export function createStencilEditor() {
     commit()
   }
 
-  // Цвет перекраса символа для состояния. Пустой color = снять (состояние снова
-  // только по видимости). meta.stateColors переприсваиваем целиком — reactive.
-  function setStateColor(key, color) {
+  // Цвет перекраса символа для состояния. which — 'stroke' (контур) | 'fill'
+  // (заливка). Пустой color = снять этот канал. Компактно: только контур →
+  // строка (legacy); есть заливка → объект { stroke?, fill }; ничего → удаляем
+  // ключ (состояние снова только по видимости). Переприсваиваем целиком — reactive.
+  function setStateColor(key, color, which = 'stroke') {
+    const cur = normalizeStateColor(meta.stateColors[key])
+    const val = { ...cur, [which]: color || '' }
     const next = { ...meta.stateColors }
-    if (color) next[key] = color
+    if (val.stroke && val.fill) next[key] = { stroke: val.stroke, fill: val.fill }
+    else if (val.fill) next[key] = { fill: val.fill }
+    else if (val.stroke) next[key] = val.stroke
     else delete next[key]
     meta.stateColors = next
   }

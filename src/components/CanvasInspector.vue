@@ -4,7 +4,7 @@ import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
-import ToggleButton from 'primevue/togglebutton'
+import SelectButton from 'primevue/selectbutton'
 import ToggleSwitch from 'primevue/toggleswitch'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
@@ -17,6 +17,7 @@ import {
   TEXT_FONT_SIZE,
   textCellHeight,
   textCellWidth,
+  resizeTextCell,
   resolveValueDisplay,
 } from '../stencils/svgInjector'
 import { nplural } from '../utils/plural'
@@ -82,6 +83,7 @@ const details = computed(() => {
       text: tms.text ?? '',
       fontSize: tms.fontSize ?? TEXT_FONT_SIZE,
       bold: !!tms.bold,
+      align: tms.align || 'left',
       color: tms.color || '',
       isValue: tms.stencilId === 'cell_value',
       valueTag: tms.valueTag ?? '',
@@ -199,6 +201,18 @@ function patchSlotTag(key, tag) {
 }
 
 // ─── Редактирование текста (стенсил cell_text) ───
+// Выравнивание = якорь блока при росте текста (см. resizeTextCell), не раскладка
+// строки внутри (блок обтягивает текст). Иконки — привычная тройка left/center/right.
+const ALIGN_OPTIONS = [
+  { value: 'left', icon: 'pi pi-align-left', tip: 'Растёт вправо (левый край на месте)' },
+  { value: 'center', icon: 'pi pi-align-center', tip: 'Растёт симметрично (центр на месте)' },
+  { value: 'right', icon: 'pi pi-align-right', tip: 'Растёт влево (правый край на месте)' },
+]
+
+// Жирность как одиночный toggle-сегмент SelectButton (allow-empty → повторный
+// клик снимает). Единый визуальный язык с выравниванием.
+const BOLD_OPTIONS = [{ value: 'bold' }]
+
 function applyText(newText) {
   patchTextCell({ text: newText })
 }
@@ -214,14 +228,23 @@ function patchTextCell(patch) {
         next.text === tms.text &&
         next.fontSize === tms.fontSize &&
         next.bold === tms.bold &&
-        next.color === tms.color
+        next.color === tms.color &&
+        (next.align || 'left') === (tms.align || 'left')
       if (same) return false
       cell.set('tms', next)
       // Размер cell'а подгоняем и по ширине (под содержимое), и по высоте (под шрифт) —
       // hit-area тогда совпадает с реально отображаемым текстом, inline-X прижимается к нему.
+      // resizeTextCell держит якорь (align): смена шрифта/жирности сдвигает блок от
+      // выбранного края. Смена только align ширину не меняет — блок остаётся на месте,
+      // якорь применится при следующем росте текста.
       const fontSize = next.fontSize ?? TEXT_FONT_SIZE
       const bold = !!next.bold
-      cell.resize(textCellWidth(next.text ?? '', fontSize, bold), textCellHeight(fontSize))
+      resizeTextCell(
+        cell,
+        textCellWidth(next.text ?? '', fontSize, bold),
+        textCellHeight(fontSize),
+        next.align || 'left'
+      )
     },
     { reinject: true }
   )
@@ -237,6 +260,10 @@ function applyBold(value) {
 
 function applyColor(color) {
   patchTextCell({ color })
+}
+
+function applyAlign(align) {
+  patchTextCell({ align })
 }
 
 // ─── Диапазоны значений (аналоговый источник: значение тега → класс по диапазону) ───
@@ -439,40 +466,36 @@ function toggleMultiVoltageHighlight() {
   if (tag) canvas.toggleHighlightedTag(tag)
 }
 
-// ─── switchSources: два списка булевых зависимостей ───
-// `or` («Параллельно») — достаточно любого = true; `and` («Последовательно») —
-// нужны все = true. Активен = (любой or = true) ИЛИ (все and = true). Экспорт:
-// чистый and → дешёвый shape, иначе → multi-карточка.
+// ─── switchSources: зависимости-теги ГРУППАМИ (DNF) ───
+// Каноническая форма — { groups: [[tag,…],…] }: внутри группы теги через И,
+// группы между собой через ИЛИ. Элемент активен, если выполнена ЛЮБАЯ группа
+// целиком; иначе тускнеет. Экспорт: одна группа → дешёвый shape, ≥2 → multi.
 
-// В какую секцию кладёт массовая привязка: 'or' (Параллельно) | 'and' (Последовательно).
-// Выставляется кнопкой перед открытием picker'а.
-const multiSwitchBucket = ref('or')
-// Цель добавления/замены: { bucket: 'parallel'|'series', idx }. idx=null —
-// добавить новый, число — заменить по индексу. bucket=null — пасс (cancel).
-const editingSwitch = ref({ bucket: null, idx: null })
+// Цель добавления/замены тега: { groupIdx, tagIdx }.
+//   groupIdx=null           — новая группа (picker создаёт [tag]);
+//   groupIdx=число, tagIdx=null    — добавить тег в группу gi;
+//   groupIdx=число, tagIdx=число   — заменить тег по индексу.
+// groupIdx=undefined — пасс (cancel).
+const editingSwitch = ref({ groupIdx: undefined, tagIdx: null })
 
-// Канонические списки switchSources текущей ячейки (нормализует старую форму).
-const switchBuckets = computed(() => normalizeSwitchSources(details.value?.switchSources))
+// Канонические группы switchSources текущей ячейки (нормализует/чистит форму).
+const switchGroups = computed(() => normalizeSwitchSources(details.value?.switchSources).groups)
 
 // Показывать × «Удалить все зависимости» в шапке блока. У intrinsic-свитча
 // (cell_qw) блок виден всегда из-за slot.onoff — × имеет смысл ТОЛЬКО когда есть
-// теги-зависимости (иначе чистить нечего, клик был бы no-op'ом: slot.onoff им не
-// удаляется). У не-свитча блок появляется лишь при наличии switchSources, и ×
+// группы-зависимости (иначе чистить нечего, клик был бы no-op'ом: slot.onoff им
+// не удаляется). У не-свитча блок появляется лишь при наличии switchSources, и ×
 // убирает его целиком (в т.ч. пустой) — там достаточно самого факта присутствия.
 const switchRemovable = computed(() =>
-  details.value?.hasBoolSlot
-    ? switchBuckets.value.or.length > 0 || switchBuckets.value.and.length > 0
-    : !!details.value?.switchSources
+  details.value?.hasBoolSlot ? switchGroups.value.length > 0 : !!details.value?.switchSources
 )
 
-const bucketField = (bucket) => (bucket === 'parallel' ? 'or' : 'and')
-
-/** Полная замена switchSources на { or, and }; оба пусты → удаляем источник. */
-function writeSwitchBuckets(buckets) {
+/** Полная замена switchSources на { groups }; нет групп → удаляем источник. */
+function writeSwitchGroups(groups) {
+  const clean = groups.map((g) => [...new Set(g.filter(Boolean))]).filter((g) => g.length)
   mutateSelectedTms((tms) => ({
     ...tms,
-    switchSources:
-      buckets.or.length || buckets.and.length ? { or: buckets.or, and: buckets.and } : null,
+    switchSources: clean.length ? { groups: clean } : null,
   }))
 }
 
@@ -486,58 +509,73 @@ function openSwitchPicker() {
   })
 }
 
-/** «Добавить» в секцию bucket. */
-function onAddSwitchTag(bucket) {
-  editingSwitch.value = { bucket, idx: null }
+/** «+ группа» — новая группа, рождается первым выбранным тегом (пустых нет). */
+function onAddGroup() {
+  editingSwitch.value = { groupIdx: null, tagIdx: null }
   openSwitchPicker()
 }
 
-/** Клик по тегу-зависимости → замена по индексу в секции bucket. */
-function editSwitchTagAt(bucket, idx) {
-  editingSwitch.value = { bucket, idx }
+/** «+ тег (И)» внутри группы gi. */
+function onAddSwitchTag(gi) {
+  editingSwitch.value = { groupIdx: gi, tagIdx: null }
+  openSwitchPicker()
+}
+
+/** Клик по тегу-зависимости → замена по индексу (gi, ti). */
+function editSwitchTagAt(gi, ti) {
+  editingSwitch.value = { groupIdx: gi, tagIdx: ti }
   openSwitchPicker()
 }
 
 function removeSwitchSources() {
-  writeSwitchBuckets({ or: [], and: [] })
+  writeSwitchGroups([])
 }
 
 /**
- * Picker вернул тег → пишем в editingSwitch.bucket (add при idx=null, replace
- * при числе). Дубли в любой из секций игнорируем — один выключатель не может
- * быть и параллельным, и последовательным вводом. Основной тег стенсила
- * (slot.onoff) в зависимости не допускаем.
+ * Picker вернул тег. groupIdx=null → новая группа [tag]; иначе add (tagIdx=null)
+ * или replace (tagIdx=число) внутри группы gi. Дубли ВНУТРИ группы игнорируем
+ * (между группами тег повторяется свободно). Основной тег стенсила (slot.onoff)
+ * в зависимости не допускаем.
  */
 function onPickSwitchTag(tag) {
   const d = details.value
-  const { bucket, idx } = editingSwitch.value
-  editingSwitch.value = { bucket: null, idx: null }
-  if (!bucket || !tag) return
+  const { groupIdx, tagIdx } = editingSwitch.value
+  editingSwitch.value = { groupIdx: undefined, tagIdx: null }
+  if (groupIdx === undefined || !tag) return
   if (d?.hasBoolSlot && d.onoffTag === tag) return
 
-  const buckets = normalizeSwitchSources(d?.switchSources)
-  const field = bucketField(bucket)
-  const list = [...buckets[field]]
-  if (idx !== null) {
-    if (list[idx] === tag) return
-    list[idx] = tag
-  } else {
-    if (buckets.or.includes(tag) || buckets.and.includes(tag)) return
-    list.push(tag)
+  const groups = normalizeSwitchSources(d?.switchSources).groups
+  if (groupIdx === null) {
+    writeSwitchGroups([...groups, [tag]])
+    return
   }
-  writeSwitchBuckets({ ...buckets, [field]: [...new Set(list)] })
+  const group = [...(groups[groupIdx] || [])]
+  if (tagIdx !== null) {
+    if (group[tagIdx] === tag) return
+    group[tagIdx] = tag
+  } else {
+    if (group.includes(tag)) return
+    group.push(tag)
+  }
+  const next = groups.map((g, i) => (i === groupIdx ? group : g))
+  writeSwitchGroups(next)
 }
 
-function removeSwitchTagAt(bucket, idx) {
-  const buckets = normalizeSwitchSources(details.value?.switchSources)
-  const field = bucketField(bucket)
-  writeSwitchBuckets({ ...buckets, [field]: buckets[field].filter((_, i) => i !== idx) })
+/** × на строке тега (gi, ti). Опустевшая группа отбрасывается (в writeSwitchGroups). */
+function removeSwitchTagAt(gi, ti) {
+  const groups = normalizeSwitchSources(details.value?.switchSources).groups
+  const next = groups.map((g, i) => (i === gi ? g.filter((_, j) => j !== ti) : g))
+  writeSwitchGroups(next)
 }
 
-/** Открыть picker массовой привязки булева тега. `bucket` — ключ секции
- * BooleanBlock ('series'|'parallel'), маппим в поле switchSources ('and'|'or'). */
-function openMultiSwitchPicker(bucket) {
-  multiSwitchBucket.value = bucketField(bucket)
+/** × в шапке группы — удалить группу целиком. */
+function removeSwitchGroup(gi) {
+  const groups = normalizeSwitchSources(details.value?.switchSources).groups
+  writeSwitchGroups(groups.filter((_, i) => i !== gi))
+}
+
+/** Открыть picker массовой привязки булева тега (multi-select). */
+function openMultiSwitchPicker() {
   openPicker({
     tags: booleanTags.value,
     header: 'Булев тег для всех выделенных элементов',
@@ -545,7 +583,9 @@ function openMultiSwitchPicker(bucket) {
   })
 }
 
-/** Multi-select: добавить тег в switchSources всех выделенных (не дублируя). */
+/** Multi-select: добавить тег НОВОЙ группой [tag] в switchSources всех
+ * выделенных (у выделения нет общего состояния → каждому — своя новая группа,
+ * не дублируя уже существующую одиночную группу с этим тегом). */
 function onPickMultiSwitchTag(tag) {
   const graph = canvas.graphRef.value
   if (!graph || !tag) return
@@ -567,17 +607,13 @@ function onPickMultiSwitchTag(tag) {
       skipped++
       continue
     }
-    // Кладём в секцию, выбранную кнопкой (or = Параллельно, and = Последовательно).
-    // Тег уже в любой из секций → пропускаем (в обеих сразу он бессмыслен).
-    const buckets = normalizeSwitchSources(tms.switchSources)
-    if (buckets.or.includes(tag) || buckets.and.includes(tag)) {
+    const groups = normalizeSwitchSources(tms.switchSources).groups
+    // Уже есть одиночная группа ровно с этим тегом → не плодим дубль.
+    if (groups.some((g) => g.length === 1 && g[0] === tag)) {
       applied++
       continue
     }
-    const field = multiSwitchBucket.value
-    const next = { or: [...buckets.or], and: [...buckets.and] }
-    next[field].push(tag)
-    cell.set('tms', { ...tms, switchSources: next })
+    cell.set('tms', { ...tms, switchSources: { groups: [...groups, [tag]] } })
     applied++
   }
   canvas.bumpVersion()
@@ -649,26 +685,23 @@ const booleanTags = computed(() => project.tags.filter((t) => isBooleanType(t.ty
 // cell_value отображает аналоговое значение → picker только по float-тегам.
 const floatTags = computed(() => project.tags.filter((t) => isFloatType(t.type)))
 
-// Picker для switch-зависимостей исключает уже привязанные теги: основной
-// тег ячейки (slot.onoff у cell_qw) + все теги из обеих секций switchSources
-// (or/and), кроме редактируемого по индексу (его оставляем, чтобы юзер видел
-// текущее значение).
+// Picker для switch-зависимостей исключает: основной тег ячейки (slot.onoff у
+// cell_qw) + теги ТЕКУЩЕЙ редактируемой группы (внутри группы тег уникален),
+// кроме редактируемого по индексу (его оставляем, чтобы юзер видел значение).
+// Теги других групп НЕ исключаем — тег свободно повторяется между группами.
+// Для новой группы (groupIdx=null) фильтруем только onoff-тег.
 const switchPickerTags = computed(() => {
   const d = details.value
   if (!d) return booleanTags.value
   const excluded = new Set()
   if (d.hasBoolSlot && d.onoffTag) excluded.add(d.onoffTag)
-  // Исключаем уже привязанные теги (из обеих секций), КРОМЕ редактируемого
-  // сейчас по индексу — его оставляем, чтобы юзер видел текущее значение.
-  const { or, and } = normalizeSwitchSources(d.switchSources)
-  const { bucket, idx } = editingSwitch.value
-  const editField = bucket === 'parallel' ? 'or' : bucket === 'series' ? 'and' : null
-  const excludeList = (list, field) =>
-    list.forEach((t, i) => {
-      if (t && !(field === editField && i === idx)) excluded.add(t)
+  const { groupIdx, tagIdx } = editingSwitch.value
+  if (typeof groupIdx === 'number') {
+    const group = normalizeSwitchSources(d.switchSources).groups[groupIdx] || []
+    group.forEach((t, i) => {
+      if (t && i !== tagIdx) excluded.add(t)
     })
-  excludeList(or, 'or')
-  excludeList(and, 'and')
+  }
   return booleanTags.value.filter((t) => !excluded.has(t.name))
 })
 </script>
@@ -696,136 +729,147 @@ const switchPickerTags = computed(() => {
 
           <!-- Выравнивание ячеек по рамке выделения. Показываем только когда ячеек
                ≥2 (в выделении могут быть и мостовые линки — canAlign считает ячейки).
-               Слева — по X (левый/центр/правый), справа — по Y (верх/центр/низ);
-               центры снапятся к сетке (useAlign). Иконки — инлайновый SVG (не v-html). -->
-          <div v-if="canAlign">
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
-              Выравнивание
+               Три подписанные категории «описание слева, кнопки справа»: гориз.
+               выравнивание, верт. выравнивание, распределение. Кнопки — действия
+               (клик выполняет команду). Иконки — инлайновый SVG (не v-html);
+               центры снапятся к сетке. -->
+          <div v-if="canAlign" class="space-y-2.5">
+            <div class="flex items-center gap-3">
+              <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                По горизонтали
+              </span>
+              <div class="ml-auto flex items-center gap-1">
+                <button
+                  type="button"
+                  v-tooltip.bottom="'По левому краю'"
+                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
+                  @click="alignCells('left')"
+                >
+                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                    <rect x="1" y="2" width="1.4" height="12" rx="0.5" />
+                    <rect x="3.4" y="4" width="9" height="3" rx="1" opacity="0.8" />
+                    <rect x="3.4" y="9" width="5.5" height="3" rx="1" opacity="0.8" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  v-tooltip.bottom="'По центру (горизонт.)'"
+                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
+                  @click="alignCells('centerX')"
+                >
+                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                    <rect x="7.3" y="2" width="1.4" height="12" rx="0.5" />
+                    <rect x="3.5" y="4" width="9" height="3" rx="1" opacity="0.8" />
+                    <rect x="5.25" y="9" width="5.5" height="3" rx="1" opacity="0.8" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  v-tooltip.bottom="'По правому краю'"
+                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
+                  @click="alignCells('right')"
+                >
+                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                    <rect x="13.2" y="2" width="1.4" height="12" rx="0.5" />
+                    <rect x="4.2" y="4" width="9" height="3" rx="1" opacity="0.8" />
+                    <rect x="7.7" y="9" width="5.5" height="3" rx="1" opacity="0.8" />
+                  </svg>
+                </button>
+              </div>
             </div>
-            <div class="flex items-center gap-1">
-              <button
-                type="button"
-                v-tooltip.bottom="'По левому краю'"
-                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
-                @click="alignCells('left')"
-              >
-                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                  <rect x="1" y="2" width="1.4" height="12" rx="0.5" />
-                  <rect x="3.4" y="4" width="9" height="3" rx="1" opacity="0.8" />
-                  <rect x="3.4" y="9" width="5.5" height="3" rx="1" opacity="0.8" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                v-tooltip.bottom="'По центру (горизонт.)'"
-                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
-                @click="alignCells('centerX')"
-              >
-                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                  <rect x="7.3" y="2" width="1.4" height="12" rx="0.5" />
-                  <rect x="3.5" y="4" width="9" height="3" rx="1" opacity="0.8" />
-                  <rect x="5.25" y="9" width="5.5" height="3" rx="1" opacity="0.8" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                v-tooltip.bottom="'По правому краю'"
-                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
-                @click="alignCells('right')"
-              >
-                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                  <rect x="13.2" y="2" width="1.4" height="12" rx="0.5" />
-                  <rect x="4.2" y="4" width="9" height="3" rx="1" opacity="0.8" />
-                  <rect x="7.7" y="9" width="5.5" height="3" rx="1" opacity="0.8" />
-                </svg>
-              </button>
-
-              <span class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></span>
-
-              <button
-                type="button"
-                v-tooltip.bottom="'По верхнему краю'"
-                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
-                @click="alignCells('top')"
-              >
-                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                  <rect x="2" y="1" width="12" height="1.4" rx="0.5" />
-                  <rect x="4" y="3.4" width="3" height="9" rx="1" opacity="0.8" />
-                  <rect x="9" y="3.4" width="3" height="5.5" rx="1" opacity="0.8" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                v-tooltip.bottom="'По центру (вертик.)'"
-                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
-                @click="alignCells('centerY')"
-              >
-                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                  <rect x="2" y="7.3" width="12" height="1.4" rx="0.5" />
-                  <rect x="4" y="3.5" width="3" height="9" rx="1" opacity="0.8" />
-                  <rect x="9" y="5.25" width="3" height="5.5" rx="1" opacity="0.8" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                v-tooltip.bottom="'По нижнему краю'"
-                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
-                @click="alignCells('bottom')"
-              >
-                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                  <rect x="2" y="13.2" width="12" height="1.4" rx="0.5" />
-                  <rect x="4" y="4.2" width="3" height="9" rx="1" opacity="0.8" />
-                  <rect x="9" y="7.7" width="3" height="5.5" rx="1" opacity="0.8" />
-                </svg>
-              </button>
-
-              <span class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></span>
-
-              <!-- Распределение: равные интервалы. Нужно ≥3 ячеек (иначе disabled). -->
-              <button
-                type="button"
-                v-tooltip.bottom="'Распределить по горизонтали (равные интервалы)'"
-                :disabled="!canDistribute"
-                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900 disabled:cursor-not-allowed disabled:opacity-40"
-                @click="distributeCells('x')"
-              >
-                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                  <rect x="2" y="3" width="2.6" height="10" rx="0.8" />
-                  <rect x="6.7" y="3" width="2.6" height="10" rx="0.8" />
-                  <rect x="11.4" y="3" width="2.6" height="10" rx="0.8" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                v-tooltip.bottom="'Распределить по вертикали (равные интервалы)'"
-                :disabled="!canDistribute"
-                class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900 disabled:cursor-not-allowed disabled:opacity-40"
-                @click="distributeCells('y')"
-              >
-                <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                  <rect x="3" y="2" width="10" height="2.6" rx="0.8" />
-                  <rect x="3" y="6.7" width="10" height="2.6" rx="0.8" />
-                  <rect x="3" y="11.4" width="10" height="2.6" rx="0.8" />
-                </svg>
-              </button>
+            <div class="flex items-center gap-3">
+              <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                По вертикали
+              </span>
+              <div class="ml-auto flex items-center gap-1">
+                <button
+                  type="button"
+                  v-tooltip.bottom="'По верхнему краю'"
+                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
+                  @click="alignCells('top')"
+                >
+                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                    <rect x="2" y="1" width="12" height="1.4" rx="0.5" />
+                    <rect x="4" y="3.4" width="3" height="9" rx="1" opacity="0.8" />
+                    <rect x="9" y="3.4" width="3" height="5.5" rx="1" opacity="0.8" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  v-tooltip.bottom="'По центру (вертик.)'"
+                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
+                  @click="alignCells('centerY')"
+                >
+                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                    <rect x="2" y="7.3" width="12" height="1.4" rx="0.5" />
+                    <rect x="4" y="3.5" width="3" height="9" rx="1" opacity="0.8" />
+                    <rect x="9" y="5.25" width="3" height="5.5" rx="1" opacity="0.8" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  v-tooltip.bottom="'По нижнему краю'"
+                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
+                  @click="alignCells('bottom')"
+                >
+                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                    <rect x="2" y="13.2" width="12" height="1.4" rx="0.5" />
+                    <rect x="4" y="4.2" width="3" height="9" rx="1" opacity="0.8" />
+                    <rect x="9" y="7.7" width="3" height="5.5" rx="1" opacity="0.8" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <!-- Распределение: равные интервалы. Нужно ≥3 ячеек (иначе disabled). -->
+            <div class="flex items-center gap-3">
+              <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                Распределение
+              </span>
+              <div class="ml-auto flex items-center gap-1">
+                <button
+                  type="button"
+                  v-tooltip.bottom="'Распределить по горизонтали (равные интервалы)'"
+                  :disabled="!canDistribute"
+                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900 disabled:cursor-not-allowed disabled:opacity-40"
+                  @click="distributeCells('x')"
+                >
+                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                    <rect x="2" y="3" width="2.6" height="10" rx="0.8" />
+                    <rect x="6.7" y="3" width="2.6" height="10" rx="0.8" />
+                    <rect x="11.4" y="3" width="2.6" height="10" rx="0.8" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  v-tooltip.bottom="'Распределить по вертикали (равные интервалы)'"
+                  :disabled="!canDistribute"
+                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900 disabled:cursor-not-allowed disabled:opacity-40"
+                  @click="distributeCells('y')"
+                >
+                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                    <rect x="3" y="2" width="10" height="2.6" rx="0.8" />
+                    <rect x="3" y="6.7" width="10" height="2.6" rx="0.8" />
+                    <rect x="3" y="11.4" width="10" height="2.6" rx="0.8" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
 
           <!-- Multi-select: те же блоки, что в single, как «применить ко всем»
                (общего состояния у выделения нет → списки пустые/шаблон, выбор тега
-               и порогов раздаётся на всё выделение). Булев — BooleanBlock с пустыми
-               секциями (поле «- не выбран -» → во все). Range — шаблон multiVoltage:
-               задаёшь тег → правишь пороги → раздаётся на все выделенные. -->
+               и порогов раздаётся на всё выделение). Булев — BooleanBlock без групп:
+               «+ группа» раздаёт тег новой группой на всё выделение. Range — шаблон
+               multiVoltage: задаёшь тег → правишь пороги → на все выделенные. -->
           <div class="space-y-2">
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
             <BooleanBlock
               :slot-info="null"
-              :parallel="[]"
-              :series="[]"
+              :groups="[]"
               :removable="false"
               :tags-loaded="!!project.tags.length"
               title="Булево значение"
-              @open-tag-picker="openMultiSwitchPicker"
+              @add-group="openMultiSwitchPicker"
             />
             <RangeBlock
               :voltage-source="multiVoltage"
@@ -920,8 +964,10 @@ const switchPickerTags = computed(() => {
               </div>
             </div>
 
-            <!-- Текстовое поле: редактирование содержимого + стиль -->
-            <div v-if="details.isText" class="space-y-3">
+            <!-- Текстовое поле: редактирование содержимого + стиль. Параметры —
+                 строкой «подпись слева, контрол справа» (как в редакторе). Само поле
+                 ввода текста — исключение: подпись сверху, инпут во всю ширину. -->
+            <div v-if="details.isText" class="space-y-2.5">
               <div>
                 <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
                 <InputText
@@ -933,46 +979,73 @@ const switchPickerTags = computed(() => {
                 />
               </div>
 
-              <div class="flex items-end gap-3">
-                <div>
-                  <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
-                    Размер, pt
-                  </div>
-                  <InputNumber
-                    :model-value="details.fontSize"
-                    :min="6"
-                    :max="72"
-                    :step="1"
-                    show-buttons
-                    button-layout="horizontal"
-                    size="small"
-                    input-class="!w-12 text-center"
-                    @update:model-value="applyFontSize"
-                  />
-                </div>
-                <div>
-                  <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Цвет</div>
-                  <input
-                    type="color"
-                    :value="details.color || '#000000'"
-                    class="w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                    @input="applyColor($event.target.value)"
-                  />
-                </div>
-                <div>
-                  <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
-                    Жирность
-                  </div>
-                  <ToggleButton
-                    :model-value="details.bold"
-                    on-label="B"
-                    off-label="B"
-                    size="small"
-                    class="box-border !h-[30px] !min-h-[30px] !w-[30px] !min-w-0 !border-0 !p-0 !font-bold [&_.p-togglebutton-content]:!h-full [&_.p-togglebutton-content]:!w-full [&_.p-togglebutton-content]:!items-center [&_.p-togglebutton-content]:!justify-center [&_.p-togglebutton-content]:!p-0"
-                    v-tooltip.top="'Жирный'"
-                    @update:model-value="applyBold"
-                  />
-                </div>
+              <div class="flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Размер, pt
+                </span>
+                <InputNumber
+                  :model-value="details.fontSize"
+                  :min="6"
+                  :max="72"
+                  :step="1"
+                  show-buttons
+                  button-layout="horizontal"
+                  size="small"
+                  input-class="!w-12 text-center"
+                  class="ml-auto"
+                  @update:model-value="applyFontSize"
+                />
+              </div>
+
+              <div class="flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Жирность
+                </span>
+                <SelectButton
+                  :model-value="details.bold ? 'bold' : null"
+                  :options="BOLD_OPTIONS"
+                  option-value="value"
+                  data-key="value"
+                  size="small"
+                  class="ml-auto"
+                  @update:model-value="(v) => applyBold(v === 'bold')"
+                >
+                  <template #option>
+                    <span class="font-bold" v-tooltip.top="'Жирный'">B</span>
+                  </template>
+                </SelectButton>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Цвет
+                </span>
+                <input
+                  type="color"
+                  :value="details.color || '#000000'"
+                  class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                  @input="applyColor($event.target.value)"
+                />
+              </div>
+
+              <div class="flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Выравнивание
+                </span>
+                <SelectButton
+                  :model-value="details.align"
+                  :options="ALIGN_OPTIONS"
+                  option-value="value"
+                  data-key="value"
+                  :allow-empty="false"
+                  size="small"
+                  class="ml-auto"
+                  @update:model-value="applyAlign"
+                >
+                  <template #option="{ option }">
+                    <i :class="option.icon" v-tooltip.top="option.tip" />
+                  </template>
+                </SelectButton>
               </div>
             </div>
 
@@ -1072,17 +1145,18 @@ const switchPickerTags = computed(() => {
                  «Добавить»; × очищает (switchRemovable). -->
             <BooleanBlock
               :slot-info="details.hasBoolSlot ? details.slots[0] : null"
-              :parallel="switchBuckets.or"
-              :series="switchBuckets.and"
+              :groups="switchGroups"
               :removable="switchRemovable"
               :tags-loaded="!!project.tags.length"
               title="Булево значение"
               @open-slot-picker="openSlotPicker(details.slots[0])"
-              @open-tag-picker="onAddSwitchTag"
+              @add-group="onAddGroup"
+              @add-tag="onAddSwitchTag"
+              @edit-tag="editSwitchTagAt"
               @remove-tag="removeSwitchTagAt"
+              @remove-group="removeSwitchGroup"
               @remove="removeSwitchSources"
               @highlight-tag="canvas.toggleHighlightedTag"
-              @edit-tag="editSwitchTagAt"
             />
 
             <!-- Диапазоны значений (аналоговое значение) — виден всегда.

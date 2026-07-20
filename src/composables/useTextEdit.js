@@ -7,6 +7,7 @@ import {
   TEXT_PADDING_X,
   textCellHeight,
   textCellWidth,
+  resizeTextCell,
 } from '../stencils/svgInjector'
 import { useCanvas } from './useCanvas'
 
@@ -49,15 +50,20 @@ export function useTextEdit({ scheduleSnapshot }) {
     const newCellW = textCellWidth(val, fz, !!tms.bold)
     const currentW = cell.get('size').width
     if (newCellW !== currentW) {
-      cell.resize(newCellW, textCellHeight(fz))
+      // resizeTextCell держит якорь (align): при center/right блок при печати
+      // «уезжает» от выбранного края — поэтому ниже пересчитываем и left overlay.
+      resizeTextCell(cell, newCellW, textCellHeight(fz), tms.align)
       // bumpVersion реактивно перепозиционирует HTML × overlay.
       canvas.bumpVersion()
     }
     const scale = paper.scale().sx
+    const tr = paper.translate()
+    const pos = cell.get('position')
     textEditing.value = {
       ...editing,
       style: {
         ...editing.style,
+        left: `${pos.x * scale + tr.tx + TEXT_PADDING_X * scale}px`,
         width: `${Math.max(40, newCellW * scale - TEXT_PADDING_X * scale)}px`,
       },
     }
@@ -127,9 +133,9 @@ export function useTextEdit({ scheduleSnapshot }) {
     if (!stencil || newText === editing.original) return
 
     cell.set('tms', { ...tms, text: newText })
-    // Ресайз под новый текст — ширина адаптивная, высота под шрифт.
+    // Ресайз под новый текст — ширина адаптивная, высота под шрифт; якорь по align.
     const fz = tms.fontSize ?? TEXT_FONT_SIZE
-    cell.resize(textCellWidth(newText, fz, !!tms.bold), textCellHeight(fz))
+    resizeTextCell(cell, textCellWidth(newText, fz, !!tms.bold), textCellHeight(fz), tms.align)
     const cellView = paper?.findViewByModel(cell)
     if (cellView) injectStencilSvg(cellView, stencil)
     canvas.bumpVersion()

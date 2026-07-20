@@ -15,6 +15,7 @@
  */
 
 import { ATTR_SUFFIX } from '../constants/ids'
+import { STATE_FILL_CLASS, normalizeStateColor } from '../constants/animation'
 
 // Числа в атрибутах — без хвостовых нулей и float-мусора (модель снапнута к
 // сетке, но масштаб/дробный шаг могут дать 12.5 → оставляем как есть, а 12.0 → 12).
@@ -31,6 +32,24 @@ function fillAttr(shape) {
   return `fill="${shape.fill || 'none'}"`
 }
 
+// Фигура, которую МОЖНО залить — замкнутый примитив (rect/circle/замкнутая
+// ломаная=polygon). Именно у таких заливка по состоянию имеет смысл: контур
+// можно закрасить в конкретном состоянии (лампа/индикатор), даже если базово
+// fill=none. Линии и открытые ломаные заливки не имеют.
+export function isFillableShape(shape) {
+  if (!shape) return false
+  if (shape.type === 'rect' || shape.type === 'circle') return true
+  if (shape.type === 'polyline') return !!shape.closed
+  return false
+}
+// Opt-in класс заливки — заливаемым примитивам, но только когда стенсил stateful
+// (иначе перекрашивать по состоянию нечем — класс был бы мёртвым шумом в каждом
+// статичном shape.svg). Пробел-префикс — дописать к атрибутам без спецкейсов.
+// Fill применится лишь в состояниях, где автор задал цвет (иначе фигура как есть).
+function fillClassAttr(shape, markFill) {
+  return markFill && isFillableShape(shape) ? ` class="${STATE_FILL_CLASS}"` : ''
+}
+
 // Радиус скругления углов прямоугольника (в user-единицах) при shape.rounded.
 export const ROUND_RX = 2
 
@@ -44,11 +63,11 @@ function roundingAttrs(shape) {
   return ''
 }
 
-function serializeShape(shape) {
+function serializeShape(shape, markFill) {
   switch (shape.type) {
     case 'rect':
       return (
-        `<rect x="${num(shape.x)}" y="${num(shape.y)}" ` +
+        `<rect${fillClassAttr(shape, markFill)} x="${num(shape.x)}" y="${num(shape.y)}" ` +
         `width="${num(shape.w)}" height="${num(shape.h)}" ` +
         `${fillAttr(shape)} ${strokeAttrs(shape)}${roundingAttrs(shape)}/>`
       )
@@ -59,21 +78,20 @@ function serializeShape(shape) {
       )
     case 'circle':
       return (
-        `<circle cx="${num(shape.cx)}" cy="${num(shape.cy)}" r="${num(shape.r)}" ` +
+        `<circle${fillClassAttr(shape, markFill)} cx="${num(shape.cx)}" cy="${num(shape.cy)}" r="${num(shape.r)}" ` +
         `${fillAttr(shape)} ${strokeAttrs(shape)}${roundingAttrs(shape)}/>`
       )
     case 'polyline': {
       const pts = (shape.points || []).map(([x, y]) => `${num(x)},${num(y)}`).join(' ')
       // Замкнутая ломаная — это <polygon> (сам соединяет конец с началом).
       const tag = shape.closed ? 'polygon' : 'polyline'
-      return `<${tag} points="${pts}" ${fillAttr(shape)} ${strokeAttrs(shape)}${roundingAttrs(shape)}/>`
+      return `<${tag}${fillClassAttr(shape, markFill)} points="${pts}" ${fillAttr(shape)} ${strokeAttrs(shape)}${roundingAttrs(shape)}/>`
     }
     default:
       return ''
   }
 }
 
-// Сдвиг всех координат фигуры на (dx, dy). Возвращает новый объект.
 function translateShape(s, dx, dy) {
   if (s.type === 'rect') return { ...s, x: s.x + dx, y: s.y + dy }
   if (s.type === 'line') return { ...s, x1: s.x1 + dx, y1: s.y1 + dy, x2: s.x2 + dx, y2: s.y2 + dy }
@@ -138,9 +156,10 @@ export function cropToContent(shapes, ports = [], grid = 10) {
  * всё в группе); на группу состояния вешается data-anim-suffix.
  */
 // Тело группы: сериализованные фигуры с отступом (пустая строка, если фигур нет).
-function groupBody(shapes) {
+// markFill пробрасываем в serializeShape — метку заливки ставим лишь у stateful.
+function groupBody(shapes, markFill) {
   return (shapes || [])
-    .map(serializeShape)
+    .map((s) => serializeShape(s, markFill))
     .filter(Boolean)
     .map((el) => `    ${el}`)
     .join('\n')
@@ -156,19 +175,28 @@ export function serializeSvg(shapes, meta) {
   const w = num(meta.width)
   const h = num(meta.height)
   const all = shapes || []
+  // Метку tms-state-fill ставим только у stateful-стенсилов (иначе перекрашивать
+  // по состоянию нечего — см. fillClassAttr).
+  const markFill = !!meta?.stateful
   let groups
   if (meta?.stateful) {
     // Внутренняя анимация: статику — в базовую группу, каждое состояние — в свой
     // <g data-anim-suffix=".<ключ>"> (рантайм вешает animation-hidden, когда
     // значение тега не совпадает). Порядок: база → состояния (анимируемое поверх).
-    const base = groupBody(all.filter((s) => (s.state || 'always') === 'always'))
+    const base = groupBody(
+      all.filter((s) => (s.state || 'always') === 'always'),
+      markFill
+    )
     groups = base ? `  <g>\n${base}\n  </g>\n` : '  <g></g>\n'
     for (const key of stateKeys(meta)) {
-      const body = groupBody(all.filter((s) => s.state === key))
+      const body = groupBody(
+        all.filter((s) => s.state === key),
+        markFill
+      )
       if (body) groups += `  <g ${ATTR_SUFFIX}=".${key}">\n${body}\n  </g>\n`
     }
   } else {
-    const body = groupBody(all)
+    const body = groupBody(all, markFill)
     groups = body ? `  <g>\n${body}\n  </g>\n` : '  <g></g>\n'
   }
   return (
@@ -337,13 +365,19 @@ export function buildStencilJson(meta, ports, shapes = []) {
     if (meta.stateMode === 'value') buildValueState(json, meta, shapes)
     else buildBooleanState(json, meta, shapes)
     // Цвета состояний (перекрас всего символа) — непустые, только для объявленных
-    // состояний. Рантайм-биндинг и CSS строит exporter по этому полю + slots/states.
+    // состояний. Компактно: только контур → строка (legacy); есть заливка → объект
+    // { stroke?, fill }. Заливку пишем лишь когда в стенсиле есть заливаемые фигуры
+    // (иначе fill-цвет некуда применить — маркера tms-state-fill нет).
     const keys =
       meta.stateMode === 'value' ? (meta.states || []).map((s) => s.key) : ['true', 'false']
+    const canFill = (shapes || []).some(isFillableShape)
     const stateColors = {}
     for (const k of keys) {
-      const c = meta.stateColors?.[k]
-      if (c) stateColors[k] = c
+      const { stroke, fill } = normalizeStateColor(meta.stateColors?.[k])
+      const useFill = canFill ? fill : ''
+      if (stroke && useFill) stateColors[k] = { stroke, fill: useFill }
+      else if (useFill) stateColors[k] = { fill: useFill }
+      else if (stroke) stateColors[k] = stroke
     }
     if (Object.keys(stateColors).length) json.stateColors = stateColors
   }

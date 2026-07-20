@@ -42,12 +42,30 @@ export function stateColorClass(stencilId, key) {
   return `${STATE_COLOR_PREFIX}${stencilId}-${key}`
 }
 
+// Opt-in маркер заливки для state-color: вешается при сериализации на фигуры с
+// реальным fill (rect/circle/polygon с fill≠none) — см. stencilSvg.serializeShape.
+// Заливку state-color красит ТОЛЬКО у таких элементов (контуры и hit-area не
+// трогаются → нет «блоба»). Отдельно от tms-voltage-fill: voltage-поведение не
+// меняем. Синхронизировано: stencilSvg (пометка) + buildStateColorCssRules.
+export const STATE_FILL_CLASS = 'tms-state-fill'
+
+/**
+ * Нормализует значение stateColors[ключ] к { stroke, fill }. Компактная форма —
+ * строка (только контур, legacy/дефолт); расширенная — объект { stroke?, fill? }.
+ * Пустые поля → ''. Единый разбор для CSS-генератора, редактора и сериализации.
+ */
+export function normalizeStateColor(value) {
+  if (!value) return { stroke: '', fill: '' }
+  if (typeof value === 'string') return { stroke: value, fill: '' }
+  return { stroke: value.stroke || '', fill: value.fill || '' }
+}
+
 /**
  * CSS-правила перекраса символа по состоянию. Единый источник для экспорта
- * (scope '') и симуляции (scope '.tms-simulating '). Красим ТОЛЬКО stroke
- * (контуры/линии) всех потомков — заливку не трогаем: state-цвет = перекрас
- * символа, а не заливка (иначе контурные/блочные стенсилы становятся «блобом», и
- * это семантика де-энергизации, а не «залить»). `:not(.animation-off)` —
+ * (scope '') и симуляции (scope '.tms-simulating '). Контур (stroke) красим у
+ * всех потомков; заливку (fill) — ТОЛЬКО у opt-in `.tms-state-fill` (фигуры с
+ * авторской заливкой), иначе контурные/блочные стенсилы стали бы «блобом».
+ * Оба цвета опциональны (см. normalizeStateColor). `:not(.animation-off)` —
  * обесточивание (серый) бьёт цвет состояния. `strokeExtra`/`scope` — как в
  * buildVoltageCssRules (живой DOM редактора).
  *
@@ -58,9 +76,15 @@ export function buildStateColorCssRules(stencils, { scope = '', strokeExtra = ''
   for (const s of stencils || []) {
     const colors = s.stateColors
     if (!colors) continue
-    for (const [key, color] of Object.entries(colors)) {
+    for (const [key, value] of Object.entries(colors)) {
+      const { stroke, fill } = normalizeStateColor(value)
       const sel = `${scope}.${stateColorClass(s.id, key)}:not(.${CLASS_OFF})`
-      rules.push(`${sel}, ${sel} *:not(text)${strokeExtra} { stroke: ${color} !important; }`)
+      if (stroke)
+        rules.push(`${sel}, ${sel} *:not(text)${strokeExtra} { stroke: ${stroke} !important; }`)
+      if (fill)
+        rules.push(
+          `${sel} .${STATE_FILL_CLASS}, ${sel}.${STATE_FILL_CLASS} { fill: ${fill} !important; }`
+        )
     }
   }
   return rules

@@ -15,6 +15,8 @@ import SelectButton from 'primevue/selectbutton'
 import Button from 'primevue/button'
 import { getCategories, registryVersion } from '../stencils/registry'
 import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor'
+import { normalizeStateColor } from '../constants/animation'
+import { isFillableShape } from '../utils/stencilSvg'
 
 const {
   meta,
@@ -36,6 +38,13 @@ const {
 // заливки нет — только обводка.
 const selectedShape = computed(() => shapes.value.find((s) => s.id === selectedId.value) || null)
 const hasFill = computed(() => selectedShape.value && selectedShape.value.type !== 'line')
+
+// Заливку по состоянию (state-color) показываем, только когда в стенсиле есть
+// заливаемые фигуры (замкнутые примитивы) — иначе цвет заливки некуда применить.
+const hasFillableShapes = computed(() => shapes.value.some(isFillableShape))
+// Контур/заливка для ключа состояния из stateColors (строка или { stroke, fill }).
+const stateStroke = (key) => normalizeStateColor(meta.stateColors[key]).stroke
+const stateFill = (key) => normalizeStateColor(meta.stateColors[key]).fill
 
 // <input type="color"> требует 6-значный #rrggbb: разворачиваем #rgb, «none»/
 // пусто → запасной цвет (сам факт заливки регулируется отдельной галкой).
@@ -212,7 +221,10 @@ function onIdInput(e) {
               <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
                 <span class="flex-1 min-w-0">Подпись</span>
                 <span class="w-16">Значение</span>
-                <span class="w-14 shrink-0 text-center">Цвет</span>
+                <span class="w-14 shrink-0 text-center">
+                  {{ hasFillableShapes ? 'Контур' : 'Цвет' }}
+                </span>
+                <span v-if="hasFillableShapes" class="w-14 shrink-0 text-center">Заливка</span>
               </div>
               <div v-for="st in BOOLEAN_STATES" :key="st.value" class="flex items-center gap-1.5">
                 <InputText
@@ -231,17 +243,40 @@ function onIdInput(e) {
                   <input
                     type="color"
                     v-tooltip.top="'Цвет контуров символа в этом состоянии'"
-                    :value="meta.stateColors[st.value] || '#64748b'"
-                    :class="{ 'opacity-40': !meta.stateColors[st.value] }"
+                    :value="stateStroke(st.value) || '#64748b'"
+                    :class="{ 'opacity-40': !stateStroke(st.value) }"
                     class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                    @input="setStateColor(st.value, $event.target.value)"
+                    @input="setStateColor(st.value, $event.target.value, 'stroke')"
                   />
                   <button
-                    v-if="meta.stateColors[st.value]"
+                    v-if="stateStroke(st.value)"
                     type="button"
                     v-tooltip.top="'Убрать цвет'"
                     class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
-                    @click="setStateColor(st.value, '')"
+                    @click="setStateColor(st.value, '', 'stroke')"
+                  >
+                    <i class="pi pi-times !text-[9px]" />
+                  </button>
+                  <span v-else class="w-4 shrink-0" aria-hidden="true"></span>
+                </div>
+                <div
+                  v-if="hasFillableShapes"
+                  class="flex w-14 shrink-0 items-center justify-center gap-0.5"
+                >
+                  <input
+                    type="color"
+                    v-tooltip.top="'Цвет заливки фигур в этом состоянии'"
+                    :value="stateFill(st.value) || '#ffffff'"
+                    :class="{ 'opacity-40': !stateFill(st.value) }"
+                    class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                    @input="setStateColor(st.value, $event.target.value, 'fill')"
+                  />
+                  <button
+                    v-if="stateFill(st.value)"
+                    type="button"
+                    v-tooltip.top="'Убрать заливку'"
+                    class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
+                    @click="setStateColor(st.value, '', 'fill')"
                   >
                     <i class="pi pi-times !text-[9px]" />
                   </button>
@@ -254,7 +289,10 @@ function onIdInput(e) {
               <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
                 <span class="flex-1 min-w-0">Подпись</span>
                 <span class="w-16">Значение</span>
-                <span class="w-14 shrink-0 text-center">Цвет</span>
+                <span class="w-14 shrink-0 text-center">
+                  {{ hasFillableShapes ? 'Контур' : 'Цвет' }}
+                </span>
+                <span v-if="hasFillableShapes" class="w-14 shrink-0 text-center">Заливка</span>
                 <span class="w-6 shrink-0" aria-hidden="true"></span>
               </div>
               <div v-for="st in meta.states" :key="st.key" class="flex items-center gap-1.5">
@@ -278,17 +316,40 @@ function onIdInput(e) {
                   <input
                     type="color"
                     v-tooltip.top="'Цвет контуров символа в этом состоянии'"
-                    :value="meta.stateColors[st.key] || '#64748b'"
-                    :class="{ 'opacity-40': !meta.stateColors[st.key] }"
+                    :value="stateStroke(st.key) || '#64748b'"
+                    :class="{ 'opacity-40': !stateStroke(st.key) }"
                     class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                    @input="setStateColor(st.key, $event.target.value)"
+                    @input="setStateColor(st.key, $event.target.value, 'stroke')"
                   />
                   <button
-                    v-if="meta.stateColors[st.key]"
+                    v-if="stateStroke(st.key)"
                     type="button"
                     v-tooltip.top="'Убрать цвет'"
                     class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
-                    @click="setStateColor(st.key, '')"
+                    @click="setStateColor(st.key, '', 'stroke')"
+                  >
+                    <i class="pi pi-times !text-[9px]" />
+                  </button>
+                  <span v-else class="w-4 shrink-0" aria-hidden="true"></span>
+                </div>
+                <div
+                  v-if="hasFillableShapes"
+                  class="flex w-14 shrink-0 items-center justify-center gap-0.5"
+                >
+                  <input
+                    type="color"
+                    v-tooltip.top="'Цвет заливки фигур в этом состоянии'"
+                    :value="stateFill(st.key) || '#ffffff'"
+                    :class="{ 'opacity-40': !stateFill(st.key) }"
+                    class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                    @input="setStateColor(st.key, $event.target.value, 'fill')"
+                  />
+                  <button
+                    v-if="stateFill(st.key)"
+                    type="button"
+                    v-tooltip.top="'Убрать заливку'"
+                    class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
+                    @click="setStateColor(st.key, '', 'fill')"
                   >
                     <i class="pi pi-times !text-[9px]" />
                   </button>

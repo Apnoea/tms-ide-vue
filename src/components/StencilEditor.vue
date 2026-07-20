@@ -25,7 +25,8 @@ import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { snapToGrid } from '../utils/grid'
-import { stencilDraftIssues, ROUND_RX } from '../utils/stencilSvg'
+import { stencilDraftIssues, ROUND_RX, isFillableShape } from '../utils/stencilSvg'
+import { normalizeStateColor } from '../constants/animation'
 import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
 import { reinjectAllStencils } from '../stencils/svgInjector'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
@@ -100,11 +101,16 @@ const renderShapes = computed(() => {
     const st = s.state || 'always'
     return st === 'always' || st === key
   })
-  // Превью цвета состояния: тонируем ТОЛЬКО обводку видимых фигур (как перекрас
-  // на экспорте — заливку не трогаем).
-  const tint = meta.stateColors?.[key]
-  if (!tint) return visible
-  return visible.map((s) => ({ ...s, stroke: tint }))
+  // Превью цвета состояния: тонируем обводку видимых фигур; заливку — только у
+  // фигур с авторским fill (как на экспорте: tms-state-fill). Совпадает с рантаймом.
+  const { stroke, fill } = normalizeStateColor(meta.stateColors?.[key])
+  if (!stroke && !fill) return visible
+  return visible.map((s) => {
+    const next = { ...s }
+    if (stroke) next.stroke = stroke
+    if (fill && isFillableShape(s)) next.fill = fill
+    return next
+  })
 })
 
 // При активном инструменте рисования фигуры «прозрачны» для указателя: pointerdown

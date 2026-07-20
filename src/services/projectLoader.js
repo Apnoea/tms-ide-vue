@@ -77,6 +77,7 @@ export function parseSvgProject(svgText) {
       if (meta.fontSize !== undefined) tms.fontSize = meta.fontSize
       if (meta.bold !== undefined) tms.bold = meta.bold
       if (meta.color !== undefined) tms.color = meta.color
+      if (meta.align !== undefined) tms.align = meta.align
       if (meta.valueTag !== undefined) tms.valueTag = meta.valueTag
       if (meta.voltageSource) tms.voltageSource = meta.voltageSource
       if (meta.switchSources) tms.switchSources = meta.switchSources

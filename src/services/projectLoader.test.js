@@ -50,7 +50,7 @@ describe('parseSvgProject', () => {
     expect(cell.tms.slots).toEqual({ onoff: 'PS031VK001.ONOFF' })
   })
 
-  it('подтягивает tms-поля cell_text (text, fontSize, bold)', () => {
+  it('подтягивает tms-поля cell_text (text, fontSize, bold, align)', () => {
     const meta = {
       id: 'c1',
       stencilId: 'cell_text',
@@ -59,6 +59,7 @@ describe('parseSvgProject', () => {
       text: 'Hello',
       fontSize: 20,
       bold: true,
+      align: 'center',
     }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
       <g transform="translate(0,0)" data-tms-meta='${JSON.stringify(meta).replace(/"/g, '&quot;')}'/>
@@ -68,6 +69,7 @@ describe('parseSvgProject', () => {
     expect(cell.tms.text).toBe('Hello')
     expect(cell.tms.fontSize).toBe(20)
     expect(cell.tms.bold).toBe(true)
+    expect(cell.tms.align).toBe('center')
   })
 
   it('round-trip angle/navigation/switchSources/voltageSource на ячейке', () => {
@@ -78,7 +80,7 @@ describe('parseSvgProject', () => {
       height: 20,
       angle: 90,
       navigation: 'view_other',
-      switchSources: { or: ['A.ONOFF'], and: ['B.ONOFF'] },
+      switchSources: { groups: [['A.ONOFF'], ['B.ONOFF']] },
       voltageSource: { tag: 'V.U', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
     }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
@@ -87,7 +89,7 @@ describe('parseSvgProject', () => {
     const cell = parseSvgProject(svg).cells[0]
     expect(cell.angle).toBe(90)
     expect(cell.tms.navigation).toBe('view_other')
-    expect(cell.tms.switchSources).toEqual({ or: ['A.ONOFF'], and: ['B.ONOFF'] })
+    expect(cell.tms.switchSources).toEqual({ groups: [['A.ONOFF'], ['B.ONOFF']] })
     expect(cell.tms.voltageSource).toEqual({
       tag: 'V.U',
       ranges: [{ min: 0, max: 5, class: 'animation-low' }],
@@ -104,7 +106,7 @@ describe('parseSvgProject', () => {
       source: { id: 'a', port: 'right' },
       target: { id: 'b', port: 'left' },
       vertices: verts,
-      switchSources: { or: [], and: ['S.ONOFF'] },
+      switchSources: { groups: [['S.ONOFF']] },
     }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
       ${cellG('a')}${cellG('b')}
@@ -112,7 +114,7 @@ describe('parseSvgProject', () => {
     </svg>`
     const link = parseSvgProject(svg).cells.find((c) => c.type === 'standard.Link')
     expect(link.vertices).toEqual(verts)
-    expect(link.tms.switchSources).toEqual({ or: [], and: ['S.ONOFF'] })
+    expect(link.tms.switchSources).toEqual({ groups: [['S.ONOFF']] })
   })
 
   it('парсит провод <path> с source/target', () => {

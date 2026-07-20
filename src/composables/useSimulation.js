@@ -214,15 +214,14 @@ export function useSimulation() {
       if (color) view.el.classList.add(stateColorClass(stencil.id, active.key))
     }
 
-    // switchSources: каждый тег делит состояние со всеми использованиями
-    // (ОБЩИЙ.ONOFF=false гасит все зависящие ячейки). Активен =
-    // (любой «Параллельно» = true) ИЛИ (все «Последовательно» = true).
+    // switchSources: группы условий. Каждый тег делит состояние со всеми
+    // использованиями (общий тег → согласованно). Активен, если ЛЮБАЯ группа
+    // выполнена целиком (все её теги on = !boolFalse); иначе гаснет.
     for (const cell of graph.getCells()) {
-      const { or, and } = normalizeSwitchSources(cell.get('tms')?.switchSources)
-      if (!or.length && !and.length) continue
-      const orLive = or.some((t) => !boolFalseFor(t))
-      const andLive = and.length > 0 && and.every((t) => !boolFalseFor(t))
-      if (orLive || andLive) continue
+      const { groups } = normalizeSwitchSources(cell.get('tms')?.switchSources)
+      if (!groups.length) continue
+      const active = groups.some((g) => g.every((t) => !boolFalseFor(t)))
+      if (active) continue
       paper.findViewByModel(cell)?.el?.classList.add(CLASS_OFF)
     }
 
