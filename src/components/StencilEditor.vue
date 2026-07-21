@@ -30,7 +30,7 @@ import { normalizeStateColor } from '../constants/animation'
 import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
 import { reinjectAllStencils } from '../stencils/svgInjector'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
-import { useStencilEditor, SHAPE_GRID } from '../composables/useStencilEditor'
+import { useStencilEditor, SHAPE_GRID, PORT_GRID } from '../composables/useStencilEditor'
 
 const ui = useUiStore()
 const notify = useNotify()
@@ -118,13 +118,13 @@ const renderShapes = computed(() => {
 // — интерактивны (выделение/перемещение). Порты/ручки не трогаем (у них своя роль).
 const shapePointerEvents = computed(() => (tool.value === 'select' ? null : 'none'))
 
-// Размер холста стенсила кратен 10 (порты и сам стенсил садятся на сетку схемы).
-// Инпуты размера — в тулбаре; снап к 10 держим здесь.
+// Размер холста стенсила кратен шагу сетки схемы (PORT_GRID) — порты и сам стенсил
+// садятся на неё. Инпуты размера — в тулбаре; снап держим здесь.
 watch(
   () => [meta.width, meta.height],
   () => {
-    meta.width = Math.max(10, snapToGrid(meta.width, 10))
-    meta.height = Math.max(10, snapToGrid(meta.height, 10))
+    meta.width = Math.max(PORT_GRID, snapToGrid(meta.width, PORT_GRID))
+    meta.height = Math.max(PORT_GRID, snapToGrid(meta.height, PORT_GRID))
   }
 )
 

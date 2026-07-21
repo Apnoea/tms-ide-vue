@@ -1,7 +1,6 @@
 import { ref } from 'vue'
 import { useCanvas } from './useCanvas'
 import { getStencilById } from '../stencils/registry'
-import { previewOuterKey } from '../constants/ids'
 import { projectToScreen } from '../utils/paperGeom'
 
 // Debounce на mouseenter — иначе плашка мерцает при быстром скольжении мыши
@@ -9,11 +8,11 @@ import { projectToScreen } from '../utils/paperGeom'
 const HOVER_DELAY_MS = 400
 
 /**
- * Hover-tooltip над ячейкой: HTML-плашка с лейблом стенсила, его id и id
- * outer-карточки в animations.json / экспортном SVG. `suppress()` — предикат
- * «сейчас идёт взаимодействие» (pan / drag / resize / edit-in-place), при
- * котором плашку не показываем. showCellTooltip/hideCellTooltip навешиваются
- * на paper-события в CanvasPane.
+ * Hover-tooltip над ячейкой: HTML-плашка с лейблом стенсила и (если ячейка
+ * сгруппирована) числом членов группы. `suppress()` — предикат «сейчас идёт
+ * взаимодействие» (pan / drag / resize / edit-in-place), при котором плашку не
+ * показываем. showCellTooltip/hideCellTooltip навешиваются на paper-события в
+ * CanvasPane.
  */
 export function useHoverTooltip({ suppress } = {}) {
   const canvas = useCanvas()
@@ -38,6 +37,15 @@ export function useHoverTooltip({ suppress } = {}) {
     const pos = cell.get('position')
     const size = cell.get('size')
 
+    // Число членов группы (если ячейка сгруппирована) — для строки «В группе (N)».
+    let groupCount = 0
+    if (tms.groupId) {
+      const graph = canvas.graphRef.value
+      groupCount = graph
+        ? graph.getElements().filter((e) => e.get('tms')?.groupId === tms.groupId).length
+        : 0
+    }
+
     // Anchor: top-right ячейки в container-px. Нижний-правый угол плашки
     // прижимаем к anchor'у (transform translate(-100%, -100%)) с зазором 4px.
     const anchor = projectToScreen(paper, pos.x + size.width, pos.y)
@@ -49,9 +57,7 @@ export function useHoverTooltip({ suppress } = {}) {
         transform: 'translate(-100%, -100%)',
       },
       stencilLabel: stencil.label,
-      stencilId: tms.stencilId,
-      // id outer-карточки в animations.json (тот же, что эмитит exporter).
-      exportId: previewOuterKey(tms.stencilId, cell.id, tms.valueTag),
+      groupCount,
     }
   }
 

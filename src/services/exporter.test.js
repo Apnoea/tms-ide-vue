@@ -380,6 +380,28 @@ describe('exportProject', () => {
     expect(parsed.cells.find((c) => c.id === 't1').tms.align).toBeUndefined()
   })
 
+  it('locked: «замок» ячейки переживает round-trip; отсутствие = не заблокирован', () => {
+    const graph = mockGraph([
+      mockCell({ id: 'c1', stencilId: 'cell_qw', locked: true }),
+      mockCell({ id: 'c2', stencilId: 'cell_qw' }),
+    ])
+    const parsed = parseSvgProject(exportProject(graph).svgText)
+    expect(parsed.cells.find((c) => c.id === 'c1').tms.locked).toBe(true)
+    expect(parsed.cells.find((c) => c.id === 'c2').tms.locked).toBeUndefined()
+  })
+
+  it('groupId: метка группы переживает round-trip', () => {
+    const graph = mockGraph([
+      mockCell({ id: 'c1', stencilId: 'cell_qw', groupId: 'grp-abc' }),
+      mockCell({ id: 'c2', stencilId: 'cell_qw', groupId: 'grp-abc' }),
+      mockCell({ id: 'c3', stencilId: 'cell_qw' }),
+    ])
+    const parsed = parseSvgProject(exportProject(graph).svgText)
+    expect(parsed.cells.find((c) => c.id === 'c1').tms.groupId).toBe('grp-abc')
+    expect(parsed.cells.find((c) => c.id === 'c2').tms.groupId).toBe('grp-abc')
+    expect(parsed.cells.find((c) => c.id === 'c3').tms.groupId).toBeUndefined()
+  })
+
   it('navigation у ячейки без других анимаций → создаётся пустая shape-карточка', () => {
     // cell_bus не имеет slots/animationTemplate — обычно без anim-карточки.
     // Но navigation требует animation-entry, чтобы рантайм повесил обработчик клика.

@@ -423,6 +423,12 @@ export function exportProject(graph, paper = null) {
       // сама позиция уже в c.x/c.y; поле нужно, чтобы после reload правки текста
       // блок продолжал расти от того же края.
       align: tms.align,
+      // locked — «замок» ячейки на холсте (read-only до снятия). Round-trip,
+      // чтобы блокировка переживала экспорт/импорт.
+      locked: tms.locked,
+      // groupId — метка логической группы (общий id у членов). Round-trip, чтобы
+      // группировка переживала экспорт/импорт.
+      groupId: tms.groupId,
       valueTag: tms.valueTag,
       // Геометрический трансформ — для round-trip. angle применяется в SVG
       // как rotate вокруг центра ячейки на outer-`<g>`.
@@ -737,6 +743,8 @@ export function exportProject(graph, paper = null) {
       if (c.color !== undefined) meta.color = c.color
       // 'left' — дефолт, в meta не пишем (json чище; отсутствие = left).
       if (c.align && c.align !== 'left') meta.align = c.align
+      if (c.locked) meta.locked = true
+      if (c.groupId) meta.groupId = c.groupId
       if (c.valueTag !== undefined) meta.valueTag = c.valueTag
       if (c.voltageSource) meta.voltageSource = c.voltageSource
       if (c.switchSources) meta.switchSources = c.switchSources

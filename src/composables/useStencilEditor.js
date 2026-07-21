@@ -9,7 +9,7 @@
  * для правки. createStencilEditor — фабрика для тестов (изолированный инстанс).
  *
  * Две сетки: вершины фигур снапятся к SHAPE_GRID (1px — фактически свободно,
- * пиксельная точность), а порты и размер самого стенсила — к PORT_GRID (10,
+ * пиксельная точность), а порты и размер самого стенсила — к PORT_GRID (5,
  * садятся на сетку схемы). Визуальная сетка холста рисуется отдельным читаемым
  * шагом (см. StencilEditor) и со snap'ом не связана.
  */
@@ -19,7 +19,7 @@ import { serializeSvg, buildStencilJson, cropToContent, parseStencilSvg } from '
 import { normalizeStateColor } from '../constants/animation'
 
 export const SHAPE_GRID = 1
-export const PORT_GRID = 10
+export const PORT_GRID = 5
 
 // Слот-драйвер внутренней анимации. Булев режим → ключ `onoff` (hasBoolSlot,
 // на холсте рисуется блоком «Булево значение»). Режим «по значению» → ключ

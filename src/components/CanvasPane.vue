@@ -31,6 +31,7 @@ import { usePaletteDrag } from '../composables/usePaletteDrag'
 import { nplural } from '../utils/plural'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
+import { projectToScreen } from '../utils/paperGeom'
 import { cellHasTag } from '../utils/cellSearch'
 import TagPickerDialog from './TagPickerDialog.vue'
 import SearchBar from './SearchBar.vue'
@@ -177,6 +178,7 @@ useHotkeys({
   rotateSelected: (deg) => rotateSelectedBy(deg),
   onExport: guardedExportArchive,
   projectBusy,
+  notify,
 })
 
 // Кнопка-лупа в тулбаре тогглит панель поиска: открыта → закрыть (со сбросом
@@ -216,11 +218,83 @@ let dragLinkSnapshot = null
 // overlay-кнопки выделенной ячейки, hover-tooltip и контекстное меню. Все читают
 // graph/paper через canvas.*-ref; tooltip получает suppress-предикат «идёт
 // взаимодействие» (pan/drag/resize/edit).
-const { overlayBtns, rotateSelectedBy, onDeleteSelected } = useSelectionOverlay({
-  scheduleSnapshot,
-  textEditing,
-  dragging: cellDragging,
+const { overlayBtns, rotateSelectedBy, onDeleteSelected, toggleLockSelected } = useSelectionOverlay(
+  {
+    scheduleSnapshot,
+    textEditing,
+    dragging: cellDragging,
+  }
+)
+// Бейдж-замок в углу КАЖДОЙ заблокированной ячейки (виден без выделения — иначе
+// непонятно, почему ячейка read-only). Позиция — правый-верхний угол visual-AABB
+// (с учётом поворота), reactive через graphVersion/paperViewTick.
+const lockedBadges = computed(() => {
+  canvas.graphVersion.value
+  canvas.paperViewTick.value
+  const paper = canvas.paperRef.value
+  const graph = canvas.graphRef.value
+  if (!paper || !graph) return []
+  return graph
+    .getElements()
+    .filter((c) => c.get('tms')?.locked)
+    .map((c) => {
+      const pos = c.get('position')
+      const size = c.get('size')
+      const angle = (c.angle() || 0) % 360
+      const rot90 = angle === 90 || angle === 270
+      const bbW = rot90 ? size.height : size.width
+      const bbH = rot90 ? size.width : size.height
+      const cx = pos.x + size.width / 2
+      const cy = pos.y + size.height / 2
+      const tr = projectToScreen(paper, cx + bbW / 2, cy - bbH / 2)
+      return { id: c.id, left: `${tr.x - 16}px`, top: `${tr.y - 2}px` }
+    })
 })
+
+// Пунктирная рамка группы: при наведении на члена группы обводим весь её
+// visual-AABB — видно границы группы до клика. Прячем во время drag'а.
+const hoveredCellId = ref(null)
+const groupHoverRect = computed(() => {
+  canvas.graphVersion.value
+  canvas.paperViewTick.value
+  if (cellDragging.value) return null
+  const id = hoveredCellId.value
+  const paper = canvas.paperRef.value
+  const graph = canvas.graphRef.value
+  if (!id || !paper || !graph) return null
+  const gid = graph.getCell(id)?.get('tms')?.groupId
+  if (!gid) return null
+  const members = graph.getElements().filter((e) => e.get('tms')?.groupId === gid)
+  if (members.length < 2) return null
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const m of members) {
+    const pos = m.get('position')
+    const size = m.get('size')
+    const angle = (m.angle() || 0) % 360
+    const rot90 = angle === 90 || angle === 270
+    const bbW = rot90 ? size.height : size.width
+    const bbH = rot90 ? size.width : size.height
+    const cx = pos.x + size.width / 2
+    const cy = pos.y + size.height / 2
+    minX = Math.min(minX, cx - bbW / 2)
+    minY = Math.min(minY, cy - bbH / 2)
+    maxX = Math.max(maxX, cx + bbW / 2)
+    maxY = Math.max(maxY, cy + bbH / 2)
+  }
+  const tl = projectToScreen(paper, minX, minY)
+  const br = projectToScreen(paper, maxX, maxY)
+  const pad = 4
+  return {
+    left: `${tl.x - pad}px`,
+    top: `${tl.y - pad}px`,
+    width: `${br.x - tl.x + 2 * pad}px`,
+    height: `${br.y - tl.y + 2 * pad}px`,
+  }
+})
+
 const { cellHoverTooltip, showCellTooltip, hideCellTooltip } = useHoverTooltip({
   suppress: () => isPanning() || !!activeDragCellId || bus.isResizing() || textEditing.value,
 })
@@ -229,6 +303,7 @@ const { ctxMenuRef, ctxItems, showContextMenu } = useContextMenu({
   pasteClipboard,
   copySelection,
   duplicateSelection,
+  notify,
 })
 // Lasso — startLasso дёргаем из blank:pointerdown (обычный ЛКМ); move/up свои.
 const { lassoRect, startLasso } = useLasso(paperContainer, { selectCellsWithBridges })
@@ -356,7 +431,7 @@ onMounted(async () => {
     model: graph,
     width: '100%',
     height: '100%',
-    gridSize: 10,
+    gridSize: 5,
     // Кастомный grid-снапящий роутер рядом со встроенными. LinkView резолвит имя
     // через paper.options.routerNamespace (по умолчанию — глобальный `routers`),
     // НЕ через `routers`-опцию. Спред сохраняет встроенные + добавляет
@@ -385,6 +460,10 @@ onMounted(async () => {
           linkMove: false,
         }
       }
+      // Заблокированная ячейка (`tms.locked`) — полностью неинтерактивна: ни
+      // перемещения, ни рисования связей от неё. Клик-выделение приходит через
+      // element:pointerdown (наш хендлер) независимо, поэтому замок можно снять.
+      if (m.get('tms')?.locked) return false
       return true
     },
     // ─── Пороги обнаружения click vs drag ───
@@ -469,20 +548,36 @@ onMounted(async () => {
   // При multi-select ячеек автоматически добавляем линии между ними.
   paper.on('element:pointerdown', (elementView, evt) => {
     const cellId = elementView.model.id
+    // Клик по члену группы выделяет всю группу целиком (expandGroups). Одиночная
+    // ячейка → сама по себе.
+    const groupItems = canvas.expandGroups([{ kind: 'cell', id: cellId }])
+    const groupIds = groupItems.map((i) => i.id)
     if (evt.ctrlKey || evt.metaKey) {
-      // Toggle этой ячейки в выделении + пересчёт «мостов». Ранее выделенные
-      // провода сохраняем (keepLinks) — иначе они слетали при Ctrl+клике.
+      // Toggle группы (или одиночки) в выделении + пересчёт «мостов». Ранее
+      // выделенные провода сохраняем (keepLinks) — иначе слетали бы при Ctrl+клике.
       const currentCells = canvas.selection.value.filter((i) => i.kind === 'cell')
       const currentLinks = canvas.selection.value.filter((i) => i.kind === 'link')
+      const allIn = groupIds.every((id) => currentCells.some((c) => c.id === id))
       let nextCells
-      if (currentCells.some((c) => c.id === cellId)) {
-        nextCells = currentCells.filter((c) => c.id !== cellId)
+      if (allIn) {
+        nextCells = currentCells.filter((c) => !groupIds.includes(c.id))
       } else {
-        nextCells = [...currentCells, { kind: 'cell', id: cellId }]
+        const have = new Set(currentCells.map((c) => c.id))
+        nextCells = [...currentCells, ...groupItems.filter((i) => !have.has(i.id))]
       }
       selectCellsWithBridges(nextCells, currentLinks)
-    } else if (!canvas.isSelected(cellId)) {
-      canvas.selectOnly('cell', cellId)
+    } else {
+      // Plain-клик: группу — выделить целиком (если ещё не вся выделена); одиночку
+      // — как раньше. Уже полностью выделенное не трогаем — отдаём под multi-drag.
+      const selIds = new Set(
+        canvas.selection.value.filter((i) => i.kind === 'cell').map((i) => i.id)
+      )
+      const allSelected = groupIds.every((id) => selIds.has(id))
+      if (groupItems.length > 1) {
+        if (!allSelected) selectCellsWithBridges(groupItems)
+      } else if (!canvas.isSelected(cellId)) {
+        canvas.selectOnly('cell', cellId)
+      }
     }
     // Если ячейка уже в выделении и нет Ctrl — оставляем как есть (multi-drag).
     prepareMultiDrag(cellId)
@@ -508,7 +603,9 @@ onMounted(async () => {
       if (item.id === activeDragCellId || item.kind !== 'cell') continue
       const startPos = dragSnapshot[item.id]
       const other = graph.getCell(item.id)
-      if (other && startPos) {
+      // Заблокированную ячейку не двигаем даже в группе (multi-drag программный,
+      // в обход paper.interactive — иначе замок обошёлся бы).
+      if (other && startPos && !other.get('tms')?.locked) {
         other.set('position', { x: startPos.x + dx, y: startPos.y + dy }, { multiDrag: true })
       }
     }
@@ -535,8 +632,14 @@ onMounted(async () => {
 
   // Hover-tooltip: показываем над ячейкой при mouseenter, прячем при leave
   // и element:pointerdown. blank:pointerdown сам скрывает tooltip выше.
-  paper.on('element:mouseenter', showCellTooltip)
-  paper.on('element:mouseleave', hideCellTooltip)
+  paper.on('element:mouseenter', (view) => {
+    hoveredCellId.value = view.model.id // для пунктирной рамки группы
+    showCellTooltip(view)
+  })
+  paper.on('element:mouseleave', () => {
+    hoveredCellId.value = null
+    hideCellTooltip()
+  })
   paper.on('element:pointerdown', hideCellTooltip)
 
   // Context menu: правый клик по ячейке / проводу / пустому месту. JointJS
@@ -1200,11 +1303,12 @@ function performClearCanvas(count) {
           <div class="font-semibold text-[11px]">
             {{ cellHoverTooltip.stencilLabel }}
           </div>
-          <div class="text-[10px] opacity-75 mt-0.5 font-mono truncate">
-            {{ cellHoverTooltip.stencilId }}
-          </div>
-          <div class="text-[10px] opacity-60 mt-0.5 font-mono truncate">
-            {{ cellHoverTooltip.exportId }}
+          <div
+            v-if="cellHoverTooltip.groupCount > 1"
+            class="text-[10px] opacity-75 mt-1 flex items-center gap-1"
+          >
+            <i class="pi pi-th-large !text-[9px]" />
+            В группе ({{ cellHoverTooltip.groupCount }})
           </div>
         </div>
       </Transition>
@@ -1237,6 +1341,7 @@ function performClearCanvas(count) {
           @click="rotateSelectedBy(90)"
         />
         <Button
+          v-if="!overlayBtns.locked"
           v-tooltip.top="'Удалить · Del'"
           icon="pi pi-trash"
           severity="secondary"
@@ -1246,7 +1351,36 @@ function performClearCanvas(count) {
           :style="overlayBtns.delete"
           @click="onDeleteSelected"
         />
+        <!-- Замок: виден всегда. При locked это единственная активная кнопка (delete
+             скрыт, rotate скрыт через canTransform) — ей же замок и снимают. -->
+        <Button
+          v-tooltip.top="overlayBtns.locked ? 'Разблокировать' : 'Заблокировать'"
+          :icon="overlayBtns.locked ? 'pi pi-lock' : 'pi pi-unlock'"
+          :severity="overlayBtns.locked ? 'primary' : 'secondary'"
+          rounded
+          size="small"
+          class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
+          :style="overlayBtns.lock"
+          @click="toggleLockSelected"
+        />
       </template>
+
+      <!-- Пунктирная рамка вокруг группы при наведении на любого её члена. -->
+      <div
+        v-if="groupHoverRect"
+        class="absolute z-0 pointer-events-none rounded border border-dashed border-primary-400"
+        :style="groupHoverRect"
+      />
+
+      <!-- Бейдж-замок у каждой заблокированной ячейки (индикатор read-only). -->
+      <div
+        v-for="b in lockedBadges"
+        :key="b.id"
+        class="absolute z-10 pointer-events-none flex h-[18px] w-[18px] items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm"
+        :style="{ left: b.left, top: b.top }"
+      >
+        <i class="pi pi-lock !text-[9px]" />
+      </div>
 
       <!-- Floating info-bar: координаты курсора + selection label. Плавает
            внизу-справа холста, появляется только когда есть что показать. -->

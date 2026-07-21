@@ -70,9 +70,14 @@ export function useLasso(paperContainer, { selectCellsWithBridges }) {
     if (!graph) return
 
     const cells = graph.findModelsInArea({ x, y, width: w, height: h })
-    const newCells = cells
-      .filter((c) => c.isElement && c.isElement())
-      .map((c) => ({ kind: 'cell', id: c.id }))
+    // Задетых членов группы дотягиваем до целой группы (expandGroups).
+    const newCells = canvas.expandGroups(
+      cells
+        // Заблокированные (`tms.locked`) лассо не захватывает — их не двигают
+        // группой; выделить для снятия замка можно кликом.
+        .filter((c) => c.isElement && c.isElement() && !c.get('tms')?.locked)
+        .map((c) => ({ kind: 'cell', id: c.id }))
+    )
 
     if (lassoAdditive) {
       // Объединяем с уже выделенными ячейками, дедуплицируя по id. Ранее

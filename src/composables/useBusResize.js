@@ -54,6 +54,7 @@ export function useBusResize({ scheduleSnapshot }) {
     if (!modelId || !graph) return
     const cell = graph.getCell(modelId)
     if (!cell || cell.get('tms')?.stencilId !== 'cell_bus') return
+    if (cell.get('tms')?.locked) return // замок: ресайз запрещён (хэндлы скрыты CSS)
     evt.stopPropagation()
     evt.preventDefault()
     startBusResize(cell, edge, evt.clientX)

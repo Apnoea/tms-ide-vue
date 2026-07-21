@@ -2,6 +2,7 @@ import { nextTick } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from './useCanvas'
+import { nplural } from '../utils/plural'
 
 function isFocusInInput(t) {
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
@@ -61,6 +62,7 @@ export function useHotkeys({
   rotateSelected,
   onExport,
   projectBusy = { value: false },
+  notify = { success: () => {} },
 }) {
   const canvas = useCanvas()
   const ui = useUiStore()
@@ -163,6 +165,21 @@ export function useHotkeys({
         event.preventDefault()
         event.stopPropagation()
         canvas.selectAllCells()
+        return
+      }
+      // Ctrl+G — сгруппировать выделенное, Ctrl+Shift+G — разгруппировать.
+      if (code === 'KeyG') {
+        event.preventDefault()
+        event.stopPropagation()
+        if (!projectBusy.value) {
+          if (event.shiftKey) {
+            const n = canvas.ungroupCells(canvas.selection.value)
+            if (n) notify.success('Разгруппировано', nplural(n, 'элемент', 'элемента', 'элементов'))
+          } else {
+            const n = canvas.groupCells(canvas.selection.value)
+            if (n) notify.success('Сгруппировано', nplural(n, 'элемент', 'элемента', 'элементов'))
+          }
+        }
         return
       }
     }

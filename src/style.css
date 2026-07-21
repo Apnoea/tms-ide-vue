@@ -87,6 +87,14 @@ body,
   opacity: 1;
 }
 
+/* Заблокированная ячейка (`tms.locked`): порты и bus-resize-хэндлы не показываем
+   даже на hover/выделении — интерактив с ней запрещён (см. paper.interactive /
+   useBusResize). Индикатор-замок рисует HTML-overlay в CanvasPane. */
+.joint-element.tms-locked .joint-port,
+.joint-element.tms-locked [data-edge] {
+  display: none;
+}
+
 /* Тумбны палитры: SVG стенсила вставляется через v-html и идёт со своими
    width/height. Переопределяем через CSS, чтобы вписать в 48×48 контейнер
    с сохранением aspect ratio (за счёт viewBox). */

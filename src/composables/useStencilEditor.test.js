@@ -89,9 +89,9 @@ describe('useStencilEditor', () => {
   it('movePort снапит к сетке и держит порт на границе', () => {
     const ed = createStencilEditor() // 40×40
     const p = ed.addPort(0, 0)
-    ed.movePort(p.id, 37, 15) // снап (40,20) → ближайшая сторона right → (40,20)
+    ed.movePort(p.id, 37, 15) // снап к 5 → (35,15) → ближайшая сторона right → (40,15)
     const moved = ed.ports.value.find((x) => x.id === p.id)
-    expect(moved).toMatchObject({ x: 40, y: 20 })
+    expect(moved).toMatchObject({ x: 40, y: 15 })
   })
 
   it('снап зажимает координаты в bbox стенсила', () => {

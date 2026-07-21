@@ -6,7 +6,7 @@ import { TMSStencil } from '../stencils/tmsStencil'
 import { LINK_DEFAULTS } from '../stencils/linkDefaults'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
-import { useCanvas } from './useCanvas'
+import { useCanvas, genGroupId } from './useCanvas'
 import { useNotify, TOAST_LIFE } from './useNotify'
 
 /**
@@ -91,11 +91,31 @@ export function useClipboard({ scheduleSnapshot }) {
     const newCellIds = []
     let skipped = 0
 
+    // Группы копий — своя новая метка (иначе копия слилась бы с оригинальной
+    // группой). groupId переносим ТОЛЬКО если скопировано ≥2 членов той группы —
+    // одиночную копию из группы разгруппировываем (группа из одного бессмысленна).
+    const groupCounts = {}
+    for (const s of snaps.cells) {
+      const g = s.tms?.groupId
+      if (g) groupCounts[g] = (groupCounts[g] || 0) + 1
+    }
+    const groupIdMap = new Map()
+
     for (const snap of snaps.cells) {
       const stencil = getStencilById(snap.stencilId)
       if (!stencil) {
         skipped++
         continue
+      }
+
+      const tmsCopy = { ...snap.tms, stencilId: snap.stencilId }
+      if (tmsCopy.groupId) {
+        if (groupCounts[tmsCopy.groupId] >= 2) {
+          if (!groupIdMap.has(tmsCopy.groupId)) groupIdMap.set(tmsCopy.groupId, genGroupId())
+          tmsCopy.groupId = groupIdMap.get(tmsCopy.groupId)
+        } else {
+          delete tmsCopy.groupId
+        }
       }
 
       const g = paper.options.gridSize
@@ -111,7 +131,7 @@ export function useClipboard({ scheduleSnapshot }) {
         position: { x: finalX, y: finalY },
         size: snap.size,
         angle: snap.angle || 0,
-        tms: { ...snap.tms, stencilId: snap.stencilId },
+        tms: tmsCopy,
         ports: { items: portItems },
       })
       graph.addCell(cell)

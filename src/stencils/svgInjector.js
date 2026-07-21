@@ -443,6 +443,11 @@ export function injectStencilSvg(cellView, stencil) {
     }
   }
 
+  // Класс «замок» на корне view — по tms.locked (при любом рендере/reinject/load).
+  // CSS по нему прячет bus-хэндлы и рисует индикатор; при toggle класс правится
+  // точечно (useCanvas.toggleLocked), тут — восстановление после пересборки DOM.
+  cellView.el?.classList?.toggle('tms-locked', !!cellView.model.get('tms')?.locked)
+
   return true
 }
 

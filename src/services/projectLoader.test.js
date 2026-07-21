@@ -80,6 +80,8 @@ describe('parseSvgProject', () => {
       height: 20,
       angle: 90,
       navigation: 'view_other',
+      locked: true,
+      groupId: 'grp-xyz',
       switchSources: { groups: [['A.ONOFF'], ['B.ONOFF']] },
       voltageSource: { tag: 'V.U', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
     }
@@ -89,6 +91,8 @@ describe('parseSvgProject', () => {
     const cell = parseSvgProject(svg).cells[0]
     expect(cell.angle).toBe(90)
     expect(cell.tms.navigation).toBe('view_other')
+    expect(cell.tms.locked).toBe(true)
+    expect(cell.tms.groupId).toBe('grp-xyz')
     expect(cell.tms.switchSources).toEqual({ groups: [['A.ONOFF'], ['B.ONOFF']] })
     expect(cell.tms.voltageSource).toEqual({
       tag: 'V.U',

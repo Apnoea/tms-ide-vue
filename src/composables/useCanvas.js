@@ -3,6 +3,13 @@ import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cellMatchesQuery } from '../utils/cellSearch'
 import { planWireBridge } from '../utils/wireSplice'
 
+// Уникальный id логической группы ячеек (`tms.groupId`). Короткий, но глобально
+// уникальный — round-trip'ится в data-tms-meta.
+export function genGroupId() {
+  const rnd = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`
+  return `grp-${rnd.replace(/[^a-z0-9]/gi, '').slice(0, 10)}`
+}
+
 /**
  * Shared singleton-доступ к JointJS-состоянию холста.
  *
@@ -254,6 +261,10 @@ export function useCanvas() {
     deleteItems(items) {
       const graph = graphRef.value
       if (!graph || !items?.length) return
+      // Заблокированные ячейки (`tms.locked`) не удаляем — «замок» read-only.
+      // Их связанные провода тоже остаются (ячейка на месте). Тихо пропускаем.
+      items = items.filter((it) => it.kind !== 'cell' || !graph.getCell(it.id)?.get('tms')?.locked)
+      if (!items.length) return
       if (items.length === 1 && items[0].kind === 'cell') {
         const el = graph.getCell(items[0].id)
         const links = el
@@ -293,7 +304,24 @@ export function useCanvas() {
           survivor?.set(plan.survivorEnd, plan.endpoint)
         }
       }
+      // Группы удаляемых — чтобы после remove снять `groupId` с одиночного
+      // остатка (группа из одной ячейки бессмысленна).
+      const affectedGroups = new Set(
+        items
+          .filter((it) => it.kind === 'cell')
+          .map((it) => graph.getCell(it.id)?.get('tms')?.groupId)
+          .filter(Boolean)
+      )
       for (const item of items) graph.getCell(item.id)?.remove()
+      for (const gid of affectedGroups) {
+        const members = graph.getElements().filter((e) => e.get('tms')?.groupId === gid)
+        if (members.length === 1) {
+          const m = members[0]
+          const next = { ...m.get('tms') }
+          delete next.groupId
+          m.set('tms', next)
+        }
+      }
       selection.value = []
     },
     /** Выделить все ячейки на холсте + bridge-линии между ними. */
@@ -370,6 +398,96 @@ export function useCanvas() {
     },
     bumpVersion() {
       graphVersion.value++
+    },
+    /**
+     * Тоггл «замка» ячеек (`tms.locked`). Смешанное выделение → лочим все (если
+     * хоть одна свободна), иначе снимаем. Класс `tms-locked` на view.el правим
+     * точечно (индикатор/скрытие хэндлов); при пересборке DOM его восстановит
+     * injectStencilSvg. Провода/линки — без замка (нет геометрии для блокировки).
+     */
+    toggleLocked(items) {
+      const graph = graphRef.value
+      const paper = paperRef.value
+      if (!graph) return
+      const cells = (items || [])
+        .filter((i) => i.kind === 'cell')
+        .map((i) => graph.getCell(i.id))
+        .filter(Boolean)
+      if (!cells.length) return
+      const lock = cells.some((c) => !c.get('tms')?.locked) // хоть одна свободна → лочим все
+      for (const c of cells) {
+        const tms = c.get('tms') || {}
+        const next = { ...tms }
+        if (lock) next.locked = true
+        else delete next.locked
+        c.set('tms', next)
+        paper?.findViewByModel(c)?.el?.classList.toggle('tms-locked', lock)
+      }
+      graphVersion.value++
+      snapshotTick.value++
+    },
+    /**
+     * Дополняет список cell-items до ЦЕЛЫХ групп: если затронут член группы —
+     * добавляет всех её членов. Единая точка «выделять группу целиком» для клика
+     * и лассо. Линки/не-члены не трогает.
+     */
+    expandGroups(cellItems) {
+      const graph = graphRef.value
+      if (!graph) return cellItems
+      const groupIds = new Set()
+      for (const it of cellItems) {
+        if (it.kind !== 'cell') continue
+        const g = graph.getCell(it.id)?.get('tms')?.groupId
+        if (g) groupIds.add(g)
+      }
+      if (!groupIds.size) return cellItems
+      const seen = new Set(cellItems.filter((i) => i.kind === 'cell').map((i) => i.id))
+      const result = [...cellItems]
+      for (const el of graph.getElements()) {
+        const g = el.get('tms')?.groupId
+        if (g && groupIds.has(g) && !seen.has(el.id)) {
+          result.push({ kind: 'cell', id: el.id })
+          seen.add(el.id)
+        }
+      }
+      return result
+    },
+    /** Объединить выделенные ячейки (≥2) в новую группу (общий `groupId`).
+     *  Возвращает число сгруппированных ячеек (0 — если группировать нечего). */
+    groupCells(items) {
+      const graph = graphRef.value
+      if (!graph) return 0
+      const cells = (items || [])
+        .filter((i) => i.kind === 'cell')
+        .map((i) => graph.getCell(i.id))
+        .filter(Boolean)
+      if (cells.length < 2) return 0
+      const gid = genGroupId()
+      for (const c of cells) c.set('tms', { ...(c.get('tms') || {}), groupId: gid })
+      graphVersion.value++
+      snapshotTick.value++
+      return cells.length
+    },
+    /** Снять группировку с выделенных ячеек. Возвращает число разгруппированных. */
+    ungroupCells(items) {
+      const graph = graphRef.value
+      if (!graph) return 0
+      let count = 0
+      for (const i of items || []) {
+        if (i.kind !== 'cell') continue
+        const c = graph.getCell(i.id)
+        const tms = c?.get('tms')
+        if (!tms?.groupId) continue
+        const next = { ...tms }
+        delete next.groupId
+        c.set('tms', next)
+        count++
+      }
+      if (count) {
+        graphVersion.value++
+        snapshotTick.value++
+      }
+      return count
     },
     paperViewTick,
     bumpPaperView() {

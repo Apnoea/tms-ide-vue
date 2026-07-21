@@ -39,7 +39,7 @@ const mockCanvas = makeMockCanvas({
     mockCanvas.selection.value = items
   }),
 })
-vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
+vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas, genGroupId: () => 'grp-new' }))
 
 import { useClipboard } from './useClipboard'
 
@@ -114,6 +114,31 @@ describe('useClipboard', () => {
     expect(newCellIds).toContain(newLink.get('source').id)
     expect(newCellIds).toContain(newLink.get('target').id)
     expect(scheduleSnapshot).toHaveBeenCalledOnce()
+  })
+
+  it('paste: группа копий получает новый общий groupId; одиночный член разгруппировывается', () => {
+    const a = makeCell({ x: 0, tms: { groupId: 'grp-src' } })
+    const b = makeCell({ x: 40, tms: { groupId: 'grp-src' } })
+    const solo = makeCell({ x: 80, tms: { groupId: 'grp-other' } })
+    graph.addCells([a, b, solo])
+    mockCanvas.selection.value = [
+      { kind: 'cell', id: a.id },
+      { kind: 'cell', id: b.id },
+      { kind: 'cell', id: solo.id },
+    ]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+
+    const originals = new Set([a.id, b.id, solo.id])
+    const copies = graph.getElements().filter((e) => !originals.has(e.id))
+    const byX = (x) => copies.find((c) => c.get('position').x === x)
+    // grp-src скопирован целиком (2 члена) → общий НОВЫЙ groupId, не исходный.
+    expect(byX(20).get('tms').groupId).toBe('grp-new')
+    expect(byX(60).get('tms').groupId).toBe('grp-new')
+    // grp-other скопирован одним членом → копия разгруппирована.
+    expect(byX(100).get('tms').groupId).toBeUndefined()
   })
 
   it('paste: изломы bridge-провода сохраняются (сдвинуты на offset)', () => {

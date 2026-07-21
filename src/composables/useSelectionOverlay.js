@@ -15,7 +15,8 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
   const canvas = useCanvas()
 
   function canCellTransform(cell) {
-    return cell && !getStencilById(cell.get('tms')?.stencilId)?.noRotate
+    // Заблокированную (`tms.locked`) не вращаем; noRotate-стенсилы — тоже.
+    return cell && !cell.get('tms')?.locked && !getStencilById(cell.get('tms')?.stencilId)?.noRotate
   }
 
   const overlayBtns = computed(() => {
@@ -51,9 +52,13 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
     return {
       id: cell.id,
       canTransform: canCellTransform(cell),
+      locked: !!cell.get('tms')?.locked,
       rotateCcw: { left: `${left - GAP - HALF}px`, top: `${top - GAP - HALF}px` },
       rotateCw: { left: `${right + GAP - HALF}px`, top: `${top - GAP - HALF}px` },
       delete: { left: `${right + GAP - HALF}px`, top: `${bottom + GAP - HALF}px` },
+      // Замок — нижний-левый угол; кнопка видна всегда (единственный способ снять
+      // блокировку при read-only остальных).
+      lock: { left: `${left - GAP - HALF}px`, top: `${bottom + GAP - HALF}px` },
     }
   })
 
@@ -77,5 +82,9 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
     canvas.deleteItems(sel)
   }
 
-  return { overlayBtns, rotateSelectedBy, onDeleteSelected }
+  function toggleLockSelected() {
+    canvas.toggleLocked(canvas.selection.value)
+  }
+
+  return { overlayBtns, rotateSelectedBy, onDeleteSelected, toggleLockSelected }
 }

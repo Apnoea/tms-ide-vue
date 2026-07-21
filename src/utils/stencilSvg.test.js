@@ -209,10 +209,10 @@ describe('stencilDraftIssues', () => {
     expect(stencilDraftIssues(ok, [])).toContain('Добавьте хотя бы одну фигуру')
   })
 
-  it('требует размеры кратные 10', () => {
-    const issues = stencilDraftIssues({ ...ok, width: 25, height: 0 }, shape)
-    expect(issues).toContain('Ширина кратна 10')
-    expect(issues).toContain('Высота кратна 10')
+  it('требует размеры кратные 5 (минимум 10)', () => {
+    const issues = stencilDraftIssues({ ...ok, width: 12, height: 0 }, shape)
+    expect(issues).toContain('Ширина кратна 5')
+    expect(issues).toContain('Высота кратна 5')
   })
 })
 

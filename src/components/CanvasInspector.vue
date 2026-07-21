@@ -79,6 +79,7 @@ const details = computed(() => {
       id: cell.id,
       stencilId: tms.stencilId,
       stencilLabel: stencil?.label || tms.stencilId || '-',
+      locked: !!tms.locked,
       isText: tms.stencilId === 'cell_text',
       text: tms.text ?? '',
       fontSize: tms.fontSize ?? TEXT_FONT_SIZE,
@@ -264,6 +265,72 @@ function applyColor(color) {
 
 function applyAlign(align) {
   patchTextCell({ align })
+}
+
+// ─── Замок ячейки ───
+function applyLockToggle() {
+  const d = details.value
+  if (!d || d.kind !== 'cell') return
+  canvas.toggleLocked([{ kind: 'cell', id: d.id }])
+}
+
+// Замок для ЦЕЛЬНОЙ группы (не произвольного мультивыделения — там замка нет).
+// Тумблер «включён» = все члены группы locked; клик лочит/снимает всю группу.
+const multiLock = computed(() => {
+  canvas.graphVersion.value
+  const graph = canvas.graphRef.value
+  if (!graph) return { allLocked: false }
+  const cells = canvas.selection.value
+    .filter((s) => s.kind === 'cell')
+    .map((s) => graph.getCell(s.id))
+    .filter(Boolean)
+  return { allLocked: cells.length > 0 && cells.every((c) => c.get('tms')?.locked) }
+})
+
+function applyMultiLockToggle() {
+  canvas.toggleLocked(canvas.selection.value)
+}
+
+// Группировка выделения. `ungroup`=true, когда все выделенные — члены ОДНОЙ группы
+// (клик по группе выделяет её целиком → показываем «Разгруппировать»); иначе при
+// ≥2 ячейках — «Сгруппировать» (объединит, в т.ч. слив разные группы в одну).
+const multiGroup = computed(() => {
+  canvas.graphVersion.value
+  const graph = canvas.graphRef.value
+  if (!graph) return { show: false, ungroup: false }
+  const cells = canvas.selection.value
+    .filter((s) => s.kind === 'cell')
+    .map((s) => graph.getCell(s.id))
+    .filter(Boolean)
+  if (cells.length < 2) return { show: false, ungroup: false }
+  const gids = cells.map((c) => c.get('tms')?.groupId)
+  const sameGroup = gids.every((g) => g && g === gids[0])
+  return { show: true, ungroup: sameGroup }
+})
+
+function applyGroupToggle() {
+  if (multiGroup.value.ungroup) {
+    const n = canvas.ungroupCells(canvas.selection.value)
+    if (n) notify.success('Разгруппировано', nplural(n, 'элемент', 'элемента', 'элементов'))
+  } else {
+    const n = canvas.groupCells(canvas.selection.value)
+    if (n) notify.success('Сгруппировано', nplural(n, 'элемент', 'элемента', 'элементов'))
+  }
+}
+
+// Кнопка-замок в шапке инспектора: доступна для одиночной ячейки и для цельной
+// группы (единый объект); у произвольного мультивыделения замка нет.
+const lockState = computed(() => {
+  const d = details.value
+  if (d && d.kind === 'cell') return { show: true, locked: d.locked }
+  if (multiGroup.value.ungroup) return { show: true, locked: multiLock.value.allLocked }
+  return { show: false, locked: false }
+})
+
+function onToggleLock() {
+  const d = details.value
+  if (d && d.kind === 'cell') applyLockToggle()
+  else if (multiGroup.value.ungroup) applyMultiLockToggle()
 }
 
 // ─── Диапазоны значений (аналоговый источник: значение тега → класс по диапазону) ───
@@ -708,8 +775,21 @@ const switchPickerTags = computed(() => {
 
 <template>
   <aside class="h-full flex flex-col bg-surface-50">
-    <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
+    <div class="relative min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
       <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Инспектор</h2>
+      <!-- Замок выделенного (одиночная ячейка или цельная группа) — абсолютом
+           справа-сверху, единая точка во всех случаях. -->
+      <Button
+        v-if="lockState.show"
+        v-tooltip.bottom="lockState.locked ? 'Разблокировать' : 'Заблокировать'"
+        :icon="lockState.locked ? 'pi pi-lock' : 'pi pi-unlock'"
+        :severity="lockState.locked ? 'primary' : 'secondary'"
+        text
+        rounded
+        size="small"
+        class="!absolute !right-2 !top-1/2 !-translate-y-1/2 !w-8 !h-8 !p-0"
+        @click="onToggleLock"
+      />
     </div>
 
     <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm">
@@ -717,23 +797,40 @@ const switchPickerTags = computed(() => {
       <template v-if="canvas.selection.value.length > 1">
         <div class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4">
           <div>
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Выделено</div>
+            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
+              {{ multiGroup.ungroup ? 'Группа' : 'Выделено' }}
+            </div>
             <div class="font-medium text-surface-900">
               {{ nplural(canvas.selection.value.length, 'элемент', 'элемента', 'элементов') }}
             </div>
             <p class="text-[11px] text-surface-500 mt-2">
-              Ячейки можно тащить группой, удалить клавишей Del. Анимации ниже применяются ко всему
-              выделению; остальные свойства — при одном выделенном.
+              {{
+                multiGroup.ungroup
+                  ? 'Группа ведёт себя как один элемент. Анимации применяются ко всем членам.'
+                  : 'Ячейки можно тащить группой, удалить клавишей Del. Анимации ниже применяются ко всему выделению; остальные свойства — при одном выделенном.'
+              }}
             </p>
           </div>
 
-          <!-- Выравнивание ячеек по рамке выделения. Показываем только когда ячеек
-               ≥2 (в выделении могут быть и мостовые линки — canAlign считает ячейки).
-               Три подписанные категории «описание слева, кнопки справа»: гориз.
-               выравнивание, верт. выравнивание, распределение. Кнопки — действия
-               (клик выполняет команду). Иконки — инлайновый SVG (не v-html);
-               центры снапятся к сетке. -->
-          <div v-if="canAlign" class="space-y-2.5">
+          <!-- Группировка: объединить выделенное в группу (клик по члену выделяет
+               всю группу) либо разгруппировать. -->
+          <div v-if="multiGroup.show">
+            <Button
+              :label="multiGroup.ungroup ? 'Разгруппировать' : 'Сгруппировать'"
+              :icon="multiGroup.ungroup ? 'pi pi-table' : 'pi pi-th-large'"
+              severity="secondary"
+              outlined
+              size="small"
+              class="w-full"
+              @click="applyGroupToggle"
+            />
+          </div>
+
+          <!-- Выравнивание ячеек по рамке выделения. Только для ПРОИЗВОЛЬНОГО
+               мультивыделения (≥2 ячеек), НЕ для цельной группы — та единый объект,
+               внутреннюю раскладку не трогаем. Три категории: гориз./верт.
+               выравнивание, распределение; центры снапятся к сетке. -->
+          <div v-if="canAlign && !multiGroup.ungroup" class="space-y-2.5">
             <div class="flex items-center gap-3">
               <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
                 По горизонтали
@@ -947,10 +1044,16 @@ const switchPickerTags = computed(() => {
       </template>
 
       <template v-else-if="details">
-        <div class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4">
+        <!-- Замок ячейки — кнопка в шапке инспектора (см. выше), не строкой. При
+             locked свойства блокируются inert'ом; кнопка-замок вне его — снять можно. -->
+        <div
+          :inert="!!details.locked"
+          :class="{ 'opacity-60': details.locked }"
+          class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4"
+        >
           <template v-if="details.kind === 'cell'">
             <div>
-              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Стенсил</div>
+              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Элемент</div>
               <div class="font-medium text-surface-900">
                 {{ details.stencilLabel }}
               </div>
@@ -1111,7 +1214,7 @@ const switchPickerTags = computed(() => {
 
           <template v-else>
             <div>
-              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Связь</div>
+              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Элемент</div>
               <div class="font-medium text-surface-900">Провод</div>
             </div>
           </template>

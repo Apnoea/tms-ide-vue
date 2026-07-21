@@ -151,7 +151,7 @@ export function cropToContent(shapes, ports = [], grid = 10) {
 }
 
 /**
- * Модель → строка shape.svg. viewBox/width/height берём из meta (кратны 10).
+ * Модель → строка shape.svg. viewBox/width/height берём из meta (кратны шагу сетки).
  * Фигуры оборачиваем в `<g>` — единый формат с рукописными стенсилами (у них
  * всё в группе); на группу состояния вешается data-anim-suffix.
  */
@@ -315,8 +315,9 @@ export function stencilDraftIssues(meta, shapes, existingIds = []) {
   if (!(meta.label || '').trim()) issues.push('Укажите название')
   if (!(meta.category || '').trim()) issues.push('Укажите категорию')
   if (!shapes?.length) issues.push('Добавьте хотя бы одну фигуру')
-  if (!(meta.width >= 10) || meta.width % 10 !== 0) issues.push('Ширина кратна 10')
-  if (!(meta.height >= 10) || meta.height % 10 !== 0) issues.push('Высота кратна 10')
+  // Кратность 5 = шаг сетки схемы (PORT_GRID в useStencilEditor); минимум 10.
+  if (!(meta.width >= 10) || meta.width % 5 !== 0) issues.push('Ширина кратна 5')
+  if (!(meta.height >= 10) || meta.height % 5 !== 0) issues.push('Высота кратна 5')
   return issues
 }
 
