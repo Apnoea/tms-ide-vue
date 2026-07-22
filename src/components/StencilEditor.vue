@@ -30,6 +30,7 @@ import { normalizeStateColor } from '../constants/animation'
 import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
 import { reinjectAllStencils } from '../stencils/svgInjector'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
+import { upsertStencilOverride } from '../services/stencilOverrides'
 import { useStencilEditor, SHAPE_GRID, PORT_GRID } from '../composables/useStencilEditor'
 
 const ui = useUiStore()
@@ -193,6 +194,10 @@ async function save() {
   const prev = editing ? getStencilById(editing) : null
   const { json, svg } = ed.output()
   registerStencil(json, svg)
+  // Оверрайд в IDB — правка (новый стенсил / изменённая заливка встроенного)
+  // переживёт reload и в prod. persistStencilsToDisk ниже — dev-бонус: пишет файл
+  // в definitions/, чтобы стенсил попал в кодовую базу под git.
+  await upsertStencilOverride({ id: json.id, stencilJson: json, shapeSvg: svg })
   const ok = await persistStencilsToDisk([{ id: json.id, stencilJson: json, shapeSvg: svg }])
 
   if (editing) {
@@ -214,9 +219,9 @@ async function save() {
   } else if (ok) {
     notify.success('Стенсил создан', json.id)
   } else {
-    notify.warn(
+    notify.success(
       'Стенсил создан',
-      'Запись на диск недоступна — переживёт сессию и уедет в архив проекта'
+      'Переживёт перезагрузку; файл в definitions/ появится только в dev-режиме'
     )
   }
   ui.closeStencilEditor()

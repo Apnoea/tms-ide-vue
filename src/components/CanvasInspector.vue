@@ -8,6 +8,11 @@ import SelectButton from 'primevue/selectbutton'
 import ToggleSwitch from 'primevue/toggleswitch'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
+import {
+  useAnimationClipboard,
+  applyBoolClip,
+  applyRangeClip,
+} from '../composables/useAnimationClipboard'
 import { useAlign } from '../composables/useAlign'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
@@ -52,6 +57,7 @@ function isStatic(stencilId) {
 }
 
 const canvas = useCanvas()
+const animClip = useAnimationClipboard()
 // Выравнивание + распределение выделенных ячеек (секция «Выравнивание» в мульти-режиме).
 const { canAlign, canDistribute, alignCells, distributeCells } = useAlign()
 const project = useProjectStore()
@@ -694,6 +700,86 @@ function onPickMultiSwitchTag(tag) {
   )
 }
 
+// ─── Копирование настроек анимаций между элементами ───
+// Буфер (useAnimationClipboard) держит два независимых слота — булев блок и
+// диапазоны, — копируются/вставляются раздельно кнопками в шапке своего блока.
+// Копируем ЦЕЛИКОМ, включая тег (предсказуемый «тот же источник»); тег при нужде
+// меняют вручную после вставки. toPlain снимает reactive-прокси — иначе вставка
+// делила бы одну ссылку между ячейками. Вставка идёт на ВСЁ текущее выделение
+// (одиночное и мульти), со счётчиком пропущенных (несовместимые цели).
+
+/** Копировать булев блок выделенного: свой тег (slot.onoff) + группы-зависимости. */
+function copyBool() {
+  const d = details.value
+  if (!d) return
+  animClip.copyBool(toPlain({ onoffTag: d.onoffTag || null, groups: switchGroups.value }))
+  notify.success('Скопировано', 'Булевые настройки анимации')
+}
+
+/** Копировать диапазоны выделенного (voltageSource целиком: тег + пороги). */
+function copyRange() {
+  const d = details.value
+  if (!d?.voltageSource) return
+  animClip.copyRange(toPlain(d.voltageSource))
+  notify.success('Скопировано', 'Диапазоны значений')
+}
+
+/**
+ * Вставить булев блок из буфера на всё текущее выделение. Группы-зависимости
+ * (switchSources) раздаём любому не-static элементу/проводу; свой булев тег
+ * (onoff) — только стенсилам с булевым слотом (иначе некуда его писать). Статичные
+ * стенсилы (текст/значение) пропускаем со счётчиком.
+ */
+function pasteBool() {
+  pasteClip(animClip.boolClip.value, (tms) =>
+    applyBoolClip(tms, animClip.boolClip.value, {
+      isStatic: isStatic(tms.stencilId),
+      hasBoolSlot: hasBoolSlot(getStencilById(tms.stencilId)),
+    })
+  )('Булевые настройки вставлены')
+}
+
+/** Вставить диапазоны из буфера на всё текущее выделение (voltageSource целиком,
+ *  свежий клон на ячейку). Статичные стенсилы пропускаем. */
+function pasteRange() {
+  pasteClip(animClip.rangeClip.value, (tms) =>
+    applyRangeClip(tms, animClip.rangeClip.value, { isStatic: isStatic(tms.stencilId) })
+  )('Диапазоны вставлены')
+}
+
+/**
+ * Общий каркас вставки буфера на всё выделение: для каждой ячейки зовёт
+ * apply(tms) → новый tms либо null (несовместимо → пропуск со счётчиком). Пустой
+ * буфер — no-op. Возвращает функцию-финализатор (принимает заголовок тоста), чтобы
+ * pasteBool/pasteRange отличались только apply'ем и текстом.
+ */
+function pasteClip(clip, apply) {
+  return (title) => {
+    const graph = canvas.graphRef.value
+    if (!clip || !graph) return
+    let applied = 0
+    let skipped = 0
+    for (const item of canvas.selection.value) {
+      const cell = graph.getCell(item.id)
+      if (!cell) continue
+      const next = apply(cell.get('tms') || {})
+      if (!next) {
+        skipped++
+        continue
+      }
+      cell.set('tms', next)
+      applied++
+    }
+    canvas.bumpVersion()
+    canvas.requestSnapshot()
+    const count = nplural(applied, 'элемент', 'элемента', 'элементов')
+    notify.success(
+      title,
+      skipped ? `Применено к ${count} · пропущено: ${skipped}` : `Применено к ${count}`
+    )
+  }
+}
+
 // ─── Hyperlink-навигация: клик в рантайме открывает другую view ───
 // Свич управляет видимостью инпута; пустое значение не пишется, при OFF — чистим.
 const navigationEnabled = ref(false)
@@ -965,17 +1051,21 @@ const switchPickerTags = computed(() => {
               :groups="[]"
               :removable="false"
               :tags-loaded="!!project.tags.length"
+              :pasteable="animClip.hasBool.value"
               title="Булево значение"
               @add-group="openMultiSwitchPicker"
+              @paste="pasteBool"
             />
             <RangeBlock
               :voltage-source="multiVoltage"
               :tags-loaded="!!project.tags.length"
               :class-options="ANIMATION_CLASS_OPTIONS"
+              :pasteable="animClip.hasRange.value"
               @open-tag-picker="openMultiVoltagePicker"
               @update-range="updateMultiVoltageRange"
               @highlight="toggleMultiVoltageHighlight"
               @remove="removeMultiVoltage"
+              @paste="pasteRange"
             />
           </div>
 
@@ -1251,6 +1341,8 @@ const switchPickerTags = computed(() => {
               :groups="switchGroups"
               :removable="switchRemovable"
               :tags-loaded="!!project.tags.length"
+              :copyable="!!(details.onoffTag || switchGroups.length)"
+              :pasteable="animClip.hasBool.value"
               title="Булево значение"
               @open-slot-picker="openSlotPicker(details.slots[0])"
               @add-group="onAddGroup"
@@ -1260,6 +1352,8 @@ const switchPickerTags = computed(() => {
               @remove-group="removeSwitchGroup"
               @remove="removeSwitchSources"
               @highlight-tag="canvas.toggleHighlightedTag"
+              @copy="copyBool"
+              @paste="pasteBool"
             />
 
             <!-- Диапазоны значений (аналоговое значение) — виден всегда.
@@ -1269,10 +1363,14 @@ const switchPickerTags = computed(() => {
               :voltage-source="details.voltageSource"
               :tags-loaded="!!project.tags.length"
               :class-options="ANIMATION_CLASS_OPTIONS"
+              :copyable="!!details.voltageSource"
+              :pasteable="animClip.hasRange.value"
               @open-tag-picker="openVoltagePicker"
               @update-range="updateRange"
               @highlight="toggleVoltageHighlight"
               @remove="removeVoltageSource"
+              @copy="copyRange"
+              @paste="pasteRange"
             />
           </div>
         </div>

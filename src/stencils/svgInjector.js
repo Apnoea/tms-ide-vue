@@ -255,7 +255,17 @@ function buildBusContent(cellView) {
   const overhang = 2 // насколько хэндл выпирает по Y за тело шины
 
   const out = [
-    svgEl('rect', { x: hw, y: 0, width: Math.max(0, width - hw * 2), height, fill: '#000' }),
+    // class="tms-voltage-fill" — тело шины заливается voltage-цветом при симуляции
+    // (opt-in fill в buildVoltageCssRules). Синхронно с экспортом (buildBusExportSvg),
+    // иначе превью-симуляция расходилась бы с view.svg: там шина красится, тут нет.
+    svgEl('rect', {
+      class: 'tms-voltage-fill',
+      x: hw,
+      y: 0,
+      width: Math.max(0, width - hw * 2),
+      height,
+      fill: '#000',
+    }),
   ]
 
   for (const edge of ['left', 'right']) {

@@ -1,7 +1,9 @@
 import { reinjectAllStencils } from '../stencils/svgInjector'
+import { registerStencil } from '../stencils/registry'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { toPlain } from '../utils/plain'
 import { idbGet, idbSet, idbDel, idbKeys } from '../utils/idb'
+import { loadStencilOverrides } from '../services/stencilOverrides'
 import { parseTagList } from '../services/parsers'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -40,6 +42,11 @@ export function useAutosave({ restoringHistory }) {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
     if (!graph || !paper) return 0
+
+    // Оверрайды стенсилов (правки заливки/анимации, новые стенсилы) — в реестр ДО
+    // отрисовки форм, иначе ячейки нарисуются встроенной версией и правки «слетят».
+    // Переживают reload без dev-плагина (см. stencilOverrides).
+    for (const s of await loadStencilOverrides()) registerStencil(s.stencilJson, s.shapeSvg)
 
     const meta = await idbGet(META_KEY)
 

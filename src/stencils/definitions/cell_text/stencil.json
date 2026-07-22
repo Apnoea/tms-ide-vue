@@ -4,7 +4,6 @@
   "label": "Текстовое поле",
   "category": "Разметка и значения",
   "static": true,
-  "noRotate": true,
   "defaults": { "text": "Текст" },
   "shapeFile": "shape.svg",
   "width": 100,

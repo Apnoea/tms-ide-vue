@@ -18,6 +18,7 @@ import {
   unregisterStencil,
 } from '../stencils/registry'
 import { deleteStencilFromDisk } from '../services/stencilLibrary'
+import { removeStencilOverride } from '../services/stencilOverrides'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { useUiStore } from '../stores/useUiStore'
@@ -187,6 +188,7 @@ function confirmDeleteStencil(event, stencil) {
 }
 async function removeStencil(id) {
   unregisterStencil(id)
+  await removeStencilOverride(id) // снять IDB-оверрайд, иначе он вернул бы стенсил на reload
   const ok = await deleteStencilFromDisk(id)
   if (ok) notify.success('Стенсил удалён', id)
   else

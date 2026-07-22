@@ -25,6 +25,13 @@ vi.mock('../services/projectZip', () => ({
   collectUsedStencilIds: vi.fn(() => []),
 }))
 
+// stencilOverrides — IDB-персист правок стенсилов; в тесте детерминируем.
+// stencilSignature — упрощённая, но чувствительная к json+svg (для ветки changed).
+vi.mock('../services/stencilOverrides', () => ({
+  replaceStencilOverrides: vi.fn(async () => {}),
+  stencilSignature: (j, s) => `${JSON.stringify(j ?? {})}|${s || ''}`,
+}))
+
 const mockNotify = { success: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 vi.mock('./useNotify', () => ({ useNotify: () => mockNotify, TOAST_LIFE: {} }))
 
@@ -41,7 +48,8 @@ vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
 import { useProject } from './useProject'
 import { parseSvgProject } from '../services/projectLoader'
-import { getStencilById } from '../stencils/registry'
+import { getStencilById, registerStencil } from '../stencils/registry'
+import { replaceStencilOverrides } from '../services/stencilOverrides'
 import { buildProjectZipBlob, pickProjectArchive, readProjectZipFile } from '../services/projectZip'
 
 // Свежие моки инжектируемых зависимостей на каждый тест.
@@ -210,6 +218,46 @@ describe('useProject', () => {
 
       expect(mockNotify.error).toHaveBeenCalled()
       expect(global.fetch).not.toHaveBeenCalled()
+    })
+
+    it('изменённый существующий стенсил регистрируется и уходит в оверрайды', async () => {
+      bundle([{ id: 'f1', svgText: 'x' }], {
+        stencils: [
+          {
+            id: 'cell_qw',
+            stencilJson: { id: 'cell_qw', stateColors: { on: '#f00' } },
+            shapeSvg: 'NEW',
+          },
+        ],
+      })
+      parseSvgProject.mockReturnValue({ ok: true, cells: [], stencilIds: ['cell_qw'] })
+      // cell_qw уже в реестре, но с другой заливкой/svg → должен перерегистрироваться.
+      getStencilById.mockReturnValue({ id: 'cell_qw', stateColors: {}, svgText: 'OLD' })
+      const deps = makeDeps()
+      const { importProjectFromArchive } = useProject(deps)
+      await importProjectFromArchive()
+
+      expect(registerStencil).toHaveBeenCalledWith(
+        { id: 'cell_qw', stateColors: { on: '#f00' } },
+        'NEW'
+      )
+      const savedOverrides = replaceStencilOverrides.mock.calls.at(-1)[0]
+      expect(savedOverrides.map((s) => s.id)).toEqual(['cell_qw'])
+    })
+
+    it('неизменённый существующий стенсил НЕ перерегистрируется', async () => {
+      bundle([{ id: 'f1', svgText: 'x' }], {
+        stencils: [{ id: 'cell_qw', stencilJson: { id: 'cell_qw' }, shapeSvg: 'SAME' }],
+      })
+      parseSvgProject.mockReturnValue({ ok: true, cells: [], stencilIds: ['cell_qw'] })
+      getStencilById.mockReturnValue({ id: 'cell_qw', svgText: 'SAME' })
+      const deps = makeDeps()
+      const { importProjectFromArchive } = useProject(deps)
+      await importProjectFromArchive()
+
+      expect(registerStencil).not.toHaveBeenCalled()
+      const savedOverrides = replaceStencilOverrides.mock.calls.at(-1)[0]
+      expect(savedOverrides).toEqual([]) // нечего оверрайдить
     })
   })
 

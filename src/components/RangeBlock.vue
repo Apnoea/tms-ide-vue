@@ -18,9 +18,13 @@ defineProps({
   voltageSource: { type: Object, default: null }, // { tag, ranges } | null
   tagsLoaded: { type: Boolean, default: false },
   classOptions: { type: Array, default: () => [] },
+  // copyable — есть что копировать (задан voltageSource); pasteable — в буфере
+  // анимаций лежат диапазоны, кнопку «вставить» показываем на любом выделении.
+  copyable: { type: Boolean, default: false },
+  pasteable: { type: Boolean, default: false },
 })
 
-defineEmits(['open-tag-picker', 'update-range', 'highlight', 'remove'])
+defineEmits(['open-tag-picker', 'update-range', 'highlight', 'remove', 'copy', 'paste'])
 
 const CLASS_COLORS = ANIMATION_CLASS_COLORS
 </script>
@@ -30,16 +34,38 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
     <div class="flex items-center gap-2 mb-2 min-h-6">
       <i class="pi pi-chart-bar text-yellow-500" />
       <div class="text-xs font-medium text-surface-700">Диапазоны значений</div>
-      <Button
-        v-if="voltageSource"
-        v-tooltip.bottom="'Очистить'"
-        icon="pi pi-times"
-        severity="secondary"
-        text
-        size="small"
-        class="!p-1 !w-6 !h-6 ml-auto"
-        @click="$emit('remove')"
-      />
+      <div class="ml-auto flex items-center">
+        <Button
+          v-if="pasteable"
+          v-tooltip.bottom="'Вставить скопированные диапазоны'"
+          icon="pi pi-clipboard"
+          severity="secondary"
+          text
+          size="small"
+          class="!p-1 !w-6 !h-6"
+          @click="$emit('paste')"
+        />
+        <Button
+          v-if="copyable"
+          v-tooltip.bottom="'Копировать диапазоны'"
+          icon="pi pi-copy"
+          severity="secondary"
+          text
+          size="small"
+          class="!p-1 !w-6 !h-6"
+          @click="$emit('copy')"
+        />
+        <Button
+          v-if="voltageSource"
+          v-tooltip.bottom="'Очистить'"
+          icon="pi pi-times"
+          severity="secondary"
+          text
+          size="small"
+          class="!p-1 !w-6 !h-6"
+          @click="$emit('remove')"
+        />
+      </div>
     </div>
 
     <p class="text-[11px] text-surface-500 mb-2 leading-snug">

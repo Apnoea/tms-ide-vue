@@ -27,6 +27,10 @@ defineProps({
   removable: { type: Boolean, default: false },
   tagsLoaded: { type: Boolean, default: false },
   title: { type: String, default: 'Булево значение' },
+  // copyable — есть что копировать (свой тег или группы-зависимости); pasteable —
+  // в буфере анимаций лежит булев блок, «вставить» показываем на любом выделении.
+  copyable: { type: Boolean, default: false },
+  pasteable: { type: Boolean, default: false },
 })
 
 defineEmits([
@@ -38,6 +42,8 @@ defineEmits([
   'remove-group',
   'remove',
   'highlight-tag',
+  'copy',
+  'paste',
 ])
 </script>
 
@@ -48,16 +54,38 @@ defineEmits([
       <div class="text-xs font-medium text-surface-700">
         {{ title }}
       </div>
-      <Button
-        v-if="removable"
-        v-tooltip.bottom="'Удалить все зависимости'"
-        icon="pi pi-times"
-        severity="secondary"
-        text
-        size="small"
-        class="!p-1 !w-6 !h-6 ml-auto"
-        @click="$emit('remove')"
-      />
+      <div class="ml-auto flex items-center">
+        <Button
+          v-if="pasteable"
+          v-tooltip.bottom="'Вставить скопированное булево'"
+          icon="pi pi-clipboard"
+          severity="secondary"
+          text
+          size="small"
+          class="!p-1 !w-6 !h-6"
+          @click="$emit('paste')"
+        />
+        <Button
+          v-if="copyable"
+          v-tooltip.bottom="'Копировать булево'"
+          icon="pi pi-copy"
+          severity="secondary"
+          text
+          size="small"
+          class="!p-1 !w-6 !h-6"
+          @click="$emit('copy')"
+        />
+        <Button
+          v-if="removable"
+          v-tooltip.bottom="'Удалить все зависимости'"
+          icon="pi pi-times"
+          severity="secondary"
+          text
+          size="small"
+          class="!p-1 !w-6 !h-6"
+          @click="$emit('remove')"
+        />
+      </div>
     </div>
 
     <!-- Прямая привязка: свой тег элемента (intrinsic), без × -->

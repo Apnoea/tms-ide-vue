@@ -11,6 +11,7 @@ import {
   collectUsedStencilIds,
 } from '../services/projectZip'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
+import { replaceStencilOverrides, stencilSignature } from '../services/stencilOverrides'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { nplural } from '../utils/plural'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
@@ -240,13 +241,27 @@ export function useProject({
    * стенсилах, которых нет ни в базе, ни в бандле.
    */
   async function applyImportedBundle(data, graph, paper, projectName = null) {
-    // Бандл-стенсилы, которых нет в базе, регистрируем в рантайме ДО парсинга —
-    // иначе parseSvgProject выкинет их ячейки. Список фиксируем здесь (после
-    // регистрации getStencilById вернёт их) — он же идёт в POST для записи файлов.
-    // Уже имеющиеся в базе НЕ трогаем: перезапись через JSON.stringify сбила бы
-    // рукописное форматирование committed-файлов → git-шум, семантика и так на месте.
-    const newStencils = data.stencils.filter((s) => !getStencilById(s.id))
-    for (const s of newStencils) registerStencil(s.stencilJson, s.shapeSvg)
+    // Бандл-стенсилы регистрируем в рантайме ДО парсинга — иначе parseSvgProject
+    // выкинет их ячейки. Регистрируем не только новые (которых нет в реестре), но и
+    // ИЗМЕНЁННЫЕ: если проект принёс другую версию существующего стенсила (правка
+    // заливки/анимации cell_qw и т.п.), берём её — иначе правки «слетали» бы на
+    // встроенную версию. Неизменённые встроенные не трогаем (сравнение по
+    // stencilSignature, устойчиво к порядку полей).
+    const newStencils = []
+    const changedStencils = []
+    for (const s of data.stencils) {
+      const cur = getStencilById(s.id)
+      if (!cur) {
+        newStencils.push(s)
+        continue
+      }
+      const { svgText, ...curJson } = cur
+      if (stencilSignature(curJson, svgText) !== stencilSignature(s.stencilJson, s.shapeSvg)) {
+        changedStencils.push(s)
+      }
+    }
+    const importedStencils = [...newStencils, ...changedStencils]
+    for (const s of importedStencils) registerStencil(s.stencilJson, s.shapeSvg)
 
     const forms = []
     const usedStencilIds = new Set()
@@ -320,30 +335,16 @@ export function useProject({
       return
     }
 
-    // Новые стенсилы пишем в definitions/ (dev-плагин) — reload сделает рантайм-
-    // регистрацию персистентной. Уже имеющиеся в POST не попадают (отфильтрованы выше).
-    if (newStencils.length) {
-      const written = await persistStencilsToDisk(newStencils)
-      if (written) {
-        // Файлы записаны в definitions/ — на диске для будущих сессий (glob их
-        // подхватит). Vite обычно делает full-reload (restoreProject поднимет всё
-        // из IDB), но НЕ ждём его: стенсилы уже в рантайм-реестре, рисуем форму
-        // сразу. Холст корректен, даже если reload не придёт (HMR-патч).
-        applyActiveForm()
-        notify.success('Проект импортирован', okMsg)
-      } else {
-        // dev-плагин недоступен/ошибка: формы применяем, но ячейки на новые
-        // стенсилы не отрисуются (см. предупреждение о недостающих стенсилах).
-        applyActiveForm()
-        notify.warn(
-          'Проект импортирован без новых стенсилов',
-          'Не удалось записать стенсилы (dev-плагин).'
-        )
-      }
-    } else {
-      applyActiveForm()
-      notify.success('Проект импортирован', okMsg)
-    }
+    // Оверрайды стенсилов проекта (новые + изменённые встроенные) → в IDB: они
+    // переживут reload и в prod, где dev-плагина нет. Заменяем весь набор — импорт
+    // меняет проект целиком. Это делает стенсилы персистентными независимо от
+    // persistStencilsToDisk ниже (тот — dev-бонус: пишет файлы в definitions/,
+    // чтобы новый стенсил попал в кодовую базу под git).
+    await replaceStencilOverrides(importedStencils)
+    if (importedStencils.length) persistStencilsToDisk(importedStencils)
+
+    applyActiveForm()
+    notify.success('Проект импортирован', okMsg)
   }
 
   /**
