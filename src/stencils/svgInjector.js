@@ -46,17 +46,32 @@ export function computeBusPorts(width, height) {
  * для cell_node: можно подключаться К узлу, но не таскать ОТ него — узел не
  * имеет «направления», это junction-точка).
  */
-export function buildPortItems(stencil, width, height) {
+export function buildPortItems(stencil, width, height, flip = {}) {
   if (stencil.id === 'cell_bus') return computeBusPorts(width, height)
+  const { flipH = false, flipV = false } = flip
   return (stencil.ports || []).map((p) => {
     const item = {
       id: p.name,
       group: 'port',
-      args: { x: p.x, y: p.y },
+      // Отражаем позиции портов вместе с символом: x'=W-x (flipH), y'=H-y (flipV).
+      // Провода привязаны к порту по id — при смене позиции следуют за ним.
+      args: { x: flipH ? width - p.x : p.x, y: flipV ? height - p.y : p.y },
     }
     if (p.magnet) item.attrs = { portBody: { magnet: p.magnet } }
     return item
   })
+}
+
+/**
+ * SVG-transform для отражения символа в пределах его bbox. Возвращает null, если
+ * flip не задан (вызывающий убирает атрибут). translate компенсирует scale, чтобы
+ * зеркало осталось в [0,W]×[0,H], а не ушло в отрицательные координаты.
+ */
+export function flipTransform(width, height, flipH, flipV) {
+  if (!flipH && !flipV) return null
+  const tx = flipH ? width : 0
+  const ty = flipV ? height : 0
+  return `translate(${tx} ${ty}) scale(${flipH ? -1 : 1} ${flipV ? -1 : 1})`
 }
 
 /**
@@ -452,6 +467,14 @@ export function injectStencilSvg(cellView, stencil) {
       target.appendChild(child)
     }
   }
+
+  // Отражение символа (flip): transform на body-группе. Только визуал контента —
+  // позиции портов отражает buildPortItems отдельно. removeAttribute при снятии
+  // flip, иначе старый transform завис бы после reinject.
+  const tmsView = cellView.model.get('tms') || {}
+  const ft = flipTransform(currentSize.width, currentSize.height, !!tmsView.flipH, !!tmsView.flipV)
+  if (ft) target.setAttribute('transform', ft)
+  else target.removeAttribute('transform')
 
   // Класс «замок» на корне view — по tms.locked (при любом рендере/reinject/load).
   // CSS по нему прячет bus-хэндлы и рисует индикатор; при toggle класс правится

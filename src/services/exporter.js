@@ -1,6 +1,11 @@
 import { getStencilById, getAllStencils } from '../stencils/registry'
 import { instantiate } from '../stencils/parser'
-import { buildBusExportSvg, buildTextExportSvg, buildValueExportSvg } from '../stencils/svgInjector'
+import {
+  buildBusExportSvg,
+  buildTextExportSvg,
+  buildValueExportSvg,
+  flipTransform,
+} from '../stencils/svgInjector'
 import {
   CLASS_OFF,
   CLASS_HIDDEN,
@@ -433,6 +438,10 @@ export function exportProject(graph, paper = null) {
       // Геометрический трансформ — для round-trip. angle применяется в SVG
       // как rotate вокруг центра ячейки на outer-`<g>`.
       angle: cell.angle ? cell.angle() : 0,
+      // Отражение символа (flip) — визуал через transform на внутренней группе,
+      // позиции портов уже отражены в живом paper (buildPortItems).
+      flipH: tms.flipH,
+      flipV: tms.flipV,
     })
 
     minX = Math.min(minX, pos.x)
@@ -509,6 +518,8 @@ export function exportProject(graph, paper = null) {
       d: pathD,
       voltageSource: linkTms.voltageSource || null,
       switchSources: linkTms.switchSources || null,
+      // Толщина линии (px). Дефолт (2) не тащим — meta пишет только нестандартную.
+      strokeWidth: linkTms.strokeWidth || null,
       // Endpoint-references для редактора: какие именно ячейки/порты соединены.
       // Эти данные ИЗ source/target в JointJS-модели, не из геометрии пути.
       source: sourceRef ? { id: sourceRef.id, port: sourceRef.port } : null,
@@ -713,11 +724,12 @@ export function exportProject(graph, paper = null) {
       if (l.voltageSource) meta.voltageSource = l.voltageSource
       if (l.switchSources) meta.switchSources = l.switchSources
       if (l.vertices) meta.vertices = l.vertices
+      if (l.strokeWidth) meta.strokeWidth = l.strokeWidth
       const metaAttr = escapeAttr(JSON.stringify(meta))
       // l.id и l.d сейчас составляются из UUID-производных и сгенерированных
       // path-данных — symbol-safe, но escapeAttr держит инвариант на случай
       // если JointJS-расширение когда-то засунет туда что-то экзотическое.
-      return `  <path id="${escapeAttr(l.id)}" d="${escapeAttr(l.d)}" stroke="#000" stroke-width="2" fill="none" ${ATTR_META}="${metaAttr}"/>`
+      return `  <path id="${escapeAttr(l.id)}" d="${escapeAttr(l.d)}" stroke="#000" stroke-width="${l.strokeWidth ?? 2}" fill="none" ${ATTR_META}="${metaAttr}"/>`
     })
     .join('\n')
 
@@ -730,6 +742,10 @@ export function exportProject(graph, paper = null) {
       for (const child of Array.from(sourceRoot.children)) {
         inner += serializer.serializeToString(child)
       }
+      // Flip: контент оборачиваем во внутреннюю flip-группу (позиция/поворот — на
+      // outer, отражение внутри, как в редакторе). Порты в экспорт не идут.
+      const flip = flipTransform(c.width, c.height, c.flipH, c.flipV)
+      if (flip) inner = `<g transform="${flip}">${inner}</g>`
       const meta = {
         id: c.cellId,
         stencilId: c.stencilId,
@@ -750,6 +766,8 @@ export function exportProject(graph, paper = null) {
       if (c.switchSources) meta.switchSources = c.switchSources
       if (c.navigation) meta.navigation = c.navigation
       if (c.angle) meta.angle = c.angle
+      if (c.flipH) meta.flipH = true
+      if (c.flipV) meta.flipV = true
       const metaAttr = escapeAttr(JSON.stringify(meta))
       // translate(x,y) ставит ячейку на холст; rotate (если есть) вращает
       // вокруг центра ячейки в её локальных координатах.

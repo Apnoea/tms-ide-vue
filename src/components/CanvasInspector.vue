@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
-import Select from 'primevue/select'
+import AutoComplete from 'primevue/autocomplete'
 import SelectButton from 'primevue/selectbutton'
 import ToggleSwitch from 'primevue/toggleswitch'
 import { useNotify } from '../composables/useNotify'
@@ -60,6 +60,104 @@ const canvas = useCanvas()
 const animClip = useAnimationClipboard()
 // Выравнивание + распределение выделенных ячеек (секция «Выравнивание» в мульти-режиме).
 const { canAlign, canDistribute, alignCells, distributeCells } = useAlign()
+
+// Тулбар выравнивания/распределения (мульти-режим). Кнопки различаются лишь
+// подсказкой, операцией и координатами прямоугольников иконки (viewBox 16×16) —
+// держим конфигом, а не копипастом разметки. В rects: ось выравнивания (без
+// opacity) + два «элемента» (o:0.8); у распределения — три равных столбца.
+const ALIGN_ROWS = [
+  {
+    label: 'По горизонтали',
+    kind: 'align',
+    buttons: [
+      {
+        op: 'left',
+        tip: 'По левому краю',
+        rects: [
+          { x: 1, y: 2, w: 1.4, h: 12, rx: 0.5 },
+          { x: 3.4, y: 4, w: 9, h: 3, rx: 1, o: 0.8 },
+          { x: 3.4, y: 9, w: 5.5, h: 3, rx: 1, o: 0.8 },
+        ],
+      },
+      {
+        op: 'centerX',
+        tip: 'По центру (горизонт.)',
+        rects: [
+          { x: 7.3, y: 2, w: 1.4, h: 12, rx: 0.5 },
+          { x: 3.5, y: 4, w: 9, h: 3, rx: 1, o: 0.8 },
+          { x: 5.25, y: 9, w: 5.5, h: 3, rx: 1, o: 0.8 },
+        ],
+      },
+      {
+        op: 'right',
+        tip: 'По правому краю',
+        rects: [
+          { x: 13.2, y: 2, w: 1.4, h: 12, rx: 0.5 },
+          { x: 4.2, y: 4, w: 9, h: 3, rx: 1, o: 0.8 },
+          { x: 7.7, y: 9, w: 5.5, h: 3, rx: 1, o: 0.8 },
+        ],
+      },
+    ],
+  },
+  {
+    label: 'По вертикали',
+    kind: 'align',
+    buttons: [
+      {
+        op: 'top',
+        tip: 'По верхнему краю',
+        rects: [
+          { x: 2, y: 1, w: 12, h: 1.4, rx: 0.5 },
+          { x: 4, y: 3.4, w: 3, h: 9, rx: 1, o: 0.8 },
+          { x: 9, y: 3.4, w: 3, h: 5.5, rx: 1, o: 0.8 },
+        ],
+      },
+      {
+        op: 'centerY',
+        tip: 'По центру (вертик.)',
+        rects: [
+          { x: 2, y: 7.3, w: 12, h: 1.4, rx: 0.5 },
+          { x: 4, y: 3.5, w: 3, h: 9, rx: 1, o: 0.8 },
+          { x: 9, y: 5.25, w: 3, h: 5.5, rx: 1, o: 0.8 },
+        ],
+      },
+      {
+        op: 'bottom',
+        tip: 'По нижнему краю',
+        rects: [
+          { x: 2, y: 13.2, w: 12, h: 1.4, rx: 0.5 },
+          { x: 4, y: 4.2, w: 3, h: 9, rx: 1, o: 0.8 },
+          { x: 9, y: 7.7, w: 3, h: 5.5, rx: 1, o: 0.8 },
+        ],
+      },
+    ],
+  },
+  {
+    // Распределение: равные интервалы. Нужно ≥3 ячеек (иначе disabled).
+    label: 'Распределение',
+    kind: 'distribute',
+    buttons: [
+      {
+        op: 'x',
+        tip: 'Распределить по горизонтали (равные интервалы)',
+        rects: [
+          { x: 2, y: 3, w: 2.6, h: 10, rx: 0.8 },
+          { x: 6.7, y: 3, w: 2.6, h: 10, rx: 0.8 },
+          { x: 11.4, y: 3, w: 2.6, h: 10, rx: 0.8 },
+        ],
+      },
+      {
+        op: 'y',
+        tip: 'Распределить по вертикали (равные интервалы)',
+        rects: [
+          { x: 3, y: 2, w: 10, h: 2.6, rx: 0.8 },
+          { x: 3, y: 6.7, w: 10, h: 2.6, rx: 0.8 },
+          { x: 3, y: 11.4, w: 10, h: 2.6, rx: 0.8 },
+        ],
+      },
+    ],
+  },
+]
 const project = useProjectStore()
 const workspace = useWorkspaceStore()
 const notify = useNotify()
@@ -121,6 +219,8 @@ const details = computed(() => {
     return {
       kind: 'link',
       id: cell.id,
+      // Толщина линии — из JointJS-attr (реально отрисованная), дефолт 2.
+      strokeWidth: cell.attr('line/strokeWidth') ?? 2,
       voltageSource: tms.voltageSource || null,
       switchSources: tms.switchSources || null,
     }
@@ -273,6 +373,26 @@ function applyAlign(align) {
   patchTextCell({ align })
 }
 
+// ─── Провод: толщина линии ───
+// Пишем в JointJS-attr (мгновенная отрисовка) + в tms.strokeWidth (round-trip
+// через data-tms-meta + автосейв). Дефолт (2) в tms не держим — meta пишет только
+// нестандартную толщину (как align='left').
+function applyStrokeWidth(v) {
+  const graph = canvas.graphRef.value
+  const d = details.value
+  if (!graph || d?.kind !== 'link' || v == null) return
+  const link = graph.getCell(d.id)
+  if (!link) return
+  link.attr('line/strokeWidth', v)
+  const tms = link.get('tms') || {}
+  const next = { ...tms }
+  if (v === 2) delete next.strokeWidth
+  else next.strokeWidth = v
+  link.set('tms', next)
+  canvas.bumpVersion()
+  canvas.requestSnapshot()
+}
+
 // ─── Замок ячейки ───
 function applyLockToggle() {
   const d = details.value
@@ -317,10 +437,10 @@ const multiGroup = computed(() => {
 function applyGroupToggle() {
   if (multiGroup.value.ungroup) {
     const n = canvas.ungroupCells(canvas.selection.value)
-    if (n) notify.success('Разгруппировано', nplural(n, 'элемент', 'элемента', 'элементов'))
+    if (n) notify.success('Разгруппировано', nplural(n, 'символ', 'символа', 'символов'))
   } else {
     const n = canvas.groupCells(canvas.selection.value)
-    if (n) notify.success('Сгруппировано', nplural(n, 'элемент', 'элемента', 'элементов'))
+    if (n) notify.success('Сгруппировано', nplural(n, 'символ', 'символа', 'символов'))
   }
 }
 
@@ -352,7 +472,7 @@ function openVoltagePicker() {
 function openMultiVoltagePicker() {
   openPicker({
     tags: project.tags,
-    header: 'Тег диапазонов для всех выделенных элементов',
+    header: 'Тег диапазонов для всех выделенных символов',
     onSelect: onPickMultiVoltageTag,
   })
 }
@@ -458,7 +578,7 @@ function updateRange(idx, field, value) {
 function toggleVoltageHighlight() {
   const tag = details.value?.voltageSource?.tag
   if (!tag) {
-    notify.warn('Тег не выбран', 'Выберите тег источника, чтобы подсветить элементы с тем же тегом')
+    notify.warn('Тег не выбран', 'Выберите тег источника, чтобы подсветить символы с тем же тегом')
     return
   }
   canvas.toggleHighlightedTag(tag)
@@ -651,7 +771,7 @@ function removeSwitchGroup(gi) {
 function openMultiSwitchPicker() {
   openPicker({
     tags: booleanTags.value,
-    header: 'Булев тег для всех выделенных элементов',
+    header: 'Булев тег для всех выделенных символов',
     onSelect: onPickMultiSwitchTag,
   })
 }
@@ -691,7 +811,7 @@ function onPickMultiSwitchTag(tag) {
   }
   canvas.bumpVersion()
   canvas.requestSnapshot()
-  const count = nplural(applied, 'элемент', 'элемента', 'элементов')
+  const count = nplural(applied, 'символ', 'символа', 'символов')
   notify.success(
     'Булев тег привязан',
     skipped > 0
@@ -772,7 +892,7 @@ function pasteClip(clip, apply) {
     }
     canvas.bumpVersion()
     canvas.requestSnapshot()
-    const count = nplural(applied, 'элемент', 'элемента', 'элементов')
+    const count = nplural(applied, 'символ', 'символа', 'символов')
     notify.success(
       title,
       skipped ? `Применено к ${count} · пропущено: ${skipped}` : `Применено к ${count}`
@@ -783,22 +903,34 @@ function pasteClip(clip, apply) {
 // ─── Hyperlink-навигация: клик в рантайме открывает другую view ───
 // Свич управляет видимостью инпута; пустое значение не пишется, при OFF — чистим.
 const navigationEnabled = ref(false)
+// Черновик поля навигации: AutoComplete пишет сюда на каждый ввод, а в граф
+// коммитим (patchNavigation) только по blur/Enter/выбору. Иначе мутация на
+// каждый keystroke пересчитывала бы details → :model-value навязывался бы
+// обратно и сбрасывал ввод, а navBroken мигал бы на неполном слове.
+const navInput = ref('')
+// Подсказки выпадашки AutoComplete — формы проекта, фильтруются по вводу (@complete).
+const navSuggestions = ref([])
 // Источник watch'а — МАССИВ ГЕТТЕРОВ [id, navigation], а не один getter,
 // возвращающий [id, navigation]: одиночный getter отдаёт новый массив каждый
 // раз → Object.is всегда false → callback стрелял бы на каждый bumpVersion
 // (тумблер сбрасывался бы при любом движении ячейки). Массив геттеров даёт
 // поэлементный diff: ресинк только когда реально сменился id (другая ячейка)
-// или navigation (undo/redo на той же ячейке).
+// или navigation (undo/redo на той же ячейке). navInput НЕ трогается на вводе
+// (navigation в графе меняется только по commit), поэтому ввод не перетирается.
 watch(
   [() => details.value?.id, () => details.value?.navigation],
   () => {
     navigationEnabled.value = !!details.value?.navigation
+    navInput.value = details.value?.navigation || ''
   },
   { immediate: true }
 )
 function toggleNavigationEnabled(value) {
   navigationEnabled.value = value
-  if (!value) patchNavigation('')
+  if (!value) {
+    navInput.value = ''
+    patchNavigation('')
+  }
 }
 
 function patchNavigation(value) {
@@ -813,20 +945,20 @@ function patchNavigation(value) {
   })
 }
 
-// Цель навигации — форма проекта (id формы = имя папки = view-id рантайма).
-// Себя в список не кладём (переход на текущую форму бессмыслен). Если у ячейки
-// сохранена цель, которой больше нет в проекте (импорт/переименование/удаление),
-// держим её первой опцией с пометкой — чтобы не потерять значение молча и дать
-// перевыбрать. navBroken подсвечивает такую ссылку как нерабочую.
-const navTargets = computed(() => {
-  const ids = workspace.formIds.filter((id) => id !== workspace.activeFormId)
-  const opts = ids.map((id) => ({ label: id, value: id }))
-  const cur = details.value?.navigation
-  if (cur && !workspace.formIds.includes(cur)) {
-    opts.unshift({ label: `${cur} — нет в проекте`, value: cur })
-  }
-  return opts
-})
+// Формы-цели навигации: все формы проекта кроме текущей (переход на себя
+// бессмыслен). AutoComplete даёт выбрать из них ИЛИ ввести view-id вручную —
+// ссылка на ещё не загруженную/внешнюю форму штатна. navBroken = цель вне
+// загруженных форм; это НЕ ошибка (внешняя view), лишь нейтральная пометка в UI.
+const otherFormIds = computed(() => workspace.formIds.filter((id) => id !== workspace.activeFormId))
+function onNavComplete(e) {
+  const q = (e.query || '').toLowerCase()
+  navSuggestions.value = otherFormIds.value.filter((id) => id.toLowerCase().includes(q))
+}
+// Коммит черновика в граф. item-select даёт event.value (выбранная форма);
+// blur/Enter — берём текущий navInput.
+function commitNav(e) {
+  patchNavigation(e && e.value !== undefined ? e.value : navInput.value)
+}
 const navBroken = computed(() => {
   const cur = details.value?.navigation
   return !!cur && !workspace.formIds.includes(cur)
@@ -879,7 +1011,7 @@ const switchPickerTags = computed(() => {
     </div>
 
     <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm">
-      <!-- Multi-select: больше одного элемента — показываем сводку + удаление -->
+      <!-- Multi-select: больше одного символа — показываем сводку + удаление -->
       <template v-if="canvas.selection.value.length > 1">
         <div class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4">
           <div>
@@ -887,12 +1019,12 @@ const switchPickerTags = computed(() => {
               {{ multiGroup.ungroup ? 'Группа' : 'Выделено' }}
             </div>
             <div class="font-medium text-surface-900">
-              {{ nplural(canvas.selection.value.length, 'элемент', 'элемента', 'элементов') }}
+              {{ nplural(canvas.selection.value.length, 'символ', 'символа', 'символов') }}
             </div>
             <p class="text-[11px] text-surface-500 mt-2">
               {{
                 multiGroup.ungroup
-                  ? 'Группа ведёт себя как один элемент. Анимации применяются ко всем членам.'
+                  ? 'Группа ведёт себя как один символ. Анимации применяются ко всем членам.'
                   : 'Ячейки можно тащить группой, удалить клавишей Del. Анимации ниже применяются ко всему выделению; остальные свойства — при одном выделенном.'
               }}
             </p>
@@ -917,122 +1049,31 @@ const switchPickerTags = computed(() => {
                внутреннюю раскладку не трогаем. Три категории: гориз./верт.
                выравнивание, распределение; центры снапятся к сетке. -->
           <div v-if="canAlign && !multiGroup.ungroup" class="space-y-2.5">
-            <div class="flex items-center gap-3">
+            <div v-for="row in ALIGN_ROWS" :key="row.label" class="flex items-center gap-3">
               <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                По горизонтали
+                {{ row.label }}
               </span>
               <div class="ml-auto flex items-center gap-1">
                 <button
+                  v-for="btn in row.buttons"
+                  :key="btn.op"
                   type="button"
-                  v-tooltip.bottom="'По левому краю'"
-                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
-                  @click="alignCells('left')"
-                >
-                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                    <rect x="1" y="2" width="1.4" height="12" rx="0.5" />
-                    <rect x="3.4" y="4" width="9" height="3" rx="1" opacity="0.8" />
-                    <rect x="3.4" y="9" width="5.5" height="3" rx="1" opacity="0.8" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  v-tooltip.bottom="'По центру (горизонт.)'"
-                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
-                  @click="alignCells('centerX')"
-                >
-                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                    <rect x="7.3" y="2" width="1.4" height="12" rx="0.5" />
-                    <rect x="3.5" y="4" width="9" height="3" rx="1" opacity="0.8" />
-                    <rect x="5.25" y="9" width="5.5" height="3" rx="1" opacity="0.8" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  v-tooltip.bottom="'По правому краю'"
-                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
-                  @click="alignCells('right')"
-                >
-                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                    <rect x="13.2" y="2" width="1.4" height="12" rx="0.5" />
-                    <rect x="4.2" y="4" width="9" height="3" rx="1" opacity="0.8" />
-                    <rect x="7.7" y="9" width="5.5" height="3" rx="1" opacity="0.8" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                По вертикали
-              </span>
-              <div class="ml-auto flex items-center gap-1">
-                <button
-                  type="button"
-                  v-tooltip.bottom="'По верхнему краю'"
-                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
-                  @click="alignCells('top')"
-                >
-                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                    <rect x="2" y="1" width="12" height="1.4" rx="0.5" />
-                    <rect x="4" y="3.4" width="3" height="9" rx="1" opacity="0.8" />
-                    <rect x="9" y="3.4" width="3" height="5.5" rx="1" opacity="0.8" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  v-tooltip.bottom="'По центру (вертик.)'"
-                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
-                  @click="alignCells('centerY')"
-                >
-                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                    <rect x="2" y="7.3" width="12" height="1.4" rx="0.5" />
-                    <rect x="4" y="3.5" width="3" height="9" rx="1" opacity="0.8" />
-                    <rect x="9" y="5.25" width="3" height="5.5" rx="1" opacity="0.8" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  v-tooltip.bottom="'По нижнему краю'"
-                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900"
-                  @click="alignCells('bottom')"
-                >
-                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                    <rect x="2" y="13.2" width="12" height="1.4" rx="0.5" />
-                    <rect x="4" y="4.2" width="3" height="9" rx="1" opacity="0.8" />
-                    <rect x="9" y="7.7" width="3" height="5.5" rx="1" opacity="0.8" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <!-- Распределение: равные интервалы. Нужно ≥3 ячеек (иначе disabled). -->
-            <div class="flex items-center gap-3">
-              <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                Распределение
-              </span>
-              <div class="ml-auto flex items-center gap-1">
-                <button
-                  type="button"
-                  v-tooltip.bottom="'Распределить по горизонтали (равные интервалы)'"
-                  :disabled="!canDistribute"
+                  v-tooltip.bottom="btn.tip"
+                  :disabled="row.kind === 'distribute' && !canDistribute"
                   class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900 disabled:cursor-not-allowed disabled:opacity-40"
-                  @click="distributeCells('x')"
+                  @click="row.kind === 'distribute' ? distributeCells(btn.op) : alignCells(btn.op)"
                 >
                   <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                    <rect x="2" y="3" width="2.6" height="10" rx="0.8" />
-                    <rect x="6.7" y="3" width="2.6" height="10" rx="0.8" />
-                    <rect x="11.4" y="3" width="2.6" height="10" rx="0.8" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  v-tooltip.bottom="'Распределить по вертикали (равные интервалы)'"
-                  :disabled="!canDistribute"
-                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900 disabled:cursor-not-allowed disabled:opacity-40"
-                  @click="distributeCells('y')"
-                >
-                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                    <rect x="3" y="2" width="10" height="2.6" rx="0.8" />
-                    <rect x="3" y="6.7" width="10" height="2.6" rx="0.8" />
-                    <rect x="3" y="11.4" width="10" height="2.6" rx="0.8" />
+                    <rect
+                      v-for="(r, i) in btn.rects"
+                      :key="i"
+                      :x="r.x"
+                      :y="r.y"
+                      :width="r.w"
+                      :height="r.h"
+                      :rx="r.rx"
+                      :opacity="r.o"
+                    />
                   </svg>
                 </button>
               </div>
@@ -1117,7 +1158,7 @@ const switchPickerTags = computed(() => {
               <ul class="flex flex-col gap-2 text-surface-500">
                 <li class="flex items-center gap-2">
                   <i class="pi pi-arrows-alt !text-[10px] text-surface-400" />
-                  Перетащи стенсил из палитры на холст
+                  Перетащи символ из палитры на холст
                 </li>
                 <li class="flex items-center gap-2">
                   <kbd class="rounded bg-surface-100 px-1 py-0.5 font-mono text-[10px]">Ctrl+F</kbd>
@@ -1143,7 +1184,7 @@ const switchPickerTags = computed(() => {
         >
           <template v-if="details.kind === 'cell'">
             <div>
-              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Элемент</div>
+              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Символ</div>
               <div class="font-medium text-surface-900">
                 {{ details.stencilLabel }}
               </div>
@@ -1266,9 +1307,9 @@ const switchPickerTags = computed(() => {
             </div>
 
             <!-- Навигация (hyperlink на другую форму при клике в рантайме). Цель —
- форма проекта (её id = view-id рантайма), поэтому выбор из списка форм,
- а не свободный ввод: исключает опечатки и битые ссылки. Свич справа от
- заголовка показывает/скрывает селект; выключение очищает значение. -->
+ id формы проекта (= view-id рантайма): можно выбрать из списка форм ИЛИ ввести
+ view-id вручную (editable) — напр. для view, которой ещё нет в проекте. Свич
+ справа от заголовка показывает/скрывает поле; выключение очищает значение. -->
             <div v-if="!details.isText" class="space-y-2">
               <div class="flex items-center justify-between gap-2">
                 <div>
@@ -1281,31 +1322,59 @@ const switchPickerTags = computed(() => {
                 />
               </div>
               <template v-if="navigationEnabled">
-                <Select
-                  :model-value="details.navigation"
-                  :options="navTargets"
-                  option-label="label"
-                  option-value="value"
+                <AutoComplete
+                  :model-value="navInput"
+                  :suggestions="navSuggestions"
+                  dropdown
+                  complete-on-focus
                   size="small"
-                  placeholder="Выберите форму"
-                  class="w-full !text-xs"
-                  :class="navBroken ? '!border-red-400' : ''"
-                  @update:model-value="patchNavigation"
+                  placeholder="Форма или view-id"
+                  class="w-full"
+                  input-class="w-full !text-xs"
+                  @update:model-value="(v) => (navInput = v)"
+                  @complete="onNavComplete"
+                  @item-select="commitNav"
+                  @blur="commitNav"
+                  @keyup.enter="commitNav"
                 />
-                <div v-if="navBroken" class="text-[11px] text-red-500">
-                  Формы нет в проекте — ссылка не сработает
+                <div v-if="navBroken" class="text-[11px] text-surface-500">
+                  Внешняя view (не среди загруженных форм) — сработает, если она есть в рантайме
                 </div>
-                <div v-else-if="!navTargets.length" class="text-[11px] text-surface-500">
-                  В проекте нет других форм
+                <div v-else-if="!otherFormIds.length" class="text-[11px] text-surface-500">
+                  Загруженных форм нет — введите view-id вручную
                 </div>
               </template>
             </div>
           </template>
 
           <template v-else>
-            <div>
-              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Элемент</div>
-              <div class="font-medium text-surface-900">Провод</div>
+            <div class="space-y-2.5">
+              <div>
+                <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
+                  Элемент
+                </div>
+                <div class="font-medium text-surface-900">Провод</div>
+              </div>
+
+              <!-- Толщина линии — строка «подпись слева / контрол справа» (как размер
+                   текста); InputNumber со степперами, как толщина линии в редакторе. -->
+              <div class="flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Толщина, px
+                </span>
+                <InputNumber
+                  :model-value="details.strokeWidth"
+                  :min="0.5"
+                  :max="20"
+                  :step="0.5"
+                  show-buttons
+                  button-layout="horizontal"
+                  size="small"
+                  input-class="!w-12 text-center"
+                  class="ml-auto"
+                  @update:model-value="applyStrokeWidth"
+                />
+              </div>
             </div>
           </template>
 

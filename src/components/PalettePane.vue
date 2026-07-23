@@ -169,7 +169,7 @@ function confirmDeleteStencil(event, stencil) {
   const usage = stencilUsage(stencil.id)
   if (usage.count) {
     notify.warn(
-      'Стенсил используется',
+      'Символ используется',
       `${nplural(usage.count, 'ячейка', 'ячейки', 'ячеек')} в формах: ` +
         `${usage.formIds.join(', ')}. Сначала удалите их со схем.`
     )
@@ -177,7 +177,7 @@ function confirmDeleteStencil(event, stencil) {
   }
   confirm.require({
     target: event.currentTarget,
-    message: `Удалить стенсил «${stencil.label}»?`,
+    message: `Удалить символ «${stencil.label}»?`,
     icon: 'pi pi-exclamation-triangle',
     acceptLabel: 'Удалить',
     rejectLabel: 'Отмена',
@@ -190,10 +190,10 @@ async function removeStencil(id) {
   unregisterStencil(id)
   await removeStencilOverride(id) // снять IDB-оверрайд, иначе он вернул бы стенсил на reload
   const ok = await deleteStencilFromDisk(id)
-  if (ok) notify.success('Стенсил удалён', id)
+  if (ok) notify.success('Символ удалён', id)
   else
     notify.warn(
-      'Стенсил удалён',
+      'Символ удалён',
       'Файл на диске не удалён (dev-плагин недоступен) — после перезагрузки может вернуться'
     )
 }
@@ -212,7 +212,7 @@ async function removeStencil(id) {
              шапке), поэтому кнопки не прячутся и не теснятся при росте их числа. -->
         <div class="flex items-center gap-1">
           <Button
-            v-tooltip.bottom="'Поиск стенсилов'"
+            v-tooltip.bottom="'Поиск символов'"
             icon="pi pi-search"
             :severity="searchOpen ? 'primary' : 'secondary'"
             :text="!searchOpen"
@@ -221,7 +221,7 @@ async function removeStencil(id) {
             @click="toggleSearch"
           />
           <Button
-            v-tooltip.bottom="'Создать стенсил'"
+            v-tooltip.bottom="'Создать символ'"
             icon="pi pi-plus"
             severity="secondary"
             text
@@ -269,7 +269,7 @@ async function removeStencil(id) {
       <template v-if="!allCategories.length">
         <div class="flex flex-col items-center text-center text-surface-400 py-10">
           <i class="pi pi-inbox text-3xl mb-3 opacity-60" />
-          <div class="text-sm font-medium text-surface-500">Реестр стенсилов пуст</div>
+          <div class="text-sm font-medium text-surface-500">Реестр символов пуст</div>
           <p class="text-[11px] mt-1 max-w-[180px]">Добавь папку в src/stencils/definitions/</p>
         </div>
       </template>
@@ -321,7 +321,7 @@ async function removeStencil(id) {
               <button
                 v-if="!stencil.locked"
                 type="button"
-                v-tooltip.bottom="'Редактировать стенсил'"
+                v-tooltip.bottom="'Редактировать символ'"
                 class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
                 @pointerdown.stop
                 @click="ui.openStencilEditor(stencil.id)"
@@ -336,7 +336,7 @@ async function removeStencil(id) {
               <button
                 v-if="!stencil.locked"
                 type="button"
-                v-tooltip.bottom="'Удалить стенсил'"
+                v-tooltip.bottom="'Удалить символ'"
                 class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-red-600 group-hover:opacity-100"
                 @pointerdown.stop
                 @click="confirmDeleteStencil($event, stencil)"

@@ -5,6 +5,8 @@ import {
   desiredBusPortCount,
   computeBusPorts,
   resizeTextCell,
+  flipTransform,
+  buildPortItems,
 } from './svgInjector'
 
 // Мини-мок JointJS-ячейки: size/position + resize/position(). Достаточно для
@@ -70,6 +72,52 @@ describe('bus port math', () => {
 
     const bot2 = ports.find((p) => p.id === 'bot_2')
     expect(bot2).toEqual({ id: 'bot_2', group: 'port', args: { x: 60, y: 8 } })
+  })
+})
+
+describe('flipTransform', () => {
+  it('null без flip', () => {
+    expect(flipTransform(40, 20, false, false)).toBeNull()
+  })
+  it('flipH: зеркало по X в пределах width', () => {
+    expect(flipTransform(40, 20, true, false)).toBe('translate(40 0) scale(-1 1)')
+  })
+  it('flipV: зеркало по Y в пределах height', () => {
+    expect(flipTransform(40, 20, false, true)).toBe('translate(0 20) scale(1 -1)')
+  })
+  it('оба: зеркало по обеим осям', () => {
+    expect(flipTransform(40, 20, true, true)).toBe('translate(40 20) scale(-1 -1)')
+  })
+})
+
+describe('buildPortItems flip', () => {
+  const stencil = {
+    id: 'cell_x',
+    ports: [
+      { name: 'p1', x: 5, y: 0 },
+      { name: 'p2', x: 35, y: 20 },
+    ],
+  }
+  it('без flip — исходные позиции', () => {
+    const items = buildPortItems(stencil, 40, 20)
+    expect(items.map((i) => i.args)).toEqual([
+      { x: 5, y: 0 },
+      { x: 35, y: 20 },
+    ])
+  })
+  it('flipH: x → W-x, y без изменений', () => {
+    const items = buildPortItems(stencil, 40, 20, { flipH: true })
+    expect(items.map((i) => i.args)).toEqual([
+      { x: 35, y: 0 },
+      { x: 5, y: 20 },
+    ])
+  })
+  it('flipV: y → H-y, x без изменений', () => {
+    const items = buildPortItems(stencil, 40, 20, { flipV: true })
+    expect(items.map((i) => i.args)).toEqual([
+      { x: 5, y: 20 },
+      { x: 35, y: 0 },
+    ])
   })
 })
 

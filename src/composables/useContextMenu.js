@@ -44,8 +44,7 @@ export function useContextMenu({
             icon: 'pi pi-table',
             command: () => {
               const n = canvas.ungroupCells(canvas.selection.value)
-              if (n)
-                notify.success('Разгруппировано', nplural(n, 'элемент', 'элемента', 'элементов'))
+              if (n) notify.success('Разгруппировано', nplural(n, 'символ', 'символа', 'символов'))
             },
           }
         : selCellCount >= 2
@@ -54,8 +53,7 @@ export function useContextMenu({
               icon: 'pi pi-th-large',
               command: () => {
                 const n = canvas.groupCells(canvas.selection.value)
-                if (n)
-                  notify.success('Сгруппировано', nplural(n, 'элемент', 'элемента', 'элементов'))
+                if (n) notify.success('Сгруппировано', nplural(n, 'символ', 'символа', 'символов'))
               },
             }
           : null

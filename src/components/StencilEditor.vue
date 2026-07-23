@@ -166,7 +166,7 @@ function requestClose(event) {
   }
   confirm.require({
     target: event?.currentTarget || closeBtn.value?.$el,
-    message: 'Закрыть редактор? Несохранённый стенсил будет потерян.',
+    message: 'Закрыть редактор? Несохранённый символ будет потерян.',
     icon: 'pi pi-exclamation-triangle',
     acceptLabel: 'Закрыть',
     rejectLabel: 'Отмена',
@@ -188,7 +188,7 @@ async function save() {
     .filter((id) => id !== editing)
   const issues = stencilDraftIssues(meta, shapes.value, existingIds)
   if (issues.length) {
-    notify.warn('Проверьте стенсил', issues.join('; '))
+    notify.warn('Проверьте символ', issues.join('; '))
     return
   }
   const prev = editing ? getStencilById(editing) : null
@@ -210,17 +210,17 @@ async function save() {
         JSON.stringify(prev.ports || []) !== JSON.stringify(json.ports || []))
     if (geomChanged) {
       notify.warn(
-        'Стенсил обновлён',
+        'Символ обновлён',
         'Размер/порты у уже расставленных экземпляров не меняются — переставьте при необходимости'
       )
     } else {
-      notify.success('Стенсил обновлён', json.id)
+      notify.success('Символ обновлён', json.id)
     }
   } else if (ok) {
-    notify.success('Стенсил создан', json.id)
+    notify.success('Символ создан', json.id)
   } else {
     notify.success(
-      'Стенсил создан',
+      'Символ создан',
       'Переживёт перезагрузку; файл в definitions/ появится только в dev-режиме'
     )
   }
@@ -753,7 +753,7 @@ onBeforeUnmount(() => {
           :style="{ left: `${RULER + 8}px` }"
         >
           <span
-            v-tooltip.bottom="'Эмуляция: как элемент выглядит в состоянии (только превью)'"
+            v-tooltip.bottom="'Эмуляция: как символ выглядит в состоянии (только превью)'"
             class="text-xs text-surface-500"
           >
             Превью

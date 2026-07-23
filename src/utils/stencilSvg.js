@@ -366,7 +366,7 @@ export function buildStencilJson(meta, ports, shapes = []) {
     if (meta.stateMode === 'value') buildValueState(json, meta, shapes)
     else buildBooleanState(json, meta, shapes)
     // Цвета состояний (перекрас всего символа) — непустые, только для объявленных
-    // состояний. Компактно: только контур → строка (legacy); есть заливка → объект
+    // состояний. Компактно: только контур → строка; есть заливка → объект
     // { stroke?, fill }. Заливку пишем лишь когда в стенсиле есть заливаемые фигуры
     // (иначе fill-цвет некуда применить — маркера tms-state-fill нет).
     const keys =

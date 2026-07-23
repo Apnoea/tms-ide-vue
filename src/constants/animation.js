@@ -51,7 +51,7 @@ export const STATE_FILL_CLASS = 'tms-state-fill'
 
 /**
  * Нормализует значение stateColors[ключ] к { stroke, fill }. Компактная форма —
- * строка (только контур, legacy/дефолт); расширенная — объект { stroke?, fill? }.
+ * строка (только контур); расширенная — объект { stroke?, fill? }.
  * Пустые поля → ''. Единый разбор для CSS-генератора, редактора и сериализации.
  */
 export function normalizeStateColor(value) {

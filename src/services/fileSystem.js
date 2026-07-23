@@ -5,16 +5,12 @@ function isFileSystemAccessSupported() {
   return typeof window !== 'undefined' && window.showDirectoryPicker && window.showOpenFilePicker
 }
 
-export async function selectFile(startInHandle = null, accept = null) {
+export async function selectFile(startInHandle = null) {
   if (!isFileSystemAccessSupported()) {
     throw new Error('Браузер не поддерживает File System Access API')
   }
 
   const options = { multiple: false }
-  if (accept) {
-    // accept: [{ description, accept: { mime: [extensions] } }]
-    options.types = accept
-  }
   // showOpenFilePicker сам открывает диалог в родительской папке файла, когда
   // startIn — file handle (или в самой папке если directory handle).
   if (startInHandle) options.startIn = startInHandle

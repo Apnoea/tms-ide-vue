@@ -57,7 +57,7 @@ defineEmits([
       <div class="ml-auto flex items-center">
         <Button
           v-if="pasteable"
-          v-tooltip.bottom="'Вставить скопированное булево'"
+          v-tooltip.bottom="'Вставить свойства'"
           icon="pi pi-clipboard"
           severity="secondary"
           text
@@ -67,7 +67,7 @@ defineEmits([
         />
         <Button
           v-if="copyable"
-          v-tooltip.bottom="'Копировать булево'"
+          v-tooltip.bottom="'Копировать свойства'"
           icon="pi pi-copy"
           severity="secondary"
           text

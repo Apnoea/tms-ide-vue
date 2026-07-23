@@ -651,6 +651,61 @@ describe('exportProject', () => {
     expect(link.vertices).toEqual(verts)
   })
 
+  it('толщина провода: round-trip через stroke-width + meta', () => {
+    const graph = mockGraph(
+      [
+        mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 }),
+        mockCell({ id: 'c2', stencilId: 'cell_qw', x: 100, y: 100, w: 20, h: 20 }),
+      ],
+      [
+        mockLink({
+          id: 'l1',
+          source: { id: 'c1', port: 'right' },
+          target: { id: 'c2', port: 'left' },
+          tms: { strokeWidth: 4 },
+        }),
+      ]
+    )
+    const exported = exportProject(graph)
+    expect(exported.svgText).toContain('stroke-width="4"')
+    const link = parseSvgProject(exported.svgText).cells.find((c) => c.type === 'standard.Link')
+    expect(link.attrs.line.strokeWidth).toBe(4)
+    expect(link.tms.strokeWidth).toBe(4)
+  })
+
+  it('flip символа: round-trip через meta + transform в SVG', () => {
+    const graph = mockGraph([
+      mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20, flipH: true }),
+    ])
+    const exported = exportProject(graph)
+    // Контент обёрнут во flip-группу (scale по X в пределах width).
+    expect(exported.svgText).toContain('scale(-1 1)')
+    const cell = parseSvgProject(exported.svgText).cells.find((c) => c.type === 'tms.Stencil')
+    expect(cell.tms.flipH).toBe(true)
+    expect(cell.tms.flipV).toBeUndefined()
+  })
+
+  it('толщина по умолчанию (2) не пишется в meta, path stroke-width=2', () => {
+    const graph = mockGraph(
+      [
+        mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 }),
+        mockCell({ id: 'c2', stencilId: 'cell_qw', x: 100, y: 100, w: 20, h: 20 }),
+      ],
+      [
+        mockLink({
+          id: 'l1',
+          source: { id: 'c1', port: 'right' },
+          target: { id: 'c2', port: 'left' },
+        }),
+      ]
+    )
+    const exported = exportProject(graph)
+    expect(exported.svgText).toContain('stroke-width="2"')
+    const link = parseSvgProject(exported.svgText).cells.find((c) => c.type === 'standard.Link')
+    // Дефолт не переопределяет attrs (остаётся из LINK_DEFAULTS) и не пишет tms.
+    expect(link.tms?.strokeWidth).toBeUndefined()
+  })
+
   it('битый линк (endpoint без size) не роняет экспорт — провод пропускается', () => {
     // Ячейка без size: getEndpointPos возвращает null (а не падает на size.width)
     // → линк пропускается, экспорт формы не рушится.

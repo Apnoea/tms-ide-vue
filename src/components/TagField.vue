@@ -16,7 +16,6 @@ defineProps({
   value: { type: String, default: '' },
   // Можно ли выбирать тег (tag-list загружен). Иначе чип задизейблен.
   canPick: { type: Boolean, default: false },
-  emptyLabel: { type: String, default: '- не выбран -' },
   pickLabel: { type: String, default: 'Выбрать тег' }, // tooltip активного чипа
   highlightable: { type: Boolean, default: false }, // кнопка «подсветить» при value
   removable: { type: Boolean, default: false }, // кнопка «убрать»
@@ -36,7 +35,7 @@ defineEmits(['pick', 'highlight', 'remove'])
       v-tooltip.bottom="canPick ? pickLabel : 'Загрузи tag-list, чтобы выбрать тег'"
       @click="canPick && $emit('pick')"
     >
-      {{ value || emptyLabel }}
+      {{ value || '- не выбран -' }}
     </code>
     <Button
       v-if="highlightable && value"

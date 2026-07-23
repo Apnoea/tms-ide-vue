@@ -162,7 +162,7 @@ function onIdInput(e) {
     <!-- Плашка «Стенсил»: свойства документа (идентификация/поведение/анимация) -->
     <div class="flex-1 min-h-0 flex flex-col">
       <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
-        <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Стенсил</h2>
+        <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Символ</h2>
       </div>
 
       <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-4">

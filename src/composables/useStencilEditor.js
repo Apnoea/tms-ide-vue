@@ -209,8 +209,8 @@ export function createStencilEditor() {
 
   // Цвет перекраса символа для состояния. which — 'stroke' (контур) | 'fill'
   // (заливка). Пустой color = снять этот канал. Компактно: только контур →
-  // строка (legacy); есть заливка → объект { stroke?, fill }; ничего → удаляем
-  // ключ (состояние снова только по видимости). Переприсваиваем целиком — reactive.
+  // строка; есть заливка → объект { stroke?, fill }; ничего → удаляем ключ
+  // (состояние снова только по видимости). Переприсваиваем целиком — reactive.
   function setStateColor(key, color, which = 'stroke') {
     const cur = normalizeStateColor(meta.stateColors[key])
     const val = { ...cur, [which]: color || '' }

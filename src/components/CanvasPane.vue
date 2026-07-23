@@ -173,9 +173,10 @@ useHotkeys({
   copySelection,
   pasteClipboard,
   duplicateSelection,
-  // Обёртка (не прямая ссылка): rotateSelectedBy объявлен ниже — стрелка
-  // резолвит его лениво, на keydown (после mount), TDZ не задевает.
+  // Обёртка (не прямая ссылка): rotateSelectedBy/flipSelected объявлены ниже —
+  // стрелка резолвит их лениво, на keydown (после mount), TDZ не задевает.
   rotateSelected: (deg) => rotateSelectedBy(deg),
+  flipSelected: (axis) => flipSelected(axis),
   onExport: guardedExportArchive,
   projectBusy,
   notify,
@@ -218,13 +219,12 @@ let dragLinkSnapshot = null
 // overlay-кнопки выделенной ячейки, hover-tooltip и контекстное меню. Все читают
 // graph/paper через canvas.*-ref; tooltip получает suppress-предикат «идёт
 // взаимодействие» (pan/drag/resize/edit).
-const { overlayBtns, rotateSelectedBy, onDeleteSelected, toggleLockSelected } = useSelectionOverlay(
-  {
+const { overlayBtns, rotateSelectedBy, flipSelected, onDeleteSelected, toggleLockSelected } =
+  useSelectionOverlay({
     scheduleSnapshot,
     textEditing,
     dragging: cellDragging,
-  }
-)
+  })
 // Бейдж-замок в углу КАЖДОЙ заблокированной ячейки (виден без выделения — иначе
 // непонятно, почему ячейка read-only). Позиция — правый-верхний угол visual-AABB
 // (с учётом поворота), reactive через graphVersion/paperViewTick.
@@ -568,7 +568,7 @@ onMounted(async () => {
       selectCellsWithBridges(nextCells, currentLinks)
     } else {
       // Plain-клик: группу — выделить целиком (если ещё не вся выделена); одиночку
-      // — как раньше. Уже полностью выделенное не трогаем — отдаём под multi-drag.
+      // — выделить её одну. Уже полностью выделенное не трогаем — отдаём под multi-drag.
       const selIds = new Set(
         canvas.selection.value.filter((i) => i.kind === 'cell').map((i) => i.id)
       )
@@ -1077,7 +1077,7 @@ function onClearCanvas(event) {
   }
   confirm.require({
     target: event.currentTarget,
-    message: `Очистить холст? ${nplural(count, 'элемент', 'элемента', 'элементов')} будет удалено.`,
+    message: `Очистить холст? ${nplural(count, 'символ', 'символа', 'символов')} будет удалено.`,
     icon: 'pi pi-exclamation-triangle',
     acceptLabel: 'Очистить',
     rejectLabel: 'Отмена',
@@ -1104,7 +1104,7 @@ function performClearCanvas(count) {
 
   notify.info(
     'Холст очищен',
-    `Удалено ${nplural(count, 'элемент', 'элемента', 'элементов')}`,
+    `Удалено ${nplural(count, 'символ', 'символа', 'символов')}`,
     TOAST_LIFE.SHORT
   )
 }
@@ -1341,6 +1341,28 @@ function performClearCanvas(count) {
           @click="rotateSelectedBy(90)"
         />
         <Button
+          v-if="overlayBtns.canTransform"
+          v-tooltip.top="'Отразить по горизонтали · Shift+H'"
+          icon="pi pi-arrows-h"
+          severity="secondary"
+          rounded
+          size="small"
+          class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
+          :style="overlayBtns.flipH"
+          @click="flipSelected('h')"
+        />
+        <Button
+          v-if="overlayBtns.canTransform"
+          v-tooltip.top="'Отразить по вертикали · Shift+V'"
+          icon="pi pi-arrows-v"
+          severity="secondary"
+          rounded
+          size="small"
+          class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
+          :style="overlayBtns.flipV"
+          @click="flipSelected('v')"
+        />
+        <Button
           v-if="!overlayBtns.locked"
           v-tooltip.top="'Удалить · Del'"
           icon="pi pi-trash"
@@ -1441,7 +1463,7 @@ function performClearCanvas(count) {
             </li>
             <li class="flex items-center gap-2">
               <i class="pi pi-circle text-surface-300" />
-              <span class="text-surface-600">Перетащите стенсил из палитры слева</span>
+              <span class="text-surface-600">Перетащите символ из палитры слева</span>
             </li>
           </ul>
         </div>

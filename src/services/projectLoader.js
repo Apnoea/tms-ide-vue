@@ -68,7 +68,12 @@ export function parseSvgProject(svgText) {
       const width = meta.width ?? stencil.width
       const height = meta.height ?? stencil.height
 
-      const portItems = buildPortItems(stencil, width, height)
+      // Порты отражаем под flip символа (позиции x'=W-x / y'=H-y), чтобы провода
+      // после загрузки сошлись с отражённым символом.
+      const portItems = buildPortItems(stencil, width, height, {
+        flipH: !!meta.flipH,
+        flipV: !!meta.flipV,
+      })
 
       // Собираем tms-payload только из того, что было в meta (не плодим undefined)
       const tms = { stencilId: meta.stencilId }
@@ -79,6 +84,8 @@ export function parseSvgProject(svgText) {
       if (meta.color !== undefined) tms.color = meta.color
       if (meta.align !== undefined) tms.align = meta.align
       if (meta.locked) tms.locked = true
+      if (meta.flipH) tms.flipH = true
+      if (meta.flipV) tms.flipV = true
       if (meta.groupId) tms.groupId = meta.groupId
       if (meta.valueTag !== undefined) tms.valueTag = meta.valueTag
       if (meta.voltageSource) tms.voltageSource = meta.voltageSource
@@ -132,10 +139,16 @@ export function parseSvgProject(svgText) {
       // Ручные изломы: без них gridRightAngle-роутер перерисовал бы провод по
       // дефолтному маршруту, потеряв правки пользователя.
       if (Array.isArray(meta.vertices) && meta.vertices.length) link.vertices = meta.vertices
-      if (meta.voltageSource || meta.switchSources) {
+      if (meta.voltageSource || meta.switchSources || meta.strokeWidth) {
         link.tms = {}
         if (meta.voltageSource) link.tms.voltageSource = meta.voltageSource
         if (meta.switchSources) link.tms.switchSources = meta.switchSources
+        if (meta.strokeWidth) link.tms.strokeWidth = meta.strokeWidth
+      }
+      // Толщина линии: переопределяем attrs.line новым объектом (не мутируя общий
+      // LINK_DEFAULTS.attrs — он шарится всеми проводами), сохраняя stroke/markers.
+      if (meta.strokeWidth) {
+        link.attrs = { line: { ...LINK_DEFAULTS.attrs.line, strokeWidth: meta.strokeWidth } }
       }
       cells.push(link)
     } catch (e) {

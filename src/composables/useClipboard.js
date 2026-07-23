@@ -122,7 +122,10 @@ export function useClipboard({ scheduleSnapshot }) {
       const finalX = snapToGrid(snap.position.x + offset, g)
       const finalY = snapToGrid(snap.position.y + offset, g)
 
-      const portItems = buildPortItems(stencil, snap.size.width, snap.size.height)
+      const portItems = buildPortItems(stencil, snap.size.width, snap.size.height, {
+        flipH: !!tmsCopy.flipH,
+        flipV: !!tmsCopy.flipV,
+      })
 
       // tms копируется полностью включая slots — paste должен сохранять привязки
       // тегов (две копии одного стенсила могут указывать на один и тот же объект,

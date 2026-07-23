@@ -130,10 +130,6 @@ function generateAnimations(stencil, cellId, slots) {
       const dt = interpolateDeep(tpl.detailTags, slots)
       if (!hasUnresolved(dt)) card.detailTags = dt
     }
-    if (tpl.navigation) {
-      const nav = interpolate(tpl.navigation, slots)
-      if (nav !== null) card.navigation = nav
-    }
     result[finalId] = card
   }
   return result

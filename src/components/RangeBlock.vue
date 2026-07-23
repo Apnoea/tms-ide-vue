@@ -37,7 +37,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
       <div class="ml-auto flex items-center">
         <Button
           v-if="pasteable"
-          v-tooltip.bottom="'Вставить скопированные диапазоны'"
+          v-tooltip.bottom="'Вставить свойства'"
           icon="pi pi-clipboard"
           severity="secondary"
           text
@@ -47,7 +47,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
         />
         <Button
           v-if="copyable"
-          v-tooltip.bottom="'Копировать диапазоны'"
+          v-tooltip.bottom="'Копировать свойства'"
           icon="pi pi-copy"
           severity="secondary"
           text

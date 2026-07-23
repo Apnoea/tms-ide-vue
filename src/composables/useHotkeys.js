@@ -28,6 +28,7 @@ function isFocusInInput(t) {
  *  Ctrl+C/V/D  — copy/paste/duplicate выделения
  *  Ctrl+A      — выделить все ячейки
  *  R / Shift+R — повернуть выделенные ячейки по / против часовой (90°)
+ *  Shift+H/V   — отразить выделенные ячейки по горизонтали / вертикали
  *  Стрелки     — сдвиг выделенных ячеек на gridSize (Shift = ×5)
  *  Del/Bksp    — удалить выделение
  *
@@ -60,6 +61,7 @@ export function useHotkeys({
   pasteClipboard,
   duplicateSelection,
   rotateSelected,
+  flipSelected,
   onExport,
   projectBusy = { value: false },
   notify = { success: () => {} },
@@ -174,10 +176,10 @@ export function useHotkeys({
         if (!projectBusy.value) {
           if (event.shiftKey) {
             const n = canvas.ungroupCells(canvas.selection.value)
-            if (n) notify.success('Разгруппировано', nplural(n, 'элемент', 'элемента', 'элементов'))
+            if (n) notify.success('Разгруппировано', nplural(n, 'символ', 'символа', 'символов'))
           } else {
             const n = canvas.groupCells(canvas.selection.value)
-            if (n) notify.success('Сгруппировано', nplural(n, 'элемент', 'элемента', 'элементов'))
+            if (n) notify.success('Сгруппировано', nplural(n, 'символ', 'символа', 'символов'))
           }
         }
         return
@@ -191,6 +193,17 @@ export function useHotkeys({
       event.preventDefault()
       event.stopPropagation()
       rotateSelected?.(event.shiftKey ? -90 : 90)
+      return
+    }
+
+    // Shift+H / Shift+V — отразить выделенные ячейки по горизонтали / вертикали.
+    // Без cmd (Ctrl+H — браузерная история). flipSelected сам фильтрует
+    // noRotate/locked-стенсилы и снапшотит.
+    if ((code === 'KeyH' || code === 'KeyV') && event.shiftKey && !cmd && !event.altKey) {
+      if (inInput || projectBusy.value) return
+      event.preventDefault()
+      event.stopPropagation()
+      flipSelected?.(code === 'KeyH' ? 'h' : 'v')
       return
     }
 
