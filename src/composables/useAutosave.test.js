@@ -59,7 +59,7 @@ describe('useAutosave', () => {
     idbStore.clear()
     restoringHistory = ref(false)
     mockCanvas.graphRef.value = null
-    mockCanvas.paperRef.value = { id: 'paper' }
+    mockCanvas.paperRef.value = { id: 'paper', freeze() {}, unfreeze() {} }
     mockCanvas.setSaveError.mockClear()
     mockCanvas.bumpVersion.mockClear()
   })

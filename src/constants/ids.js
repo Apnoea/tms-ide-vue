@@ -30,6 +30,36 @@ export const ATTR_META = 'data-tms-meta'
 export const ATTR_STENCIL = 'data-tms-stencil'
 export const ATTR_SUFFIX = 'data-anim-suffix'
 
+/**
+ * tms-поля ЯЧЕЙКИ для round-trip через `data-tms-meta` — ЕДИНЫЙ список для записи
+ * (exporter) и чтения (projectLoader): забыть одну сторону при добавлении поля =
+ * тихая потеря значения на round-trip'е.
+ *
+ *  • keep(v)   — писать ли поле в meta (exporter); отсекает дефолты (json чище).
+ *  • flag      — писать как `true`, а не значение (булевы флаги locked/flipH/flipV).
+ *  • clone     — при чтении копировать объект `{ ...v }` (slots не шарить с meta).
+ *
+ * `angle` НЕ здесь: пишется в meta, но читается в `cellJson.angle` (JointJS-поле),
+ * а не в tms — обрабатывается отдельно.
+ */
+export const CELL_META_FIELDS = [
+  { key: 'slots', keep: Boolean, clone: true },
+  { key: 'text', keep: (v) => v !== undefined },
+  { key: 'fontSize', keep: (v) => v !== undefined },
+  { key: 'bold', keep: (v) => v !== undefined },
+  { key: 'color', keep: (v) => v !== undefined },
+  // 'left' — дефолт (отсутствие = left), в meta не пишем.
+  { key: 'align', keep: (v) => v !== undefined && v !== 'left' },
+  { key: 'valueTag', keep: (v) => v !== undefined },
+  { key: 'locked', keep: Boolean, flag: true },
+  { key: 'flipH', keep: Boolean, flag: true },
+  { key: 'flipV', keep: Boolean, flag: true },
+  { key: 'groupId', keep: Boolean },
+  { key: 'voltageSource', keep: Boolean },
+  { key: 'switchSources', keep: Boolean },
+  { key: 'navigation', keep: Boolean },
+]
+
 // ─── ID-генераторы ──────────────────────────────────────────────────────────
 
 /** Outer-key карточки ячейки. cell_value — конвенция `animation-cell-{tag}`. */

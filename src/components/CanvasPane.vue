@@ -9,7 +9,6 @@ import Tag from 'primevue/tag'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
 import { LINK_DEFAULTS, gridRightAngleRouter } from '../stencils/linkDefaults'
-import { isFloatType } from '../services/parsers'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from '../composables/useCanvas'
@@ -31,14 +30,12 @@ import { usePaletteDrag } from '../composables/usePaletteDrag'
 import { nplural } from '../utils/plural'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
-import { projectToScreen } from '../utils/paperGeom'
+import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
 import { cellHasTag } from '../utils/cellSearch'
 import TagPickerDialog from './TagPickerDialog.vue'
 import SearchBar from './SearchBar.vue'
 
 const project = useProjectStore()
-// cell_value отображает аналоговое значение → value-picker только по float-тегам.
-const floatTags = computed(() => project.tags.filter((t) => isFloatType(t.type)))
 const ui = useUiStore()
 const canvas = useCanvas()
 const notify = useNotify()
@@ -215,7 +212,7 @@ let dragSnapshot = null
 // ячеек — двигаются жёстко вместе с группой (иначе маршрут остался бы на месте).
 let dragLinkSnapshot = null
 
-// ─── Overlay-фичи холста (вынесены в composables) ───
+// ─── Overlay-фичи холста ───
 // overlay-кнопки выделенной ячейки, hover-tooltip и контекстное меню. Все читают
 // graph/paper через canvas.*-ref; tooltip получает suppress-предикат «идёт
 // взаимодействие» (pan/drag/resize/edit).
@@ -238,15 +235,9 @@ const lockedBadges = computed(() => {
     .getElements()
     .filter((c) => c.get('tms')?.locked)
     .map((c) => {
-      const pos = c.get('position')
-      const size = c.get('size')
-      const angle = (c.angle() || 0) % 360
-      const rot90 = angle === 90 || angle === 270
-      const bbW = rot90 ? size.height : size.width
-      const bbH = rot90 ? size.width : size.height
-      const cx = pos.x + size.width / 2
-      const cy = pos.y + size.height / 2
-      const tr = projectToScreen(paper, cx + bbW / 2, cy - bbH / 2)
+      // Правый-верхний угол visual-AABB (с учётом поворота) — якорь бейджа.
+      const aabb = rotatedAabb(c.get('position'), c.get('size'), c.angle() || 0)
+      const tr = projectToScreen(paper, aabb.x + aabb.width, aabb.y)
       return { id: c.id, left: `${tr.x - 16}px`, top: `${tr.y - 2}px` }
     })
 })
@@ -271,18 +262,11 @@ const groupHoverRect = computed(() => {
   let maxX = -Infinity
   let maxY = -Infinity
   for (const m of members) {
-    const pos = m.get('position')
-    const size = m.get('size')
-    const angle = (m.angle() || 0) % 360
-    const rot90 = angle === 90 || angle === 270
-    const bbW = rot90 ? size.height : size.width
-    const bbH = rot90 ? size.width : size.height
-    const cx = pos.x + size.width / 2
-    const cy = pos.y + size.height / 2
-    minX = Math.min(minX, cx - bbW / 2)
-    minY = Math.min(minY, cy - bbH / 2)
-    maxX = Math.max(maxX, cx + bbW / 2)
-    maxY = Math.max(maxY, cy + bbH / 2)
+    const aabb = rotatedAabb(m.get('position'), m.get('size'), m.angle() || 0)
+    minX = Math.min(minX, aabb.x)
+    minY = Math.min(minY, aabb.y)
+    maxX = Math.max(maxX, aabb.x + aabb.width)
+    maxY = Math.max(maxY, aabb.y + aabb.height)
   }
   const tl = projectToScreen(paper, minX, minY)
   const br = projectToScreen(paper, maxX, maxY)
@@ -513,7 +497,10 @@ onMounted(async () => {
       const srcPort = sourceMagnet?.getAttribute('port') || null
       const tgtPort = targetMagnet?.getAttribute('port') || null
       const drawn = linkView?.model
-      for (const link of graph.getLinks()) {
+      // Дубль пары портов ищем только среди линков, СВЯЗАННЫХ с source-ячейкой —
+      // любой дубль обязан иметь один конец на sourceView.model, поэтому полный
+      // перебор графа не нужен (иначе O(links) на каждый mousemove протяжки).
+      for (const link of graph.getConnectedLinks(sourceView.model)) {
         if (link === drawn) continue
         const os = link.get('source')
         const ot = link.get('target')
@@ -821,14 +808,19 @@ const VertexHandle = linkTools.Vertices.VertexHandle.extend({
 // + снимаем resize-tools с предыдущих шин, затем накладываем выделение на текущие.
 watch(
   () => canvas.selection.value,
-  (sel) => {
+  (sel, oldSel) => {
     if (!paper) return
 
     // Снимаем класс со всех ранее выделенных
     const root = paper.el
     root.querySelectorAll('.tms-selected').forEach((node) => node.classList.remove('tms-selected'))
-    // Снимаем arrowhead-ручки со всех проводов (навесим заново на выделенные).
-    for (const link of graph?.getLinks() || []) paper.findViewByModel(link)?.removeTools()
+    // Снимаем arrowhead-ручки только с РАНЕЕ выделенных линков (tools висят лишь на
+    // выделенных) — полный перебор графа на каждый клик не нужен.
+    for (const item of oldSel || []) {
+      if (item.kind !== 'link') continue
+      const link = graph?.getCell(item.id)
+      if (link) paper.findViewByModel(link)?.removeTools()
+    }
 
     if (!Array.isArray(sel) || sel.length === 0) return
     for (const item of sel) {
@@ -1472,7 +1464,7 @@ function performClearCanvas(count) {
 
     <TagPickerDialog
       v-model:visible="valueTagPickerOpen"
-      :tags="floatTags"
+      :tags="project.floatTags"
       header="Выберите тег для отображения значения"
       @select="onValueTagPickerSelect"
       @cancel="onValueTagPickerCancel"

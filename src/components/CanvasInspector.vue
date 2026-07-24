@@ -28,7 +28,7 @@ import {
 import { nplural } from '../utils/plural'
 import { normalizeSwitchSources } from '../utils/switchSources'
 import { toPlain } from '../utils/plain'
-import { isBooleanType, isFloatType } from '../services/parsers'
+import { isBooleanType } from '../services/parsers'
 import TagPickerDialog from './TagPickerDialog.vue'
 import TagField from './TagField.vue'
 import RangeBlock from './RangeBlock.vue'
@@ -36,7 +36,7 @@ import BooleanBlock from './BooleanBlock.vue'
 import { ANIMATION_CLASS_OPTIONS } from '../constants/animation'
 import { previewOuterKey } from '../constants/ids'
 
-// Дефолтные диапазоны voltage-source. .map(({...r})) на каждое использование —
+// Дефолтные диапазоны voltage-source; клонируем каждый диапазон на использование —
 // чтобы ячейки не делили один и тот же массив.
 //
 // max-границы укорочены на 0.01: WebScada condition-evaluator inclusive по
@@ -219,8 +219,9 @@ const details = computed(() => {
     return {
       kind: 'link',
       id: cell.id,
-      // Толщина линии — из JointJS-attr (реально отрисованная), дефолт 2.
+      // Толщина/цвет линии — из JointJS-attr (реально отрисованные); дефолты 2 / #000.
       strokeWidth: cell.attr('line/strokeWidth') ?? 2,
+      strokeColor: cell.attr('line/stroke') || '#000000',
       voltageSource: tms.voltageSource || null,
       switchSources: tms.switchSources || null,
     }
@@ -263,7 +264,7 @@ function onPickerSelect(tag) {
 // Булев слот → только bool-теги; остальные — весь tag-list.
 function openSlotPicker(slot) {
   openPicker({
-    tags: isBooleanType(slot?.type) ? booleanTags.value : project.tags,
+    tags: isBooleanType(slot?.type) ? project.booleanTags : project.tags,
     selected: slot?.value || '',
     header: 'Выберите тег',
     onSelect: (tag) => patchSlotTag(slot.key, tag),
@@ -373,25 +374,28 @@ function applyAlign(align) {
   patchTextCell({ align })
 }
 
-// ─── Провод: толщина линии ───
-// Пишем в JointJS-attr (мгновенная отрисовка) + в tms.strokeWidth (round-trip
-// через data-tms-meta + автосейв). Дефолт (2) в tms не держим — meta пишет только
-// нестандартную толщину (как align='left').
-function applyStrokeWidth(v) {
+// ─── Провод: стиль линии (толщина/цвет) ───
+// Пишем в JointJS-attr (мгновенная отрисовка) + в tms[tmsKey] (round-trip через
+// data-tms-meta + автосейв). Дефолт в tms не держим — meta пишет только
+// нестандартное значение (как align='left'). isDefault решает, дефолт ли значение.
+function applyLinkStyle(attrPath, tmsKey, isDefault, value) {
   const graph = canvas.graphRef.value
   const d = details.value
-  if (!graph || d?.kind !== 'link' || v == null) return
+  if (!graph || d?.kind !== 'link' || value == null) return
   const link = graph.getCell(d.id)
   if (!link) return
-  link.attr('line/strokeWidth', v)
+  link.attr(attrPath, value)
   const tms = link.get('tms') || {}
   const next = { ...tms }
-  if (v === 2) delete next.strokeWidth
-  else next.strokeWidth = v
+  if (isDefault(value)) delete next[tmsKey]
+  else next[tmsKey] = value
   link.set('tms', next)
   canvas.bumpVersion()
   canvas.requestSnapshot()
 }
+const applyStrokeWidth = (v) => applyLinkStyle('line/strokeWidth', 'strokeWidth', (x) => x === 2, v)
+const applyStrokeColor = (c) =>
+  applyLinkStyle('line/stroke', 'strokeColor', (x) => x === '#000000' || x === '#000', c)
 
 // ─── Замок ячейки ───
 function applyLockToggle() {
@@ -480,7 +484,7 @@ function openMultiVoltagePicker() {
 // ─── Tag-picker для cell_value (отображаемый тег) ───
 function openValueTagPicker() {
   openPicker({
-    tags: floatTags.value,
+    tags: project.floatTags,
     selected: details.value?.valueTag || '',
     header: 'Выберите тег для отображения значения',
     onSelect: onPickValueTag,
@@ -770,7 +774,7 @@ function removeSwitchGroup(gi) {
 /** Открыть picker массовой привязки булева тега (multi-select). */
 function openMultiSwitchPicker() {
   openPicker({
-    tags: booleanTags.value,
+    tags: project.booleanTags,
     header: 'Булев тег для всех выделенных символов',
     onSelect: onPickMultiSwitchTag,
   })
@@ -964,11 +968,7 @@ const navBroken = computed(() => {
   return !!cur && !workspace.formIds.includes(cur)
 })
 
-// switchSources принимает только bool-теги — эффект «false → затемнение»,
-// для аналогового значения бессмыслен. Фильтр по типу из tag-list'а.
-const booleanTags = computed(() => project.tags.filter((t) => isBooleanType(t.type)))
-// cell_value отображает аналоговое значение → picker только по float-тегам.
-const floatTags = computed(() => project.tags.filter((t) => isFloatType(t.type)))
+// booleanTags/floatTags — getters стора (`useProjectStore`), фильтр по типу тега.
 
 // Picker для switch-зависимостей исключает: основной тег ячейки (slot.onoff у
 // cell_qw) + теги ТЕКУЩЕЙ редактируемой группы (внутри группы тег уникален),
@@ -977,7 +977,7 @@ const floatTags = computed(() => project.tags.filter((t) => isFloatType(t.type))
 // Для новой группы (groupIdx=null) фильтруем только onoff-тег.
 const switchPickerTags = computed(() => {
   const d = details.value
-  if (!d) return booleanTags.value
+  if (!d) return project.booleanTags
   const excluded = new Set()
   if (d.hasBoolSlot && d.onoffTag) excluded.add(d.onoffTag)
   const { groupIdx, tagIdx } = editingSwitch.value
@@ -987,7 +987,7 @@ const switchPickerTags = computed(() => {
       if (t && i !== tagIdx) excluded.add(t)
     })
   }
-  return booleanTags.value.filter((t) => !excluded.has(t.name))
+  return project.booleanTags.filter((t) => !excluded.has(t.name))
 })
 </script>
 
@@ -1373,6 +1373,19 @@ const switchPickerTags = computed(() => {
                   input-class="!w-12 text-center"
                   class="ml-auto"
                   @update:model-value="applyStrokeWidth"
+                />
+              </div>
+
+              <!-- Цвет линии — строка «подпись слева / пикер справа» (как цвет текста). -->
+              <div class="flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Цвет
+                </span>
+                <input
+                  type="color"
+                  :value="details.strokeColor"
+                  class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                  @input="applyStrokeColor($event.target.value)"
                 />
               </div>
             </div>

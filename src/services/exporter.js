@@ -20,6 +20,7 @@ import {
   valueTextKey,
   ATTR_META,
   ATTR_STENCIL,
+  CELL_META_FIELDS,
 } from '../constants/ids'
 import { SVG_NS, escapeAttr } from '../utils/xml'
 import { getCellTagsFromTms } from '../utils/cellSearch'
@@ -518,8 +519,9 @@ export function exportProject(graph, paper = null) {
       d: pathD,
       voltageSource: linkTms.voltageSource || null,
       switchSources: linkTms.switchSources || null,
-      // Толщина линии (px). Дефолт (2) не тащим — meta пишет только нестандартную.
+      // Толщина/цвет линии. Дефолты (2 / #000) не тащим — meta пишет только нестандартные.
       strokeWidth: linkTms.strokeWidth || null,
+      strokeColor: linkTms.strokeColor || null,
       // Endpoint-references для редактора: какие именно ячейки/порты соединены.
       // Эти данные ИЗ source/target в JointJS-модели, не из геометрии пути.
       source: sourceRef ? { id: sourceRef.id, port: sourceRef.port } : null,
@@ -725,11 +727,12 @@ export function exportProject(graph, paper = null) {
       if (l.switchSources) meta.switchSources = l.switchSources
       if (l.vertices) meta.vertices = l.vertices
       if (l.strokeWidth) meta.strokeWidth = l.strokeWidth
+      if (l.strokeColor) meta.strokeColor = l.strokeColor
       const metaAttr = escapeAttr(JSON.stringify(meta))
       // l.id и l.d сейчас составляются из UUID-производных и сгенерированных
       // path-данных — symbol-safe, но escapeAttr держит инвариант на случай
       // если JointJS-расширение когда-то засунет туда что-то экзотическое.
-      return `  <path id="${escapeAttr(l.id)}" d="${escapeAttr(l.d)}" stroke="#000" stroke-width="${l.strokeWidth ?? 2}" fill="none" ${ATTR_META}="${metaAttr}"/>`
+      return `  <path id="${escapeAttr(l.id)}" d="${escapeAttr(l.d)}" stroke="${escapeAttr(l.strokeColor || '#000')}" stroke-width="${l.strokeWidth ?? 2}" fill="none" ${ATTR_META}="${metaAttr}"/>`
     })
     .join('\n')
 
@@ -752,22 +755,13 @@ export function exportProject(graph, paper = null) {
         width: c.width,
         height: c.height,
       }
-      if (c.slots) meta.slots = c.slots
-      if (c.text !== undefined) meta.text = c.text
-      if (c.fontSize !== undefined) meta.fontSize = c.fontSize
-      if (c.bold !== undefined) meta.bold = c.bold
-      if (c.color !== undefined) meta.color = c.color
-      // 'left' — дефолт, в meta не пишем (json чище; отсутствие = left).
-      if (c.align && c.align !== 'left') meta.align = c.align
-      if (c.locked) meta.locked = true
-      if (c.groupId) meta.groupId = c.groupId
-      if (c.valueTag !== undefined) meta.valueTag = c.valueTag
-      if (c.voltageSource) meta.voltageSource = c.voltageSource
-      if (c.switchSources) meta.switchSources = c.switchSources
-      if (c.navigation) meta.navigation = c.navigation
+      // tms-поля — по единому дескриптору (см. CELL_META_FIELDS), чтобы запись и
+      // чтение (projectLoader) не разъезжались. angle — отдельно (в JointJS-поле).
+      for (const f of CELL_META_FIELDS) {
+        const v = c[f.key]
+        if (f.keep(v)) meta[f.key] = f.flag ? true : v
+      }
       if (c.angle) meta.angle = c.angle
-      if (c.flipH) meta.flipH = true
-      if (c.flipV) meta.flipV = true
       const metaAttr = escapeAttr(JSON.stringify(meta))
       // translate(x,y) ставит ячейку на холст; rotate (если есть) вращает
       // вокруг центра ячейки в её локальных координатах.

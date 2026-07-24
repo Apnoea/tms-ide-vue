@@ -685,6 +685,28 @@ describe('exportProject', () => {
     expect(cell.tms.flipV).toBeUndefined()
   })
 
+  it('цвет провода: round-trip через stroke + meta', () => {
+    const graph = mockGraph(
+      [
+        mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0 }),
+        mockCell({ id: 'c2', stencilId: 'cell_qw', x: 100, y: 0 }),
+      ],
+      [
+        mockLink({
+          id: 'l1',
+          source: { id: 'c1', port: 'right' },
+          target: { id: 'c2', port: 'left' },
+          tms: { strokeColor: '#ff0000' },
+        }),
+      ]
+    )
+    const exported = exportProject(graph)
+    expect(exported.svgText).toContain('stroke="#ff0000"')
+    const link = parseSvgProject(exported.svgText).cells.find((c) => c.type === 'standard.Link')
+    expect(link.attrs.line.stroke).toBe('#ff0000')
+    expect(link.tms.strokeColor).toBe('#ff0000')
+  })
+
   it('толщина по умолчанию (2) не пишется в meta, path stroke-width=2', () => {
     const graph = mockGraph(
       [

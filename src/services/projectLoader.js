@@ -5,7 +5,7 @@
 import { getStencilById } from '../stencils/registry'
 import { buildPortItems } from '../stencils/svgInjector'
 import { LINK_DEFAULTS } from '../stencils/linkDefaults'
-import { ATTR_META } from '../constants/ids'
+import { ATTR_META, CELL_META_FIELDS } from '../constants/ids'
 
 /**
  * Парсит SVG-текст и возвращает массив JointJS-cells (включая links),
@@ -75,22 +75,13 @@ export function parseSvgProject(svgText) {
         flipV: !!meta.flipV,
       })
 
-      // Собираем tms-payload только из того, что было в meta (не плодим undefined)
+      // Собираем tms-payload по тому же дескриптору, что пишет exporter
+      // (CELL_META_FIELDS) — единый список, не плодим undefined.
       const tms = { stencilId: meta.stencilId }
-      if (meta.slots) tms.slots = { ...meta.slots }
-      if (meta.text !== undefined) tms.text = meta.text
-      if (meta.fontSize !== undefined) tms.fontSize = meta.fontSize
-      if (meta.bold !== undefined) tms.bold = meta.bold
-      if (meta.color !== undefined) tms.color = meta.color
-      if (meta.align !== undefined) tms.align = meta.align
-      if (meta.locked) tms.locked = true
-      if (meta.flipH) tms.flipH = true
-      if (meta.flipV) tms.flipV = true
-      if (meta.groupId) tms.groupId = meta.groupId
-      if (meta.valueTag !== undefined) tms.valueTag = meta.valueTag
-      if (meta.voltageSource) tms.voltageSource = meta.voltageSource
-      if (meta.switchSources) tms.switchSources = meta.switchSources
-      if (meta.navigation) tms.navigation = meta.navigation
+      for (const f of CELL_META_FIELDS) {
+        const v = meta[f.key]
+        if (v !== undefined) tms[f.key] = f.clone ? { ...v } : v
+      }
 
       const cellJson = {
         type: 'tms.Stencil',
@@ -139,16 +130,23 @@ export function parseSvgProject(svgText) {
       // Ручные изломы: без них gridRightAngle-роутер перерисовал бы провод по
       // дефолтному маршруту, потеряв правки пользователя.
       if (Array.isArray(meta.vertices) && meta.vertices.length) link.vertices = meta.vertices
-      if (meta.voltageSource || meta.switchSources || meta.strokeWidth) {
+      if (meta.voltageSource || meta.switchSources || meta.strokeWidth || meta.strokeColor) {
         link.tms = {}
         if (meta.voltageSource) link.tms.voltageSource = meta.voltageSource
         if (meta.switchSources) link.tms.switchSources = meta.switchSources
         if (meta.strokeWidth) link.tms.strokeWidth = meta.strokeWidth
+        if (meta.strokeColor) link.tms.strokeColor = meta.strokeColor
       }
-      // Толщина линии: переопределяем attrs.line новым объектом (не мутируя общий
-      // LINK_DEFAULTS.attrs — он шарится всеми проводами), сохраняя stroke/markers.
-      if (meta.strokeWidth) {
-        link.attrs = { line: { ...LINK_DEFAULTS.attrs.line, strokeWidth: meta.strokeWidth } }
+      // Толщина/цвет линии: переопределяем attrs.line новым объектом (не мутируя общий
+      // LINK_DEFAULTS.attrs — он шарится всеми проводами), сохраняя markers/router.
+      if (meta.strokeWidth || meta.strokeColor) {
+        link.attrs = {
+          line: {
+            ...LINK_DEFAULTS.attrs.line,
+            ...(meta.strokeWidth ? { strokeWidth: meta.strokeWidth } : {}),
+            ...(meta.strokeColor ? { stroke: meta.strokeColor } : {}),
+          },
+        }
       }
       cells.push(link)
     } catch (e) {

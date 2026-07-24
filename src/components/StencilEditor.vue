@@ -586,6 +586,10 @@ useEventListener(window, 'keydown', (e) => {
     }
   }
   if (e.key === 'Escape') {
+    // Открыт модальный диалог (справка / confirm) поверх редактора — Esc закрывает
+    // его сам (PrimeVue close-on-escape); редактор не трогаем, иначе один Esc закрыл
+    // бы и диалог, и сам редактор.
+    if (document.querySelector('.p-dialog-mask')) return
     if (drawing.value || polyPoints.value.length) {
       drawing.value = null
       polyPoints.value = []

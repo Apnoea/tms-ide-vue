@@ -2,7 +2,7 @@ import { computed } from 'vue'
 import { useCanvas } from './useCanvas'
 import { getStencilById } from '../stencils/registry'
 import { injectStencilSvg, buildPortItems } from '../stencils/svgInjector'
-import { projectToScreen } from '../utils/paperGeom'
+import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
 
 /**
  * HTML-overlay одиночной выделенной ячейки: кнопки по углам/серединам сторон
@@ -35,17 +35,10 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
     if (!paper || !graph) return null
     const cell = graph.getCell(sel[0].id)
     if (!cell) return null
-    const pos = cell.get('position')
-    const size = cell.get('size')
-    const angle = (cell.angle() || 0) % 360
-    const rot90 = angle === 90 || angle === 270
-    const bbW = rot90 ? size.height : size.width
-    const bbH = rot90 ? size.width : size.height
-    const cx = pos.x + size.width / 2
-    const cy = pos.y + size.height / 2
-    // Углы visual-AABB в экранных координатах.
-    const tl = projectToScreen(paper, cx - bbW / 2, cy - bbH / 2)
-    const br = projectToScreen(paper, cx + bbW / 2, cy + bbH / 2)
+    // Углы visual-AABB (с учётом поворота) в экранных координатах.
+    const aabb = rotatedAabb(cell.get('position'), cell.get('size'), cell.angle() || 0)
+    const tl = projectToScreen(paper, aabb.x, aabb.y)
+    const br = projectToScreen(paper, aabb.x + aabb.width, aabb.y + aabb.height)
     const { x: left, y: top } = tl
     const { x: right, y: bottom } = br
     const HALF = 16

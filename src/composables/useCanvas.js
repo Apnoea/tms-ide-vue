@@ -457,10 +457,11 @@ export function useCanvas() {
     groupCells(items) {
       const graph = graphRef.value
       if (!graph) return 0
+      // locked-ячейки не группируем — groupId это правка tms, а замок read-only.
       const cells = (items || [])
         .filter((i) => i.kind === 'cell')
         .map((i) => graph.getCell(i.id))
-        .filter(Boolean)
+        .filter((c) => c && !c.get('tms')?.locked)
       if (cells.length < 2) return 0
       const gid = genGroupId()
       for (const c of cells) c.set('tms', { ...(c.get('tms') || {}), groupId: gid })

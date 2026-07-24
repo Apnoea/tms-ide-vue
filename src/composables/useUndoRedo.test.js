@@ -54,7 +54,7 @@ describe('useUndoRedo', () => {
     saveAutosave = vi.fn()
     mockGraph = makeMockGraph()
     mockCanvas.graphRef.value = mockGraph
-    mockCanvas.paperRef.value = { id: 'mock-paper' }
+    mockCanvas.paperRef.value = { id: 'mock-paper', freeze() {}, unfreeze() {} }
     mockCanvas.setUndoRedoAvail.mockClear()
     mockCanvas.bumpVersion.mockClear()
     mockCanvas.clearSelection.mockClear()
@@ -239,7 +239,7 @@ describe('useUndoRedo — дедуп идентичных снимков', () =>
       toJSON: () => JSON.parse(JSON.stringify(state)),
       fromJSON: (j) => (state = JSON.parse(JSON.stringify(j))),
     }
-    mockCanvas.paperRef.value = { id: 'mock-paper' }
+    mockCanvas.paperRef.value = { id: 'mock-paper', freeze() {}, unfreeze() {} }
     ;[api, scope] = withSetup(() => useUndoRedo({ restoringHistory: ref(false), saveAutosave }))
     api.initHistory()
   })

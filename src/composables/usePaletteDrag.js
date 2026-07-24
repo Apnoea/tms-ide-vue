@@ -3,12 +3,10 @@ import { useEventListener } from '@vueuse/core'
 import { useCanvas } from './useCanvas'
 import { useUiStore } from '../stores/useUiStore'
 import { useProjectStore } from '../stores/useProjectStore'
-import { TMSStencil } from '../stencils/tmsStencil'
 import { getStencilById } from '../stencils/registry'
 import { isFloatType } from '../services/parsers'
 import {
-  injectStencilSvg,
-  buildPortItems,
+  materializeStencil,
   TEXT_FONT_SIZE,
   textCellHeight,
   textCellWidth,
@@ -123,8 +121,6 @@ export function usePaletteDrag(paperContainer, wireSplice) {
     const g = paper.options.gridSize
     const finalX = snapToGrid(x - stencil.width / 2, g)
     const finalY = snapToGrid(y - stencil.height / 2, g)
-    const portItems = buildPortItems(stencil, stencil.width, stencil.height)
-
     const tms = { stencilId }
     // Стенсильные дефолты (`defaults` в stencil.json). structuredClone — иначе
     // вложенные объекты зашарили бы ссылку из реестра между ячейками.
@@ -140,18 +136,11 @@ export function usePaletteDrag(paperContainer, wireSplice) {
       cellHeight = textCellHeight(fz)
     }
 
-    const cell = new TMSStencil({
+    return materializeStencil(graph, paper, stencil, {
       position: { x: finalX, y: finalY },
       size: { width: cellWidth, height: cellHeight },
       tms,
-      ports: { items: portItems },
     })
-    graph.addCell(cell)
-
-    // После рендера cell'а в DOM — впихнуть наш SVG в его body-группу.
-    const cellView = paper.findViewByModel(cell)
-    if (cellView) injectStencilSvg(cellView, stencil)
-    return cell
   }
 
   /**

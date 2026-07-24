@@ -1,5 +1,6 @@
 import { instantiate } from './parser'
 import { getStencilById } from './registry'
+import { TMSStencil } from './tmsStencil'
 import { valueTextKey } from '../constants/ids'
 import { SVG_NS, escapeXml, escapeAttr } from '../utils/xml'
 
@@ -482,6 +483,27 @@ export function injectStencilSvg(cellView, stencil) {
   cellView.el?.classList?.toggle('tms-locked', !!cellView.model.get('tms')?.locked)
 
   return true
+}
+
+/**
+ * Создаёт ячейку-стенсил в графе: порты (с учётом flip из tms), модель, инъекция
+ * SVG. Единая точка материализации для drop'а из палитры и paste — иначе поля
+ * (flip-порты и т.п.) забывались бы в одном из путей. Позицию/размер/tms/angle
+ * готовит вызывающий (автосайз cell_text, defaults, groupId-remap — специфика места).
+ */
+export function materializeStencil(graph, paper, stencil, { position, size, tms, angle = 0 }) {
+  const flip = { flipH: !!tms.flipH, flipV: !!tms.flipV }
+  const cell = new TMSStencil({
+    position,
+    size,
+    ...(angle ? { angle } : {}),
+    tms,
+    ports: { items: buildPortItems(stencil, size.width, size.height, flip) },
+  })
+  graph.addCell(cell)
+  const view = paper.findViewByModel(cell)
+  if (view) injectStencilSvg(view, stencil)
+  return cell
 }
 
 /**

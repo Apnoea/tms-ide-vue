@@ -225,7 +225,11 @@ export function useHotkeys({
       // uiNudge — стрелки сами двигают ВСЁ выделение; помечаем, чтобы multi-drag
       // change:position-хендлер (CanvasPane) не сдвинул соседей повторно, если в
       // этот момент зажата ЛКМ на ячейке (activeDragCellId выставлен без drag'а).
-      for (const item of cellSel) graph.getCell(item.id)?.translate(dx, dy, { uiNudge: true })
+      // locked-ячейки пропускаем — read-only не двигаем даже стрелками.
+      for (const item of cellSel) {
+        const c = graph.getCell(item.id)
+        if (c && !c.get('tms')?.locked) c.translate(dx, dy, { uiNudge: true })
+      }
       scheduleSnapshot()
       return
     }

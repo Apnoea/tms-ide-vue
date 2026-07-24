@@ -76,7 +76,7 @@ describe('useProject', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     mockCanvas.graphRef.value = new dia.Graph({}, { cellNamespace: tmsNamespace })
-    mockCanvas.paperRef.value = { id: 'paper' }
+    mockCanvas.paperRef.value = { id: 'paper', freeze() {}, unfreeze() {} }
     vi.clearAllMocks()
     parseSvgProject.mockReset()
     getStencilById.mockReturnValue(null)

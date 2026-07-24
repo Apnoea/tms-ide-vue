@@ -1,5 +1,6 @@
 import { computed } from 'vue'
 import { snapToGrid } from '../utils/grid'
+import { rotatedAabb } from '../utils/paperGeom'
 import { useCanvas } from './useCanvas'
 
 /**
@@ -70,29 +71,6 @@ export function computeAlignMoves(mode, boxes, grid = 10) {
   return moves
 }
 
-// Осевыровненный bbox ячейки С УЧЁТОМ поворота. `cell.getBBox()` даёт
-// неповёрнутую рамку (position+size), поэтому у развёрнутого стенсила (вертикальный
-// положили горизонтально) выравнивание считало бы по исходным габаритам → щели/
-// наложения. Здесь: поворачиваем вокруг центра и берём охватывающий прямоугольник.
-// Углы в проекте кратны 90°, поэтому округляем (гасим float-эпсилон cos/sin).
-export function rotatedAabb(pos, size, angle) {
-  const w = size.width
-  const h = size.height
-  const a = ((angle || 0) * Math.PI) / 180
-  const cos = Math.abs(Math.cos(a))
-  const sin = Math.abs(Math.sin(a))
-  const rw = w * cos + h * sin
-  const rh = w * sin + h * cos
-  const cx = pos.x + w / 2
-  const cy = pos.y + h / 2
-  return {
-    x: Math.round(cx - rw / 2),
-    y: Math.round(cy - rh / 2),
-    width: Math.round(rw),
-    height: Math.round(rh),
-  }
-}
-
 // Сдвиги для РАСПРЕДЕЛЕНИЯ: равные интервалы по оси (axis 'x'/'y'). Группируем ПО
 // ОСИ распределения (колонки для 'x', строки для 'y' — пересечение ВДОЛЬ оси):
 // элементы одной колонки/строки двигаются как одна группа, распределяются сами
@@ -133,14 +111,15 @@ export function computeDistributeMoves(axis, boxes, grid = 10) {
 export function useAlign() {
   const canvas = useCanvas()
 
-  // Ячейки-модели из выделения (без линков — у них нет своей позиции).
+  // Ячейки-модели из выделения (без линков — у них нет своей позиции; без locked —
+  // их не двигаем, read-only, иначе выравнивание/распределение сдвинуло бы замок).
   function selectedCells() {
     const graph = canvas.graphRef.value
     if (!graph) return []
     return canvas.selection.value
       .filter((s) => s.kind === 'cell')
       .map((s) => graph.getCell(s.id))
-      .filter((c) => c && c.isElement?.())
+      .filter((c) => c && c.isElement?.() && !c.get('tms')?.locked)
   }
 
   // Выравнивать есть смысл от двух ячеек, распределять — от трёх (крайние держат

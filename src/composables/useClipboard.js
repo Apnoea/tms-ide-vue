@@ -1,8 +1,7 @@
 import { shallowRef } from 'vue'
 import { shapes } from '@joint/core'
 import { getStencilById } from '../stencils/registry'
-import { injectStencilSvg, buildPortItems } from '../stencils/svgInjector'
-import { TMSStencil } from '../stencils/tmsStencil'
+import { materializeStencil } from '../stencils/svgInjector'
 import { LINK_DEFAULTS } from '../stencils/linkDefaults'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
@@ -122,27 +121,18 @@ export function useClipboard({ scheduleSnapshot }) {
       const finalX = snapToGrid(snap.position.x + offset, g)
       const finalY = snapToGrid(snap.position.y + offset, g)
 
-      const portItems = buildPortItems(stencil, snap.size.width, snap.size.height, {
-        flipH: !!tmsCopy.flipH,
-        flipV: !!tmsCopy.flipV,
-      })
-
       // tms копируется полностью включая slots — paste должен сохранять привязки
       // тегов (две копии одного стенсила могут указывать на один и тот же объект,
       // это нормально для мнемосхем где много визуализаций одного агрегата).
-      const cell = new TMSStencil({
+      // flip-порты берутся из tmsCopy внутри materializeStencil.
+      const cell = materializeStencil(graph, paper, stencil, {
         position: { x: finalX, y: finalY },
         size: snap.size,
         angle: snap.angle || 0,
         tms: tmsCopy,
-        ports: { items: portItems },
       })
-      graph.addCell(cell)
       oldToNew.set(snap.oldId, cell.id)
       newCellIds.push(cell.id)
-
-      const cellView = paper.findViewByModel(cell)
-      if (cellView) injectStencilSvg(cellView, stencil)
     }
 
     // Восстанавливаем bridge-линии: id ячеек перевешиваем через oldToNew,

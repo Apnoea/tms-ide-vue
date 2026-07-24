@@ -11,9 +11,8 @@ import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'
 const mockToast = { add: vi.fn() }
 vi.mock('primevue/usetoast', () => ({ useToast: () => mockToast }))
 
-// Фейковый стенсил для getStencilById — useClipboard сверяется только с
-// наличием объекта + ports (для buildPortItems). 'unknown' → null чтобы
-// триггерить skipped-ветку в pasteSnapshots.
+// Фейковый стенсил для getStencilById — materializeStencil сверяется с наличием
+// объекта + ports. 'unknown' → null чтобы триггерить skipped-ветку в pasteSnapshots.
 vi.mock('../stencils/registry', () => ({
   getStencilById: vi.fn((id) => {
     if (!id || id === 'unknown') return null
@@ -28,8 +27,11 @@ vi.mock('../stencils/registry', () => ({
   }),
 }))
 
-vi.mock('../stencils/svgInjector', () => ({
-  buildPortItems: vi.fn(() => [{ id: 'p1', group: 'port' }]),
+// Реальные materializeStencil/buildPortItems (тест проверяет настоящие ячейки:
+// angle, bridge-рефы), no-op только для injectStencilSvg (DOM-инъекция не нужна,
+// paper.findViewByModel → null в тесте и так её пропускает).
+vi.mock('../stencils/svgInjector', async (importActual) => ({
+  ...(await importActual()),
   injectStencilSvg: vi.fn(),
 }))
 
