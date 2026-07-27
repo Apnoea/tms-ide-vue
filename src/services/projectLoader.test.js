@@ -151,7 +151,7 @@ describe('parseSvgProject', () => {
     const out = parseSvgProject(svg)
     expect(out.cells.filter((c) => c.type === 'standard.Link')).toEqual([]) // висячий отброшен
     expect(out.cells.filter((c) => c.type === 'tms.Stencil').map((c) => c.id)).toEqual(['a'])
-    expect(out.errors.some((e) => /отсутствующую ячейку/.test(e))).toBe(true)
+    expect(out.errors.some((e) => /отсутствующий символ/.test(e))).toBe(true)
   })
 
   it('пропускает ячейку с неизвестным стенсилом, накапливает warning', () => {

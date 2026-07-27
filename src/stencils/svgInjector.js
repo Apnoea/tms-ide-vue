@@ -1,6 +1,7 @@
 import { instantiate } from './parser'
 import { getStencilById } from './registry'
 import { TMSStencil } from './tmsStencil'
+import { LINK_Z } from './linkDefaults'
 import { valueTextKey } from '../constants/ids'
 import { SVG_NS, escapeXml, escapeAttr } from '../utils/xml'
 
@@ -514,10 +515,11 @@ export function materializeStencil(graph, paper, stencil, { position, size, tms,
  * Angle хранится в `cell.angle()` и JointJS сам применяет его на outer-`<g>`
  * через transform — отдельно тут восстанавливать не нужно.
  *
- * Линки уводим назад (`toBack`): `fromJSON` шлёт `reset`, а не `add`, поэтому
- * add-хендлер с `toBack` не срабатывает. У импортированных проектов z-порядка
- * нет (parser его не пишет) → без этого провода рисуются поверх ячеек/портов и
- * ломают интерактив. Для in-app графов z уже верный — повтор безвреден.
+ * Провода уводим назад: `fromJSON` шлёт `reset`, а не `add`, поэтому add-хендлер не
+ * срабатывает, а у импортированных проектов z нет (parser его не пишет) → без этого
+ * линии рисуются поверх ячеек/портов и ломают интерактив. Ставим ФИКСИРОВАННЫЙ
+ * `LINK_Z` и только при расхождении — операция идемпотентна, поэтому повторный
+ * reinject не меняет граф (иначе z дрейфил бы и ломал undo/redo, см. LINK_Z).
  */
 export function reinjectAllStencils(graph, paper) {
   if (!graph || !paper) return
@@ -529,5 +531,7 @@ export function reinjectAllStencils(graph, paper) {
     const cellView = paper.findViewByModel(cell)
     if (cellView) injectStencilSvg(cellView, stencil)
   }
-  for (const link of graph.getLinks()) link.toBack()
+  for (const link of graph.getLinks()) {
+    if (link.get('z') !== LINK_Z) link.set('z', LINK_Z)
+  }
 }

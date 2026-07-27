@@ -201,6 +201,31 @@ describe('useClipboard', () => {
     expect(newLink.get('tms')?.switchSources).toEqual({ groups: [['BR1.ONOFF']] })
   })
 
+  it('paste: стиль линка (толщина/цвет) попадает и в tms, и в attrs.line', () => {
+    const a = makeCell({ x: 0 })
+    const b = makeCell({ x: 100 })
+    const link = new shapes.standard.Link({
+      source: { id: a.id },
+      target: { id: b.id },
+      tms: { strokeWidth: 4, strokeColor: '#ff0000' },
+    })
+    graph.addCells([a, b, link])
+    mockCanvas.selection.value = [
+      { kind: 'cell', id: a.id },
+      { kind: 'cell', id: b.id },
+    ]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+
+    const newLink = graph.getLinks().find((l) => l.id !== link.id)
+    expect(newLink.get('tms')).toMatchObject({ strokeWidth: 4, strokeColor: '#ff0000' })
+    // Без attrs копия рисовалась бы дефолтной, а после reload «внезапно» цветной.
+    expect(newLink.attr('line/strokeWidth')).toBe(4)
+    expect(newLink.attr('line/stroke')).toBe('#ff0000')
+  })
+
   it('copySelection: пустое выделение → info-toast, буфер не меняется', () => {
     mockCanvas.selection.value = []
     const { copySelection, hasClipboard } = setup()

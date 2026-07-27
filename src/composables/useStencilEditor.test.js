@@ -32,6 +32,55 @@ describe('useStencilEditor', () => {
     expect(ed.selectedId.value).toBeNull()
   })
 
+  it('copyShape/pasteShape: клон со свойствами, новый id, сдвиг, выделение копии', () => {
+    const ed = createStencilEditor()
+    const a = ed.addShape({
+      type: 'rect',
+      x: 10,
+      y: 10,
+      w: 20,
+      h: 20,
+      fill: '#f00',
+      strokeWidth: 3,
+    })
+    ed.select(a.id)
+    expect(ed.copyShape()).toBe(true)
+    const b = ed.pasteShape()
+    expect(ed.shapes.value).toHaveLength(2)
+    expect(b.id).not.toBe(a.id)
+    expect(b.fill).toBe('#f00') // свойства сохранены
+    expect(b.strokeWidth).toBe(3)
+    expect(b.x).not.toBe(a.x) // сдвинут, не поверх
+    expect(ed.selectedId.value).toBe(b.id) // paste выделяет копию
+  })
+
+  it('copyShape без выделения → false; pasteShape с пустым буфером → null', () => {
+    const ed = createStencilEditor()
+    ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    ed.select(null)
+    expect(ed.copyShape()).toBe(false)
+    expect(createStencilEditor().pasteShape()).toBeNull()
+  })
+
+  it('applyPositionPreset: фигуры со старых ключей возвращаются в always (не теряются в SVG)', () => {
+    const ed = createStencilEditor()
+    ed.setStateMode('value')
+    ed.addState()
+    const oldKey = ed.meta.states[0].key
+    ed.setStateColor(oldKey, '#f00')
+    const shape = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    ed.setShapeState(shape.id, oldKey)
+
+    ed.applyPositionPreset() // набор состояний заменяется целиком
+
+    expect(ed.meta.states.some((s) => s.key === oldKey)).toBe(false)
+    // Иначе фигура осталась бы на несуществующем ключе и выпала из shape.svg.
+    expect(ed.shapes.value[0].state).toBe('always')
+    expect(ed.meta.stateColors[oldKey]).toBeUndefined()
+    ed.undo() // пресет коммитится в историю
+    expect(ed.shapes.value[0].state).toBe(oldKey)
+  })
+
   it('setStateColor задаёт и снимает цвет состояния', () => {
     const ed = createStencilEditor()
     ed.setStateColor('false', '#64748b')

@@ -7,6 +7,7 @@
 // рисуется в редакторе при ручной прокладке.
 
 import { routers } from '@joint/core'
+import { LINK_META_FIELDS } from '../constants/ids'
 
 /**
  * rightAngle с привязкой ИЗЛОМОВ к сетке. Базовый rightAngle ставит
@@ -48,4 +49,34 @@ export const LINK_DEFAULTS = {
       sourceMarker: { type: 'none' },
     },
   },
+}
+
+/**
+ * Фиксированный z всех проводов: они ВСЕГДА позади символов (провод-подложка, порты
+ * не должны перекрываться линией). Именно фиксированный, а не `toBack()`: тот ставит
+ * `min(z)-1`, поэтому цикл по линкам на каждом reinject (undo / смена формы / экспорт)
+ * смещал z и переворачивал их порядок → `graph.toJSON()` расходился с undo-снимком,
+ * любой следующий клик писал фантомный шаг истории и срезал redo-ветку.
+ * Значение с запасом «вниз»: ячейки живут выше (см. reorderCells — min/max по
+ * элементам), так что «на задний план» для символа не роняет его под провода.
+ */
+export const LINK_Z = -1000
+
+/**
+ * `attrs` провода под его tms-стиль (толщина/цвет из LINK_META_FIELDS с `attr`).
+ * Стиль — источник правды в `tms`, но рисует JointJS по `attrs.line`, поэтому при
+ * КАЖДОМ создании модели (paste, round-trip-load) его надо продублировать туда:
+ * иначе копия/загруженный провод выглядит дефолтным, а после следующего экспорта
+ * «внезапно» становится толстым/цветным (exporter пишет из tms).
+ * Возвращает null, если стиль дефолтный — вызывающий не переопределяет attrs.
+ * Новый объект: общий LINK_DEFAULTS.attrs шарится всеми проводами, мутировать нельзя.
+ */
+export function linkStyleAttrs(tms) {
+  const lineAttrs = {}
+  for (const f of LINK_META_FIELDS) {
+    const v = tms?.[f.key]
+    if (f.attr && v !== undefined) lineAttrs[f.attr] = v
+  }
+  if (!Object.keys(lineAttrs).length) return null
+  return { line: { ...LINK_DEFAULTS.attrs.line, ...lineAttrs } }
 }

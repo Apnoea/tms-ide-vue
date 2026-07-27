@@ -421,6 +421,30 @@ function applyMultiLockToggle() {
   canvas.toggleLocked(canvas.selection.value)
 }
 
+// Состав выделения: символы и провода СЧИТАЕМ РАЗДЕЛЬНО. В выделение авто-попадают
+// мостовые провода (selectCellsWithBridges), поэтому `selection.length` называть
+// «символами» нельзя — лассо по двум связанным символам дало бы «3 символа».
+// `deletable` — сколько реально удалится (замок не даёт удалить), чтобы кнопка
+// «Удалить (N)» не обещала больше, чем сделает.
+const selectionSummary = computed(() => {
+  canvas.graphVersion.value
+  const sel = canvas.selection.value
+  const cells = sel.filter((s) => s.kind === 'cell')
+  const links = sel.filter((s) => s.kind === 'link')
+  const graph = canvas.graphRef.value
+  const lockedCells = graph
+    ? cells.filter((s) => graph.getCell(s.id)?.get('tms')?.locked).length
+    : 0
+  const parts = []
+  if (cells.length) parts.push(nplural(cells.length, 'символ', 'символа', 'символов'))
+  if (links.length) parts.push(nplural(links.length, 'провод', 'провода', 'проводов'))
+  return {
+    label: parts.join(' + ') || 'ничего',
+    deletable: cells.length - lockedCells + links.length,
+    locked: lockedCells,
+  }
+})
+
 // Группировка выделения. `ungroup`=true, когда все выделенные — члены ОДНОЙ группы
 // (клик по группе выделяет её целиком → показываем «Разгруппировать»); иначе при
 // ≥2 ячейках — «Сгруппировать» (объединит, в т.ч. слив разные группы в одну).
@@ -601,14 +625,10 @@ watch(
   }
 )
 
-/** Прогон по выделению: резолвит ячейки, пропускает статичные (текст/значение),
- *  зовёт fn(cell, tms), затем один bumpVersion + requestSnapshot. */
+/** Прогон по выделению: пропускает заблокированные (`writableItems`) и статичные
+ *  (текст/значение), зовёт fn(cell, tms), затем один bumpVersion + requestSnapshot. */
 function forEachSelectedCell(fn) {
-  const graph = canvas.graphRef.value
-  if (!graph) return
-  for (const item of canvas.selection.value) {
-    const cell = graph.getCell(item.id)
-    if (!cell) continue
+  for (const cell of canvas.writableItems(canvas.selection.value)) {
     const tms = cell.get('tms') || {}
     if (isStatic(tms.stencilId)) continue
     fn(cell, tms)
@@ -784,15 +804,14 @@ function openMultiSwitchPicker() {
  * выделенных (у выделения нет общего состояния → каждому — своя новая группа,
  * не дублируя уже существующую одиночную группу с этим тегом). */
 function onPickMultiSwitchTag(tag) {
-  const graph = canvas.graphRef.value
-  if (!graph || !tag) return
+  if (!tag) return
   const sel = canvas.selection.value
   if (!sel.length) return
+  // writableItems отсекает заблокированные (замок read-only) — их считаем в skipped.
+  const writable = canvas.writableItems(sel)
   let applied = 0
-  let skipped = 0
-  for (const item of sel) {
-    const cell = graph.getCell(item.id)
-    if (!cell) continue
+  let skipped = sel.length - writable.length
+  for (const cell of writable) {
     const tms = cell.get('tms') || {}
     if (isStatic(tms.stencilId)) {
       skipped++
@@ -816,12 +835,13 @@ function onPickMultiSwitchTag(tag) {
   canvas.bumpVersion()
   canvas.requestSnapshot()
   const count = nplural(applied, 'символ', 'символа', 'символов')
-  notify.success(
-    'Булев тег привязан',
+  const detail =
     skipped > 0
-      ? `Привязано к ${count} · пропущено: ${skipped} (текст/значение/свой тег)`
+      ? `Привязано к ${count} · пропущено: ${skipped} (заблокировано / текст / свой тег)`
       : `Привязано к ${count}`
-  )
+  // applied === 0 — успеха не было: зелёный тост врал бы про результат.
+  if (applied === 0) notify.warn('Тег не привязан', detail)
+  else notify.success('Булев тег привязан', detail)
 }
 
 // ─── Копирование настроек анимаций между элементами ───
@@ -855,11 +875,18 @@ function copyRange() {
  * стенсилы (текст/значение) пропускаем со счётчиком.
  */
 function pasteBool() {
-  pasteClip(animClip.boolClip.value, (tms) =>
-    applyBoolClip(tms, animClip.boolClip.value, {
-      isStatic: isStatic(tms.stencilId),
-      hasBoolSlot: hasBoolSlot(getStencilById(tms.stencilId)),
-    })
+  const clip = animClip.boolClip.value
+  // Вставка ЗАМЕНЯЕТ блок целиком: буфер без групп снимает switchSources у цели.
+  // Считаем такие случаи, чтобы не стереть зависимости молча (тост станет warn).
+  const clipHasGroups = !!(clip?.groups || []).some((g) => g.length)
+  pasteClip(
+    clip,
+    (tms) =>
+      applyBoolClip(tms, clip, {
+        isStatic: isStatic(tms.stencilId),
+        hasBoolSlot: hasBoolSlot(getStencilById(tms.stencilId)),
+      }),
+    (tms) => !clipHasGroups && !!tms.switchSources
   )('Булевые настройки вставлены')
 }
 
@@ -872,35 +899,42 @@ function pasteRange() {
 }
 
 /**
- * Общий каркас вставки буфера на всё выделение: для каждой ячейки зовёт
- * apply(tms) → новый tms либо null (несовместимо → пропуск со счётчиком). Пустой
- * буфер — no-op. Возвращает функцию-финализатор (принимает заголовок тоста), чтобы
- * pasteBool/pasteRange отличались только apply'ем и текстом.
+ * Общий каркас вставки буфера на всё выделение: для каждой цели зовёт apply(tms) →
+ * новый tms либо null (несовместимо → пропуск со счётчиком). Заблокированные
+ * отсекает `writableItems`. Пустой буфер — no-op. `wasCleared(tmsBefore)` (опц.)
+ * помечает цели, у которых вставка СНЯЛА настройку — такие считаем отдельно и
+ * выводим warn, чтобы данные не исчезали молча под зелёным тостом.
+ * Возвращает функцию-финализатор (принимает заголовок тоста).
  */
-function pasteClip(clip, apply) {
+function pasteClip(clip, apply, wasCleared = null) {
   return (title) => {
-    const graph = canvas.graphRef.value
-    if (!clip || !graph) return
+    if (!clip) return
+    const sel = canvas.selection.value
+    const writable = canvas.writableItems(sel)
     let applied = 0
-    let skipped = 0
-    for (const item of canvas.selection.value) {
-      const cell = graph.getCell(item.id)
-      if (!cell) continue
-      const next = apply(cell.get('tms') || {})
+    let skipped = sel.length - writable.length // заблокированные
+    let cleared = 0
+    for (const cell of writable) {
+      const before = cell.get('tms') || {}
+      const next = apply(before)
       if (!next) {
         skipped++
         continue
       }
+      if (wasCleared?.(before)) cleared++
       cell.set('tms', next)
       applied++
     }
     canvas.bumpVersion()
     canvas.requestSnapshot()
-    const count = nplural(applied, 'символ', 'символа', 'символов')
-    notify.success(
-      title,
-      skipped ? `Применено к ${count} · пропущено: ${skipped}` : `Применено к ${count}`
-    )
+    const parts = [`Применено к ${nplural(applied, 'символ', 'символа', 'символов')}`]
+    if (skipped) parts.push(`пропущено: ${skipped}`)
+    if (cleared) parts.push(`зависимости очищены: ${cleared}`)
+    const detail = parts.join(' · ')
+    // Нулевой результат или снятые настройки — не «успех».
+    if (applied === 0) notify.warn('Настройки не применены', detail)
+    else if (cleared) notify.warn(title, detail)
+    else notify.success(title, detail)
   }
 }
 
@@ -912,6 +946,11 @@ const navigationEnabled = ref(false)
 // каждый keystroke пересчитывала бы details → :model-value навязывался бы
 // обратно и сбрасывал ввод, а navBroken мигал бы на неполном слове.
 const navInput = ref('')
+// id ячейки, к которой относится черновик navInput. Нужен гард в commitNav: клик по
+// другой ячейке меняет selection синхронно (pointerdown) ДО blur поля, поэтому без
+// сверки blur записал бы черновик в только что выбранную ЧУЖУЮ ячейку (а пустое
+// поле — стёрло бы её навигацию).
+const navCellId = ref(null)
 // Подсказки выпадашки AutoComplete — формы проекта, фильтруются по вводу (@complete).
 const navSuggestions = ref([])
 // Источник watch'а — МАССИВ ГЕТТЕРОВ [id, navigation], а не один getter,
@@ -926,6 +965,7 @@ watch(
   () => {
     navigationEnabled.value = !!details.value?.navigation
     navInput.value = details.value?.navigation || ''
+    navCellId.value = details.value?.id ?? null
   },
   { immediate: true }
 )
@@ -959,8 +999,10 @@ function onNavComplete(e) {
   navSuggestions.value = otherFormIds.value.filter((id) => id.toLowerCase().includes(q))
 }
 // Коммит черновика в граф. item-select даёт event.value (выбранная форма);
-// blur/Enter — берём текущий navInput.
+// blur/Enter — берём текущий navInput. Гард по navCellId: если выделение уже
+// сменилось (клик по другой ячейке приходит ДО blur), черновик не наш — выбрасываем.
 function commitNav(e) {
+  if (!details.value || details.value.id !== navCellId.value) return
   patchNavigation(e && e.value !== undefined ? e.value : navInput.value)
 }
 const navBroken = computed(() => {
@@ -1019,13 +1061,16 @@ const switchPickerTags = computed(() => {
               {{ multiGroup.ungroup ? 'Группа' : 'Выделено' }}
             </div>
             <div class="font-medium text-surface-900">
-              {{ nplural(canvas.selection.value.length, 'символ', 'символа', 'символов') }}
+              {{ selectionSummary.label }}
+              <span v-if="selectionSummary.locked" class="text-[11px] font-normal text-surface-500">
+                · {{ selectionSummary.locked }} заблокировано
+              </span>
             </div>
             <p class="text-[11px] text-surface-500 mt-2">
               {{
                 multiGroup.ungroup
                   ? 'Группа ведёт себя как один символ. Анимации применяются ко всем членам.'
-                  : 'Ячейки можно тащить группой, удалить клавишей Del. Анимации ниже применяются ко всему выделению; остальные свойства — при одном выделенном.'
+                  : 'Символы можно тащить группой, удалить клавишей Del. Анимации ниже применяются ко всему выделению; остальные свойства — при одном выделенном.'
               }}
             </p>
           </div>
@@ -1112,7 +1157,7 @@ const switchPickerTags = computed(() => {
 
           <div class="pt-2 border-t border-surface-200">
             <Button
-              :label="`Удалить (${canvas.selection.value.length})`"
+              :label="`Удалить (${selectionSummary.deletable})`"
               icon="pi pi-trash"
               severity="danger"
               text
@@ -1129,7 +1174,7 @@ const switchPickerTags = computed(() => {
             <i class="pi pi-mouse text-3xl mb-3 opacity-60" />
             <div class="text-sm font-medium text-surface-500 mb-1">Ничего не выделено</div>
             <p class="text-[11px] leading-relaxed max-w-[180px]">
-              Кликни по ячейке или проводу на холсте — здесь появятся свойства
+              Кликните по символу или проводу на холсте — здесь появятся свойства
             </p>
           </div>
 
@@ -1140,7 +1185,7 @@ const switchPickerTags = computed(() => {
               <div class="mb-2 uppercase tracking-wider text-surface-500">Сводка формы</div>
               <div class="flex flex-col gap-1 text-surface-600">
                 <div class="flex justify-between">
-                  <span>Ячейки</span>
+                  <span>Символы</span>
                   <span class="font-mono">{{ canvas.cellsCount.value }}</span>
                 </div>
                 <div class="flex justify-between">

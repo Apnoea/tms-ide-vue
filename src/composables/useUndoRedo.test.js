@@ -79,6 +79,21 @@ describe('useUndoRedo', () => {
     expect(mockCanvas.setUndoRedoAvail).toHaveBeenLastCalledWith(false, false)
   })
 
+  it('undo в окне дебаунса флашит pending-снимок — последнее действие не теряется', () => {
+    const api = init() // marker 1 — стартовое состояние
+    api.scheduleSnapshot()
+    vi.advanceTimersByTime(200) // действие A закоммичено (marker 2)
+    api.scheduleSnapshot() // действие B — ещё в окне дебаунса, в стек не попало
+
+    api.undo() // Ctrl+Z, не дожидаясь таймера
+
+    // Откат ровно на ОДИН шаг (к состоянию после A), а не на два (к стартовому).
+    expect(mockGraph.getLastApplied()).toEqual({ marker: 2 })
+    api.redo()
+    // Действие B попало в стек при флаше, поэтому redo его возвращает.
+    expect(mockGraph.getLastApplied()).toEqual({ marker: 3 })
+  })
+
   it('scheduleSnapshot дебаунсится 200ms и зовёт snapshot ОДИН раз', () => {
     const api = init()
     api.scheduleSnapshot()

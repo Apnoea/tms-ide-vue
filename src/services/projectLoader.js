@@ -4,8 +4,8 @@
 
 import { getStencilById } from '../stencils/registry'
 import { buildPortItems } from '../stencils/svgInjector'
-import { LINK_DEFAULTS } from '../stencils/linkDefaults'
-import { ATTR_META, CELL_META_FIELDS } from '../constants/ids'
+import { LINK_DEFAULTS, linkStyleAttrs } from '../stencils/linkDefaults'
+import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 
 /**
  * Парсит SVG-текст и возвращает массив JointJS-cells (включая links),
@@ -44,7 +44,7 @@ export function parseSvgProject(svgText) {
     try {
       const meta = JSON.parse(g.getAttribute(ATTR_META))
       if (!meta.id || !meta.stencilId) {
-        errors.push('Ячейка без id/stencilId — пропускаю')
+        errors.push('Символ без id/stencilId — пропускаю')
         continue
       }
 
@@ -52,7 +52,7 @@ export function parseSvgProject(svgText) {
       const tr = g.getAttribute('transform') || ''
       const m = tr.match(/translate\s*\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)\s*\)/)
       if (!m) {
-        errors.push(`Ячейка ${meta.id}: нет transform`)
+        errors.push(`Символ ${meta.id}: нет transform`)
         continue
       }
       const x = parseFloat(m[1])
@@ -61,7 +61,7 @@ export function parseSvgProject(svgText) {
       stencilIds.add(meta.stencilId)
       const stencil = getStencilById(meta.stencilId)
       if (!stencil) {
-        errors.push(`Стенсил "${meta.stencilId}" не зарегистрирован — пропускаю`)
+        errors.push(`Символ "${meta.stencilId}" не зарегистрирован — пропускаю`)
         continue
       }
 
@@ -94,10 +94,12 @@ export function parseSvgProject(svgText) {
       // JointJS пишет angle в верхнее поле cell.toJSON() — там же его и читает
       // в fromJSON. Применится автоматически как transform на outer-`<g>`.
       if (meta.angle) cellJson.angle = meta.angle
+      // z-index (порядок наложения) — JointJS-поле верхнего уровня, как angle.
+      if (meta.z != null) cellJson.z = meta.z
       cells.push(cellJson)
       elementIds.add(meta.id)
     } catch (e) {
-      errors.push(`Парсинг ячейки: ${e.message}`)
+      errors.push(`Парсинг символа: ${e.message}`)
     }
   }
 
@@ -113,7 +115,7 @@ export function parseSvgProject(svgText) {
       // graph.fromJSON бросит «invalid source/target cell» — а форма к этому моменту
       // уже в IDB → restoreProject падал бы на КАЖДОЙ загрузке (проект залипал).
       if (!elementIds.has(meta.source.id) || !elementIds.has(meta.target.id)) {
-        errors.push(`Провод ${meta.id}: конец ссылается на отсутствующую ячейку — пропускаю`)
+        errors.push(`Провод ${meta.id}: конец ссылается на отсутствующий символ — пропускаю`)
         continue
       }
 
@@ -130,24 +132,15 @@ export function parseSvgProject(svgText) {
       // Ручные изломы: без них gridRightAngle-роутер перерисовал бы провод по
       // дефолтному маршруту, потеряв правки пользователя.
       if (Array.isArray(meta.vertices) && meta.vertices.length) link.vertices = meta.vertices
-      if (meta.voltageSource || meta.switchSources || meta.strokeWidth || meta.strokeColor) {
-        link.tms = {}
-        if (meta.voltageSource) link.tms.voltageSource = meta.voltageSource
-        if (meta.switchSources) link.tms.switchSources = meta.switchSources
-        if (meta.strokeWidth) link.tms.strokeWidth = meta.strokeWidth
-        if (meta.strokeColor) link.tms.strokeColor = meta.strokeColor
+      // tms-поля провода по тому же дескриптору, что пишет exporter (LINK_META_FIELDS).
+      for (const f of LINK_META_FIELDS) {
+        if (meta[f.key] === undefined) continue
+        link.tms = link.tms || {}
+        link.tms[f.key] = meta[f.key]
       }
-      // Толщина/цвет линии: переопределяем attrs.line новым объектом (не мутируя общий
-      // LINK_DEFAULTS.attrs — он шарится всеми проводами), сохраняя markers/router.
-      if (meta.strokeWidth || meta.strokeColor) {
-        link.attrs = {
-          line: {
-            ...LINK_DEFAULTS.attrs.line,
-            ...(meta.strokeWidth ? { strokeWidth: meta.strokeWidth } : {}),
-            ...(meta.strokeColor ? { stroke: meta.strokeColor } : {}),
-          },
-        }
-      }
+      // Стиль линии из tms → attrs.line (иначе провод нарисуется дефолтным).
+      const styleAttrs = linkStyleAttrs(link.tms)
+      if (styleAttrs) link.attrs = styleAttrs
       cells.push(link)
     } catch (e) {
       errors.push(`Парсинг провода: ${e.message}`)

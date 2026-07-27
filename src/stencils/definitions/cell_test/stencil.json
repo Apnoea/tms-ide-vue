@@ -5,62 +5,11 @@
   "shapeFile": "shape.svg",
   "width": 20,
   "height": 20,
-  "slots": [
+  "ports": [
     {
-      "key": "onoff",
-      "type": "Boolean"
-    }
-  ],
-  "animationTemplate": [
-    {
-      "idSuffix": ".true",
-      "type": "shape",
-      "bindings": [
-        {
-          "tag": "{slot.onoff}",
-          "when": {
-            "source": "value",
-            "type": "map",
-            "cases": {
-              "false": {
-                "apply": {
-                  "addClass": "animation-hidden"
-                }
-              }
-            }
-          }
-        }
-      ],
-      "detailTags": [
-        {
-          "tag": "{slot.onoff}"
-        }
-      ]
-    },
-    {
-      "idSuffix": ".false",
-      "type": "shape",
-      "bindings": [
-        {
-          "tag": "{slot.onoff}",
-          "when": {
-            "source": "value",
-            "type": "map",
-            "cases": {
-              "true": {
-                "apply": {
-                  "addClass": "animation-hidden"
-                }
-              }
-            }
-          }
-        }
-      ],
-      "detailTags": [
-        {
-          "tag": "{slot.onoff}"
-        }
-      ]
+      "name": "p1",
+      "x": 10,
+      "y": 0
     }
   ]
 }

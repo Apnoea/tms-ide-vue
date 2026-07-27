@@ -24,6 +24,7 @@ import { useCanvas } from '../composables/useCanvas'
 import { useUiStore } from '../stores/useUiStore'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { nplural } from '../utils/plural'
+import { confirmDanger } from '../utils/confirmDanger'
 
 const ui = useUiStore()
 const confirm = useConfirm()
@@ -170,25 +171,22 @@ function confirmDeleteStencil(event, stencil) {
   if (usage.count) {
     notify.warn(
       'Символ используется',
-      `${nplural(usage.count, 'ячейка', 'ячейки', 'ячеек')} в формах: ` +
+      `${nplural(usage.count, 'символ', 'символа', 'символов')} в формах: ` +
         `${usage.formIds.join(', ')}. Сначала удалите их со схем.`
     )
     return
   }
-  confirm.require({
+  confirmDanger(confirm, {
     target: event.currentTarget,
     message: `Удалить символ «${stencil.label}»?`,
-    icon: 'pi pi-exclamation-triangle',
     acceptLabel: 'Удалить',
-    rejectLabel: 'Отмена',
-    acceptProps: { severity: 'danger', size: 'small' },
-    rejectProps: { severity: 'secondary', text: true, size: 'small' },
     accept: () => removeStencil(stencil.id),
   })
 }
 async function removeStencil(id) {
   unregisterStencil(id)
   await removeStencilOverride(id) // снять IDB-оверрайд, иначе он вернул бы стенсил на reload
+  canvas.markDirty() // состав library/ в .zip изменился → проект разошёлся с экспортом
   const ok = await deleteStencilFromDisk(id)
   if (ok) notify.success('Символ удалён', id)
   else

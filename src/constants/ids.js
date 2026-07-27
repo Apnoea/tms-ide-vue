@@ -60,6 +60,24 @@ export const CELL_META_FIELDS = [
   { key: 'navigation', keep: Boolean },
 ]
 
+/**
+ * tms-поля ПРОВОДА для round-trip — тот же принцип, что CELL_META_FIELDS (единый
+ * список для exporter и projectLoader). Дефолты стиля (толщина 2 / цвет #000) в
+ * meta не пишем: `keep` их отсекает, при чтении отсутствие = дефолт из LINK_DEFAULTS.
+ *
+ *  • attr — имя JointJS-attr в `attrs.line` (стиль применяется к отрисовке, а не
+ *    только хранится в tms). Поля без attr — только данные (voltage/switch).
+ *
+ * `vertices` НЕ здесь: это поле верхнего уровня линка (не tms), пишется/читается
+ * отдельно — как `angle`/`z` у ячейки.
+ */
+export const LINK_META_FIELDS = [
+  { key: 'voltageSource', keep: Boolean },
+  { key: 'switchSources', keep: Boolean },
+  { key: 'strokeWidth', keep: Boolean, attr: 'strokeWidth' },
+  { key: 'strokeColor', keep: Boolean, attr: 'stroke' },
+]
+
 // ─── ID-генераторы ──────────────────────────────────────────────────────────
 
 /** Outer-key карточки ячейки. cell_value — конвенция `animation-cell-{tag}`. */

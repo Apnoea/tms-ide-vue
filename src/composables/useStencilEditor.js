@@ -15,7 +15,13 @@
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { snapToGrid } from '../utils/grid'
-import { serializeSvg, buildStencilJson, cropToContent, parseStencilSvg } from '../utils/stencilSvg'
+import {
+  serializeSvg,
+  buildStencilJson,
+  cropToContent,
+  parseStencilSvg,
+  translateShape,
+} from '../utils/stencilSvg'
 import { normalizeStateColor } from '../constants/animation'
 
 export const SHAPE_GRID = 1
@@ -183,6 +189,30 @@ export function createStencilEditor() {
     commit()
   }
 
+  // Буфер копирования ОДНОЙ фигуры (без внутреннего id — paste присвоит новый).
+  // Живёт на сессию редактора; хранит клон всех свойств (stroke/fill/points/…).
+  const clipboardShape = ref(null)
+
+  function copyShape() {
+    const s = shapes.value.find((x) => x.id === selectedId.value)
+    if (!s) return false
+    const rest = { ...s }
+    delete rest.id
+    clipboardShape.value = JSON.parse(JSON.stringify(rest))
+    return true
+  }
+
+  function pasteShape() {
+    if (!clipboardShape.value) return null
+    // Сдвиг на шаг сетки — копия не ложится точно поверх оригинала.
+    const clone = translateShape(
+      JSON.parse(JSON.stringify(clipboardShape.value)),
+      SHAPE_GRID,
+      SHAPE_GRID
+    )
+    return addShape(clone) // присвоит id, выделит, commit
+  }
+
   // Состояние видимости фигуры (внутренняя анимация): always | <ключ состояния>.
   // Булев режим: always | true | false. Режим значения: always | key из meta.states.
   // Дискретная операция → коммитим сразу (в отличие от updateShape в жесте).
@@ -248,12 +278,21 @@ export function createStencilEditor() {
   }
 
   // Шаблон «Сигнал положения»: 4 основных состояния с пресет-подписями, коды пустые.
+  // Заменяет набор состояний целиком, поэтому — как в removeState — снимаем цвета и
+  // возвращаем осиротевшие фигуры в `always`: иначе фигура осталась бы на ключе, которого
+  // нет в meta.states, и serializeSvg молча выбросил бы её из shape.svg.
   function applyPositionPreset() {
+    const nextKeys = new Set(POSITION_SIGNAL_KEYS)
+    for (const s of meta.states) if (!nextKeys.has(s.key)) setStateColor(s.key, '')
     meta.states = POSITION_SIGNAL_KEYS.map((k) => ({
       key: k,
       label: STATE_PRESETS.find((p) => p.key === k)?.label || k,
       code: '',
     }))
+    shapes.value = shapes.value.map((s) =>
+      s.state && s.state !== 'always' && !nextKeys.has(s.state) ? { ...s, state: 'always' } : s
+    )
+    commit()
   }
 
   // Порт живёт на ГРАНИЦЕ стенсила: снапим к PORT_GRID и проецируем на ближайшую
@@ -389,6 +428,8 @@ export function createStencilEditor() {
     addShape,
     updateShape,
     removeShape,
+    copyShape,
+    pasteShape,
     setShapeState,
     setStateMode,
     addState,

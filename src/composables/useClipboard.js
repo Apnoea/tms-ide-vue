@@ -2,7 +2,7 @@ import { shallowRef } from 'vue'
 import { shapes } from '@joint/core'
 import { getStencilById } from '../stencils/registry'
 import { materializeStencil } from '../stencils/svgInjector'
-import { LINK_DEFAULTS } from '../stencils/linkDefaults'
+import { LINK_DEFAULTS, linkStyleAttrs } from '../stencils/linkDefaults'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
 import { useCanvas, genGroupId } from './useCanvas'
@@ -155,6 +155,9 @@ export function useClipboard({ scheduleSnapshot }) {
           ? { vertices: linkSnap.vertices.map((v) => ({ x: v.x + offset, y: v.y + offset })) }
           : {}),
         ...(linkSnap.tms ? { tms: linkSnap.tms } : {}),
+        // Стиль линии (толщина/цвет) живёт в tms — дублируем в attrs.line, иначе
+        // копия рисуется дефолтной (см. linkStyleAttrs).
+        ...(linkStyleAttrs(linkSnap.tms) ? { attrs: linkStyleAttrs(linkSnap.tms) } : {}),
       })
       graph.addCell(linkModel)
       newLinkItems.push({ kind: 'link', id: linkModel.id })
@@ -168,9 +171,9 @@ export function useClipboard({ scheduleSnapshot }) {
     return { added: newCellIds.length, skipped, linksAdded }
   }
 
-  /** Формирует строку для toast'а: «3 ячейки + 2 провода» или варианты. */
+  /** Формирует строку для toast'а: «3 символа + 2 провода» или варианты. */
   function describePasted(added, linksAdded, skipped) {
-    const parts = [nplural(added, 'ячейка', 'ячейки', 'ячеек')]
+    const parts = [nplural(added, 'символ', 'символа', 'символов')]
     if (linksAdded > 0) {
       parts.push(nplural(linksAdded, 'провод', 'провода', 'проводов'))
     }
@@ -185,7 +188,7 @@ export function useClipboard({ scheduleSnapshot }) {
     if (!graph) return null
     const cellSel = canvas.selection.value.filter((s) => s.kind === 'cell')
     if (!cellSel.length) {
-      notify.info(emptyLabel, 'Выдели хотя бы одну ячейку', TOAST_LIFE.SHORT)
+      notify.info(emptyLabel, 'Выдели хотя бы один символ', TOAST_LIFE.SHORT)
       return null
     }
     return {
@@ -212,14 +215,14 @@ export function useClipboard({ scheduleSnapshot }) {
     notify.success(
       'Скопировано',
       snaps.links.length
-        ? `${nplural(snaps.cells.length, 'ячейка', 'ячейки', 'ячеек')} + ${nplural(snaps.links.length, 'провод', 'провода', 'проводов')}`
-        : nplural(snaps.cells.length, 'ячейка', 'ячейки', 'ячеек')
+        ? `${nplural(snaps.cells.length, 'символ', 'символа', 'символов')} + ${nplural(snaps.links.length, 'провод', 'провода', 'проводов')}`
+        : nplural(snaps.cells.length, 'символ', 'символа', 'символов')
     )
   }
 
   function pasteClipboard() {
     if (!clipboard.value.cells.length) {
-      notify.info('Буфер пуст', 'Скопируй ячейки через Ctrl+C', TOAST_LIFE.SHORT)
+      notify.info('Буфер пуст', 'Скопируй символы через Ctrl+C', TOAST_LIFE.SHORT)
       return
     }
     pasteCount++

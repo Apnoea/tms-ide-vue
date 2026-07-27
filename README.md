@@ -75,7 +75,7 @@ src/
 ├── stencils/
 │   ├── registry.js            # авто-сборка через Vite glob
 │   ├── parser.js              # {slot.X} интерполяция + injectIds
-│   ├── linkDefaults.js        # router/connector для проводов
+│   ├── linkDefaults.js        # router/connector для проводов + z-полоса и стиль линии
 │   ├── svgInjector.js         # рендер SVG; программные билдеры bus/text/value
 │   ├── tmsStencil.js          # dia.Element.define('tms.Stencil')
 │   └── definitions/<id>/{stencil.json, shape.svg}
@@ -102,6 +102,7 @@ src/
     ├── switchSources.js       # normalizeSwitchSources { groups } (DNF: И внутри группы, ИЛИ между)
     ├── wireSplice.js          # врезка (pickPassThroughPorts/spliceRotation) + срастание (planWireBridge)
     ├── restoreGuard.js        # withRestoreGuard: try/finally вокруг restoringHistory
+    ├── confirmDanger.js       # единый стиль ConfirmPopup для всех подтверждений
     ├── formTreeDnd.js         # DnD дерева форм: subtreeIds + computeDrop (цель/зона)
     └── idb.js                 # IndexedDB wrapper
 ```
@@ -181,7 +182,8 @@ Canvas читают флаги, никаких хардкод-списков в 
 по стартовой вершине → `polygon`) + расстановка портов **на границе** стенсила, всё
 со снапом к сетке (вершины фигур — 1px, порты и размер — шаг 5); правка /
 перемещение / ресайз — через interactjs (колбэки пишут в модель, Vue
-перерисовывает). Undo/redo (Ctrl+Z / Ctrl+Y) — в пределах редактора. Холст обрамлён
+перерисовывает). Undo/redo (Ctrl+Z / Ctrl+Y) и копирование выделенной фигуры со всеми
+свойствами (Ctrl+C / Ctrl+V) — в пределах редактора. Холст обрамлён
 линейками X/Y (деления 10/5/1). Выделение показывается halo-обводкой под фигурой
 (реальные цвета видны поверх) + ручки. На сохранении контент обрезается до bbox
 (кратно шагу сетки) и сдвигается в (0,0) — «воздух» холста отбрасывается. **Размер холста**
@@ -310,6 +312,13 @@ Shift+Enter/F3 — предыдущее, Esc — закрыть.
 следуют за ними; работает поверх поворота (кнопка задаёт экранную ось независимо от
 угла). Хранится в `tms.flipH`/`flipV`, переживает round-trip. Недоступно для
 `noRotate`-стенсилов (text/value/bus/pi) и заблокированных.
+
+## Холст: порядок наложения (слои)
+
+Когда символы перекрываются, порядком управляет контекст-меню → **«Порядок»**: на
+передний план / выше / ниже / на задний план (применяется ко всему выделению).
+Провода всегда остаются позади символов и в переупорядочивании не участвуют.
+Порядок переживает round-trip (`meta.z`).
 
 ## Холст: врезка и срастание проводов
 

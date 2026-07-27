@@ -154,7 +154,7 @@ const selectionLabel = computed(() => {
     const tms = cell.get('tms') || {}
     const slots = tms.slots || {}
     const firstTag = Object.values(slots).find((v) => v)
-    return firstTag ? `ячейка · ${firstTag}` : 'ячейка'
+    return firstTag ? `символ · ${firstTag}` : 'символ'
   }
   if (item.kind === 'link') return 'провод'
   return null
@@ -469,6 +469,18 @@ export function useCanvas() {
       snapshotTick.value++
       return cells.length
     },
+    /**
+     * Модели выделения, доступные на ЗАПИСЬ: всё кроме заблокированных (`tms.locked`
+     * = read-only). Линки НЕ отбрасываем — замка у них нет, а voltage/switchSources
+     * на проводах валидны. Единая точка для массовых операций: `paper.interactive`
+     * замок не защищает (правки идут программно), поэтому каждый такой путь обязан
+     * фильтровать сам — раньше фильтр забывали, и замок обходился.
+     */
+    writableItems(items) {
+      const graph = graphRef.value
+      if (!graph) return []
+      return (items || []).map((i) => graph.getCell(i.id)).filter((c) => c && !c.get('tms')?.locked)
+    },
     /** Снять группировку с выделенных ячеек. Возвращает число разгруппированных. */
     ungroupCells(items) {
       const graph = graphRef.value
@@ -478,7 +490,8 @@ export function useCanvas() {
         if (i.kind !== 'cell') continue
         const c = graph.getCell(i.id)
         const tms = c?.get('tms')
-        if (!tms?.groupId) continue
+        // locked не разгруппировываем — groupId это правка tms, а замок read-only.
+        if (!tms?.groupId || tms.locked) continue
         const next = { ...tms }
         delete next.groupId
         c.set('tms', next)
@@ -489,6 +502,43 @@ export function useCanvas() {
         snapshotTick.value++
       }
       return count
+    },
+    /**
+     * Порядок наложения (z-index) выделенных ЯЧЕЕК. mode: 'front'/'back' —
+     * `toFront`/`toBack` (JointJS max+1/min-1); 'forward'/'backward' — swap z с
+     * ближайшим соседом-элементом. Провода в z-командах не участвуют (всегда сзади).
+     */
+    reorderCells(items, mode) {
+      const graph = graphRef.value
+      if (!graph) return
+      const cells = (items || [])
+        .filter((i) => i.kind === 'cell')
+        .map((i) => graph.getCell(i.id))
+        .filter(Boolean)
+      if (!cells.length) return
+      // front/back считаем по ЭЛЕМЕНТАМ, а не через toFront/toBack: те берут min/max
+      // по всем cells, включая провода (у них фиксированный LINK_Z далеко внизу), и
+      // «на задний план» уронило бы символ ПОД провода.
+      const els = graph.getElements()
+      if (mode === 'front' || mode === 'back') {
+        const zs = els.map((e) => e.get('z') ?? 0)
+        const edge = mode === 'front' ? Math.max(...zs) + 1 : Math.min(...zs) - 1
+        // Все выделенные на один уровень — их взаимный порядок сохраняет коллекция.
+        for (const c of cells) c.set('z', edge)
+      } else {
+        // Снимок текущего z-порядка ячеек; swap z с соседом по этому порядку.
+        for (const c of cells) {
+          const idx = els.indexOf(c)
+          const neighbor = mode === 'forward' ? els[idx + 1] : els[idx - 1]
+          if (!neighbor) continue
+          const z1 = c.get('z')
+          const z2 = neighbor.get('z')
+          c.set('z', z2)
+          neighbor.set('z', z1)
+        }
+      }
+      graphVersion.value++
+      snapshotTick.value++
     },
     paperViewTick,
     bumpPaperView() {

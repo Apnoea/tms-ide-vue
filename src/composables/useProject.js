@@ -403,12 +403,15 @@ export function useProject({
       const tagsText = await readTagsText()
       await deliver({ forms: formsOut, stencils, tagsText, hierarchy: workspace.formTree })
 
-      // Доставленный архив = текущее состояние → сбрасываем «не выгружено».
+      // Архив отдан браузеру → снимаем «не выгружено». Подтверждения, что файл
+      // реально сохранён, у `<a download>` нет (клик синхронный, отмена диалога
+      // молчит), поэтому формулировки нейтральные: «отправлен на скачивание», а не
+      // «сохранён». Точный статус дал бы showSaveFilePicker (writable stream).
       canvas.markExported()
       notify.success(
-        'Проект экспортирован',
+        'Архив отправлен на скачивание',
         `${nplural(formsOut.length, 'форма', 'формы', 'форм')}, ` +
-          nplural(stencils.length, 'стенсил', 'стенсила', 'стенсилов')
+          nplural(stencils.length, 'символ', 'символа', 'символов')
       )
       if (exportWarnings.length) {
         const head = exportWarnings.slice(0, 5).join('; ')

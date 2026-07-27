@@ -6,7 +6,7 @@ import { parseSvgProject } from './projectLoader'
 // Не зависит от реального dia.Graph — тесты быстрые и не требуют jsdom-setup'а
 // JointJS-внутренностей.
 
-function mockCell({ id, stencilId, x = 0, y = 0, w = 40, h = 40, ...extra }) {
+function mockCell({ id, stencilId, x = 0, y = 0, w = 40, h = 40, z, ...extra }) {
   const tms = { stencilId, ...extra }
   return {
     id,
@@ -14,6 +14,7 @@ function mockCell({ id, stencilId, x = 0, y = 0, w = 40, h = 40, ...extra }) {
       if (key === 'tms') return tms
       if (key === 'position') return { x, y }
       if (key === 'size') return { width: w, height: h }
+      if (key === 'z') return z
       return undefined
     },
   }
@@ -671,6 +672,13 @@ describe('exportProject', () => {
     const link = parseSvgProject(exported.svgText).cells.find((c) => c.type === 'standard.Link')
     expect(link.attrs.line.strokeWidth).toBe(4)
     expect(link.tms.strokeWidth).toBe(4)
+  })
+
+  it('z-порядок ячейки: round-trip через meta.z', () => {
+    const graph = mockGraph([mockCell({ id: 'c1', stencilId: 'cell_qw', z: 5 })])
+    const exported = exportProject(graph)
+    const cell = parseSvgProject(exported.svgText).cells.find((c) => c.type === 'tms.Stencil')
+    expect(cell.z).toBe(5)
   })
 
   it('flip символа: round-trip через meta + transform в SVG', () => {

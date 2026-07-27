@@ -26,6 +26,7 @@ import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { snapToGrid } from '../utils/grid'
 import { stencilDraftIssues, ROUND_RX, isFillableShape } from '../utils/stencilSvg'
+import { confirmDanger } from '../utils/confirmDanger'
 import { normalizeStateColor } from '../constants/animation'
 import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
 import { reinjectAllStencils } from '../stencils/svgInjector'
@@ -164,14 +165,10 @@ function requestClose(event) {
     ui.closeStencilEditor()
     return
   }
-  confirm.require({
+  confirmDanger(confirm, {
     target: event?.currentTarget || closeBtn.value?.$el,
     message: 'Закрыть редактор? Несохранённый символ будет потерян.',
-    icon: 'pi pi-exclamation-triangle',
     acceptLabel: 'Закрыть',
-    rejectLabel: 'Отмена',
-    acceptProps: { severity: 'danger', size: 'small' },
-    rejectProps: { severity: 'secondary', text: true, size: 'small' },
     accept: () => ui.closeStencilEditor(),
   })
 }
@@ -180,7 +177,7 @@ function requestClose(event) {
 // на диск (в проде плагина нет → стенсил уедет в library/ проекта). В режиме
 // правки id исключаем из проверки уникальности (он и есть редактируемый) и после
 // сохранения переинжектим активную форму — расставленные экземпляры подхватят
-// новый рисунок; при смене размера/портов предупреждаем (их геометрия не тронута).
+// новый рисунок; при смене портов у расставленных экземпляров предупреждаем.
 async function save() {
   const editing = editingId.value
   const existingIds = getAllStencils()
@@ -197,21 +194,39 @@ async function save() {
   // Оверрайд в IDB — правка (новый стенсил / изменённая заливка встроенного)
   // переживёт reload и в prod. persistStencilsToDisk ниже — dev-бонус: пишет файл
   // в definitions/, чтобы стенсил попал в кодовую базу под git.
-  await upsertStencilOverride({ id: json.id, stencilJson: json, shapeSvg: svg })
+  const idbOk = await upsertStencilOverride({ id: json.id, stencilJson: json, shapeSvg: svg })
   const ok = await persistStencilsToDisk([{ id: json.id, stencilJson: json, shapeSvg: svg }])
+  // Символ уходит в .zip (library/) → проект разошёлся с последним экспортом.
+  canvas.markDirty()
+  // Оверрайд не записался (квота / приватный режим) — правка живёт только до reload.
+  // Говорим прямо и поднимаем saveError: обещать «переживёт перезагрузку» нельзя.
+  if (!idbOk) {
+    canvas.setSaveError(true)
+    notify.error(
+      'Символ не сохранён локально',
+      'Браузер отклонил запись в хранилище — правка потеряется после перезагрузки'
+    )
+  }
 
   if (editing) {
     reinjectAllStencils(canvas.graphRef.value, canvas.paperRef.value)
     canvas.bumpVersion()
-    const geomChanged =
-      prev &&
-      (prev.width !== json.width ||
-        prev.height !== json.height ||
-        JSON.stringify(prev.ports || []) !== JSON.stringify(json.ports || []))
-    if (geomChanged) {
+    // Размер/порты у уже расставленных экземпляров не пересоздаются (они baked в
+    // graphJson формы) — предупреждаем КОНКРЕТНО, что разошлось. Размер мог
+    // измениться и без правки полей: `output()` обрезает холст до bbox контента.
+    const sizeChanged = prev && (prev.width !== json.width || prev.height !== json.height)
+    const portsChanged =
+      prev && JSON.stringify(prev.ports || []) !== JSON.stringify(json.ports || [])
+    if (sizeChanged || portsChanged) {
+      const what = [
+        sizeChanged ? `размер ${prev.width}×${prev.height} → ${json.width}×${json.height}` : null,
+        portsChanged ? 'порты' : null,
+      ]
+        .filter(Boolean)
+        .join(', ')
       notify.warn(
         'Символ обновлён',
-        'Размер/порты у уже расставленных экземпляров не меняются — переставьте при необходимости'
+        `Изменилось: ${what}. У расставленных экземпляров прежняя геометрия — переставьте при необходимости`
       )
     } else {
       notify.success('Символ обновлён', json.id)
@@ -584,6 +599,17 @@ useEventListener(window, 'keydown', (e) => {
       redo()
       return
     }
+    // Ctrl+C / Ctrl+V — копировать/вставить выделенную фигуру (со свойствами).
+    if (e.code === 'KeyC') {
+      e.preventDefault()
+      ed.copyShape()
+      return
+    }
+    if (e.code === 'KeyV') {
+      e.preventDefault()
+      ed.pasteShape()
+      return
+    }
   }
   if (e.key === 'Escape') {
     // Открыт модальный диалог (справка / confirm) поверх редактора — Esc закрывает
@@ -640,7 +666,9 @@ onBeforeUnmount(() => {
 
       <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
 
-      <!-- Размер холста стенсила — рядом с инструментами рисования. -->
+      <!-- Размер холста символа — рядом с инструментами рисования. На сохранении
+           контент всё равно обрезается до bbox (cropToContent), поэтому итоговый
+           размер может отличаться от заданного здесь. -->
       <div class="flex items-center gap-1.5 text-xs text-surface-500">
         <span>Холст</span>
         <InputNumber

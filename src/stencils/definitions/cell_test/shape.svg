@@ -1,14 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20">
   <g>
-    <circle class="tms-state-fill" cx="10" cy="10" r="9" fill="none" stroke="#000" stroke-width="2"/>
-  </g>
-  <g data-anim-suffix=".true">
-    <line x1="10" y1="5" x2="5" y2="10" stroke="#000" stroke-width="2" stroke-linecap="round"/>
-    <line x1="10" y1="5" x2="15" y2="10" stroke="#000" stroke-width="2" stroke-linecap="round"/>
-  </g>
-  <g data-anim-suffix=".false">
-    <line x1="15" y1="10" x2="10" y2="15" stroke="#000" stroke-width="2" stroke-linecap="round"/>
-    <line x1="5" y1="10" x2="10" y2="15" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="10" cy="10" r="9" fill="none" stroke="#000" stroke-width="2"/>
+    <circle cx="10" cy="10" r="4" fill="none" stroke="#000" stroke-width="1"/>
+    <circle cx="10" cy="6" r="1" fill="none" stroke="#000" stroke-width="2"/>
+    <circle cx="14" cy="10" r="1" fill="none" stroke="#000" stroke-width="2"/>
+    <circle cx="10" cy="14" r="1" fill="none" stroke="#000" stroke-width="2"/>
+    <circle cx="6" cy="10" r="1" fill="none" stroke="#000" stroke-width="2"/>
   </g>
 </svg>

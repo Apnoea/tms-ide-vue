@@ -8,7 +8,7 @@ import ContextMenu from 'primevue/contextmenu'
 import Tag from 'primevue/tag'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
-import { LINK_DEFAULTS, gridRightAngleRouter } from '../stencils/linkDefaults'
+import { LINK_DEFAULTS, gridRightAngleRouter, LINK_Z } from '../stencils/linkDefaults'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from '../composables/useCanvas'
@@ -29,6 +29,7 @@ import { useContextMenu } from '../composables/useContextMenu'
 import { usePaletteDrag } from '../composables/usePaletteDrag'
 import { nplural } from '../utils/plural'
 import { withRestoreGuard } from '../utils/restoreGuard'
+import { confirmDanger } from '../utils/confirmDanger'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
 import { cellHasTag } from '../utils/cellSearch'
@@ -688,7 +689,8 @@ onMounted(async () => {
 
   // Линии — всегда за ячейками, чтобы порты не перекрывались линией в точке anchor.
   graph.on('add', (cell) => {
-    if (cell.isLink && cell.isLink()) cell.toBack()
+    // Фиксированный LINK_Z, а не toBack(): тот даёт min-1 и уводил бы z в дрейф.
+    if (cell.isLink && cell.isLink()) cell.set('z', LINK_Z)
   })
 
   // Прокидываем graph/paper в composable ДО restoreProject — composable'ы
@@ -760,7 +762,7 @@ onMounted(async () => {
   if (restored > 0) {
     notify.info(
       'Автосейв восстановлен',
-      `${nplural(restored, 'ячейка', 'ячейки', 'ячеек')} с прошлой сессии`
+      `${nplural(restored, 'символ', 'символа', 'символов')} с прошлой сессии`
     )
     // Центрируем viewport на bbox восстановленного контента — иначе ячейки,
     // нарисованные в прошлой сессии где-нибудь в (500, 800), окажутся за
@@ -1067,14 +1069,11 @@ function onClearCanvas(event) {
     clearActiveForm()
     return
   }
-  confirm.require({
+  confirmDanger(confirm, {
     target: event.currentTarget,
-    message: `Очистить холст? ${nplural(count, 'символ', 'символа', 'символов')} будет удалено.`,
-    icon: 'pi pi-exclamation-triangle',
+    // count = символы + провода, поэтому зонтичный «элемент», а не «символ».
+    message: `Очистить холст? ${nplural(count, 'элемент', 'элемента', 'элементов')} будет удалено.`,
     acceptLabel: 'Очистить',
-    rejectLabel: 'Отмена',
-    acceptProps: { severity: 'danger', size: 'small' },
-    rejectProps: { severity: 'secondary', text: true, size: 'small' },
     accept: () => performClearCanvas(count),
   })
 }
@@ -1096,7 +1095,7 @@ function performClearCanvas(count) {
 
   notify.info(
     'Холст очищен',
-    `Удалено ${nplural(count, 'символ', 'символа', 'символов')}`,
+    `Удалено ${nplural(count, 'элемент', 'элемента', 'элементов')}`,
     TOAST_LIFE.SHORT
   )
 }

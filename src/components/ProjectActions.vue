@@ -11,6 +11,7 @@ import { useConfirm } from 'primevue/useconfirm'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
+import { confirmDanger } from '../utils/confirmDanger'
 
 const canvas = useCanvas()
 const workspace = useWorkspaceStore()
@@ -37,14 +38,13 @@ async function openProject() {
     workspace.formIds.length > 1 || canvas.cellsCount.value + canvas.linksCount.value > 0
   if (hasContent) {
     const accepted = await new Promise((resolve) => {
-      confirm.require({
+      confirmDanger(confirm, {
+        // primary, не danger: открытие проекта не разрушающее (текущая работа
+        // уже в IDB), это просто подтверждение замены.
+        severity: 'primary',
         target: openBtnRef.value?.$el ?? null,
         message: 'Открыть проект? Текущая работа будет заменена.',
-        icon: 'pi pi-exclamation-triangle',
         acceptLabel: 'Открыть',
-        rejectLabel: 'Отмена',
-        acceptProps: { severity: 'primary', size: 'small' },
-        rejectProps: { severity: 'secondary', text: true, size: 'small' },
         accept: () => resolve(true),
         reject: () => resolve(false),
         onHide: () => resolve(false),

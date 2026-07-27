@@ -16,6 +16,7 @@ import { useConfirm } from 'primevue/useconfirm'
 import { useCanvas } from '../composables/useCanvas'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { subtreeIds, computeDrop } from '../utils/formTreeDnd'
+import { confirmDanger } from '../utils/confirmDanger'
 
 const canvas = useCanvas()
 const workspace = useWorkspaceStore()
@@ -93,14 +94,10 @@ function cancelRename() {
 // target только в своём document-click listener'е (первичного align в onEnter
 // нет) — с @click.stop попап падал в (0,0). Строка без @click, всплытие безопасно.
 function confirmDelete(event, id) {
-  confirm.require({
+  confirmDanger(confirm, {
     target: event.currentTarget,
     message: `Удалить форму «${id}»?`,
-    icon: 'pi pi-exclamation-triangle',
     acceptLabel: 'Удалить',
-    rejectLabel: 'Отмена',
-    acceptProps: { severity: 'danger', size: 'small' },
-    rejectProps: { severity: 'secondary', text: true, size: 'small' },
     accept: () => canvas.deleteForm(id),
   })
 }

@@ -67,6 +67,37 @@ export function useContextMenu({
               command: () => runOnTarget(t, () => canvas.toggleLocked(canvas.selection.value)),
             }
           : null
+      // Порядок наложения (z): подменю для выделенных ячеек. Провода всегда сзади.
+      const orderItem = {
+        label: 'Порядок',
+        icon: 'pi pi-clone',
+        items: [
+          {
+            label: 'На передний план',
+            icon: 'pi pi-angle-double-up',
+            command: () =>
+              runOnTarget(t, () => canvas.reorderCells(canvas.selection.value, 'front')),
+          },
+          {
+            label: 'Выше',
+            icon: 'pi pi-angle-up',
+            command: () =>
+              runOnTarget(t, () => canvas.reorderCells(canvas.selection.value, 'forward')),
+          },
+          {
+            label: 'Ниже',
+            icon: 'pi pi-angle-down',
+            command: () =>
+              runOnTarget(t, () => canvas.reorderCells(canvas.selection.value, 'backward')),
+          },
+          {
+            label: 'На задний план',
+            icon: 'pi pi-angle-double-down',
+            command: () =>
+              runOnTarget(t, () => canvas.reorderCells(canvas.selection.value, 'back')),
+          },
+        ],
+      }
       const items = [
         {
           label: 'Дублировать',
@@ -75,7 +106,7 @@ export function useContextMenu({
         },
         { label: 'Скопировать', icon: 'pi pi-clone', command: () => runOnTarget(t, copySelection) },
       ]
-      const mid = [groupItem, lockItem].filter(Boolean)
+      const mid = [orderItem, groupItem, lockItem].filter(Boolean)
       if (mid.length) items.push({ separator: true }, ...mid)
       items.push(
         { separator: true },

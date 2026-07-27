@@ -10,6 +10,7 @@ import Button from 'primevue/button'
 import Badge from 'primevue/badge'
 import { storeToRefs } from 'pinia'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
+import { useCanvas } from '../composables/useCanvas'
 import { useUiStore } from '../stores/useUiStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import * as fs from '../services/fileSystem'
@@ -19,6 +20,7 @@ import { idbGet, idbSet } from '../utils/idb'
 
 const ui = useUiStore()
 const project = useProjectStore()
+const canvas = useCanvas()
 const notify = useNotify()
 const { tags } = storeToRefs(project)
 
@@ -62,12 +64,19 @@ async function pickTagList() {
     project.setTags(loaded.parsed)
     await idbSet(IDB_HANDLE_KEY, fileHandle)
     // Сырой текст — с проектом (бандл на экспорте + переживает reload).
-    await idbSet('project:tags', loaded.content)
+    const tagsSaved = await idbSet('project:tags', loaded.content)
     ui.setLastTagListPickerStartIn(fileHandle)
+    // taglist.csv уходит в .zip → проект разошёлся с последним экспортом.
+    canvas.markDirty()
+    // Запись не прошла (квота / приватный режим): теги живут только в памяти —
+    // после reload вернутся прежние. Молчать нельзя.
+    if (!tagsSaved) canvas.setSaveError(true)
 
-    notify.success(
+    notify[tagsSaved ? 'success' : 'warn'](
       'Tag-list загружен',
-      `${nplural(loaded.parsed.length, 'тег', 'тега', 'тегов')} из ${fileHandle.name}`,
+      tagsSaved
+        ? `${nplural(loaded.parsed.length, 'тег', 'тега', 'тегов')} из ${fileHandle.name}`
+        : `${nplural(loaded.parsed.length, 'тег', 'тега', 'тегов')} — не сохранено локально, после перезагрузки вернутся прежние`,
       TOAST_LIFE.NORMAL
     )
   } catch (e) {

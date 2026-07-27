@@ -21,6 +21,7 @@ import {
   ATTR_META,
   ATTR_STENCIL,
   CELL_META_FIELDS,
+  LINK_META_FIELDS,
 } from '../constants/ids'
 import { SVG_NS, escapeAttr } from '../utils/xml'
 import { getCellTagsFromTms } from '../utils/cellSearch'
@@ -72,7 +73,7 @@ function getEndpointPos(end, graph, warnings) {
     // Порт не найден (рассинхрон портов после ресайза шины и т.п.) — уходим в
     // центр ячейки, но сигналим: тихий сдвиг провода заметить трудно. В warnings
     // (доходит до пользователя), а не только в консоль.
-    const msg = `Провод: порт "${end.port}" у ячейки ${end.id} не найден — конец уехал в центр`
+    const msg = `Провод: порт "${end.port}" у символа ${end.id} не найден — конец уехал в центр`
     console.warn(`[Export] ${msg}`)
     warnings?.push(msg)
   }
@@ -341,7 +342,7 @@ export function exportProject(graph, paper = null) {
 
     const stencil = getStencilById(tms.stencilId)
     if (!stencil) {
-      const msg = `стенсил "${tms.stencilId}" не найден в реестре — ячейка выпала из view.svg`
+      const msg = `символ "${tms.stencilId}" не найден в реестре — символ выпал из view.svg`
       warnings.push(msg)
       console.warn(`[Exporter] ${msg}`)
       continue
@@ -354,12 +355,12 @@ export function exportProject(graph, paper = null) {
     // находит text-узел по id == тег. Иначе short-id из UUID cell.id (uniqueShortId
     // с расширением при коллизии). При ДУБЛЕ valueTag даём уникальный суффикс —
     // SVG обязан иметь уникальные id (иначе невалидный документ); по «чистому» тегу
-    // рантайм обновит только первую ячейку, о чём предупреждаем.
+    // рантайм обновит только первый символ, о чём предупреждаем.
     let animId
     if (tms.stencilId === 'cell_value' && tms.valueTag) {
       animId = tms.valueTag
       if (usedOuterKeys.has(outerKeyFor('cell_value', animId))) {
-        const msg = `cell_value: дубль valueTag="${tms.valueTag}" — рантайм обновит только первую ячейку`
+        const msg = `cell_value: дубль valueTag="${tms.valueTag}" — рантайм обновит только первый символ`
         warnings.push(msg)
         console.warn(`[Exporter] ${msg}`)
         let n = 2
@@ -439,6 +440,9 @@ export function exportProject(graph, paper = null) {
       // Геометрический трансформ — для round-trip. angle применяется в SVG
       // как rotate вокруг центра ячейки на outer-`<g>`.
       angle: cell.angle ? cell.angle() : 0,
+      // z-index (порядок наложения): document order SVG и так z-упорядочен, но
+      // храним явно — точный z переживает round-trip, toFront/toBack имеют базу.
+      z: cell.get('z'),
       // Отражение символа (flip) — визуал через transform на внутренней группе,
       // позиции портов уже отражены в живом paper (buildPortItems).
       flipH: tms.flipH,
@@ -723,11 +727,13 @@ export function exportProject(graph, paper = null) {
         source: l.source,
         target: l.target,
       }
-      if (l.voltageSource) meta.voltageSource = l.voltageSource
-      if (l.switchSources) meta.switchSources = l.switchSources
+      // tms-поля провода — по единому дескриптору (см. LINK_META_FIELDS), чтобы
+      // запись и чтение (projectLoader) не разъезжались. vertices — отдельно
+      // (поле верхнего уровня линка, не tms).
+      for (const f of LINK_META_FIELDS) {
+        if (f.keep(l[f.key])) meta[f.key] = l[f.key]
+      }
       if (l.vertices) meta.vertices = l.vertices
-      if (l.strokeWidth) meta.strokeWidth = l.strokeWidth
-      if (l.strokeColor) meta.strokeColor = l.strokeColor
       const metaAttr = escapeAttr(JSON.stringify(meta))
       // l.id и l.d сейчас составляются из UUID-производных и сгенерированных
       // path-данных — symbol-safe, но escapeAttr держит инвариант на случай
@@ -762,6 +768,7 @@ export function exportProject(graph, paper = null) {
         if (f.keep(v)) meta[f.key] = f.flag ? true : v
       }
       if (c.angle) meta.angle = c.angle
+      if (c.z != null) meta.z = c.z
       const metaAttr = escapeAttr(JSON.stringify(meta))
       // translate(x,y) ставит ячейку на холст; rotate (если есть) вращает
       // вокруг центра ячейки в её локальных координатах.

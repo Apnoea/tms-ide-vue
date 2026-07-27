@@ -86,6 +86,9 @@ export function useTextEdit({ scheduleSnapshot }) {
     if (!cell) return
     const tms = cell.get('tms') || {}
     if (tms.stencilId !== 'cell_text') return
+    // Замок = read-only: inline-правка текста тоже под запретом (dblclick приходит
+    // мимо paper.interactive, поэтому фильтруем здесь).
+    if (tms.locked) return
 
     const pos = cell.get('position')
     const size = cell.get('size')

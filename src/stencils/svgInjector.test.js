@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest'
+import { dia, shapes } from '@joint/core'
+import { tmsNamespace } from './tmsStencil'
+import { LINK_Z } from './linkDefaults'
+import { reinjectAllStencils } from './svgInjector'
 import {
   resolveValueDisplay,
   busPortX,
@@ -72,6 +76,38 @@ describe('bus port math', () => {
 
     const bot2 = ports.find((p) => p.id === 'bot_2')
     expect(bot2).toEqual({ id: 'bot_2', group: 'port', args: { x: 60, y: 8 } })
+  })
+})
+
+describe('reinjectAllStencils: z проводов', () => {
+  // Мок-paper: без view инъекция SVG пропускается, z-часть выполняется.
+  const paper = { findViewByModel: () => null }
+
+  function graphWithLinks() {
+    const graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    const a = new shapes.standard.Link({ source: { x: 0, y: 0 }, target: { x: 10, y: 0 } })
+    const b = new shapes.standard.Link({ source: { x: 0, y: 10 }, target: { x: 10, y: 10 } })
+    graph.addCells([a, b])
+    return { graph, a, b }
+  }
+
+  it('ставит фиксированный LINK_Z и не дрейфит при повторных прогонах', () => {
+    const { graph, a, b } = graphWithLinks()
+    reinjectAllStencils(graph, paper)
+    expect([a.get('z'), b.get('z')]).toEqual([LINK_Z, LINK_Z])
+    // Повтор идемпотентен: toBack() здесь уводил бы z в min-1 на каждый вызов —
+    // граф расходился бы с undo-снимком и плодил фантомные шаги истории.
+    const before = JSON.stringify(graph.toJSON())
+    reinjectAllStencils(graph, paper)
+    reinjectAllStencils(graph, paper)
+    expect(JSON.stringify(graph.toJSON())).toBe(before)
+  })
+
+  it('провода уходят под символы (LINK_Z ниже дефолтного z ячеек)', () => {
+    const { graph } = graphWithLinks()
+    reinjectAllStencils(graph, paper)
+    const links = graph.getLinks()
+    expect(links.every((l) => l.get('z') < 0)).toBe(true)
   })
 })
 

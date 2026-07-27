@@ -75,12 +75,30 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
     }, 200)
   }
 
+  /**
+   * Фиксирует ОТЛОЖЕННЫЙ снимок перед навигацией по истории. Без этого Ctrl+Z,
+   * нажатый в 200мс-окне дебаунса, съедал ДВА действия: pending-снимок последнего
+   * просто отбрасывался (`clearTimeout` без флаша), в стек не попадал, и redo его
+   * уже не возвращал. Тот же приём, что в performClearCanvas: cancel + явный snapshot.
+   */
+  function flushPendingSnapshot() {
+    if (!snapshotTimer) return
+    clearTimeout(snapshotTimer)
+    snapshotTimer = null
+    snapshot() // дедуп внутри: если граф не менялся, шаг не добавится
+  }
+
   function undo() {
+    flushPendingSnapshot()
     if (historyIndex <= 0) return
     if (restoreFromHistory(historyIndex - 1)) historyIndex--
   }
 
   function redo() {
+    // Незакоммиченное действие делает redo-хвост недействительным — флашим его
+    // (snapshot сам срежет «будущее»), иначе redo вернул бы состояние из ветки,
+    // которой уже не существует.
+    flushPendingSnapshot()
     if (historyIndex >= history.length - 1) return
     if (restoreFromHistory(historyIndex + 1)) historyIndex++
   }

@@ -92,7 +92,7 @@ function serializeShape(shape, markFill) {
   }
 }
 
-function translateShape(s, dx, dy) {
+export function translateShape(s, dx, dy) {
   if (s.type === 'rect') return { ...s, x: s.x + dx, y: s.y + dy }
   if (s.type === 'line') return { ...s, x1: s.x1 + dx, y1: s.y1 + dy, x2: s.x2 + dx, y2: s.y2 + dy }
   if (s.type === 'circle') return { ...s, cx: s.cx + dx, cy: s.cy + dy }
@@ -183,8 +183,12 @@ export function serializeSvg(shapes, meta) {
     // Внутренняя анимация: статику — в базовую группу, каждое состояние — в свой
     // <g data-anim-suffix=".<ключ>"> (рантайм вешает animation-hidden, когда
     // значение тега не совпадает). Порядок: база → состояния (анимируемое поверх).
+    // В базовую группу — статика И фигуры на НЕИЗВЕСТНОМ ключе (состояние удалили/
+    // заменили, а привязка осталась): иначе такая фигура не попала бы ни в одну
+    // группу и молча исчезла бы из shape.svg.
+    const known = new Set(stateKeys(meta))
     const base = groupBody(
-      all.filter((s) => (s.state || 'always') === 'always'),
+      all.filter((s) => !s.state || s.state === 'always' || !known.has(s.state)),
       markFill
     )
     groups = base ? `  <g>\n${base}\n  </g>\n` : '  <g></g>\n'
