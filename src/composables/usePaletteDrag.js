@@ -5,12 +5,8 @@ import { useUiStore } from '../stores/useUiStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { getStencilById } from '../stencils/registry'
 import { isFloatType } from '../services/parsers'
-import {
-  materializeStencil,
-  TEXT_FONT_SIZE,
-  textCellHeight,
-  textCellWidth,
-} from '../stencils/svgInjector'
+import { materializeStencil } from '../stencils/svgInjector'
+import { TEXT_FONT_SIZE, textCellHeight, textCellWidth } from '../stencils/textCell'
 import { snapToGrid } from '../utils/grid'
 
 /**

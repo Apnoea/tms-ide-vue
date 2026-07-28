@@ -1,25 +1,14 @@
 /**
- * Stencil registry
- * ────────────────
- *
- * Собирает все определения стенсилов из src/stencils/definitions/<id>/ через
- * Vite glob imports (eager). Каждый стенсил состоит из двух файлов:
- *   • stencil.json   — метаданные + animationTemplate
- *   • shape.svg      — SVG-разметка с data-anim-suffix-атрибутами
- *
- * Регистрация автоматическая — добавили папку, файл подхватился.
- *
- * Экспортирует сборку/поиск (getAllStencils / getStencilById / getCategories /
- * hasBoolSlot), рантайм-регистрацию (registerStencil / unregisterStencil /
- * registryVersion) и валидацию (validateStencilJson) — см. экспорты ниже.
+ * Реестр стенсилов: определения из `definitions/<id>/` (stencil.json + shape.svg)
+ * подхватываются Vite-глобом — добавили папку, стенсил в палитре. Плюс
+ * рантайм-регистрация (импорт бандла, редактор) и валидация json.
  */
 
 import { ref } from 'vue'
 import { ATTR_SUFFIX } from '../constants/ids'
 
-// Реактивный счётчик ревизий реестра. Бампается при рантайм-регистрации/удалении
-// стенсила; потребители (палитра) читают его в computed'ах, чтобы список
-// пересобирался сразу, без перезагрузки страницы. Сам Map не реактивен.
+// Сам Map не реактивен, поэтому палитра читает этот счётчик в computed'ах —
+// рантайм-регистрация обновляет список без перезагрузки.
 export const registryVersion = ref(0)
 
 const jsonModules = import.meta.glob('./definitions/*/stencil.json', {
@@ -34,19 +23,13 @@ const svgModules = import.meta.glob('./definitions/*/shape.svg', {
 })
 
 /**
- * Минимальная schema-валидация stencil.json. Возвращает массив проблем
- * (строки) — pure-функция, без side-effect'ов. Caller сам решает что делать
- * (логировать в console, бросать ошибку и т.п.). Защищает от опечаток
- * (`slts` вместо `slots`), пропусков required-полей и неправильных структур.
+ * Schema-валидация stencil.json: опечатки в полях, пропуски required, битые слоты
+ * и карточки. Загрузку НЕ блокирует — только предупреждения в console.
  *
- * Не блокирует загрузку — реестр всё равно подхватит стенсил, но юзер увидит
- * предупреждения в console (см. init code ниже).
- *
- * @param {string} path  Путь к stencil.json (для prefix'а сообщений)
- * @param {object} json  Содержимое stencil.json
- * @param {string} [svgText]  Содержимое shape.svg для cross-check idSuffix ↔
- *                            data-anim-suffix. Без него этот шаг пропускается.
- * @returns {string[]}   Массив строк-предупреждений, пустой если всё ок
+ * @param {string} path — для префикса сообщений
+ * @param {object} json
+ * @param {string} [svgText] — для cross-check idSuffix ↔ data-anim-suffix
+ * @returns {string[]}
  */
 export function validateStencilJson(path, json, svgText) {
   const issues = []
@@ -58,10 +41,8 @@ export function validateStencilJson(path, json, svgText) {
     }
   }
 
-  // Известные поля верхнего уровня. Опечатки типа `slts` / `slosts` вылавливаем.
-  // Декларативные флаги (quality / static / noRotate) — источник правды о
-  // специальном поведении стенсила: exporter / Inspector / Canvas читают их через
-  // getStencilById, никаких хардкод-Set'ов.
+  // Декларативные флаги (quality/static/noRotate) — источник правды о спец-поведении
+  // стенсила: exporter/инспектор/холст читают их из json, хардкод-Set'ов в коде нет.
   const known = new Set([
     'id',
     'label',
@@ -87,18 +68,15 @@ export function validateStencilJson(path, json, svgText) {
     }
   }
 
-  // Слоты обязаны иметь key (идентичность слота, идёт в {slot.KEY} и tms.slots);
-  // остальные поля слота (type) опциональны.
+  // key — идентичность слота (идёт в {slot.KEY} и tms.slots); type опционален.
   if (Array.isArray(json.slots)) {
     for (const [i, slot] of json.slots.entries()) {
       if (!slot.key) issues.push(`[stencils] ${path}: slots[${i}] без "key"`)
     }
   }
 
-  // animationTemplate — каждая карточка должна иметь idSuffix и type.
-  // Дополнительно (если передан svgText): каждый непустой idSuffix должен
-  // быть подкреплён `data-anim-suffix=` в SVG, иначе animation-карточка
-  // эмитится для несуществующего элемента — рантайм тихо не находит.
+  // Непустой idSuffix обязан иметь пару в SVG, иначе карточка эмитится для
+  // несуществующего элемента и рантайм молча ничего не анимирует.
   if (Array.isArray(json.animationTemplate)) {
     for (const [i, tpl] of json.animationTemplate.entries()) {
       if (tpl.idSuffix === undefined) {
@@ -168,11 +146,9 @@ export function getStencilById(id) {
 }
 
 /**
- * Регистрирует стенсил в рантайме (минуя Vite-glob). Нужно при импорте проекта:
- * бандл-стенсилы из library/ должны попасть в реестр ДО parseSvgProject, иначе
- * их ячейки выкинутся как «нераспознанные». Запись файлов в definitions/ + reload
- * делают регистрацию персистентной (после reload их подхватит glob). Транзитная
- * запись живёт только до reload — дублей id не плодит.
+ * Регистрация в рантайме, минуя glob. Нужна при импорте проекта: стенсилы из
+ * library/ должны быть в реестре ДО parseSvgProject, иначе их ячейки выкинутся как
+ * нераспознанные. Персистентность — за оверрайдами в IDB / файлами в definitions/.
  */
 export function registerStencil(json, svgText) {
   if (!json?.id) return
@@ -180,26 +156,18 @@ export function registerStencil(json, svgText) {
   registryVersion.value++
 }
 
-/**
- * Удаляет стенсил из рантайм-реестра. Персистентно — только вместе с удалением
- * файлов definitions/<id>/ (dev-плагин), иначе glob вернёт его на reload.
- */
+/** Удаление из рантайм-реестра; файлы definitions/<id>/ сносит dev-плагин. */
 export function unregisterStencil(id) {
   if (registry.delete(id)) registryVersion.value++
 }
 
-// Категория «Разметка и значения» закреплена ПЕРВОЙ независимо от алфавита: это
-// каркас/аннотации схемы (подписи, значения, узлы, шины) которые юзеру нужны на
-// любой схеме и в любом workflow. Остальные категории — по алфавиту (ru-локаль
-// для корректной А-Я сортировки). Добавление нового стенсила/категории встаёт в
-// логичную позицию автоматически, без правок этого файла.
+// Закреплена первой независимо от алфавита: каркас схемы (подписи, значения, узлы,
+// шины) нужен на любой схеме. Остальные — по алфавиту, ru-локаль.
 const PINNED_FIRST_CATEGORIES = ['Разметка и значения']
 
 /**
- * Есть ли у стенсила булев слот-драйвер (key === 'onoff') — единый ключ для всех
- * булевых стенсилов (свитчи cell_qw/qr/qk/qf, аварийный cell_alr, пользовательские).
- * Inspector рендерит этот слот первой строкой «Булево значение» (основной тег) и
- * исключает его тег из switchSources-зависимостей (сам себя не дублирует).
+ * Булев слот-драйвер (`onoff`) — единый ключ всех булевых стенсилов. Инспектор
+ * рендерит его первой строкой «Булево значение» и исключает из switchSources.
  */
 export function hasBoolSlot(stencil) {
   return !!stencil?.slots?.some((s) => s.key === 'onoff')

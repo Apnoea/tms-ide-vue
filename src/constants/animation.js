@@ -1,12 +1,7 @@
-// Цветовые классы анимации напряжения. Единый источник правды:
-//   • UI-preview (CanvasInspector / RangeBlock рисуют swatch'и этим цветом)
-//   • Экспорт view.svg (CSS-правила .animation-low/mid/high → stroke/fill)
-// При расхождении preview в IDE врёт о том, как будет выглядеть рантайм. Поэтому
-// и опции, и hex'ы держим здесь.
-//
-// Палитра — Tailwind 500: emerald-500 (low ≈ «нормально»), amber-500 (mid =
-// warning), red-500 (high = danger). Зелёный намеренно отделён от primary темы
-// (cyan) — чтобы UI-акценты и power-flow цвета не путались.
+// Цвета анимации напряжения — общие для свотчей в инспекторе и CSS в view.svg:
+// разойдутся — превью в IDE начнёт врать о рантайме. Палитра Tailwind 500
+// (emerald/amber/red); зелёный намеренно не primary темы (cyan), чтобы
+// UI-акценты не путались с состоянием схемы.
 export const ANIMATION_CLASS_COLORS = {
   'animation-low': '#10b981',
   'animation-mid': '#f59e0b',
@@ -15,45 +10,29 @@ export const ANIMATION_CLASS_COLORS = {
 
 export const ANIMATION_CLASS_OPTIONS = Object.keys(ANIMATION_CLASS_COLORS)
 
-// Цвет затемнения «выключено» (animation-off). Tailwind slate-500 — нейтральный
-// серый того же уровня насыщенности что и voltage-палитра (все Tailwind 500).
-// Применяется как stroke на элементах когда привязанный bool-тег = false:
-// перекрашивает контуры в серый поверх любых voltage-классов (cascade-порядок:
-// .animation-off декларируется ПОСЛЕ voltage-правил). В отличие от opacity 0.4
-// эффект предсказуем независимо от родительских fill/stroke.
-// Локальна (не экспортируется): наружу нужен не сам hex, а готовые CSS-правила
-// из buildVoltageCssRules — единственный потребитель off-цвета вне этого файла.
+// «Выключено»: slate-500, тот же уровень насыщенности, что у voltage-палитры.
+// Красит контуры серым поверх voltage — правило объявляется ПОСЛЕ них (каскад).
+// Не opacity: результат предсказуем независимо от родительских fill/stroke.
+// Наружу отдаём не hex, а готовые правила из buildVoltageCssRules.
 const ANIMATION_OFF_COLOR = '#64748b'
 
-// Class-name константы wire-protocol'а с WebScada-рантаймом. Литералы не
-// плодим — синхронизировано с CSS в exporter inlineStyles и useSimulation.
-// Voltage-классы (animation-low/-mid/-high) уже фигурируют как ключи
-// ANIMATION_CLASS_COLORS — отдельные константы для них не нужны.
+// Class-name'ы wire-protocol'а (voltage-классы уже есть ключами выше).
 export const CLASS_OFF = 'animation-off'
 export const CLASS_HIDDEN = 'animation-hidden'
 
-// Класс перекраса всего символа по состоянию (stateColors в stencil.json). Вешается
-// рантаймом на outer при совпадении значения слота с кодом состояния; CSS красит
-// потомков. Класс несёт stencilId — так он глобально уникален и селектор НЕ зависит
-// от data-tms-stencil (в живом DOM симуляции этого атрибута нет, только в экспорте).
-// Синхронизировано: buildStateColorCard (exporter) + buildStateColorCssRules.
+// Перекрас символа по состоянию (stateColors): рантайм вешает класс на outer,
+// CSS красит потомков. Класс несёт stencilId — глобально уникален, поэтому
+// селектору не нужен data-tms-stencil (в живом DOM симуляции его нет).
 export const STATE_COLOR_PREFIX = 'animation-color-'
 export function stateColorClass(stencilId, key) {
   return `${STATE_COLOR_PREFIX}${stencilId}-${key}`
 }
 
-// Opt-in маркер заливки для state-color: вешается при сериализации на фигуры с
-// реальным fill (rect/circle/polygon с fill≠none) — см. stencilSvg.serializeShape.
-// Заливку state-color красит ТОЛЬКО у таких элементов (контуры и hit-area не
-// трогаются → нет «блоба»). Отдельно от tms-voltage-fill: voltage-поведение не
-// меняем. Синхронизировано: stencilSvg (пометка) + buildStateColorCssRules.
+// Opt-in заливка для state-color: маркер ставит serializeSvg на фигуры с реальным
+// fill. Красим только их — иначе контуры и hit-area залились бы «блобом».
 export const STATE_FILL_CLASS = 'tms-state-fill'
 
-/**
- * Нормализует значение stateColors[ключ] к { stroke, fill }. Компактная форма —
- * строка (только контур); расширенная — объект { stroke?, fill? }.
- * Пустые поля → ''. Единый разбор для CSS-генератора, редактора и сериализации.
- */
+/** stateColors[key] → { stroke, fill }: строка = только контур, объект = оба. */
 export function normalizeStateColor(value) {
   if (!value) return { stroke: '', fill: '' }
   if (typeof value === 'string') return { stroke: value, fill: '' }
@@ -61,13 +40,9 @@ export function normalizeStateColor(value) {
 }
 
 /**
- * CSS-правила перекраса символа по состоянию. Единый источник для экспорта
- * (scope '') и симуляции (scope '.tms-simulating '). Контур (stroke) красим у
- * всех потомков; заливку (fill) — ТОЛЬКО у opt-in `.tms-state-fill` (фигуры с
- * авторской заливкой), иначе контурные/блочные стенсилы стали бы «блобом».
- * Оба цвета опциональны (см. normalizeStateColor). `:not(.animation-off)` —
- * обесточивание (серый) бьёт цвет состояния. `strokeExtra`/`scope` — как в
- * buildVoltageCssRules (живой DOM редактора).
+ * CSS перекраса по состоянию — один источник для экспорта (scope '') и симуляции
+ * (scope '.tms-simulating '). `:not(.animation-off)` — обесточивание бьёт цвет
+ * состояния. Про scope/strokeExtra см. buildVoltageCssRules.
  *
  * @param {Array<{id:string, stateColors?:Object}>} stencils
  */
@@ -91,15 +66,15 @@ export function buildStateColorCssRules(stencils, { scope = '', strokeExtra = ''
 }
 
 /**
- * CSS-правила voltage/off для outer-g: stroke по всем потомкам кроме text +
- * opt-in fill (`.tms-voltage-fill`), и `animation-off` серым ПОСЛЕ voltage
- * (перебивает по каскаду). Единый источник для экспорта (чистый SVG) и симуляции
- * (живой DOM редактора) — чтобы превью совпадало с экспортом. Контексты разводят:
- *   • scope       — префикс селектора ('.tms-simulating ' для превью, '' для SVG);
- *   • strokeExtra — доп. `:not(...)`-исключения для live-DOM (joint-wrapper /
- *     hit-area), которых в экспортном SVG нет.
- * `!important` везде — перебить inline presentation-атрибуты внутри ячеек.
- * Возвращает массив строк-правил (caller сам джойнит и обрамляет hidden/quality).
+ * CSS voltage/off для outer-g: stroke у потомков кроме text + opt-in fill; off
+ * идёт ПОСЛЕ voltage и перебивает его каскадом. Один источник для экспорта и
+ * симуляции — иначе превью расходится с view.svg. `!important` перебивает inline
+ * presentation-атрибуты фигур.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.scope] — префикс селектора ('.tms-simulating ' для превью)
+ * @param {string} [opts.strokeExtra] — доп. `:not(...)` для живого DOM
+ *        (joint-wrapper / hit-area), которых в экспортном SVG нет
  */
 export function buildVoltageCssRules({ scope = '', strokeExtra = '' } = {}) {
   const rules = []

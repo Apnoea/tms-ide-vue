@@ -9,9 +9,8 @@ import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useCanvas } from './useCanvas'
 
-// IndexedDB-ключи проекта. Мета — порядок форм + активная; граф каждой формы —
-// отдельным ключом (autosave переписывает только активную, а не весь проект).
-// Теги — текст tag-list'а проекта (теги едут с проектом, переживают reload).
+// Граф каждой формы — отдельным ключом: autosave переписывает только активную, а
+// не весь проект. Мета — порядок форм + активная, теги — сырой tag-list.
 const META_KEY = 'project:meta'
 const TAGS_KEY = 'project:tags'
 const formKey = (id) => `project:form:${id}`
@@ -20,13 +19,12 @@ const formKey = (id) => `project:form:${id}`
 const DEFAULT_FORM_ID = 'main'
 
 /**
- * Персист проекта в IndexedDB. Формами/активной владеет useWorkspaceStore; здесь
- * — мост граф ↔ хранилище. Зависит от внешнего флага `restoringHistory` (общего
- * с useUndoRedo): пока идёт восстановление, сейв не пишем (иначе snapshot → save
- * → restore зациклится).
+ * Мост граф ↔ IndexedDB (формами и активной владеет useWorkspaceStore).
  *
  * @param {object} opts
- * @param {import('vue').Ref<boolean>} opts.restoringHistory — общий флаг с useUndoRedo
+ * @param {import('vue').Ref<boolean>} opts.restoringHistory — общий флаг с
+ *        useUndoRedo: пока идёт восстановление, не сохраняем, иначе
+ *        snapshot → save → restore зациклится
  */
 export function useAutosave({ restoringHistory }) {
   const canvas = useCanvas()
@@ -100,23 +98,37 @@ export function useAutosave({ restoringHistory }) {
     )
   }
 
-  /** Сохраняет активную форму (граф → стор + IndexedDB). Fire-and-forget. */
-  async function saveActiveForm() {
+  // Что уже лежит в IDB под активной формой (`{ id, str }`): повторная запись того
+  // же графа — structuredClone блоба на сотни КБ. null = неизвестно, пишем.
+  let lastSaved = null
+
+  /**
+   * Сохраняет активную форму (граф → стор + IndexedDB). Fire-and-forget.
+   *
+   * @param {object} [json] — готовый `graph.toJSON()` от useUndoRedo
+   * @param {string} [jsonStr] — его же `JSON.stringify`
+   */
+  async function saveActiveForm(json, jsonStr) {
     const graph = canvas.graphRef.value
     const id = workspace.activeFormId
     if (!graph || !id || restoringHistory.value) return
-    const json = graph.toJSON()
-    workspace.updateActiveGraph(json)
-    const ok = await idbSet(formKey(id), json)
-    // Запись упала (квота / приватный режим) → помечаем ошибку: статус-полоса
-    // покажет «не сохранено». Успех молча снимает ошибку (успех не индицируем).
+    const graphJson = json ?? graph.toJSON()
+    workspace.updateActiveGraph(graphJson)
+    // Сами считаем только на редких путях (CRUD форм, переключение, экспорт).
+    const str = jsonStr ?? JSON.stringify(graphJson)
+    if (lastSaved && lastSaved.id === id && lastSaved.str === str) return
+    const ok = await idbSet(formKey(id), graphJson)
+    // Квота / приватный режим → статус-полоса скажет «не сохранено». Успех молчит.
     canvas.setSaveError(!ok)
+    // Неудачную запись не запоминаем — следующий сейв обязан попробовать снова.
+    lastSaved = ok ? { id, str } : null
   }
 
   /** Очищает граф активной формы (для «очистить холст» — только активную). */
   async function clearActiveForm() {
     const id = workspace.activeFormId
     workspace.clearActiveForm()
+    lastSaved = null // пишем в обход saveActiveForm — его память о IDB устарела
     if (id) await idbSet(formKey(id), { cells: [] })
   }
 
@@ -139,6 +151,7 @@ export function useAutosave({ restoringHistory }) {
     // GC форм прежнего проекта: импорт заменяет проект целиком, а старые
     // project:form:<id> дальше не читаются (restore идёт по formIds меты) и копили
     // бы мёртвые blob'ы до квоты. Чистим ДО записи новых — освобождаем место.
+    lastSaved = null // проект меняется целиком — прежняя запись ни о чём не говорит
     const keep = new Set(forms.map((f) => formKey(f.id)))
     for (const key of await idbKeys()) {
       if (key.startsWith('project:form:') && !keep.has(key)) await idbDel(key)
@@ -166,11 +179,13 @@ export function useAutosave({ restoringHistory }) {
 
   /** Запись graphJson формы по id (создание / переименование). */
   function persistForm(id, json) {
+    if (lastSaved?.id === id) lastSaved = null // пишем ту же форму мимо saveActiveForm
     return idbSet(formKey(id), json)
   }
 
   /** Удалить форму из IDB по id. */
   function removeFormPersist(id) {
+    if (lastSaved?.id === id) lastSaved = null
     return idbDel(formKey(id))
   }
 

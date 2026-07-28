@@ -1,34 +1,19 @@
 import { ref, computed } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { getStencilById } from '../stencils/registry'
-import {
-  injectStencilSvg,
-  busPortX,
-  desiredBusPortCount,
-  BUS_PORT_SPACING,
-} from '../stencils/svgInjector'
+import { injectStencilSvg } from '../stencils/svgInjector'
+import { busPortX, desiredBusPortCount, BUS_PORT_SPACING } from '../stencils/busCell'
 import { snapToGrid } from '../utils/grid'
 import { useCanvas } from './useCanvas'
 
 /**
- * Resize-логика для cell_bus: drag edge-хэндлов (left/right) меняет ширину,
- * порты досоздаются/удаляются под новую длину (BUS_PORT_SPACING). Стенсилы
- * без `data-edge` атрибута игнорируются — функционал узко-целевой.
+ * Ресайз шины: drag edge-хэндла меняет ширину, порты досоздаются/удаляются под новую
+ * длину. Жест живёт на document-listener'ах параллельно JointJS (внутрь события не
+ * уходят); реактивный target у useEventListener сам цепляет и снимает их по dragging.
  *
- * Управление мышью через document-listener'ы (mousemove/mouseup) — JointJS
- * внутри не получает событий, drag живёт параллельно. Listener'ы навешиваются
- * через `useEventListener` с реактивным target'ом: dragging=true → target
- * становится document, listener зацепляется; end-resize → target null,
- * listener снимается. Auto-cleanup на unmount без явного onBeforeUnmount.
- *
- * Зависит от:
- *  • `scheduleSnapshot` (fn из useUndoRedo) — после end ресайза дебаунс-snapshot.
- *
- * Возвращает:
- *  • `onMaybeStartResize` — listener'ом на mousedown paperContainer'а в
- *    capture-фазе (раньше JointJS, чтобы он не начал свой drag).
- *  • `isResizing()` — для hover-tooltip и других consumer'ов которым нужно
- *    подавить свой UI пока юзер тянет резайз.
+ * `onMaybeStartResize` вешают на mousedown контейнера в capture-фазе — раньше
+ * JointJS, иначе он начнёт свой drag. `isResizing()` нужен потребителям, которым
+ * надо подавить свой UI на время жеста (hover-плашка и т.п.).
  */
 export function useBusResize({ scheduleSnapshot }) {
   const canvas = useCanvas()

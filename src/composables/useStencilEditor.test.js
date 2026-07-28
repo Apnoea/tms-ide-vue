@@ -200,6 +200,79 @@ describe('useStencilEditor', () => {
     expect(ed.shapes.value).toHaveLength(0) // один undo вернул к пустому
   })
 
+  it('undo откатывает правку меты (подпись, размер)', () => {
+    const ed = createStencilEditor()
+    ed.meta.label = 'Задвижка'
+    ed.meta.width = 60
+    ed.commit() // инспектор/тулбар коммитят по завершении ввода
+    ed.undo()
+    expect(ed.meta.label).toBe('')
+    expect(ed.meta.width).toBe(40)
+    ed.redo()
+    expect(ed.meta.label).toBe('Задвижка')
+    expect(ed.meta.width).toBe(60)
+  })
+
+  it('undo откатывает цвет состояния', () => {
+    const ed = createStencilEditor()
+    ed.setAnimationMode('boolean')
+    ed.setStateColor('false', '#64748b')
+    ed.commit() // пипетка закрыта (@change)
+    expect(ed.meta.stateColors.false).toBe('#64748b')
+    ed.undo()
+    expect(ed.meta.stateColors.false).toBeUndefined()
+    expect(ed.meta.stateful).toBe(true) // откатился только цвет
+  })
+
+  it('setAnimationMode — ОДИН шаг истории, undo возвращает состояния и цвета целиком', () => {
+    const ed = createStencilEditor()
+    ed.setAnimationMode('value')
+    ed.addState()
+    const key = ed.meta.states[0].key
+    ed.setStateColor(key, '#ef4444')
+    ed.commit()
+    ed.setAnimationMode('off') // сбрасывает stateful, quality, а НЕ states/цвета
+    expect(ed.meta.stateful).toBe(false)
+    ed.undo() // один Ctrl+Z — снова «по значению» с состоянием и его цветом
+    expect(ed.meta.stateful).toBe(true)
+    expect(ed.meta.stateMode).toBe('value')
+    expect(ed.meta.states).toHaveLength(1)
+    expect(ed.meta.stateColors[key]).toBe('#ef4444')
+  })
+
+  it('setAnimationMode(off) гасит quality до снимка — undo даёт целостное состояние', () => {
+    const ed = createStencilEditor()
+    ed.setAnimationMode('boolean')
+    ed.meta.quality = true
+    ed.commit()
+    ed.setAnimationMode('off')
+    expect(ed.meta.quality).toBe(false) // без анимации quality-биндингу не за что цепляться
+    ed.undo()
+    expect(ed.meta.quality).toBe(true)
+    expect(ed.meta.stateful).toBe(true)
+  })
+
+  it('смена режима анимации откатывается целиком: и режим, и видимость фигур', () => {
+    const ed = createStencilEditor()
+    ed.setAnimationMode('boolean')
+    const s = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    ed.setShapeState(s.id, 'true')
+    ed.setAnimationMode('value') // сбрасывает видимость фигур на always
+    expect(ed.shapes.value[0].state).toBe('always')
+    ed.undo()
+    expect(ed.meta.stateMode).toBe('boolean')
+    expect(ed.shapes.value[0].state).toBe('true') // раньше режим оставался новым
+  })
+
+  it('addState — дискретная операция, откатывается одним undo', () => {
+    const ed = createStencilEditor()
+    ed.setAnimationMode('value')
+    ed.addState()
+    expect(ed.meta.states).toHaveLength(1)
+    ed.undo()
+    expect(ed.meta.states).toHaveLength(0)
+  })
+
   it('новое действие после undo отсекает redo-хвост', () => {
     const ed = createStencilEditor()
     ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })

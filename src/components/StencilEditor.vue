@@ -25,14 +25,16 @@ import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { snapToGrid } from '../utils/grid'
-import { stencilDraftIssues, ROUND_RX, isFillableShape } from '../utils/stencilSvg'
+import { stencilDraftIssues, isFillableShape } from '../utils/stencilSvg'
 import { confirmDanger } from '../utils/confirmDanger'
+import { range, rangeFromTo, gridLineColor, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
 import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
 import { reinjectAllStencils } from '../stencils/svgInjector'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
 import { upsertStencilOverride } from '../services/stencilOverrides'
 import { useStencilEditor, SHAPE_GRID, PORT_GRID } from '../composables/useStencilEditor'
+import ShapePrimitive from './ShapePrimitive.vue'
 
 const ui = useUiStore()
 const notify = useNotify()
@@ -259,18 +261,11 @@ const pxH = computed(() => meta.height * scale.value)
 const hr = computed(() => 4 / scale.value)
 
 // ─── Сетка ───
-// Сетка 1px (= snap фигур). Чтобы не была плоским шумом, три уровня яркости:
-// еле видная на каждый 1px, заметнее на кратных 5, тёмная на кратных 10 (порты
-// садятся именно на десятки). Для крупных стенсилов линий много, но они лёгкие.
-const GRID_STEP = 1
-const range = (max, step) => {
-  const out = []
-  for (let v = 0; v <= max + 1e-6; v += step) out.push(v)
-  return out
-}
-const gridX = computed(() => range(meta.width, GRID_STEP))
-const gridY = computed(() => range(meta.height, GRID_STEP))
-const lineColor = (v) => (v % 10 === 0 ? '#cbd5e1' : v % 5 === 0 ? '#e2e8f0' : '#f1f5f9')
+// Расчёты (шаг/уровни яркости/диапазоны) — в utils/editorRulers; здесь только
+// привязка к reactive-размерам и зуму.
+const gridX = computed(() => range(meta.width))
+const gridY = computed(() => range(meta.height))
+const lineColor = gridLineColor
 
 // Расширенная сетка: холст (та же сетка) продолжается за границы стенсила в зону
 // .5 (не редактируется). Отступ = видимая область вокруг карточки в user-единицах
@@ -281,17 +276,8 @@ const gridPadX = computed(() =>
 const gridPadY = computed(() =>
   Math.max(0, Math.ceil((stageH.value - pxH.value) / 2 / scale.value))
 )
-const rangeFromTo = (from, to, step) => {
-  const out = []
-  for (let v = from; v <= to + 1e-6; v += step) out.push(v)
-  return out
-}
-const gridXFull = computed(() =>
-  rangeFromTo(-gridPadX.value, meta.width + gridPadX.value, GRID_STEP)
-)
-const gridYFull = computed(() =>
-  rangeFromTo(-gridPadY.value, meta.height + gridPadY.value, GRID_STEP)
-)
+const gridXFull = computed(() => rangeFromTo(-gridPadX.value, meta.width + gridPadX.value))
+const gridYFull = computed(() => rangeFromTo(-gridPadY.value, meta.height + gridPadY.value))
 
 // ─── Пиксель события → user-координаты стенсила ───
 const svgEl = ref(null)
@@ -322,23 +308,10 @@ function updateRuler() {
   originX.value = vr.left - sr.left
   originY.value = vr.top - sr.top
 }
-// Три уровня делений: major (÷10, длинный штрих + подпись), medium (÷5), minor
-// (каждый 1). 1px-штрихи показываем только при достаточном зуме — иначе слились бы
-// (шаг < ~6px). Подписи — только на major (подписывать каждый 1px = каша).
-const RULER_MINOR_MIN_SCALE = 6
-const tickInset = (level) => (level === 'major' ? 10 : level === 'medium' ? 6 : 3)
-function rulerTicks(size, origin) {
-  const s = scale.value
-  const step = s >= RULER_MINOR_MIN_SCALE ? 1 : 5
-  const out = []
-  for (let u = 0; u <= size + 1e-6; u += step) {
-    const level = u % 10 === 0 ? 'major' : u % 5 === 0 ? 'medium' : 'minor'
-    out.push({ u, p: origin + u * s, level })
-  }
-  return out
-}
-const rulerTicksX = computed(() => rulerTicks(meta.width, originX.value))
-const rulerTicksY = computed(() => rulerTicks(meta.height, originY.value))
+// Деления/подписи считает rulerTicks (utils/editorRulers): major (÷10, с подписью),
+// medium (÷5), minor (1, только при достаточном зуме).
+const rulerTicksX = computed(() => rulerTicks(meta.width, originX.value, scale.value))
+const rulerTicksY = computed(() => rulerTicks(meta.height, originY.value, scale.value))
 // Пересчёт при зуме/ресайзе/смене размера — после DOM-патча (flush: post).
 // Скролл холста — отдельно, через @scroll в шаблоне.
 watch([pxW, pxH, stageW, stageH], updateRuler, { flush: 'post' })
@@ -678,6 +651,7 @@ onBeforeUnmount(() => {
           :use-grouping="false"
           size="small"
           input-class="!w-14 text-center"
+          @blur="commit"
         />
         <span class="text-surface-400">×</span>
         <InputNumber
@@ -687,6 +661,7 @@ onBeforeUnmount(() => {
           :use-grouping="false"
           size="small"
           input-class="!w-14 text-center"
+          @blur="commit"
         />
       </div>
 
@@ -910,103 +885,16 @@ onBeforeUnmount(() => {
                  цвет линии/заливка видны поверх; выделение всё равно читается по
                  halo вокруг обводки и ручкам (ручки рисуются последними, сверху).
                  renderShapes фильтрует по превью состояния (эмуляция animation-hidden). -->
-            <template v-for="s in renderShapes" :key="s.id">
-              <g
-                v-if="s.id === selectedId"
-                pointer-events="none"
-                fill="none"
-                :style="{ stroke: SEL_STROKE }"
-                :stroke-width="haloWidth"
-                :stroke-linecap="s.rounded ? 'round' : null"
-                :stroke-linejoin="s.rounded ? 'round' : null"
-              >
-                <rect
-                  v-if="s.type === 'rect'"
-                  :x="s.x"
-                  :y="s.y"
-                  :width="s.w"
-                  :height="s.h"
-                  :rx="s.rounded ? ROUND_RX : null"
-                />
-                <line v-else-if="s.type === 'line'" :x1="s.x1" :y1="s.y1" :x2="s.x2" :y2="s.y2" />
-                <circle v-else-if="s.type === 'circle'" :cx="s.cx" :cy="s.cy" :r="s.r" />
-                <polygon
-                  v-else-if="s.type === 'polyline' && s.closed"
-                  :points="s.points.map((p) => p.join(',')).join(' ')"
-                />
-                <polyline
-                  v-else-if="s.type === 'polyline'"
-                  :points="s.points.map((p) => p.join(',')).join(' ')"
-                />
-              </g>
-              <rect
-                v-if="s.type === 'rect'"
-                data-se-move="shape"
-                :data-id="s.id"
-                :x="s.x"
-                :y="s.y"
-                :width="s.w"
-                :height="s.h"
-                :rx="s.rounded ? ROUND_RX : null"
-                :fill="s.fill"
-                :stroke="s.stroke"
-                :stroke-width="s.strokeWidth"
-                :pointer-events="shapePointerEvents"
-                @pointerdown="tool === 'select' && select(s.id)"
-              />
-              <line
-                v-else-if="s.type === 'line'"
-                data-se-move="shape"
-                :data-id="s.id"
-                :x1="s.x1"
-                :y1="s.y1"
-                :x2="s.x2"
-                :y2="s.y2"
-                :stroke="s.stroke"
-                :stroke-width="s.strokeWidth"
-                :stroke-linecap="s.rounded ? 'round' : null"
-                :pointer-events="shapePointerEvents"
-                @pointerdown="tool === 'select' && select(s.id)"
-              />
-              <circle
-                v-else-if="s.type === 'circle'"
-                data-se-move="shape"
-                :data-id="s.id"
-                :cx="s.cx"
-                :cy="s.cy"
-                :r="s.r"
-                :fill="s.fill"
-                :stroke="s.stroke"
-                :stroke-width="s.strokeWidth"
-                :pointer-events="shapePointerEvents"
-                @pointerdown="tool === 'select' && select(s.id)"
-              />
-              <polygon
-                v-else-if="s.type === 'polyline' && s.closed"
-                data-se-move="shape"
-                :data-id="s.id"
-                :points="s.points.map((p) => p.join(',')).join(' ')"
-                :fill="s.fill"
-                :stroke="s.stroke"
-                :stroke-width="s.strokeWidth"
-                :stroke-linejoin="s.rounded ? 'round' : null"
-                :pointer-events="shapePointerEvents"
-                @pointerdown="tool === 'select' && select(s.id)"
-              />
-              <polyline
-                v-else-if="s.type === 'polyline'"
-                data-se-move="shape"
-                :data-id="s.id"
-                :points="s.points.map((p) => p.join(',')).join(' ')"
-                :fill="s.fill"
-                :stroke="s.stroke"
-                :stroke-width="s.strokeWidth"
-                :stroke-linecap="s.rounded ? 'round' : null"
-                :stroke-linejoin="s.rounded ? 'round' : null"
-                :pointer-events="shapePointerEvents"
-                @pointerdown="tool === 'select' && select(s.id)"
-              />
-            </template>
+            <ShapePrimitive
+              v-for="s in renderShapes"
+              :key="s.id"
+              :shape="s"
+              :selected="s.id === selectedId"
+              :halo-width="haloWidth"
+              :halo-stroke="SEL_STROKE"
+              :pointer-events="shapePointerEvents"
+              @select="tool === 'select' && select(s.id)"
+            />
 
             <!-- Превью тянущейся фигуры -->
             <rect

@@ -13,7 +13,7 @@
  * садятся на сетку схемы). Визуальная сетка холста рисуется отдельным читаемым
  * шагом (см. StencilEditor) и со snap'ом не связана.
  */
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { snapToGrid } from '../utils/grid'
 import {
   serializeSvg,
@@ -92,26 +92,24 @@ export function createStencilEditor() {
   // иначе ключ состояния. В синглтоне, т.к. селектор рисуется в инспекторе, а
   // фильтрация фигур — в StencilEditor. Выключение анимации → сброс на 'all'.
   const previewState = ref('all')
-  // Выключение анимации → сброс превью и quality (quality завязан на драйвящий
-  // тег анимации: без анимации бессмыслен, чекбокс живёт внутри её блока).
-  watch(
-    () => meta.stateful,
-    (on) => {
-      if (!on) {
-        previewState.value = 'all'
-        meta.quality = false
-      }
-    }
-  )
+  // Выключение анимации сбрасывает превью и quality (quality завязан на драйвящий
+  // тег анимации: без анимации бессмыслен, чекбокс живёт внутри её блока) — это
+  // делает setAnimationMode синхронно, ДО снимка истории, а не watch'ем после.
+
   // id редактируемого стенсила (null = создание нового). В режиме правки id
   // заблокирован (= имя папки), проверка уникальности его исключает.
   const editingId = ref(null)
 
   // ─── Undo/redo ───
-  // Стек полных снимков {shapes, ports} (meta/размер в историю не входит —
-  // это отдельный контрол, не «действие рисования»). Дискретные операции
-  // (добавить/удалить фигуру/порт) коммитят сами; drag/resize — много мелких
-  // updateShape/movePort, поэтому их коммитит компонент один раз на конце жеста.
+  // Стек полных снимков {meta, shapes, ports}: мета — такие же данные стенсила,
+  // как фигуры (размер холста, подпись, состояния и их цвета уезжают в stencil.json),
+  // поэтому Ctrl+Z обязан откатывать и её. Без меты в снимке половина операции
+  // откатывалась, а половина нет: смена режима анимации, например, сбрасывает
+  // видимость фигур (shapes) — она возвращалась, а сам режим оставался новым.
+  // Дискретные операции (добавить/удалить фигуру/порт/состояние, режим, видимость)
+  // коммитят сами; правки «живьём» (drag/resize, ввод в поле, пипетка) коммитит
+  // вызывающий на конце жеста — @change/@blur в инспекторе, pointerup в редакторе.
+  // previewState в снимок НЕ входит: это выбор просмотра, не данные стенсила.
   const clone = (v) => JSON.parse(JSON.stringify(v))
   const history = ref([])
   const histIndex = ref(-1)
@@ -119,7 +117,7 @@ export function createStencilEditor() {
   const canRedo = computed(() => histIndex.value < history.value.length - 1)
 
   function commit() {
-    const snap = { shapes: clone(shapes.value), ports: clone(ports.value) }
+    const snap = { meta: clone(meta), shapes: clone(shapes.value), ports: clone(ports.value) }
     const last = history.value[histIndex.value]
     // Дедуп no-op'ов (клик без протяжки, drag без сдвига) — не плодим пустые шаги.
     if (last && JSON.stringify(last) === JSON.stringify(snap)) return
@@ -128,9 +126,22 @@ export function createStencilEditor() {
     histIndex.value = history.value.length - 1
   }
   function restore(snap) {
+    // meta — reactive-объект, на который смотрят инспектор и холст: мутируем его
+    // поля, а не подменяем ссылку (иначе оба потеряли бы реактивность).
+    Object.assign(meta, clone(snap.meta))
     shapes.value = clone(snap.shapes)
     ports.value = clone(snap.ports)
     selectedId.value = null
+    // Превью могло смотреть на состояние, которого в восстановленной мете нет.
+    if (previewState.value !== 'all' && !stateKeyExists(previewState.value)) {
+      previewState.value = 'all'
+    }
+  }
+  /** Есть ли такой ключ состояния в текущей мете (для валидации превью). */
+  function stateKeyExists(key) {
+    if (!meta.stateful) return false
+    if (meta.stateMode === 'boolean') return key === 'true' || key === 'false'
+    return meta.states.some((s) => s.key === key)
   }
   function undo() {
     if (!canUndo.value) return
@@ -225,8 +236,8 @@ export function createStencilEditor() {
   // Смена режима переустанавливает слот и сбрасывает видимость фигур на `always`:
   // ключи состояний в булевом (true/false) и value-режиме разные, оставлять
   // старые назначения нельзя — повисли бы на несуществующем состоянии.
-  function setStateMode(mode) {
-    if (meta.stateMode === mode) return
+  function applyStateMode(mode) {
+    if (meta.stateMode === mode) return false
     meta.stateMode = mode
     meta.stateSlot = mode === 'value' ? valueSlot() : boolSlot()
     meta.stateColors = {} // ключи состояний между режимами разные — цвета не переносим
@@ -234,7 +245,33 @@ export function createStencilEditor() {
     shapes.value = shapes.value.map((s) =>
       s.state && s.state !== 'always' ? { ...s, state: 'always' } : s
     )
-    commit()
+    return true
+  }
+
+  function setStateMode(mode) {
+    if (applyStateMode(mode)) commit()
+  }
+
+  /**
+   * Единый контрол инспектора «Выкл / Булево / По значению»: мастер-тумблер и режим
+   * одной операцией — в истории ОДИН шаг, а не два (иначе Ctrl+Z возвращал бы
+   * промежуточное состояние «анимация включена, но режим ещё старый»).
+   */
+  function setAnimationMode(mode) {
+    const wasOff = !meta.stateful
+    if (mode === 'off') {
+      if (wasOff) return
+      meta.stateful = false
+      // Без анимации quality-биндингу не за что цепляться, а превью нечего
+      // показывать. Сбрасываем ДО снимка, чтобы undo вернул целостное состояние.
+      meta.quality = false
+      previewState.value = 'all'
+      commit()
+      return
+    }
+    meta.stateful = true
+    const modeChanged = applyStateMode(mode)
+    if (wasOff || modeChanged) commit()
   }
 
   // Цвет перекраса символа для состояния. which — 'stroke' (контур) | 'fill'
@@ -263,6 +300,7 @@ export function createStencilEditor() {
 
   function addState() {
     meta.states = [...meta.states, { key: uniqueStateKey(), label: '', code: '' }]
+    commit() // дискретная операция (кнопка «+ состояние»), не ввод в поле
   }
 
   function updateState(key, patch) {
@@ -362,6 +400,7 @@ export function createStencilEditor() {
     ports.value = (def.ports || []).map((p) => ({ id: nextId(), name: p.name, x: p.x, y: p.y }))
     selectedId.value = null
     tool.value = 'select'
+    previewState.value = 'all' // превью прошлого черновика ссылалось на чужие состояния
     history.value = []
     histIndex.value = -1
     commit()
@@ -432,6 +471,7 @@ export function createStencilEditor() {
     pasteShape,
     setShapeState,
     setStateMode,
+    setAnimationMode,
     addState,
     updateState,
     removeState,

@@ -1,14 +1,14 @@
 import { ref, watch, nextTick } from 'vue'
 import { onClickOutside } from '@vueuse/core'
 import { getStencilById } from '../stencils/registry'
+import { injectStencilSvg } from '../stencils/svgInjector'
 import {
-  injectStencilSvg,
   TEXT_FONT_SIZE,
   TEXT_PADDING_X,
   textCellHeight,
   textCellWidth,
   resizeTextCell,
-} from '../stencils/svgInjector'
+} from '../stencils/textCell'
 import { useCanvas } from './useCanvas'
 
 /**

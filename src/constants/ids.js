@@ -1,25 +1,14 @@
-// Wire-protocol контракт с WebScada-рантаймом и editor↔export round-trip'ом.
-// Все строки, которые ОБЯЗАНЫ совпадать байт-в-байт между exporter / parser /
-// svgInjector / useSimulation / projectLoader — собираются ТОЛЬКО здесь.
+// DOM/JSON-контракт с WebScada-рантаймом и round-trip'ом editor↔export: строки,
+// обязанные совпадать байт-в-байт у exporter / parser / svgInjector /
+// useSimulation / projectLoader, живут ТОЛЬКО здесь — правка ломает уже
+// выпущенные view.svg. Цвета анимаций — в constants/animation.js.
 //
-// Менять что-либо отсюда = breaking change для всех уже выпущенных view.svg.
-// Цвета анимаций живут в `constants/animation.js` (UI ↔ visual contract);
-// этот файл — DOM/JSON contract.
-//
-// Конвенции:
-//  • Outer-wrapper ячейки   — id="animation-{stencilId}-{animId}" (кроме
-//    cell_value, у которого outer="animation-cell-{valueTag}" — рантайм
-//    адресует его text-карточку по id, равному тегу).
-//  • Inner анимируемый узел — id="animation-{stencilId}-{animId}{suffix}",
-//    где suffix приходит из `data-anim-suffix` в shape.svg.
-//  • Провод                  — id="animation-wire-{shortId}".
-//  • cell_value text-узел    — id="animation-{valueTag}" (рантайм находит
-//    text-карточку по id равному тегу).
+//  • ячейка:          animation-<stencilId>-<animId>[<suffix из data-anim-suffix>]
+//  • cell_value:      animation-cell-<valueTag> (outer) + animation-<valueTag>
+//    (text-узел) — рантайм адресует text-карточку по id, равному тегу
+//  • провод:          animation-wire-<shortId>
 
-// ─── Префиксы ───────────────────────────────────────────────────────────────
-
-// Префиксы — без export: наружу торчат только key-билдеры ниже (outerKey /
-// innerPrefix / wireKey / valueTextKey), сами префиксы используются лишь тут.
+// Без export: наружу торчат только key-билдеры ниже.
 const ANIM_PREFIX = 'animation-'
 const WIRE_PREFIX = 'animation-wire-'
 const CELL_VALUE_PREFIX = 'animation-cell-'
@@ -31,16 +20,14 @@ export const ATTR_STENCIL = 'data-tms-stencil'
 export const ATTR_SUFFIX = 'data-anim-suffix'
 
 /**
- * tms-поля ЯЧЕЙКИ для round-trip через `data-tms-meta` — ЕДИНЫЙ список для записи
- * (exporter) и чтения (projectLoader): забыть одну сторону при добавлении поля =
- * тихая потеря значения на round-trip'е.
+ * tms-поля ЯЧЕЙКИ для round-trip через `data-tms-meta` — единый список для записи
+ * (exporter) и чтения (projectLoader): забыть одну сторону = тихая потеря поля.
  *
- *  • keep(v)   — писать ли поле в meta (exporter); отсекает дефолты (json чище).
- *  • flag      — писать как `true`, а не значение (булевы флаги locked/flipH/flipV).
- *  • clone     — при чтении копировать объект `{ ...v }` (slots не шарить с meta).
+ *  • keep(v) — писать ли в meta (отсекает дефолты)
+ *  • flag    — писать `true` вместо значения
+ *  • clone   — при чтении копировать объект (не шарить с meta)
  *
- * `angle` НЕ здесь: пишется в meta, но читается в `cellJson.angle` (JointJS-поле),
- * а не в tms — обрабатывается отдельно.
+ * `angle`/`z` не здесь: это поля верхнего уровня JointJS, а не tms.
  */
 export const CELL_META_FIELDS = [
   { key: 'slots', keep: Boolean, clone: true },
@@ -61,15 +48,10 @@ export const CELL_META_FIELDS = [
 ]
 
 /**
- * tms-поля ПРОВОДА для round-trip — тот же принцип, что CELL_META_FIELDS (единый
- * список для exporter и projectLoader). Дефолты стиля (толщина 2 / цвет #000) в
- * meta не пишем: `keep` их отсекает, при чтении отсутствие = дефолт из LINK_DEFAULTS.
- *
- *  • attr — имя JointJS-attr в `attrs.line` (стиль применяется к отрисовке, а не
- *    только хранится в tms). Поля без attr — только данные (voltage/switch).
- *
- * `vertices` НЕ здесь: это поле верхнего уровня линка (не tms), пишется/читается
- * отдельно — как `angle`/`z` у ячейки.
+ * То же для ПРОВОДА. Дефолты стиля (2 / #000) в meta не пишем — отсутствие при
+ * чтении = дефолт из LINK_DEFAULTS. `attr` — имя поля в `attrs.line` (стиль надо
+ * не только хранить в tms, но и отдать JointJS на отрисовку). `vertices` не здесь
+ * — поле верхнего уровня линка.
  */
 export const LINK_META_FIELDS = [
   { key: 'voltageSource', keep: Boolean },
@@ -87,10 +69,9 @@ export function outerKey(stencilId, animId) {
 }
 
 /**
- * Outer-key для UI-превью (Inspector / hover-tooltip): тот же id, что эмитит
- * exporter, но animId упрощён — первый сегмент UUID без коллизийного расширения
- * (`exporter.uniqueShortId` добавляет его при совпадении префиксов). cell_value
- * использует сам valueTag. Один источник, чтобы превью и экспорт не разъехались.
+ * Тот же id для UI-превью (инспектор / hover-плашка), но animId без разрешения
+ * коллизий (его делает exporter.uniqueShortId). Один источник — превью и экспорт
+ * не разъезжаются.
  */
 export function previewOuterKey(stencilId, cellId, valueTag) {
   const animId = stencilId === 'cell_value' && valueTag ? valueTag : String(cellId).split('-')[0]
@@ -120,32 +101,17 @@ export function valueTextKey(valueTag) {
 
 // ─── Slot-template резолвер ─────────────────────────────────────────────────
 
-/**
- * `{slot.X}` в строках binding.tag / detailTags / navigation. Единая регулярка
- * + единая семантика подстановки, чтобы parser (экспорт) и useSimulation
- * (превью) не разошлись по поведению. Поддержана inline-подстановка
- * ("PRE{slot.x}POST"), не только чистый placeholder.
- */
+// Единая регулярка `{slot.X}` для parser (экспорт) и useSimulation (превью) —
+// иначе разошлись бы по поведению. Работает и inline: "PRE{slot.x}POST".
 const SLOT_PLACEHOLDER_RE = /\{slot\.(\w+)\}/g
 
 /**
- * Подставляет ВСЕ `{slot.X}` в строке через значения из `slots`. Если хотя бы
- * один X отсутствует (`undefined` / `null` / `''`), `hadUnresolved=true`;
- * caller сам решает что делать (parser отбрасывает binding, simulation тег).
- *
- *   resolveSlotTemplate('{slot.onoff}', { onoff: 'X.Y' })
- *     → { value: 'X.Y',          hadUnresolved: false }
- *   resolveSlotTemplate('PRE{slot.x}POST', { x: 'Y' })
- *     → { value: 'PREYPOST',     hadUnresolved: false }
- *   resolveSlotTemplate('{slot.foo}', {})
- *     → { value: '',             hadUnresolved: true }
- *   resolveSlotTemplate('static.tag', {})
- *     → { value: 'static.tag',   hadUnresolved: false }
+ * Подставляет все `{slot.X}`. Пустой (undefined/null/'') слот → `hadUnresolved`,
+ * решение за вызывающим: parser отбрасывает binding, simulation — тег.
  */
 export function resolveSlotTemplate(template, slots) {
   let hadUnresolved = false
-  // .replace с lastIndex'ом регекспа — поэтому каждый вызов делаем «свежий»
-  // через .source/.flags, чтобы не зависеть от состояния глобального literal'а.
+  // Свежая регулярка на вызов: у глобального literal'а живёт lastIndex.
   const re = new RegExp(SLOT_PLACEHOLDER_RE.source, SLOT_PLACEHOLDER_RE.flags)
   const value = String(template).replace(re, (_, key) => {
     const v = slots?.[key]

@@ -1,0 +1,126 @@
+import { dia, shapes, anchors, connectionPoints, routers } from '@joint/core'
+import { tmsNamespace } from './tmsStencil'
+import { LINK_DEFAULTS, gridRightAngleRouter } from './linkDefaults'
+
+const GRID_COLOR = '#e2e8f0' // slate-200
+const BACKGROUND_COLOR = '#f8fafc' // slate-50
+
+/**
+ * Уже есть такой же провод между этой парой портов? (в любом направлении)
+ * Перебираем только линки, СВЯЗАННЫЕ с source-ячейкой — любой дубль обязан иметь
+ * один конец на ней, поэтому полный перебор графа не нужен (иначе O(links) на
+ * каждый mousemove протяжки).
+ */
+export function isDuplicateConnection(graph, sourceCell, { srcPort, tgtId, tgtPort, drawn }) {
+  const srcId = sourceCell.id
+  for (const link of graph.getConnectedLinks(sourceCell)) {
+    if (link === drawn) continue
+    const os = link.get('source')
+    const ot = link.get('target')
+    if (!os?.id || !ot?.id) continue
+    const same =
+      os.id === srcId &&
+      (os.port || null) === srcPort &&
+      ot.id === tgtId &&
+      (ot.port || null) === tgtPort
+    const reverse =
+      os.id === tgtId &&
+      (os.port || null) === tgtPort &&
+      ot.id === srcId &&
+      (ot.port || null) === srcPort
+    if (same || reverse) return true
+  }
+  return false
+}
+
+/** Граф холста с нашим cellNamespace — иначе fromJSON не поднимет `tms.Stencil`. */
+export function createCanvasGraph() {
+  return new dia.Graph({}, { cellNamespace: tmsNamespace })
+}
+
+/**
+ * Создаёт `dia.Paper` холста со всей проектной конфигурацией (интерактив, снап
+ * связей, anchor'ы cell_node, валидация соединений). Вынесено из CanvasPane —
+ * там остаётся подписка на события paper'а.
+ *
+ * @param {object} opts
+ * @param {HTMLElement} opts.el — контейнер холста
+ * @param {import('@joint/core').dia.Graph} opts.graph
+ * @param {(id: string) => boolean} opts.isSelected — выделен ли элемент (для
+ *        interactive: концы тащим только у выделенного провода)
+ */
+export function createCanvasPaper({ el, graph, isSelected }) {
+  return new dia.Paper({
+    el,
+    model: graph,
+    width: '100%',
+    height: '100%',
+    gridSize: 5,
+    // LinkView резолвит имя роутера через routerNamespace (не через опцию
+    // `routers`), поэтому спредим встроенные и добавляем свой: имя работает и в
+    // редакторе, и при загрузке из JSON/SVG.
+    routerNamespace: { ...routers, gridRightAngle: gridRightAngleRouter },
+    drawGrid: {
+      name: 'dot',
+      color: GRID_COLOR,
+      thickness: 1,
+    },
+    // CSS с !important в style.css переопределяет inline-стиль JointJS.
+    background: { color: BACKGROUND_COLOR },
+    cellViewNamespace: tmsNamespace,
+    // У провода тащим только концы и только у выделенного: маршрут строит роутер,
+    // а конец держат на валидном порту validateConnection + linkPinning:false.
+    interactive: (cellView) => {
+      const m = cellView.model
+      if (m.isLink?.()) {
+        return {
+          arrowheadMove: isSelected(m.id),
+          vertexAdd: false,
+          vertexMove: false,
+          vertexRemove: false,
+          linkMove: false,
+        }
+      }
+      // Замок = полная неинтерактивность. Выделение приходит своим
+      // element:pointerdown, поэтому замок остаётся снимаемым.
+      if (m.get('tms')?.locked) return false
+      return true
+    },
+    // Порог click vs drag: без него микро-движение на magnet'е рождает
+    // draft-линию (мусор в undo).
+    clickThreshold: 5,
+    magnetThreshold: 4,
+    linkPinning: false, // линии не болтаются в воздухе
+    // Не заставляем целиться в кружок порта — бросок рядом подтягивается сам.
+    snapLinks: { radius: 30 },
+    // Конец линии — в позиции anchor'а порта, не на boundary магнита (иначе
+    // offset = portRadius). cell_node: anchor на стороне bbox (см. ниже), но
+    // визуально доводим до центра, где нарисована точка — иначе 10px зазор.
+    defaultConnectionPoint: function (line, view) {
+      const stencilId = view?.model?.get?.('tms')?.stencilId
+      if (stencilId === 'cell_node') return view.model.getBBox().center()
+      return connectionPoints.anchor.apply(this, arguments)
+    },
+    // Anchor — точка, от которой роутер строит путь. У cell_node порт в ЦЕНТРЕ
+    // bbox, и rightAngle с внутренним anchor'ом всегда заходил с одной стороны
+    // («провод приходит слева»); midSide берёт середину ближайшей стороны.
+    // `apply` — anchors.* ждут `this` = linkView (дёргают this.paper.findView).
+    defaultAnchor: function (view) {
+      const stencilId = view?.model?.get?.('tms')?.stencilId
+      const fn = stencilId === 'cell_node' ? anchors.midSide : anchors.center
+      return fn.apply(this, arguments)
+    },
+    defaultLink: () => new shapes.standard.Link(LINK_DEFAULTS),
+    validateConnection: (sourceView, sourceMagnet, targetView, targetMagnet, _end, linkView) => {
+      // «на себя» и в воздух
+      if (sourceView === targetView) return false
+      if (!targetMagnet) return false
+      return !isDuplicateConnection(graph, sourceView.model, {
+        srcPort: sourceMagnet?.getAttribute('port') || null,
+        tgtId: targetView.model.id,
+        tgtPort: targetMagnet?.getAttribute('port') || null,
+        drawn: linkView?.model,
+      })
+    },
+  })
+}

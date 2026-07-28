@@ -106,6 +106,15 @@ describe('useUndoRedo', () => {
     expect(saveAutosave).toHaveBeenCalledOnce()
   })
 
+  it('saveAutosave получает готовые json и строку — второго toJSON не будет', () => {
+    const api = init()
+    api.scheduleSnapshot()
+    vi.runAllTimers()
+    const [json, str] = saveAutosave.mock.calls[0]
+    expect(json).toEqual({ marker: 2 })
+    expect(str).toBe(JSON.stringify(json))
+  })
+
   it('после snapshot undo доступно, redo — нет', () => {
     const api = init()
     api.scheduleSnapshot()

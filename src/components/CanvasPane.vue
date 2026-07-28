@@ -1,14 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useEventListener, useResizeObserver } from '@vueuse/core'
-import { dia, shapes, anchors, connectionPoints, linkTools, routers } from '@joint/core'
-import { tmsNamespace } from '../stencils/tmsStencil'
 import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
 import Tag from 'primevue/tag'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
-import { LINK_DEFAULTS, gridRightAngleRouter, LINK_Z } from '../stencils/linkDefaults'
+import { LINK_Z, attachLinkTools } from '../stencils/linkDefaults'
+import { createCanvasGraph, createCanvasPaper } from '../stencils/canvasPaper'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from '../composables/useCanvas'
@@ -24,6 +23,9 @@ import { useHotkeys } from '../composables/useHotkeys'
 import { useSelectionOverlay } from '../composables/useSelectionOverlay'
 import { useHoverTooltip } from '../composables/useHoverTooltip'
 import { usePan } from '../composables/usePan'
+import { useCanvasZoom, ZOOM_STEP } from '../composables/useCanvasZoom'
+import { useCellHighlight } from '../composables/useCellHighlight'
+import { useMultiDrag } from '../composables/useMultiDrag'
 import { useLasso } from '../composables/useLasso'
 import { useContextMenu } from '../composables/useContextMenu'
 import { usePaletteDrag } from '../composables/usePaletteDrag'
@@ -32,7 +34,6 @@ import { withRestoreGuard } from '../utils/restoreGuard'
 import { confirmDanger } from '../utils/confirmDanger'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
-import { cellHasTag } from '../utils/cellSearch'
 import TagPickerDialog from './TagPickerDialog.vue'
 import SearchBar from './SearchBar.vue'
 
@@ -42,9 +43,8 @@ const canvas = useCanvas()
 const notify = useNotify()
 const confirm = useConfirm()
 
-// Общий флаг «идёт восстановление графа» — useAutosave и useUndoRedo делят его,
-// чтобы не зациклиться snapshot → save → restore → snapshot. Также взводится
-// при массовых правках графа (performClearCanvas, переключение/импорт форм).
+// Общий флаг «идёт восстановление графа» (useAutosave + useUndoRedo): иначе
+// snapshot → save → restore зациклится. Взводится и на массовых правках графа.
 const restoringHistory = ref(false)
 const {
   restoreProject,
@@ -70,44 +70,52 @@ const paperContainer = ref(null)
 let paper = null
 let graph = null
 
-// ─── Listeners ───
-// useEventListener авто-снимает всё на unmount. Hoisted-функции (onWheel,
-// onCanvasMouseMove, ...) можно ссылать до их объявления — script-setup
-// поднимает `function` declarations к верху scope'а.
-//
-// paperContainer-target: ref наполнится после mount, listener зацепится тогда.
+// ─── Zoom / viewport ───
+// zoomPercent живёт в singleton useCanvas — общая ссылка, чтобы зум читался без
+// prop-drilling из любого компонента/композабла. Сама механика (колесо, кнопки ±,
+// fit-to-content, доводка ячейки в вид) — в useCanvasZoom.
+// Объявляем ДО listeners-блока: onWheel уходит туда ЗНАЧЕНИЕМ, а у `const`
+// hoisting'а нет (TDZ) — ниже блока это падало бы на setup'е.
+const zoomPercent = canvas.zoomPercent
+const { onWheel, zoomByStep, fitToContent, centerOnCell } = useCanvasZoom(paperContainer)
+// Подсветки по тегу и результатам поиска (CSS-классы на view'ах) — в композабле;
+// clearCellClass переиспользуем для `.tms-selected` ниже.
+const { clearCellClass } = useCellHighlight({ centerOnCell })
+// Pan — в usePan (свои document move/up). onPanStart дёргаем из capture-mousedown
+// ниже (средняя кнопка или Space+ЛКМ).
+const { onPanStart, isPanning } = usePan()
+
+// useEventListener авто-снимает всё на unmount, а ref-target цепляется после mount.
+// Hoisted-функции можно ссылать до объявления, а всё из композаблов (`const`) —
+// только после (TDZ, см. блок зума выше).
 useEventListener(paperContainer, 'wheel', onWheel, { passive: false })
 useEventListener(paperContainer, 'mousemove', onCanvasMouseMove)
 useEventListener(paperContainer, 'mouseenter', onCanvasEnter)
 useEventListener(paperContainer, 'mouseleave', onCanvasMouseLeave)
-// Capture-phase mousedown для resize шины — раньше JointJS, чтобы он не начал drag.
+// Capture-фаза: ресайз шины и pan должны перехватить mousedown раньше JointJS,
+// иначе он начнёт свой drag.
 useEventListener(paperContainer, 'mousedown', bus.onMaybeStartResize, true)
-// Capture-phase mousedown для pan (MMB / Space+ЛКМ) — тоже раньше JointJS.
 useEventListener(paperContainer, 'mousedown', onPanMouseDown, true)
 useEventListener(document, 'mouseup', onPanMouseUp)
 useEventListener(window, 'keydown', onSpaceDown)
 useEventListener(window, 'keyup', onSpaceUp)
-// Pan/lasso/palette-drag слушают свои document/window-события сами
-// (usePan/useLasso/usePaletteDrag).
+// Свои document/window-события pan/lasso/palette-drag слушают сами.
 
-// Перерасчёт размера paper'а при изменении контейнера (ресайз окна).
-// Регистрируем здесь, в синхронном setup-скоупе: внутри async onMounted
-// (после await) vueuse не зацепил бы scope-dispose и observer утёк бы на unmount.
+// Ресайз окна → пересчёт размеров paper'а. Регистрируем в синхронном setup-скоупе:
+// в async onMounted (после await) vueuse не зацепит scope-dispose и observer утечёт.
 useResizeObserver(paperContainer, () => {
   if (!paper || !paperContainer.value) return
   paper.setDimensions(paperContainer.value.clientWidth, paperContainer.value.clientHeight)
 })
 
-// Во время drag'а ячейки JointJS шлёт change:position ~60 раз/сек — bumpVersion
-// на каждый event гонял бы Inspector.details / overlayBtns на каждом mousemove.
-// Подавляем bumpVersion в окне cell:pointerdown → cell:pointerup (флаг ниже),
-// эмитим один на pointerup. Сами cell:pointerdown/up вешаются в onMounted (нужен
-// paper), а document-mouseup — fallback на отпускание вне холста — здесь, в
-// синхронном скоупе: в async onMounted (после await) auto-cleanup не встал бы.
+// JointJS шлёт change:position ~60 раз/сек, и bumpVersion на каждый гонял бы
+// details/overlayBtns на каждом mousemove. Подавляем в окне pointerdown → pointerup,
+// эмитим один раз в конце. document-mouseup — fallback на отпускание вне холста
+// (в синхронном скоупе, иначе auto-cleanup не встанет).
 let isPointerDownOnCell = false
-// Реактивный флаг «ячейку тащат» — взводится на ПЕРВОМ change в окне pointer-down
-// (реальный drag), не на клике без движения. overlayBtns прячет кнопки, пока true
-// (иначе они замерли бы на старом месте: bumpVersion в drag-окне подавлен).
+// «Ячейку тащат» — взводится на ПЕРВОМ change в окне pointer-down, т.е. на реальном
+// drag'е, не на клике. Пока true, overlay-кнопки скрыты: bumpVersion подавлен, и они
+// замерли бы на старом месте.
 const cellDragging = ref(false)
 function releasePointerDrag() {
   if (!isPointerDownOnCell) return
@@ -192,26 +200,9 @@ function toggleSearch() {
   }
 }
 
-// ─── Zoom state ───
-// zoomPercent живёт в singleton useCanvas — общая ссылка, чтобы зум читался без
-// prop-drilling из любого компонента/композабла.
-const zoomPercent = canvas.zoomPercent
-const MIN_ZOOM = 0.2
-const MAX_ZOOM = 4
-// Шаг зума кнопками тулбара (крупнее колеса 0.9/1.1 — клик должен ощутимо двигать).
-const ZOOM_STEP = 1.2
-
-// Pan — в usePan (свои document move/up). onPanStart дёргаем из capture-mousedown
-// ниже (средняя кнопка или Space+ЛКМ).
-const { onPanStart, isPanning } = usePan()
-
-// Multi-drag: id ячейки, за которую пользователь начал drag, и снимок
-// исходных позиций всех selected-ячеек. Очищается на element:pointerup.
-let activeDragCellId = null
-let dragSnapshot = null
-// Снимок исходных изломов выделенных проводов, ОБА конца которых среди двигаемых
-// ячеек — двигаются жёстко вместе с группой (иначе маршрут остался бы на месте).
-let dragLinkSnapshot = null
+// Multi-drag выделенных ячеек (+ изломов проводов между ними) — в useMultiDrag;
+// хендлеры цепляем на paper/graph в onMounted.
+const { prepareMultiDrag, onPositionChange, endMultiDrag, isMultiDragging } = useMultiDrag()
 
 // ─── Overlay-фичи холста ───
 // overlay-кнопки выделенной ячейки, hover-tooltip и контекстное меню. Все читают
@@ -281,7 +272,7 @@ const groupHoverRect = computed(() => {
 })
 
 const { cellHoverTooltip, showCellTooltip, hideCellTooltip } = useHoverTooltip({
-  suppress: () => isPanning() || !!activeDragCellId || bus.isResizing() || textEditing.value,
+  suppress: () => isPanning() || isMultiDragging() || bus.isResizing() || textEditing.value,
 })
 const { ctxMenuRef, ctxItems, showContextMenu } = useContextMenu({
   hasClipboard,
@@ -363,44 +354,9 @@ function selectCellsWithBridges(cellItems, keepLinks = []) {
   canvas.setSelection([...cellItems, ...links])
 }
 
-function prepareMultiDrag(cellId) {
-  if (!canvas.isSelected(cellId) || canvas.selection.value.length < 2) {
-    activeDragCellId = null
-    dragSnapshot = null
-    return
-  }
-  activeDragCellId = cellId
-  dragSnapshot = {}
-  dragLinkSnapshot = {}
-  const cellIds = new Set()
-  for (const item of canvas.selection.value) {
-    if (item.kind !== 'cell') continue
-    const c = graph?.getCell(item.id)
-    if (c) {
-      const p = c.get('position')
-      dragSnapshot[item.id] = { x: p.x, y: p.y }
-      cellIds.add(item.id)
-    }
-  }
-  // Изломы выделенных проводов между двигаемыми ячейками (оба конца в наборе) —
-  // сдвинутся жёстко вместе с группой. Если конец у неподвижной ячейки — не трогаем
-  // (провод перестроится сам за портом).
-  for (const item of canvas.selection.value) {
-    if (item.kind !== 'link') continue
-    const l = graph?.getCell(item.id)
-    const verts = l?.get('vertices')
-    if (!verts?.length) continue
-    if (cellIds.has(l.get('source')?.id) && cellIds.has(l.get('target')?.id)) {
-      dragLinkSnapshot[item.id] = verts.map((v) => ({ x: v.x, y: v.y }))
-    }
-  }
-}
-
 // ─── Resize шины (cell_bus), undo/redo, autosave — живут в composables.
 // onMaybeStartResize вешается на mousedown в onMounted; isResizing() читают
 // hover-tooltip и прочие места, которым нужно подавлять UI пока тянем edge.
-
-const GRID_COLOR = '#e2e8f0' // slate-200
 
 onMounted(async () => {
   if (!paperContainer.value) return
@@ -409,117 +365,13 @@ onMounted(async () => {
   // окажутся слишком маленькими на момент создания paper'а.
   await nextTick()
 
-  graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
-
-  paper = new dia.Paper({
+  // Конфиг graph/paper (интерактив, снап связей, anchor'ы, validateConnection) —
+  // в stencils/canvasPaper; здесь только подписка на события.
+  graph = createCanvasGraph()
+  paper = createCanvasPaper({
     el: paperContainer.value,
-    model: graph,
-    width: '100%',
-    height: '100%',
-    gridSize: 5,
-    // Кастомный grid-снапящий роутер рядом со встроенными. LinkView резолвит имя
-    // через paper.options.routerNamespace (по умолчанию — глобальный `routers`),
-    // НЕ через `routers`-опцию. Спред сохраняет встроенные + добавляет
-    // 'gridRightAngle' → имя резолвится и в редакторе, и на загрузке из JSON/SVG.
-    routerNamespace: { ...routers, gridRightAngle: gridRightAngleRouter },
-    drawGrid: {
-      name: 'dot',
-      color: GRID_COLOR,
-      thickness: 1,
-    },
-    // CSS с !important в style.css переопределяет inline-стиль JointJS.
-    background: { color: '#f8fafc' },
-    cellViewNamespace: tmsNamespace,
-    // Линки: тащим ТОЛЬКО концы (переанкеринг к порту) и только у ВЫДЕЛЕННОГО
-    // провода. vertices / linkMove выключены — маршрут авто (rightAngle-роутер),
-    // «только порты». validateConnection + linkPinning:false держат конец на
-    // валидном порту. Ячейки — полный интерактив.
-    interactive: (cellView) => {
-      const m = cellView.model
-      if (m.isLink?.()) {
-        return {
-          arrowheadMove: canvas.isSelected(m.id),
-          vertexAdd: false,
-          vertexMove: false,
-          vertexRemove: false,
-          linkMove: false,
-        }
-      }
-      // Заблокированная ячейка (`tms.locked`) — полностью неинтерактивна: ни
-      // перемещения, ни рисования связей от неё. Клик-выделение приходит через
-      // element:pointerdown (наш хендлер) независимо, поэтому замок можно снять.
-      if (m.get('tms')?.locked) return false
-      return true
-    },
-    // ─── Пороги обнаружения click vs drag ───
-    // Без них любое микро-движение мышью при клике на magnet превращается в
-    // draft-линию (мусор в undo-стек). 4-5px — стандарт UI-индустрии.
-    clickThreshold: 5,
-    magnetThreshold: 4,
-    // ─── Конфигурация связей ───
-    linkPinning: false, // линии не могут болтаться в воздухе
-    // Снэп endpoint'а линии к ближайшему magnet'у в радиусе — пользователю
-    // не нужно «целиться» в маленький кружок порта, достаточно бросить линию
-    // рядом, JointJS сам подтянет к ближайшему порту ячейки.
-    snapLinks: { radius: 30 },
-    // Линия заканчивается ровно в позиции anchor'а порта (центр кружка),
-    // а не подгоняется под boundary магнита (тогда был бы offset = portRadius).
-    // Для cell_node — отдельный случай: anchor стоит на стороне bbox'а
-    // (midSide, см. ниже), но визуально провод тянем дальше — до центра
-    // ячейки, где нарисована точка. Без этого был бы 10px gap между концом
-    // провода (на edge bbox'а) и видимым диском в центре.
-    defaultConnectionPoint: function (line, view) {
-      const stencilId = view?.model?.get?.('tms')?.stencilId
-      if (stencilId === 'cell_node') return view.model.getBBox().center()
-      return connectionPoints.anchor.apply(this, arguments)
-    },
-    // Anchor — точка ВНУТРИ элемента, от которой router строит путь. По дефолту
-    // используем центр магнита (= позиция порта). Для cell_node порт стоит в
-    // центре bbox'а (10,10) — внутри элемента, не на границе. rightAngle с
-    // anchor'ом ВНУТРИ bbox'а всегда заходит в элемент с одной стороны
-    // (визуально «провод приходит слева» независимо от направления source'а).
-    // midSide динамически выбирает середину ближайшей стороны bbox'а — провод
-    // заходит с естественного направления. `this` для anchors.* должен быть
-    // linkView (внутри они дёргают this.paper.findView) — поэтому `apply`.
-    defaultAnchor: function (view) {
-      const stencilId = view?.model?.get?.('tms')?.stencilId
-      const fn = stencilId === 'cell_node' ? anchors.midSide : anchors.center
-      return fn.apply(this, arguments)
-    },
-    defaultLink: () => new shapes.standard.Link(LINK_DEFAULTS),
-    validateConnection: (sourceView, sourceMagnet, targetView, targetMagnet, _end, linkView) => {
-      // запрещаем «на себя» и в воздух (targetMagnet нужен)
-      if (sourceView === targetView) return false
-      if (!targetMagnet) return false
-
-      // Запрещаем дубль линии между той же парой портов (в любом направлении)
-      const srcId = sourceView.model.id
-      const tgtId = targetView.model.id
-      const srcPort = sourceMagnet?.getAttribute('port') || null
-      const tgtPort = targetMagnet?.getAttribute('port') || null
-      const drawn = linkView?.model
-      // Дубль пары портов ищем только среди линков, СВЯЗАННЫХ с source-ячейкой —
-      // любой дубль обязан иметь один конец на sourceView.model, поэтому полный
-      // перебор графа не нужен (иначе O(links) на каждый mousemove протяжки).
-      for (const link of graph.getConnectedLinks(sourceView.model)) {
-        if (link === drawn) continue
-        const os = link.get('source')
-        const ot = link.get('target')
-        if (!os?.id || !ot?.id) continue
-        const same =
-          os.id === srcId &&
-          (os.port || null) === srcPort &&
-          ot.id === tgtId &&
-          (ot.port || null) === tgtPort
-        const reverse =
-          os.id === tgtId &&
-          (os.port || null) === tgtPort &&
-          ot.id === srcId &&
-          (ot.port || null) === srcPort
-        if (same || reverse) return false
-      }
-      return true
-    },
+    graph,
+    isSelected: (id) => canvas.isSelected(id),
   })
 
   // ─── Клик по пустому месту ───
@@ -577,40 +429,9 @@ onMounted(async () => {
       canvas.selectOnly('link', linkView.model.id)
     }
   })
-  // ─── Multi-drag: при перетаскивании одной из multi-selected ячеек —
-  // синхронно сдвигаем все остальные с тем же delta. opt.multiDrag блокирует
-  // рекурсию при программном set('position') у соседей.
-  graph.on('change:position', (cell, newPos, opt) => {
-    if (opt?.multiDrag || opt?.uiNudge) return
-    if (!activeDragCellId || cell.id !== activeDragCellId) return
-    const start = dragSnapshot?.[cell.id]
-    if (!start) return
-    const dx = newPos.x - start.x
-    const dy = newPos.y - start.y
-    for (const item of canvas.selection.value) {
-      if (item.id === activeDragCellId || item.kind !== 'cell') continue
-      const startPos = dragSnapshot[item.id]
-      const other = graph.getCell(item.id)
-      // Заблокированную ячейку не двигаем даже в группе (multi-drag программный,
-      // в обход paper.interactive — иначе замок обошёлся бы).
-      if (other && startPos && !other.get('tms')?.locked) {
-        other.set('position', { x: startPos.x + dx, y: startPos.y + dy }, { multiDrag: true })
-      }
-    }
-    // Изломы проводов между двигаемыми ячейками — тем же delta (от исходных, без
-    // дрейфа). vertexSnap гасит снап-хендлер: delta кратен сетке (края на сетке).
-    for (const linkId in dragLinkSnapshot) {
-      const link = graph.getCell(linkId)
-      if (!link) continue
-      const shifted = dragLinkSnapshot[linkId].map((v) => ({ x: v.x + dx, y: v.y + dy }))
-      link.vertices(shifted, { vertexSnap: true })
-    }
-  })
-  paper.on('element:pointerup', () => {
-    activeDragCellId = null
-    dragSnapshot = null
-    dragLinkSnapshot = null
-  })
+  // Multi-drag: ведущая ячейка тянет остальных выделенных (см. useMultiDrag).
+  graph.on('change:position', onPositionChange)
+  paper.on('element:pointerup', endMultiDrag)
 
   // Double-click по cell_text — открыть inline-редактор поверх ячейки.
   paper.on('element:pointerdblclick', (elementView) => {
@@ -773,38 +594,6 @@ onMounted(async () => {
   }
 })
 
-// Ручки концов выделенного провода — кружок размером с порт (r=3), но
-// контрастного цвета. Рендерятся в слое инструментов ПОВЕРХ порт-magnet'ов,
-// поэтому перетаскивание конца не перебивается созданием нового провода (magnet
-// иначе выигрывает). Тащим ручку → конец переанкерится к порту
-// (arrowheadMove + validateConnection + linkPinning:false держат на валидном порту).
-const ENDPOINT_HANDLE_ATTRS = {
-  r: 3,
-  fill: '#f97316', // orange-500 — отличать от cyan-порта, читается как «тащи меня»
-  stroke: '#ffffff',
-  'stroke-width': 1,
-  cursor: 'move',
-}
-const SourceEndpointHandle = linkTools.SourceArrowhead.extend({
-  tagName: 'circle',
-  attributes: ENDPOINT_HANDLE_ATTRS,
-})
-const TargetEndpointHandle = linkTools.TargetArrowhead.extend({
-  tagName: 'circle',
-  attributes: ENDPOINT_HANDLE_ATTRS,
-})
-// Ручка излома (linkTools.Vertices) — дефолт r=6; ужимаем до размера порта (r=3),
-// цвет/ободок стоковые (навигационный navy + белый ободок).
-const VertexHandle = linkTools.Vertices.VertexHandle.extend({
-  attributes: {
-    r: 3,
-    fill: '#33334f',
-    stroke: '#ffffff',
-    'stroke-width': 1,
-    cursor: 'move',
-  },
-})
-
 // ─── Подсветка выделенных элементов ───
 // На каждое изменение selection: откатываем стили всех ранее выделенных линий
 // + снимаем resize-tools с предыдущих шин, затем накладываем выделение на текущие.
@@ -814,8 +603,7 @@ watch(
     if (!paper) return
 
     // Снимаем класс со всех ранее выделенных
-    const root = paper.el
-    root.querySelectorAll('.tms-selected').forEach((node) => node.classList.remove('tms-selected'))
+    clearCellClass('tms-selected')
     // Снимаем arrowhead-ручки только с РАНЕЕ выделенных линков (tools висят лишь на
     // выделенных) — полный перебор графа на каждый клик не нужен.
     for (const item of oldSel || []) {
@@ -831,29 +619,9 @@ watch(
       const view = paper.findViewByModel(cell)
       if (!view) continue
       view.el?.classList.add('tms-selected')
-      // Провод: ручки концов для переанкеринга к другому порту + изломы
-      // (Vertices) для ручной правки маршрута. Изломы снапятся к сетке
-      // отдельным change:vertices-хендлером, чтобы хэндл не отрывался от линии,
-      // которую gridRightAngleRouter держит на сетке. redundancyRemoval убирает
-      // излом, легший на прямую между соседями; double-click по линии добавляет.
-      // Порядок важен: Vertices первым → его vertex-adding обёртка (ловит клик
-      // по всей линии для добавления излома) лежит НИЖЕ эндпоинт-ручек. Иначе
-      // обёртка перебивает клик у конца и рисует излом вместо перемещения.
-      if (cell.isLink?.()) {
-        view.addTools(
-          new dia.ToolsView({
-            tools: [
-              new linkTools.Vertices({
-                snapRadius: 10,
-                redundancyRemoval: true,
-                handleClass: VertexHandle,
-              }),
-              new SourceEndpointHandle(),
-              new TargetEndpointHandle(),
-            ],
-          })
-        )
-      }
+      // Провод: ручки концов (переанкеринг к другому порту) + изломы — см.
+      // attachLinkTools в linkDefaults.
+      if (cell.isLink?.()) attachLinkTools(view)
     }
     // Inline-× — HTML-overlay (deleteBtnStyle в template). JointJS
     // elementTools.Remove кэширует bbox при addTools, не пересчитывает на
@@ -862,84 +630,6 @@ watch(
   // deep НЕ нужен: selection всегда ЗАМЕНЯЕТСЯ новым массивом (selectOnly/
   // setSelection/toggle/clear), ref-сравнения достаточно.
 )
-
-// ─── Подсветка элементов по тегу (кнопка «Подсветить на схеме»). ───
-// Watch на canvas.highlightedTag: на set/change перерисовываем класс
-// tms-tag-match у всех cells/links с любым tag-полем == tag (см. cellHasTag —
-// slots, voltageSource.tag, switchSources, valueTag). Подсветка
-// сохраняется через selection-change и pan/zoom (чисто визуальный overlay).
-watch(
-  () => canvas.highlightedTag.value,
-  (tag) => {
-    if (!paper) return
-    const root = paper.el
-    root.querySelectorAll('.tms-tag-match').forEach((n) => n.classList.remove('tms-tag-match'))
-    if (!tag || !graph) return
-    for (const cell of graph.getCells()) {
-      if (!cellHasTag(cell, tag)) continue
-      const view = paper.findViewByModel(cell)
-      view?.el?.classList.add('tms-tag-match')
-    }
-  }
-)
-
-// ─── Подсветка результатов поиска (Ctrl+F) ───
-// Селекшен НЕ трогаем — закрытие поиска не должно сбрасывать выбор.
-watch(
-  () => [canvas.searchMatchIds.value, canvas.searchCurrentIdx.value],
-  ([ids, idx]) => {
-    if (!paper) return
-    const root = paper.el
-    root
-      .querySelectorAll('.tms-search-match')
-      .forEach((n) => n.classList.remove('tms-search-match'))
-    root
-      .querySelectorAll('.tms-search-current')
-      .forEach((n) => n.classList.remove('tms-search-current'))
-    if (!ids.length || !graph) return
-    for (let i = 0; i < ids.length; i++) {
-      const cell = graph.getCell(ids[i])
-      if (!cell) continue
-      const view = paper.findViewByModel(cell)
-      if (!view?.el) continue
-      view.el.classList.add(i === idx ? 'tms-search-current' : 'tms-search-match')
-    }
-    centerOnCell(ids[idx])
-  }
-)
-
-/**
- * Доводим переданную ячейку в центр viewport'а (paper.translate без изменения
- * zoom'а). Если она уже видна целиком — не двигаем (избегаем дёрганья при
- * Enter-листании близких match'ей). bbox считается в model-координатах,
- * проектируем на экран через текущий paper.scale().
- */
-function centerOnCell(cellId) {
-  if (!paper || !graph || !cellId || !paperContainer.value) return
-  const cell = graph.getCell(cellId)
-  if (!cell) return
-  const bbox = cell.getBBox?.()
-  if (!bbox) return
-  const s = paper.scale().sx
-  const { tx, ty } = paper.translate()
-  const paperW = paperContainer.value.clientWidth
-  const paperH = paperContainer.value.clientHeight
-  const screenX = bbox.x * s + tx
-  const screenY = bbox.y * s + ty
-  const screenW = bbox.width * s
-  const screenH = bbox.height * s
-  const margin = 40
-  const inView =
-    screenX >= margin &&
-    screenY >= margin &&
-    screenX + screenW <= paperW - margin &&
-    screenY + screenH <= paperH - margin
-  if (inView) return
-  const cx = bbox.x + bbox.width / 2
-  const cy = bbox.y + bbox.height / 2
-  paper.translate(paperW / 2 - cx * s, paperH / 2 - cy * s)
-  canvas.bumpPaperView()
-}
 
 // ─── Внешние запросы snapshot'а (Inspector после правки слотов и т.п.) ───
 // Эти watches должны жить на уровне script setup — внутри async onMounted после
@@ -978,84 +668,6 @@ function onCanvasMouseMove(event) {
 function onCanvasMouseLeave() {
   canvas.setCursorLocal(null)
   overCanvas = false
-}
-
-function onWheel(event) {
-  if (!paper) return
-  event.preventDefault()
-
-  const scale = paper.scale().sx
-  const delta = event.deltaY > 0 ? 0.9 : 1.1
-  const newScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale * delta))
-  if (newScale === scale) return
-
-  // Зум центрируется на положении курсора:
-  // 1) определяем локальную точку (в координатах paper) под курсором ДО зума
-  // 2) меняем масштаб
-  // 3) смещаем paper так, чтобы та же локальная точка осталась под курсором
-  const localBefore = paper.clientToLocalPoint(event.clientX, event.clientY)
-
-  paper.scale(newScale, newScale)
-
-  const localAfter = paper.clientToLocalPoint(event.clientX, event.clientY)
-  const dx = (localAfter.x - localBefore.x) * newScale
-  const dy = (localAfter.y - localBefore.y) * newScale
-  const { tx, ty } = paper.translate()
-  paper.translate(tx + dx, ty + dy)
-
-  zoomPercent.value = Math.round(newScale * 100)
-  canvas.bumpPaperView()
-}
-
-// Зум кнопками +/− из тулбара: центрируем на середине вьюпорта (у кнопки нет
-// позиции курсора, в отличие от onWheel). Та же «сохраняем точку под якорем»
-// арифметика, что в onWheel, но якорь — геометрический центр контейнера.
-function zoomByStep(factor) {
-  if (!paper || !paperContainer.value) return
-  const scale = paper.scale().sx
-  const newScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale * factor))
-  if (newScale === scale) return
-  const rect = paperContainer.value.getBoundingClientRect()
-  const cx = rect.left + rect.width / 2
-  const cy = rect.top + rect.height / 2
-  const localBefore = paper.clientToLocalPoint(cx, cy)
-  paper.scale(newScale, newScale)
-  const localAfter = paper.clientToLocalPoint(cx, cy)
-  const { tx, ty } = paper.translate()
-  paper.translate(
-    tx + (localAfter.x - localBefore.x) * newScale,
-    ty + (localAfter.y - localBefore.y) * newScale
-  )
-  zoomPercent.value = Math.round(newScale * 100)
-  canvas.bumpPaperView()
-}
-
-function fitToContent() {
-  if (!paper || !graph) return
-
-  // Пустой холст — просто сброс
-  if (graph.getCells().length === 0) {
-    paper.scale(1, 1)
-    paper.translate(0, 0)
-    zoomPercent.value = 100
-    canvas.bumpPaperView()
-    return
-  }
-
-  // Нативный JointJS 4 fit-to-content: сам считает bbox, масштабирует И
-  // центрирует через horizontalAlign/verticalAlign. maxScale: 1 — не
-  // приближаем больше 100% (для маленького контента просто центрируется).
-  paper.transformToFitContent({
-    padding: 40,
-    minScale: MIN_ZOOM,
-    maxScale: 1,
-    horizontalAlign: 'middle',
-    verticalAlign: 'middle',
-    useModelGeometry: false,
-  })
-
-  zoomPercent.value = Math.round(paper.scale().sx * 100)
-  canvas.bumpPaperView()
 }
 
 // ─── Очистить холст ───

@@ -1,17 +1,14 @@
 import { getStencilById, getAllStencils } from '../stencils/registry'
 import { instantiate } from '../stencils/parser'
-import {
-  buildBusExportSvg,
-  buildTextExportSvg,
-  buildValueExportSvg,
-  flipTransform,
-} from '../stencils/svgInjector'
+import { flipTransform } from '../stencils/svgInjector'
+import { buildBusExportSvg } from '../stencils/busCell'
+import { buildTextExportSvg } from '../stencils/textCell'
+import { buildValueExportSvg } from '../stencils/valueCell'
 import {
   CLASS_OFF,
   CLASS_HIDDEN,
   buildVoltageCssRules,
   buildStateColorCssRules,
-  stateColorClass,
 } from '../constants/animation'
 import {
   outerKey,
@@ -23,22 +20,28 @@ import {
   CELL_META_FIELDS,
   LINK_META_FIELDS,
 } from '../constants/ids'
+// Билдеры animation-карточек (рантайм-протокол) — в отдельном модуле; здесь только
+// оркестрация: обход графа → SVG-сборка + раскладка карточек по id.
+import {
+  buildVoltageCard,
+  buildSwitchCard,
+  buildMultiCard,
+  buildStateColorCard,
+  needsMulti,
+  assignOrMergeAnimation,
+  mergeBindingsIntoStencilCards,
+} from './animationCards'
 import { SVG_NS, escapeAttr } from '../utils/xml'
 import { getCellTagsFromTms } from '../utils/cellSearch'
-import { normalizeSwitchSources, switchSourceTags } from '../utils/switchSources'
+import { switchSourceTags } from '../utils/switchSources'
 
 /**
- * Короткий стабильный id из JointJS-UUID: берём первый сегмент (8 hex ≈ 4B
- * комбинаций), при коллизии в пределах одного экспорта расширяем следующим
- * сегментом UUID — и так до полной строки. Защита от тихого слияния двух
- * cell'ов с одинаковым префиксом UUID в одну animation-карточку.
+ * Короткий id из UUID: первый сегмент, при коллизии добираем следующие. Без этого две
+ * ячейки с одинаковым префиксом слились бы в одну карточку. Тот же UUID даёт тот же
+ * short-id, а round-trip всё равно держится на полном UUID в data-tms-meta.
  *
- * Стабильно между save/load для несталкивающихся id — тот же UUID даёт тот
- * же short-id. При коллизии порядок обхода может растянуть второй id чуть
- * длиннее — это нормально, round-trip держится на полном UUID в data-tms-meta.
- *
- * @param {string} fullId  — JointJS UUID (5 сегментов через '-')
- * @param {(candidate: string) => boolean} isTaken — занят ли кандидат-id
+ * @param {string} fullId — JointJS UUID
+ * @param {(candidate: string) => boolean} isTaken
  */
 function uniqueShortId(fullId, isTaken) {
   const segments = String(fullId).split('-')
@@ -49,11 +52,7 @@ function uniqueShortId(fullId, isTaken) {
   return candidate
 }
 
-/**
- * Возвращает абсолютную позицию endpoint'а линка (source/target).
- * linkPinning=false на paper'е запрещает свободные endpoint'ы, поэтому ждём
- * только { id, port } или { id } (центр ячейки).
- */
+/** Абсолютная позиция конца линка. linkPinning=false → ждём { id, port } или { id }. */
 function getEndpointPos(end, graph, warnings) {
   const cell = graph.getCell(end.id)
   if (!cell) return null
@@ -70,9 +69,8 @@ function getEndpointPos(end, graph, warnings) {
         y: pos.y + (port.args?.y ?? 0),
       }
     }
-    // Порт не найден (рассинхрон портов после ресайза шины и т.п.) — уходим в
-    // центр ячейки, но сигналим: тихий сдвиг провода заметить трудно. В warnings
-    // (доходит до пользователя), а не только в консоль.
+    // Порт не найден (рассинхрон после ресайза шины) — уходим в центр, но сигналим
+    // пользователю: тихий сдвиг провода заметить трудно.
     const msg = `Провод: порт "${end.port}" у символа ${end.id} не найден — конец уехал в центр`
     console.warn(`[Export] ${msg}`)
     warnings?.push(msg)
@@ -86,214 +84,9 @@ function getEndpointPos(end, graph, warnings) {
   }
 }
 
-/**
- * Карточка анимации voltage-source: один range-биндинг, читающий выбранный тег
- * и добавляющий соответствующий класс в зависимости от диапазона значения.
- */
-function buildVoltageCard(vs) {
-  return {
-    animation: 'shape',
-    bindings: [
-      {
-        tag: vs.tag,
-        when: {
-          source: 'value',
-          type: 'range',
-          cases: (vs.ranges || []).map((r) => ({
-            min: r.min,
-            max: r.max,
-            apply: { addClass: r.class },
-          })),
-        },
-      },
-    ],
-  }
-}
-
-/**
- * Shape-карточка switch: на каждый тег — bool-биндинг (false → animation-off).
- * Union биндингов = AND «любой false → серый». Для не-multi случая (чистая
- * цепочка / одиночный параллельный тег). Принимает плоский список тегов.
- */
-function buildSwitchCard(tags) {
-  return {
-    animation: 'shape',
-    bindings: tags.map((tag) => ({
-      tag,
-      when: {
-        source: 'value',
-        type: 'map',
-        cases: { false: { apply: { addClass: CLASS_OFF } } },
-      },
-    })),
-  }
-}
-
-/** Нужна ли multi-карточка: ≥2 групп switchSources (ИЛИ-агрегация невыразима
- *  union-биндингами shape-карточки). Одна группа (чистое И) / нет групп → дешёвый
- *  shape (buildSwitchCard: любой тег группы false → animation-off). */
-function needsMulti(c) {
-  return normalizeSwitchSources(c.switchSources).groups.length >= 2
-}
-
-/** Условие «выключатель открыт» (value=false). ConditionEvaluator(map) вернёт
- *  cases['false']=true → MultiConditionEvaluator трактует результат как true. */
-function openCondition(id, tag) {
-  return { id, tag, source: 'value', when: { type: 'map', cases: { false: true } } }
-}
-
-/** multi-биндинг с ОДНИМ условием (expression='c'): тег под source/when →
- *  apply addClass. Для слоёв voltage-range / onoff / quality в multi-карточке. */
-function singleMultiBinding(tag, source, when, addClass) {
-  return {
-    multiCondition: {
-      expression: 'c',
-      conditions: [{ id: 'c', tag, source, when }],
-      apply: { addClass },
-    },
-  }
-}
-
-/**
- * Outer-карточка типа `multi` — рантайм-тип с булевым `expression` по нескольким
- * тегам (единственный способ выразить ИЛИ-агрегацию групп switchSources, где
- * union-биндинги дают только AND). Несёт ВСЕ outer-эффекты слоями (бинды
- * независимы, ActionApplier складывает классы): voltage по диапазонам, группы
- * switchSources, quality. Кладётся на outer-id; на потомков классы каскадят через
- * CSS, поэтому merge во внутренние shape-карточки не нужен. Генерируется напрямую
- * из tms — только здесь есть семантика «какие теги в какой группе».
- */
-function buildMultiCard(c) {
-  const stencil = getStencilById(c.stencilId)
-  const bindings = []
-
-  const vs = c.voltageSource
-  if (vs?.tag && vs.ranges?.length) {
-    for (const r of vs.ranges) {
-      bindings.push(
-        singleMultiBinding(
-          vs.tag,
-          'value',
-          { type: 'range', cases: [{ min: r.min, max: r.max }] },
-          r.class
-        )
-      )
-    }
-  }
-
-  // switchSources — группы условий: активен, если ЛЮБАЯ группа выполнена целиком
-  // (все теги замкнуты). Гасим (animation-off), когда НИ одна не выполнена =
-  // в КАЖДОЙ группе хотя бы один тег открыт. Без отрицания (рантайм-expression его
-  // не даёт): произведение сумм — И по группам ( ИЛИ «открыт» внутри группы ).
-  const { groups } = normalizeSwitchSources(c.switchSources)
-  const conditions = []
-  const factors = []
-  groups.forEach((group, gi) => {
-    const ids = group.map((tag, ti) => {
-      const id = `g${gi}t${ti}`
-      conditions.push(openCondition(id, tag))
-      return id
-    })
-    factors.push(`(${ids.join(' || ')})`)
-  })
-  if (conditions.length) {
-    bindings.push({
-      multiCondition: {
-        expression: factors.join(' && '),
-        conditions,
-        apply: { addClass: CLASS_OFF },
-      },
-    })
-  }
-
-  if (stencil?.quality) {
-    const qTags = [
-      ...new Set([vs?.tag, c.slots?.onoff, ...switchSourceTags(c.switchSources)].filter(Boolean)),
-    ]
-    for (const tag of qTags) {
-      bindings.push(
-        singleMultiBinding(
-          tag,
-          'quality',
-          { type: 'range', cases: [{ min: 0, max: 191 }] },
-          CLASS_OFF
-        )
-      )
-    }
-  }
-
-  return { animation: 'multi', bindings }
-}
-
-/**
- * Биндинг перекраса всего символа по состоянию (stateColors в stencil.json):
- * значение тега-слота состояния → класс `animation-color-<stencilId>-<ключ>` на outer, цвет
- * каскадит на потомков через CSS (см. inlineStyles). Кладётся слоем на outer
- * (assignOrMerge — уживается с voltage/switch/quality). Коды: режим значения —
- * из states, булев — сами ключи 'true'/'false'. null, если красить нечего или
- * тег слота не привязан. Обесточивание (animation-off) бьёт цвет в CSS.
- */
-function buildStateColorCard(c) {
-  const stencil = getStencilById(c.stencilId)
-  const colors = stencil?.stateColors
-  if (!colors || !Object.keys(colors).length) return null
-  const slotKey = stencil.slots?.[0]?.key
-  const tag = slotKey ? c.slots?.[slotKey] : null
-  if (!tag) return null
-  const cases = {}
-  if (Array.isArray(stencil.states) && stencil.states.length) {
-    for (const st of stencil.states) {
-      const color = colors[st.key]
-      if (color && st.code !== '' && st.code != null) {
-        cases[String(st.code)] = { apply: { addClass: stateColorClass(c.stencilId, st.key) } }
-      }
-    }
-  } else {
-    for (const k of ['true', 'false']) {
-      if (colors[k]) cases[k] = { apply: { addClass: stateColorClass(c.stencilId, k) } }
-    }
-  }
-  if (!Object.keys(cases).length) return null
-  return { animation: 'shape', bindings: [{ tag, when: { source: 'value', type: 'map', cases } }] }
-}
-
-/**
- * Карточка под ключ либо создаётся, либо в существующую дописываются
- * bindings. Нужно потому что несколько источников (voltage + switch) могут
- * хотеть навесить биндинги на один и тот же outer-wrapper или link-id —
- * порядок добавления не должен затирать предыдущее.
- */
-function assignOrMergeAnimation(animations, key, card) {
-  if (animations[key]) {
-    animations[key].bindings = [...(animations[key].bindings || []), ...card.bindings]
-  } else {
-    animations[key] = card
-  }
-}
-
-// Алиасы под импортами outerKey/innerPrefix (constants/ids.js — единый источник
-// id-формата). Нужны из-за шадовинга `outerKey`: ниже в нескольких блоках
-// объявляется локальная `const outerKey = …`, которая перекрыла бы импорт — зовём
-// через *For-алиас. innerPrefixFor — для симметрии.
+// Алиас: ниже в нескольких блоках объявляется локальная `outerKey`, которая
+// перекрыла бы импорт.
 const outerKeyFor = outerKey
-const innerPrefixFor = innerPrefix
-
-/**
- * Дублирует bindings новой карточки во ВСЕ стенсильные shape-карточки того же
- * animId (`animation-{stencilId}-{animId}.true`, `.false`, …). Так класс
- * ляжет не только на outer-wrapper, но и на внутренние shape-группы стенсила.
- * Text-карточки (вроде cell_value text-update) пропускаем — их раскрашивать
- * чужими классами не нужно.
- */
-function mergeBindingsIntoStencilCards(animations, stencilId, animId, exceptKey, card) {
-  const keyPrefix = innerPrefixFor(stencilId, animId)
-  for (const key of Object.keys(animations)) {
-    if (key === exceptKey) continue
-    if (animations[key].animation === 'text') continue
-    if (!key.startsWith(keyPrefix)) continue
-    animations[key].bindings = [...(animations[key].bindings || []), ...card.bindings]
-  }
-}
 
 /**
  * Из текущего состояния JointJS-графа собирает два артефакта:
@@ -320,14 +113,9 @@ export function exportProject(graph, paper = null) {
   const cellExports = []
   const linkExports = []
   const animations = {}
-  // Защита от тихой коллизии short-id (UUID с одинаковым первым сегментом).
-  // uniqueShortId растягивает префикс на следующий сегмент пока outer-key не
-  // станет уникальным. Cell-key и wire-key живут в одном namespace —
-  // `animation-{stencilId}-...` и `animation-wire-...` пересекаться не могут,
-  // но один Set проще двух.
+  // Один Set на ячейки и провода: их префиксы не пересекаются, но два Set'а незачем.
   const usedOuterKeys = new Set()
-  // Предупреждения для caller'а (CanvasPane показывает toast). Console.warn
-  // оставляем для DevTools — без UI-показа SCADA-инженер их не увидел бы.
+  // Предупреждения уходят в toast: в консоли инженер их не увидит.
   const warnings = []
 
   let minX = Infinity
@@ -688,7 +476,7 @@ export function exportProject(graph, paper = null) {
     if (!getStencilById(c.stencilId)?.quality) continue
     // Собираем уникальные теги из inner-карточек (slot.onoff) + outer (voltage,
     // switch). Без тегов quality-биндинги бессмысленны — пропускаем.
-    const stencilPrefix = innerPrefixFor(c.stencilId, c.animId)
+    const stencilPrefix = innerPrefix(c.stencilId, c.animId)
     const outerKey = outerKeyFor(c.stencilId, c.animId)
     const seen = new Set()
     for (const key of Object.keys(animations)) {

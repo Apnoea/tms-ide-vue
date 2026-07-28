@@ -26,7 +26,7 @@ const {
   updateShape,
   commit,
   setShapeState,
-  setStateMode,
+  setAnimationMode,
   addState,
   updateState,
   removeState,
@@ -92,8 +92,8 @@ function toggleRounded(on) {
   commit()
 }
 
-// Единый свитч анимации состояния: Выкл / Булево / По значению. «Выкл» гасит
-// stateful; выбор типа включает stateful и задаёт режим (setStateMode).
+// Единый свитч анимации состояния: Выкл / Булево / По значению. Тумблер + режим
+// меняет setAnimationMode — одной операцией, одним шагом истории.
 const ANIM_MODE_OPTIONS = [
   { label: 'Выкл', value: 'off' },
   { label: 'Булево', value: 'boolean' },
@@ -101,14 +101,7 @@ const ANIM_MODE_OPTIONS = [
 ]
 const animMode = computed({
   get: () => (meta.stateful ? meta.stateMode : 'off'),
-  set: (v) => {
-    if (v === 'off') {
-      meta.stateful = false
-      return
-    }
-    meta.stateful = true
-    setStateMode(v)
-  },
+  set: (v) => setAnimationMode(v),
 })
 // Булев режим — те же две строки «подпись → значение», что у «по значению», но
 // read-only: значения фиксированы (true/false), редактировать/удалять нельзя.
@@ -155,6 +148,13 @@ function onIdInput(e) {
   if (e.target.value !== clean) e.target.value = clean
   meta.id = clean
 }
+
+// Свотч цвета состояния: живьём на @input (видно на превью), снимок истории — на
+// @change (пипетка закрыта) и на кнопке-сбросе. Как у цвета фигуры.
+function clearStateColor(key, which) {
+  setStateColor(key, '', which)
+  commit()
+}
 </script>
 
 <template>
@@ -168,7 +168,13 @@ function onIdInput(e) {
       <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-4">
         <label class="block">
           <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Название</div>
-          <InputText v-model="meta.label" size="small" class="w-full" placeholder="Задвижка" />
+          <InputText
+            v-model="meta.label"
+            size="small"
+            class="w-full"
+            placeholder="Задвижка"
+            @change="commit"
+          />
         </label>
 
         <label class="block">
@@ -181,6 +187,7 @@ function onIdInput(e) {
             placeholder="cell_valve"
             class="p-inputtext p-component p-inputtext-sm w-full font-mono"
             @input="onIdInput"
+            @change="commit"
           />
         </label>
 
@@ -193,12 +200,18 @@ function onIdInput(e) {
             placeholder="Выберите или впишите"
             size="small"
             class="w-full"
+            @change="commit"
           />
         </label>
 
         <!-- Единственный флаг поведения — прямо после категории, без отдельной секции. -->
         <label class="flex items-center gap-2 cursor-pointer">
-          <Checkbox v-model="meta.noRotate" binary input-id="se-norotate" />
+          <Checkbox
+            v-model="meta.noRotate"
+            binary
+            input-id="se-norotate"
+            @update:model-value="commit"
+          />
           <span class="text-surface-700">Запретить поворот</span>
         </label>
 
@@ -247,13 +260,14 @@ function onIdInput(e) {
                     :class="{ 'opacity-40': !stateStroke(st.value) }"
                     class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
                     @input="setStateColor(st.value, $event.target.value, 'stroke')"
+                    @change="commit"
                   />
                   <button
                     v-if="stateStroke(st.value)"
                     type="button"
                     v-tooltip.top="'Убрать цвет'"
                     class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
-                    @click="setStateColor(st.value, '', 'stroke')"
+                    @click="clearStateColor(st.value, 'stroke')"
                   >
                     <i class="pi pi-times !text-[9px]" />
                   </button>
@@ -270,13 +284,14 @@ function onIdInput(e) {
                     :class="{ 'opacity-40': !stateFill(st.value) }"
                     class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
                     @input="setStateColor(st.value, $event.target.value, 'fill')"
+                    @change="commit"
                   />
                   <button
                     v-if="stateFill(st.value)"
                     type="button"
                     v-tooltip.top="'Убрать заливку'"
                     class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
-                    @click="setStateColor(st.value, '', 'fill')"
+                    @click="clearStateColor(st.value, 'fill')"
                   >
                     <i class="pi pi-times !text-[9px]" />
                   </button>
@@ -304,6 +319,7 @@ function onIdInput(e) {
                   size="small"
                   class="flex-1 min-w-0"
                   @update:model-value="updateState(st.key, { label: $event })"
+                  @change="commit"
                 />
                 <InputText
                   :model-value="st.code"
@@ -311,6 +327,7 @@ function onIdInput(e) {
                   size="small"
                   class="w-16 font-mono !text-xs"
                   @update:model-value="updateState(st.key, { code: $event })"
+                  @change="commit"
                 />
                 <div class="flex w-14 shrink-0 items-center justify-center gap-0.5">
                   <input
@@ -320,13 +337,14 @@ function onIdInput(e) {
                     :class="{ 'opacity-40': !stateStroke(st.key) }"
                     class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
                     @input="setStateColor(st.key, $event.target.value, 'stroke')"
+                    @change="commit"
                   />
                   <button
                     v-if="stateStroke(st.key)"
                     type="button"
                     v-tooltip.top="'Убрать цвет'"
                     class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
-                    @click="setStateColor(st.key, '', 'stroke')"
+                    @click="clearStateColor(st.key, 'stroke')"
                   >
                     <i class="pi pi-times !text-[9px]" />
                   </button>
@@ -343,13 +361,14 @@ function onIdInput(e) {
                     :class="{ 'opacity-40': !stateFill(st.key) }"
                     class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
                     @input="setStateColor(st.key, $event.target.value, 'fill')"
+                    @change="commit"
                   />
                   <button
                     v-if="stateFill(st.key)"
                     type="button"
                     v-tooltip.top="'Убрать заливку'"
                     class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
-                    @click="setStateColor(st.key, '', 'fill')"
+                    @click="clearStateColor(st.key, 'fill')"
                   >
                     <i class="pi pi-times !text-[9px]" />
                   </button>
@@ -391,7 +410,12 @@ function onIdInput(e) {
             <!-- Quality: серость + «показать все положения» при bad-качестве
                  драйвящего тега. Осмыслен только при анимации (нужен тег). -->
             <label class="mt-2 flex items-center gap-2 cursor-pointer">
-              <Checkbox v-model="meta.quality" binary input-id="se-quality" />
+              <Checkbox
+                v-model="meta.quality"
+                binary
+                input-id="se-quality"
+                @update:model-value="commit"
+              />
               <span class="text-surface-700">Учитывать качество сигнала (Quality)</span>
             </label>
           </template>

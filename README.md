@@ -13,7 +13,8 @@ Web IDE на Vue 3 для сборки SVG-мнемосхем SCADA и эксп�
 - **@joint/core 4** (JointJS) — SVG-редактор
 - **fflate** — ZIP-экспорт/импорт проекта архивом
 - **interactjs** — drag/resize/снап примитивов в редакторе стенсилов
-- **Vitest 3 + jsdom** — unit-тесты
+- **@vueuse/core** — listener'ы/observer'ы с auto-cleanup
+- **Vitest 3 + jsdom + @vue/test-utils 2** — unit- и компонентные тесты
 
 ## Запуск
 
@@ -23,6 +24,7 @@ npm run dev       # http://localhost:5174/
 npm run build     # production-сборка в dist/
 npm test          # тесты однократно
 npm run lint      # eslint
+npm run format:check  # prettier (CI валится на нём)
 npm run knip      # неиспользуемые экспорты
 ```
 
@@ -43,15 +45,19 @@ src/
 │   ├── ProjectActions.vue     # открыть (.zip) + экспорт (.zip), топ-бар
 │   ├── TagListControl.vue     # загрузка tag-list + счётчик (тулбар холста)
 │   ├── SearchBar.vue          # плавающий Ctrl+F-поиск
+│   ├── ShapePrimitive.vue     # одна фигура редактора (halo + примитив по типу)
 │   ├── RangeBlock.vue         # карточка «Диапазоны значений» (аналоговое значение)
 │   ├── BooleanBlock.vue       # карточка «Булево значение» (свой тег + зависимости)
 │   ├── TagField.vue           # единое поле-тег (чип) для блоков инспектора
 │   ├── TagPickerDialog.vue    # picker тегов
 │   └── HelpDialog.vue         # справка по хоткеям
 ├── composables/
-│   ├── useCanvas.js           # singleton graph/paper/selection + search
+│   ├── useCanvas.js           # singleton graph/paper/selection + search + замок/группы/z
+│   ├── useCanvasZoom.js       # колесо / кнопки ± / fit-to-content / доводка ячейки в вид
+│   ├── useCellHighlight.js    # подсветки по тегу и результатам поиска (CSS-классы на view'ах)
+│   ├── useMultiDrag.js        # ведущая ячейка тянет остальных выделенных (+ изломы)
 │   ├── useAutosave.js         # персист проекта (формы) в IndexedDB + restore
-│   ├── useUndoRedo.js         # snapshot-стек
+│   ├── useUndoRedo.js         # snapshot-стек (снимки строками, дедуп по вершине)
 │   ├── useClipboard.js        # copy / paste / duplicate
 │   ├── useAnimationClipboard.js # буфер настроек анимаций (copy/paste между элементами)
 │   ├── useHotkeys.js          # единый keydown handler
@@ -66,8 +72,12 @@ src/
 │   ├── usePaletteDrag.js      # drag стенсила из палитры (превью + создание + врезка)
 │   ├── useContextMenu.js      # контекстное меню холста (+ группировка / замок)
 │   ├── useHoverTooltip.js     # hover-плашка ячейки (лейбл + «В группе»)
-│   ├── useSelectionOverlay.js # overlay-кнопки выделенной ячейки (rotate/delete/lock)
-│   └── useAlign.js            # выравнивание/распределение ячеек (края/центры/равные интервалы, без наложений)
+│   ├── useSelectionOverlay.js # overlay-кнопки выделенной ячейки (rotate/flip/delete/lock)
+│   ├── useAlign.js            # выравнивание/распределение ячеек (края/центры/равные интервалы, без наложений)
+│   ├── useSwitchGroups.js     # DNF-группы switchSources (блок «Булево значение»)
+│   ├── useVoltageRanges.js    # диапазоны voltageSource, в т.ч. multi-select шаблон
+│   ├── useTextCellProps.js    # свойства cell_text + ресайз под текст
+│   └── useNavigationField.js  # поле навигации: выбор формы или ручной ввод view-id
 ├── stores/
 │   ├── useUiStore.js          # dragging, helpOpen, searchOpen, stencilEditorOpen
 │   ├── useProjectStore.js     # tag-list + handle
@@ -75,8 +85,12 @@ src/
 ├── stencils/
 │   ├── registry.js            # авто-сборка через Vite glob
 │   ├── parser.js              # {slot.X} интерполяция + injectIds
-│   ├── linkDefaults.js        # router/connector для проводов + z-полоса и стиль линии
-│   ├── svgInjector.js         # рендер SVG; программные билдеры bus/text/value
+│   ├── canvasPaper.js         # конфиг graph/paper холста + валидация соединений
+│   ├── linkDefaults.js        # router/connector/z-полоса/стиль линии + ручки провода
+│   ├── svgInjector.js         # порты, flip, инъекция SVG в cellView, reinject
+│   ├── busCell.js             # шина: порты по ширине, экспортный SVG, resize-хэндлы
+│   ├── textCell.js            # cell_text: метрики текста, ресайз с якорем, SVG
+│   ├── valueCell.js           # cell_value: label/unit по суффиксу тега, карточка
 │   ├── tmsStencil.js          # dia.Element.define('tms.Stencil')
 │   └── definitions/<id>/{stencil.json, shape.svg}
 ├── services/
@@ -97,8 +111,9 @@ src/
     ├── plural.js              # русские падежи
     ├── bridgeLinks.js         # bridge-link при copy/paste
     ├── grid.js                # snapToGrid
-    ├── paperGeom.js           # projectToScreen (model→screen для overlay)
-    ├── xml.js                 # SVG_NS + escapeXml / escapeAttr
+    ├── paperGeom.js           # projectToScreen + rotatedAabb (габарит с учётом поворота)
+    ├── xml.js                 # SVG_NS + escapeXml / escapeAttr + svgEl (SVG-узел)
+    ├── editorRulers.js        # линейки редактора символов (деления/подписи)
     ├── switchSources.js       # normalizeSwitchSources { groups } (DNF: И внутри группы, ИЛИ между)
     ├── wireSplice.js          # врезка (pickPassThroughPorts/spliceRotation) + срастание (planWireBridge)
     ├── restoreGuard.js        # withRestoreGuard: try/finally вокруг restoringHistory
@@ -107,7 +122,10 @@ src/
     └── idb.js                 # IndexedDB wrapper
 ```
 
-Тесты лежат рядом с модулями (`*.test.js`); общий helper — `composables/test-utils.js`.
+Тесты лежат рядом с модулями (`*.test.js`); общий helper — `composables/test-utils.js`
+(`withSetup` для композаблов, `mountWithApp` для компонентов — монтирует с Pinia и
+PrimeVue). Логика живёт в композаблах и покрыта юнит-тестами; компонентных всего два —
+инспектор холста (стык компонент↔стор) и `ShapePrimitive` (рендер примитивов).
 
 ## Модель стенсила
 
@@ -182,8 +200,9 @@ Canvas читают флаги, никаких хардкод-списков в 
 по стартовой вершине → `polygon`) + расстановка портов **на границе** стенсила, всё
 со снапом к сетке (вершины фигур — 1px, порты и размер — шаг 5); правка /
 перемещение / ресайз — через interactjs (колбэки пишут в модель, Vue
-перерисовывает). Undo/redo (Ctrl+Z / Ctrl+Y) и копирование выделенной фигуры со всеми
-свойствами (Ctrl+C / Ctrl+V) — в пределах редактора. Холст обрамлён
+перерисовывает). Undo/redo (Ctrl+Z / Ctrl+Y) откатывает и фигуры с портами, и
+метаданные символа (подпись, размер холста, режим анимации, состояния, их цвета);
+копирование выделенной фигуры со всеми свойствами — Ctrl+C / Ctrl+V. Холст обрамлён
 линейками X/Y (деления 10/5/1). Выделение показывается halo-обводкой под фигурой
 (реальные цвета видны поверх) + ручки. На сохранении контент обрезается до bbox
 (кратно шагу сетки) и сдвигается в (0,0) — «воздух» холста отбрасывается. **Размер холста**

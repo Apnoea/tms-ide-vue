@@ -1,16 +1,12 @@
 import { switchSourceTags } from './switchSources'
 
 /**
- * Все ПРИВЯЗАННЫЕ теги из tms-payload — slot-значения, voltageSource.tag,
- * switchSources (or + and), valueTag. БЕЗ text/navigation (это не теги, это
- * payload-поля).
+ * Все привязанные теги payload'а: слоты, voltageSource.tag, switchSources, valueTag
+ * (text/navigation — не теги). Принимает СЫРОЙ tms, поэтому работает и с plain-
+ * объектами exporter'а. Новое tag-поле добавлять здесь — поиск и detailTags
+ * подхватят сразу.
  *
- * Принимает СЫРОЙ tms-объект — общий контракт для cell-обёрток
- * (см. getCellTags) и для plain-объектов exporter.cellExports (тоже имеют
- * slots/voltageSource/switchSources на верхнем уровне). Появление нового
- * tag-поля надо отразить здесь — и поиск, и detailTags подхватят сразу.
- *
- * @param {object} tms — tms-payload или structurally-совместимый объект
+ * @param {object} tms
  * @returns {string[]}
  */
 export function getCellTagsFromTms(tms) {
@@ -27,14 +23,7 @@ export function getCellTagsFromTms(tms) {
   return tags
 }
 
-/**
- * Тонкая обёртка над getCellTagsFromTms для JointJS-cell'ов (читает tms через
- * cell.get('tms')). Используется eye-подсветкой (exact-match по любому tag-полю),
- * а также как базис для search-strings.
- *
- * @param {{ get: (k: string) => any }} cell — JointJS-cell с методом get('tms')
- * @returns {string[]}
- */
+/** То же для JointJS-ячейки. */
 export function getCellTags(cell) {
   return getCellTagsFromTms(cell.get('tms') || {})
 }
@@ -46,14 +35,8 @@ export function cellHasTag(cell, tag) {
 }
 
 /**
- * Сборка строк ячейки, по которым работает поиск Ctrl+F: tag-поля
- * (см. getCellTags) + tms.text у cell_text (юзер часто помнит лейбл на
- * схеме, а не тег) + tms.navigation (целевая view).
- *
- * Используется в useCanvas.runSearch для substring-matching (case-insensitive).
- *
- * @param {{ get: (k: string) => any }} cell
- * @returns {string[]}
+ * Строки для Ctrl+F: теги + text (юзер помнит подпись на схеме, а не тег) +
+ * navigation.
  */
 export function getCellSearchStrings(cell) {
   const tms = cell.get('tms') || {}
@@ -63,11 +46,7 @@ export function getCellSearchStrings(cell) {
   return strings
 }
 
-/**
- * @param {object} cell — JointJS-cell
- * @param {string} queryLower — уже приведённый к lower-case query (вызывающий
- *   нормализует один раз и переиспользует на всех ячейках)
- */
+/** @param {string} queryLower — lower-case запрос (нормализует вызывающий, один раз) */
 export function cellMatchesQuery(cell, queryLower) {
   if (!queryLower) return false
   const strings = getCellSearchStrings(cell)

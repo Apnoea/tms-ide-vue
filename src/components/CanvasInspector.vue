@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
@@ -14,17 +14,15 @@ import {
   applyRangeClip,
 } from '../composables/useAnimationClipboard'
 import { useAlign } from '../composables/useAlign'
+import { useSwitchGroups } from '../composables/useSwitchGroups'
+import { useVoltageRanges } from '../composables/useVoltageRanges'
+import { useTextCellProps, ALIGN_OPTIONS, BOLD_OPTIONS } from '../composables/useTextCellProps'
+import { useNavigationField } from '../composables/useNavigationField'
 import { useProjectStore } from '../stores/useProjectStore'
-import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { getStencilById, hasBoolSlot } from '../stencils/registry'
-import {
-  injectStencilSvg,
-  TEXT_FONT_SIZE,
-  textCellHeight,
-  textCellWidth,
-  resizeTextCell,
-  resolveValueDisplay,
-} from '../stencils/svgInjector'
+import { injectStencilSvg } from '../stencils/svgInjector'
+import { TEXT_FONT_SIZE } from '../stencils/textCell'
+import { resolveValueDisplay } from '../stencils/valueCell'
 import { nplural } from '../utils/plural'
 import { normalizeSwitchSources } from '../utils/switchSources'
 import { toPlain } from '../utils/plain'
@@ -35,19 +33,6 @@ import RangeBlock from './RangeBlock.vue'
 import BooleanBlock from './BooleanBlock.vue'
 import { ANIMATION_CLASS_OPTIONS } from '../constants/animation'
 import { previewOuterKey } from '../constants/ids'
-
-// Дефолтные диапазоны voltage-source; клонируем каждый диапазон на использование —
-// чтобы ячейки не делили один и тот же массив.
-//
-// max-границы укорочены на 0.01: WebScada condition-evaluator inclusive по
-// обоим концам (`>=min && <=max`). При max=4/4/7 значение 4 матчило бы и low,
-// и mid одновременно — итоговый цвет зависел бы от порядка CSS-правил, а не
-// от данных. Та же логика что для quality `[0, 191]` (max=191, не 192).
-const VOLTAGE_RANGE_DEFAULTS = [
-  { min: 0, max: 3.99, class: 'animation-low' },
-  { min: 4, max: 6.99, class: 'animation-mid' },
-  { min: 7, max: 10, class: 'animation-high' },
-]
 
 // Статичные стенсилы (флаг `static: true` в stencil.json) — без визуальной
 // реакции на animation-классы; voltage/switch source на них бессмыслен, в
@@ -159,7 +144,6 @@ const ALIGN_ROWS = [
   },
 ]
 const project = useProjectStore()
-const workspace = useWorkspaceStore()
 const notify = useNotify()
 
 // Computed-и читают canvas.graphVersion, чтобы пересчитываться при изменениях графа
@@ -309,70 +293,10 @@ function patchSlotTag(key, tag) {
 }
 
 // ─── Редактирование текста (стенсил cell_text) ───
-// Выравнивание = якорь блока при росте текста (см. resizeTextCell), не раскладка
-// строки внутри (блок обтягивает текст). Иконки — привычная тройка left/center/right.
-const ALIGN_OPTIONS = [
-  { value: 'left', icon: 'pi pi-align-left', tip: 'Растёт вправо (левый край на месте)' },
-  { value: 'center', icon: 'pi pi-align-center', tip: 'Растёт симметрично (центр на месте)' },
-  { value: 'right', icon: 'pi pi-align-right', tip: 'Растёт влево (правый край на месте)' },
-]
-
-// Жирность как одиночный toggle-сегмент SelectButton (allow-empty → повторный
-// клик снимает). Единый визуальный язык с выравниванием.
-const BOLD_OPTIONS = [{ value: 'bold' }]
-
-function applyText(newText) {
-  patchTextCell({ text: newText })
-}
-
-/** Общий апдейт tms текстового поля + ресайз cell'а под актуальный текст/шрифт/жирность. */
-function patchTextCell(patch) {
-  withSelectedCell(
-    ({ cell, tms, d }) => {
-      if (!d.isText) return false
-      // Если ничего реально не меняется — выходим, чтобы не плодить snapshot'ы.
-      const next = { ...tms, ...patch }
-      const same =
-        next.text === tms.text &&
-        next.fontSize === tms.fontSize &&
-        next.bold === tms.bold &&
-        next.color === tms.color &&
-        (next.align || 'left') === (tms.align || 'left')
-      if (same) return false
-      cell.set('tms', next)
-      // Размер cell'а подгоняем и по ширине (под содержимое), и по высоте (под шрифт) —
-      // hit-area тогда совпадает с реально отображаемым текстом, inline-X прижимается к нему.
-      // resizeTextCell держит якорь (align): смена шрифта/жирности сдвигает блок от
-      // выбранного края. Смена только align ширину не меняет — блок остаётся на месте,
-      // якорь применится при следующем росте текста.
-      const fontSize = next.fontSize ?? TEXT_FONT_SIZE
-      const bold = !!next.bold
-      resizeTextCell(
-        cell,
-        textCellWidth(next.text ?? '', fontSize, bold),
-        textCellHeight(fontSize),
-        next.align || 'left'
-      )
-    },
-    { reinject: true }
-  )
-}
-
-function applyFontSize(size) {
-  patchTextCell({ fontSize: size })
-}
-
-function applyBold(value) {
-  patchTextCell({ bold: value })
-}
-
-function applyColor(color) {
-  patchTextCell({ color })
-}
-
-function applyAlign(align) {
-  patchTextCell({ align })
-}
+// Секция целиком в useTextCellProps (patch + ресайз под текст; ALIGN/BOLD-опции там же).
+const { applyText, applyFontSize, applyBold, applyColor, applyAlign } = useTextCellProps({
+  withSelectedCell,
+})
 
 // ─── Провод: стиль линии (толщина/цвет) ───
 // Пишем в JointJS-attr (мгновенная отрисовка) + в tms[tmsKey] (round-trip через
@@ -487,24 +411,6 @@ function onToggleLock() {
   else if (multiGroup.value.ungroup) applyMultiLockToggle()
 }
 
-// ─── Диапазоны значений (аналоговый источник: значение тега → класс по диапазону) ───
-function openVoltagePicker() {
-  openPicker({
-    tags: project.tags,
-    selected: details.value?.voltageSource?.tag || '',
-    header: 'Выберите тег (диапазоны значений)',
-    onSelect: onPickTag,
-  })
-}
-
-function openMultiVoltagePicker() {
-  openPicker({
-    tags: project.tags,
-    header: 'Тег диапазонов для всех выделенных символов',
-    onSelect: onPickMultiVoltageTag,
-  })
-}
-
 // ─── Tag-picker для cell_value (отображаемый тег) ───
 function openValueTagPicker() {
   openPicker({
@@ -550,246 +456,32 @@ function mutateSelectedTms(updater) {
   canvas.requestSnapshot()
 }
 
-/**
- * Патч tms-поля (voltageSource / switchSources) выделенной ячейки.
- * patch=null — удаляет источник целиком; иначе мержит в существующий объект.
- */
-function patchTmsField(field, patch) {
-  mutateSelectedTms((tms) => ({
-    ...tms,
-    [field]: patch === null ? null : { ...(tms[field] || {}), ...patch },
-  }))
-}
-
-const patchVoltageSource = (patch) => patchTmsField('voltageSource', patch)
-
-function removeVoltageSource() {
-  patchVoltageSource(null)
-}
-
-function onPickTag(tag) {
-  // Если voltageSource ещё не существует (add-flow без созданной карточки),
-  // создаём её с дефолтными диапазонами; иначе обновляем только тег.
-  const d = details.value
-  if (d?.voltageSource) {
-    patchVoltageSource({ tag })
-  } else {
-    patchVoltageSource({
-      tag,
-      ranges: VOLTAGE_RANGE_DEFAULTS.map((r) => ({ ...r })),
-    })
-  }
-}
-
-// Правка одного порога: возвращает новый массив ranges либо null, если ввод
-// невалиден. min/max — числа; нечисловой ввод (пустая строка, буквы) дал бы NaN,
-// который молча сломал бы диапазон при экспорте → правку игнорируем. Русская
-// десятичная запятая («3,99») — самый частый «съеденный» ввод у инженеров с ru-
-// раскладкой: нормализуем в точку до Number(), иначе тоже NaN → тихий откат.
-function editRanges(ranges, idx, field, value) {
-  let parsed = value
-  if (field !== 'class') {
-    parsed = Number(String(value).trim().replace(',', '.'))
-    if (!Number.isFinite(parsed)) return null
-  }
-  return ranges.map((r, i) => (i === idx ? { ...r, [field]: parsed } : r))
-}
-
-function updateRange(idx, field, value) {
-  const vs = details.value?.voltageSource
-  if (!vs?.ranges) return
-  const ranges = editRanges(vs.ranges, idx, field, value)
-  if (ranges) patchVoltageSource({ ranges })
-}
-
-/** «Подсветить на схеме»: toggle подсветки элементов с тем же voltageSource.tag. */
-function toggleVoltageHighlight() {
-  const tag = details.value?.voltageSource?.tag
-  if (!tag) {
-    notify.warn('Тег не выбран', 'Выберите тег источника, чтобы подсветить символы с тем же тегом')
-    return
-  }
-  canvas.toggleHighlightedTag(tag)
-}
-
-// ─── Multi-select voltage: локальный шаблон (тег + пороги) ───
-// У выделения нет общего voltageSource, поэтому держим шаблон здесь и раздаём
-// его на все выделенные при каждой правке («применить ко всем»). Сброс при смене
-// состава выделения — новое выделение начинает с чистого блока.
-const multiVoltage = ref(null) // { tag, ranges } | null
-
-watch(
-  () => canvas.selection.value.map((i) => i.id).join('|'),
-  () => {
-    multiVoltage.value = null
-  }
-)
-
-/** Прогон по выделению: пропускает заблокированные (`writableItems`) и статичные
- *  (текст/значение), зовёт fn(cell, tms), затем один bumpVersion + requestSnapshot. */
-function forEachSelectedCell(fn) {
-  for (const cell of canvas.writableItems(canvas.selection.value)) {
-    const tms = cell.get('tms') || {}
-    if (isStatic(tms.stencilId)) continue
-    fn(cell, tms)
-  }
-  canvas.bumpVersion()
-  canvas.requestSnapshot()
-}
-
-/** Раздать текущий шаблон диапазонов на всё выделение (клон на ячейку, без общих
- *  ссылок). toPlain, не structuredClone: multiVoltage.value — Vue reactive-прокси,
- *  structuredClone на нём бросает DataCloneError. */
-function applyMultiVoltage() {
-  if (!multiVoltage.value) return
-  forEachSelectedCell((cell, tms) =>
-    cell.set('tms', { ...tms, voltageSource: toPlain(multiVoltage.value) })
-  )
-}
-
-function onPickMultiVoltageTag(tag) {
-  if (!tag) return
-  const prev = multiVoltage.value
-  multiVoltage.value = {
-    tag,
-    ranges: prev?.ranges ?? VOLTAGE_RANGE_DEFAULTS.map((r) => ({ ...r })),
-  }
-  applyMultiVoltage()
-}
-
-/** Правка порога в шаблоне → перераздача на всё выделение. */
-function updateMultiVoltageRange(idx, field, value) {
-  const vs = multiVoltage.value
-  if (!vs?.ranges) return
-  const ranges = editRanges(vs.ranges, idx, field, value)
-  if (!ranges) return
-  multiVoltage.value = { ...vs, ranges }
-  applyMultiVoltage()
-}
-
-/** × — снять диапазоны со всех выделенных и очистить шаблон. */
-function removeMultiVoltage() {
-  multiVoltage.value = null
-  forEachSelectedCell((cell, tms) => {
-    if (!tms.voltageSource) return
-    const next = { ...tms }
-    delete next.voltageSource
-    cell.set('tms', next)
-  })
-}
-
-function toggleMultiVoltageHighlight() {
-  const tag = multiVoltage.value?.tag
-  if (tag) canvas.toggleHighlightedTag(tag)
-}
+// ─── Диапазоны значений (voltageSource) ───
+// Секция целиком в useVoltageRanges: одиночный режим + мульти-шаблон.
+const {
+  openVoltagePicker,
+  updateRange,
+  removeVoltageSource,
+  toggleVoltageHighlight,
+  multiVoltage,
+  openMultiVoltagePicker,
+  updateMultiVoltageRange,
+  removeMultiVoltage,
+  toggleMultiVoltageHighlight,
+} = useVoltageRanges({ details, mutateSelectedTms, openPicker })
 
 // ─── switchSources: зависимости-теги ГРУППАМИ (DNF) ───
-// Каноническая форма — { groups: [[tag,…],…] }: внутри группы теги через И,
-// группы между собой через ИЛИ. Элемент активен, если выполнена ЛЮБАЯ группа
-// целиком; иначе тускнеет. Экспорт: одна группа → дешёвый shape, ≥2 → multi.
-
-// Цель добавления/замены тега: { groupIdx, tagIdx }.
-//   groupIdx=null           — новая группа (picker создаёт [tag]);
-//   groupIdx=число, tagIdx=null    — добавить тег в группу gi;
-//   groupIdx=число, tagIdx=число   — заменить тег по индексу.
-// groupIdx=undefined — пасс (cancel).
-const editingSwitch = ref({ groupIdx: undefined, tagIdx: null })
-
-// Канонические группы switchSources текущей ячейки (нормализует/чистит форму).
-const switchGroups = computed(() => normalizeSwitchSources(details.value?.switchSources).groups)
-
-// Показывать × «Удалить все зависимости» в шапке блока. У intrinsic-свитча
-// (cell_qw) блок виден всегда из-за slot.onoff — × имеет смысл ТОЛЬКО когда есть
-// группы-зависимости (иначе чистить нечего, клик был бы no-op'ом: slot.onoff им
-// не удаляется). У не-свитча блок появляется лишь при наличии switchSources, и ×
-// убирает его целиком (в т.ч. пустой) — там достаточно самого факта присутствия.
-const switchRemovable = computed(() =>
-  details.value?.hasBoolSlot ? switchGroups.value.length > 0 : !!details.value?.switchSources
-)
-
-/** Полная замена switchSources на { groups }; нет групп → удаляем источник. */
-function writeSwitchGroups(groups) {
-  const clean = groups.map((g) => [...new Set(g.filter(Boolean))]).filter((g) => g.length)
-  mutateSelectedTms((tms) => ({
-    ...tms,
-    switchSources: clean.length ? { groups: clean } : null,
-  }))
-}
-
-/** Открыть picker switch-зависимости. editingSwitch уже выставлен (add/replace);
- *  switchPickerTags читаем ПОСЛЕ этого — picker берёт актуальный фильтр исключений. */
-function openSwitchPicker() {
-  openPicker({
-    tags: switchPickerTags.value,
-    header: 'Добавить булев тег',
-    onSelect: onPickSwitchTag,
-  })
-}
-
-/** «+ группа» — новая группа, рождается первым выбранным тегом (пустых нет). */
-function onAddGroup() {
-  editingSwitch.value = { groupIdx: null, tagIdx: null }
-  openSwitchPicker()
-}
-
-/** «+ тег (И)» внутри группы gi. */
-function onAddSwitchTag(gi) {
-  editingSwitch.value = { groupIdx: gi, tagIdx: null }
-  openSwitchPicker()
-}
-
-/** Клик по тегу-зависимости → замена по индексу (gi, ti). */
-function editSwitchTagAt(gi, ti) {
-  editingSwitch.value = { groupIdx: gi, tagIdx: ti }
-  openSwitchPicker()
-}
-
-function removeSwitchSources() {
-  writeSwitchGroups([])
-}
-
-/**
- * Picker вернул тег. groupIdx=null → новая группа [tag]; иначе add (tagIdx=null)
- * или replace (tagIdx=число) внутри группы gi. Дубли ВНУТРИ группы игнорируем
- * (между группами тег повторяется свободно). Основной тег стенсила (slot.onoff)
- * в зависимости не допускаем.
- */
-function onPickSwitchTag(tag) {
-  const d = details.value
-  const { groupIdx, tagIdx } = editingSwitch.value
-  editingSwitch.value = { groupIdx: undefined, tagIdx: null }
-  if (groupIdx === undefined || !tag) return
-  if (d?.hasBoolSlot && d.onoffTag === tag) return
-
-  const groups = normalizeSwitchSources(d?.switchSources).groups
-  if (groupIdx === null) {
-    writeSwitchGroups([...groups, [tag]])
-    return
-  }
-  const group = [...(groups[groupIdx] || [])]
-  if (tagIdx !== null) {
-    if (group[tagIdx] === tag) return
-    group[tagIdx] = tag
-  } else {
-    if (group.includes(tag)) return
-    group.push(tag)
-  }
-  const next = groups.map((g, i) => (i === groupIdx ? group : g))
-  writeSwitchGroups(next)
-}
-
-/** × на строке тега (gi, ti). Опустевшая группа отбрасывается (в writeSwitchGroups). */
-function removeSwitchTagAt(gi, ti) {
-  const groups = normalizeSwitchSources(details.value?.switchSources).groups
-  const next = groups.map((g, i) => (i === gi ? g.filter((_, j) => j !== ti) : g))
-  writeSwitchGroups(next)
-}
-
-/** × в шапке группы — удалить группу целиком. */
-function removeSwitchGroup(gi) {
-  const groups = normalizeSwitchSources(details.value?.switchSources).groups
-  writeSwitchGroups(groups.filter((_, i) => i !== gi))
-}
+// Секция целиком в useSwitchGroups (форма { groups }, picker, add/edit/remove).
+const {
+  switchGroups,
+  switchRemovable,
+  onAddGroup,
+  onAddSwitchTag,
+  editSwitchTagAt,
+  removeSwitchTagAt,
+  removeSwitchGroup,
+  removeSwitchSources,
+} = useSwitchGroups({ details, mutateSelectedTms, openPicker })
 
 /** Открыть picker массовой привязки булева тега (multi-select). */
 function openMultiSwitchPicker() {
@@ -939,98 +631,17 @@ function pasteClip(clip, apply, wasCleared = null) {
 }
 
 // ─── Hyperlink-навигация: клик в рантайме открывает другую view ───
-// Свич управляет видимостью инпута; пустое значение не пишется, при OFF — чистим.
-const navigationEnabled = ref(false)
-// Черновик поля навигации: AutoComplete пишет сюда на каждый ввод, а в граф
-// коммитим (patchNavigation) только по blur/Enter/выбору. Иначе мутация на
-// каждый keystroke пересчитывала бы details → :model-value навязывался бы
-// обратно и сбрасывал ввод, а navBroken мигал бы на неполном слове.
-const navInput = ref('')
-// id ячейки, к которой относится черновик navInput. Нужен гард в commitNav: клик по
-// другой ячейке меняет selection синхронно (pointerdown) ДО blur поля, поэтому без
-// сверки blur записал бы черновик в только что выбранную ЧУЖУЮ ячейку (а пустое
-// поле — стёрло бы её навигацию).
-const navCellId = ref(null)
-// Подсказки выпадашки AutoComplete — формы проекта, фильтруются по вводу (@complete).
-const navSuggestions = ref([])
-// Источник watch'а — МАССИВ ГЕТТЕРОВ [id, navigation], а не один getter,
-// возвращающий [id, navigation]: одиночный getter отдаёт новый массив каждый
-// раз → Object.is всегда false → callback стрелял бы на каждый bumpVersion
-// (тумблер сбрасывался бы при любом движении ячейки). Массив геттеров даёт
-// поэлементный diff: ресинк только когда реально сменился id (другая ячейка)
-// или navigation (undo/redo на той же ячейке). navInput НЕ трогается на вводе
-// (navigation в графе меняется только по commit), поэтому ввод не перетирается.
-watch(
-  [() => details.value?.id, () => details.value?.navigation],
-  () => {
-    navigationEnabled.value = !!details.value?.navigation
-    navInput.value = details.value?.navigation || ''
-    navCellId.value = details.value?.id ?? null
-  },
-  { immediate: true }
-)
-function toggleNavigationEnabled(value) {
-  navigationEnabled.value = value
-  if (!value) {
-    navInput.value = ''
-    patchNavigation('')
-  }
-}
-
-function patchNavigation(value) {
-  if (details.value?.kind !== 'cell') return
-  mutateSelectedTms((tms) => {
-    const trimmed = String(value || '').trim()
-    if ((tms.navigation || '') === trimmed) return undefined
-    const next = { ...tms }
-    if (trimmed) next.navigation = trimmed
-    else delete next.navigation
-    return next
-  })
-}
-
-// Формы-цели навигации: все формы проекта кроме текущей (переход на себя
-// бессмыслен). AutoComplete даёт выбрать из них ИЛИ ввести view-id вручную —
-// ссылка на ещё не загруженную/внешнюю форму штатна. navBroken = цель вне
-// загруженных форм; это НЕ ошибка (внешняя view), лишь нейтральная пометка в UI.
-const otherFormIds = computed(() => workspace.formIds.filter((id) => id !== workspace.activeFormId))
-function onNavComplete(e) {
-  const q = (e.query || '').toLowerCase()
-  navSuggestions.value = otherFormIds.value.filter((id) => id.toLowerCase().includes(q))
-}
-// Коммит черновика в граф. item-select даёт event.value (выбранная форма);
-// blur/Enter — берём текущий navInput. Гард по navCellId: если выделение уже
-// сменилось (клик по другой ячейке приходит ДО blur), черновик не наш — выбрасываем.
-function commitNav(e) {
-  if (!details.value || details.value.id !== navCellId.value) return
-  patchNavigation(e && e.value !== undefined ? e.value : navInput.value)
-}
-const navBroken = computed(() => {
-  const cur = details.value?.navigation
-  return !!cur && !workspace.formIds.includes(cur)
-})
-
-// booleanTags/floatTags — getters стора (`useProjectStore`), фильтр по типу тега.
-
-// Picker для switch-зависимостей исключает: основной тег ячейки (slot.onoff у
-// cell_qw) + теги ТЕКУЩЕЙ редактируемой группы (внутри группы тег уникален),
-// кроме редактируемого по индексу (его оставляем, чтобы юзер видел значение).
-// Теги других групп НЕ исключаем — тег свободно повторяется между группами.
-// Для новой группы (groupIdx=null) фильтруем только onoff-тег.
-const switchPickerTags = computed(() => {
-  const d = details.value
-  if (!d) return project.booleanTags
-  const excluded = new Set()
-  if (d.hasBoolSlot && d.onoffTag) excluded.add(d.onoffTag)
-  const { groupIdx, tagIdx } = editingSwitch.value
-  if (typeof groupIdx === 'number') {
-    const group = normalizeSwitchSources(d.switchSources).groups[groupIdx] || []
-    group.forEach((t, i) => {
-      if (t && i !== tagIdx) excluded.add(t)
-    })
-  }
-  return project.booleanTags.filter((t) => !excluded.has(t.name))
-})
+// Секция целиком в useNavigationField (черновик + коммит по blur/Enter/выбору).
+const {
+  navigationEnabled,
+  navInput,
+  navSuggestions,
+  otherFormIds,
+  navBroken,
+  toggleNavigationEnabled,
+  onNavComplete,
+  commitNav,
+} = useNavigationField({ details, mutateSelectedTms })
 </script>
 
 <template>

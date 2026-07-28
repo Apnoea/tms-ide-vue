@@ -6,20 +6,18 @@ import { useCanvas } from './useCanvas'
 const HISTORY_LIMIT = 50
 
 /**
- * Undo/redo стек snapshot'ов graph.toJSON(). Каждое значимое изменение → debounce
- * 200ms → snapshot. JointJS не таскает CommandManager в open-source @joint/core,
- * поэтому минимальная своя реализация — full-graph replay; для текущего объёма
- * (десятки ячеек) ок.
+ * Undo/redo: стек снимков `graph.toJSON()`, значимое изменение → дебаунс 200мс →
+ * snapshot. В open-source @joint/core нет CommandManager, поэтому свой full-graph
+ * replay — для десятков ячеек достаточно. Снимки хранятся СТРОКАМИ: дедуп против
+ * вершины — сравнение строк, а не два `JSON.stringify` графа на действие.
+ * `initHistory()` зовём, когда graph готов — иначе стартовой позиции нет в стеке.
  *
- * Зависит от:
- *  • `restoringHistory` (Ref<boolean>) — общий флаг с useAutosave; пока идёт
- *    restore, новые snapshot'ы не пишем (иначе восстановление ломает историю).
- *  • `saveAutosave` (fn) — после успешного snapshot/restore сохраняем активную
- *    форму (в IndexedDB через useAutosave), чтобы перезагрузка давала актуальное
- *    состояние.
- *
- * После создания composable нужно вызвать `initHistory()` когда graph готов, чтобы
- * стартовая позиция (пустой граф или восстановленный автосейв) попала в стек.
+ * @param {object} deps
+ * @param {import('vue').Ref<boolean>} deps.restoringHistory — общий флаг с
+ *        useAutosave: пока идёт restore, снимки не пишем (иначе история рвётся)
+ * @param {(json: object, jsonStr: string) => void} deps.saveAutosave — персист
+ *        активной формы; отдаём ему готовые json+строку, чтобы он не обходил граф
+ *        вторым `toJSON()` на то же действие
  */
 export function useUndoRedo({ restoringHistory, saveAutosave }) {
   const canvas = useCanvas()
@@ -34,7 +32,7 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
   function initHistory() {
     const graph = canvas.graphRef.value
     if (!graph) return
-    history = [graph.toJSON()]
+    history = [JSON.stringify(graph.toJSON())]
     historyIndex = 0
     syncAvail()
   }
@@ -43,24 +41,23 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
     const graph = canvas.graphRef.value
     if (restoringHistory.value || !graph) return
     const json = graph.toJSON()
-    // Дедуп против текущей вершины: триггер (напр. cell:pointerup от клика-
-    // выделения) мог не изменить граф — selection в модель не пишется, toJSON
-    // идентичен. Идентичный снимок не пушим: иначе пустышки вымывают HISTORY_LIMIT,
-    // Ctrl+Z «прожимается» впустую, а после серии undo он ещё и срезал бы redo.
-    if (JSON.stringify(json) === JSON.stringify(history[historyIndex])) return
+    const str = JSON.stringify(json)
+    // Триггер мог не изменить граф (клик-выделение в модель не пишется). Пустышки
+    // вымывали бы HISTORY_LIMIT, Ctrl+Z «прожимался» бы впустую, а после серии undo
+    // такой снимок ещё и срезал бы redo.
+    if (str === history[historyIndex]) return
     // Если делаем новое действие после серии undo — отрезаем «будущее»
     if (historyIndex < history.length - 1) {
       history = history.slice(0, historyIndex + 1)
     }
-    history.push(json)
+    history.push(str)
     historyIndex++
     if (history.length > HISTORY_LIMIT) {
       history.shift()
       historyIndex--
     }
-    // Autosave пишем по тому же триггеру что и history snapshot — оба отражают
-    // «стабильное» состояние после действия пользователя.
-    saveAutosave()
+    // Autosave по тому же триггеру: оба отражают стабильное состояние после действия.
+    saveAutosave(json, str)
     // Реальное изменение графа → состояние разошлось с последним экспортом.
     canvas.markDirty()
     syncAvail()
@@ -76,10 +73,9 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
   }
 
   /**
-   * Фиксирует ОТЛОЖЕННЫЙ снимок перед навигацией по истории. Без этого Ctrl+Z,
-   * нажатый в 200мс-окне дебаунса, съедал ДВА действия: pending-снимок последнего
-   * просто отбрасывался (`clearTimeout` без флаша), в стек не попадал, и redo его
-   * уже не возвращал. Тот же приём, что в performClearCanvas: cancel + явный snapshot.
+   * Фиксирует отложенный снимок перед навигацией по истории. Иначе Ctrl+Z в окне
+   * дебаунса съедал ДВА действия: pending-снимок отбрасывался и в стек не попадал,
+   * так что redo его не возвращал.
    */
   function flushPendingSnapshot() {
     if (!snapshotTimer) return
@@ -104,12 +100,10 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
   }
 
   /**
-   * Применяет snapshot history[idx] к графу. Возвращает true при успехе,
-   * false если graph/paper не готовы или fromJSON/reinjectAllStencils упали.
-   * Caller (undo/redo) сдвигает historyIndex ТОЛЬКО на успех — иначе стек
-   * разсинхронизировался бы с фактическим состоянием графа.
-   * try/finally гарантирует сброс restoringHistory даже при throw — без него
-   * флаг залип бы навсегда и заблокировал undo / snapshot / autosave.
+   * Применяет history[idx] к графу. `false` — graph/paper не готовы либо
+   * fromJSON/reinject упали; вызывающий сдвигает индекс ТОЛЬКО на успех, иначе стек
+   * разошёлся бы с фактическим графом. Флаг restoringHistory снимается и при throw
+   * (иначе залип бы, заблокировав undo/snapshot/autosave).
    */
   function restoreFromHistory(idx) {
     const graph = canvas.graphRef.value
@@ -118,10 +112,13 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
     clearTimeout(snapshotTimer)
     snapshotTimer = null
 
+    const str = history[idx]
+    let json = null
     let ok = false
     try {
+      json = JSON.parse(str)
       withRestoreGuard(restoringHistory, () => {
-        graph.fromJSON(history[idx])
+        graph.fromJSON(json)
         reinjectAllStencils(graph, paper)
         canvas.bumpVersion()
         canvas.clearSelection()
@@ -131,15 +128,15 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
       console.warn('[Undo/Redo] restore failed, индекс не сдвигаем', e)
     }
     if (ok) {
-      saveAutosave()
+      saveAutosave(json, str)
       canvas.markDirty() // undo/redo меняет граф → расхождение с экспортом
       syncAvail()
     }
     return ok
   }
 
-  /** Снимает pending-snapshot (для performClearCanvas / переключения форм /
-   * импорта — чтобы отложенный таймер не задвоил пустое/новое состояние). */
+  /** Снять pending-снимок: очистка холста / переключение формы / импорт — чтобы
+   * отложенный таймер не задвоил новое состояние. */
   function cancelPendingSnapshot() {
     clearTimeout(snapshotTimer)
     snapshotTimer = null

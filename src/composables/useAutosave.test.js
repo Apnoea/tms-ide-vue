@@ -116,6 +116,50 @@ describe('useAutosave', () => {
       expect(idbStore.has(formKey('main'))).toBe(false)
     })
 
+    it('принимает готовый json/строку — graph.toJSON второй раз не зовётся', async () => {
+      seedActiveForm()
+      const graph = makeMockGraph([{ id: 'c1' }])
+      mockCanvas.graphRef.value = graph
+      const { saveActiveForm } = setup()
+      const json = { cells: [{ id: 'c1' }] }
+      await saveActiveForm(json, JSON.stringify(json))
+      expect(graph.toJSON).not.toHaveBeenCalled()
+      expect(idbStore.get(formKey('main'))).toEqual(json)
+    })
+
+    it('повторный сейв того же состояния не пишет в IndexedDB', async () => {
+      seedActiveForm()
+      mockCanvas.graphRef.value = makeMockGraph([{ id: 'c1' }])
+      const { saveActiveForm } = setup()
+      idbSet.mockClear()
+      await saveActiveForm()
+      await saveActiveForm() // граф не менялся — запись блоба ни к чему
+      expect(idbSet).toHaveBeenCalledTimes(1)
+    })
+
+    it('неудачную запись не запоминает — следующий сейв пробует снова', async () => {
+      seedActiveForm()
+      mockCanvas.graphRef.value = makeMockGraph([{ id: 'c1' }])
+      const { saveActiveForm } = setup()
+      idbSet.mockClear()
+      idbSet.mockResolvedValueOnce(false) // квота
+      await saveActiveForm()
+      await saveActiveForm()
+      expect(idbSet).toHaveBeenCalledTimes(2)
+    })
+
+    it('после clearActiveForm тот же граф пишется заново (память о IDB сброшена)', async () => {
+      seedActiveForm()
+      mockCanvas.graphRef.value = makeMockGraph([{ id: 'c1' }])
+      const { saveActiveForm, clearActiveForm } = setup()
+      await saveActiveForm()
+      await clearActiveForm() // в IDB теперь пусто, а не наш граф
+      idbSet.mockClear()
+      await saveActiveForm()
+      expect(idbSet).toHaveBeenCalledTimes(1)
+      expect(idbStore.get(formKey('main'))).toEqual({ cells: [{ id: 'c1' }] })
+    })
+
     it('no-op если нет активной формы', async () => {
       mockCanvas.graphRef.value = makeMockGraph([{ id: 'c1' }])
       const { saveActiveForm } = setup()
