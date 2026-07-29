@@ -123,6 +123,40 @@ describe('useProject', () => {
       )
     })
 
+    it('коммитит незакоммиченную правку текста ДО смены графа', async () => {
+      seedForms(
+        [
+          { id: 'a', graphJson: { cells: [] } },
+          { id: 'b', graphJson: { cells: [] } },
+        ],
+        'a'
+      )
+      const deps = makeDeps()
+      deps.textEditing.value = { id: 'cell-1' }
+      const { selectForm } = useProject(deps)
+      await selectForm('b')
+      // Иначе правка ушла бы в никуда (ячейки уже нет), а textarea осталась бы
+      // висеть над чужой формой.
+      expect(deps.commitTextEdit).toHaveBeenCalled()
+      expect(deps.commitTextEdit.mock.invocationCallOrder[0]).toBeLessThan(
+        deps.autosave.saveActiveForm.mock.invocationCallOrder[0]
+      )
+    })
+
+    it('без inline-правки текст не коммитим', async () => {
+      seedForms(
+        [
+          { id: 'a', graphJson: { cells: [] } },
+          { id: 'b', graphJson: { cells: [] } },
+        ],
+        'a'
+      )
+      const deps = makeDeps()
+      const { selectForm } = useProject(deps)
+      await selectForm('b')
+      expect(deps.commitTextEdit).not.toHaveBeenCalled()
+    })
+
     it('no-op при выборе уже активной формы', async () => {
       seedForms([{ id: 'a', graphJson: { cells: [] } }], 'a')
       const deps = makeDeps()

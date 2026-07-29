@@ -19,6 +19,22 @@ export function desiredBusPortCount(width) {
   return Math.max(1, Math.floor(width / BUS_PORT_SPACING) - 1)
 }
 
+/** Индекс порта шины из его id (`top_3` → 3); NaN, если это не порт шины. */
+export function busPortIndex(portId) {
+  const us = String(portId).indexOf('_')
+  return us < 0 ? NaN : Number(String(portId).slice(us + 1))
+}
+
+/**
+ * Лежит ли порт за пределами шины такой ширины. Слоты нумеруются от левого края,
+ * поэтому при сжатии крайние справа перестают существовать (`computeBusPorts` их
+ * уже не создаст) — подключённые к ним провода некуда деть.
+ */
+export function isBusPortOutOfRange(portId, width) {
+  const idx = busPortIndex(portId)
+  return Number.isFinite(idx) && idx >= desiredBusPortCount(width)
+}
+
 /** `ports.items` шины. id стабильны (`top_i`/`bot_i`) — провода переживают ресайз. */
 export function computeBusPorts(width, height) {
   const items = []

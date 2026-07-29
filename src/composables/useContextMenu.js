@@ -5,10 +5,11 @@ import { nplural } from '../utils/plural'
 /**
  * Контекстное меню холста (ПКМ). ctxTarget — что под кликом ({kind,id} | null
  * для пустого места). Пункты вычисляются по таргету: ячейка — дублировать /
- * скопировать / удалить, провод — удалить, пустое место — вставить (если в
- * буфере что-то есть). showContextMenu выделяет таргет (если не выделен) и
- * показывает меню; вызывается из paper-contextmenu-событий в CanvasPane.
- * ctxMenuRef биндится на <ContextMenu ref> в шаблоне.
+ * скопировать / порядок / группировка / замок / удалить, провод — удалить, пустое
+ * место — вставить (если в буфере что-то есть). Все действия идут через selection
+ * (showContextMenu выделяет таргет, если тот не был выделен), поэтому ПКМ по
+ * элементу из выделения работает со всем выделением. Вызывается из
+ * paper-contextmenu-событий в CanvasPane; ctxMenuRef биндится на <ContextMenu ref>.
  */
 export function useContextMenu({
   hasClipboard,
@@ -108,17 +109,35 @@ export function useContextMenu({
       ]
       const mid = [orderItem, groupItem, lockItem].filter(Boolean)
       if (mid.length) items.push({ separator: true }, ...mid)
-      items.push(
-        { separator: true },
-        { label: 'Удалить', icon: 'pi pi-trash', command: () => canvas.deleteItems([t]) }
-      )
+      items.push({ separator: true }, deleteItem(t))
       return items
     }
     if (t.kind === 'link') {
-      return [{ label: 'Удалить', icon: 'pi pi-trash', command: () => canvas.deleteItems([t]) }]
+      return [deleteItem(t)]
     }
     return []
   })
+
+  /**
+   * Цели удаления: ПКМ по элементу ИЗ выделения удаляет всё выделение (как Del и как
+   * остальные пункты этого меню, работающие через selection) — раньше удалялся один
+   * элемент под курсором. По невыделенному — только он.
+   */
+  function deleteTargets(target) {
+    const sel = canvas.selection.value
+    return sel.some((i) => i.id === target.id) ? sel : [target]
+  }
+
+  /** Пункт «Удалить»; счётчик в label при нескольких целях (locked не удаляются). */
+  function deleteItem(target) {
+    const targets = deleteTargets(target)
+    const count = canvas.writableItems(targets).length
+    return {
+      label: count > 1 ? `Удалить (${count})` : 'Удалить',
+      icon: 'pi pi-trash',
+      command: () => canvas.deleteItems(targets),
+    }
+  }
 
   /** Выделяет target (если не выделен) и запускает функцию, работающую через selection. */
   function runOnTarget(target, fn) {

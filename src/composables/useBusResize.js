@@ -2,9 +2,20 @@ import { ref, computed } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { getStencilById } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
-import { busPortX, desiredBusPortCount, BUS_PORT_SPACING } from '../stencils/busCell'
+import {
+  busPortX,
+  desiredBusPortCount,
+  isBusPortOutOfRange,
+  BUS_PORT_SPACING,
+} from '../stencils/busCell'
 import { snapToGrid } from '../utils/grid'
+import { nplural } from '../utils/plural'
+import { useNotify } from './useNotify'
 import { useCanvas } from './useCanvas'
+
+// Скрытие слота и провода, которые исчезнут после сжатия (оформление — style.css).
+const DOOMED_PORT_CLASS = 'tms-port-doomed'
+const DOOMED_LINK_CLASS = 'tms-link-doomed'
 
 /**
  * Ресайз шины: drag edge-хэндла меняет ширину, порты досоздаются/удаляются под новую
@@ -17,6 +28,7 @@ import { useCanvas } from './useCanvas'
  */
 export function useBusResize({ scheduleSnapshot }) {
   const canvas = useCanvas()
+  const notify = useNotify()
   let activeResize = null
   const dragging = ref(false)
   const dragTarget = computed(() => (dragging.value ? document : null))
@@ -109,6 +121,11 @@ export function useBusResize({ scheduleSnapshot }) {
 
     const cellView = paper.findViewByModel(cell)
     if (cellView && stencil) injectStencilSvg(cellView, stencil)
+
+    // Слот за краем и его провод скрываем сразу — виден итог сжатия. Классами, а не
+    // удалением: жест обратим. Перевешиваем каждый кадр — syncBusPorts и reinject
+    // пересоздают DOM портов.
+    markDoomed(cell, newWidth)
   }
 
   /**
@@ -183,15 +200,90 @@ export function useBusResize({ scheduleSnapshot }) {
     }
   }
 
+  /** Провода, чей конец сидит на слоте за краем шины такой ширины. */
+  function linksBeyondWidth(cell, width) {
+    const graph = canvas.graphRef.value
+    if (!graph) return []
+    const out = new Set()
+    for (const link of graph.getConnectedLinks(cell)) {
+      for (const end of ['source', 'target']) {
+        const ref = link.get(end)
+        if (ref?.id !== cell.id || !ref.port) continue
+        if (isBusPortOutOfRange(ref.port, width)) out.add(link)
+      }
+    }
+    return [...out]
+  }
+
+  /** Прячет слоты за краем шины и их провода (CSS в style.css). */
+  function markDoomed(cell, width) {
+    const paper = canvas.paperRef.value
+    if (!paper) return
+    clearDoomed()
+    const view = paper.findViewByModel(cell)
+    for (const node of view?.el?.querySelectorAll('[port]') || []) {
+      if (isBusPortOutOfRange(node.getAttribute('port'), width)) {
+        node.classList.add(DOOMED_PORT_CLASS)
+      }
+    }
+    for (const link of linksBeyondWidth(cell, width)) {
+      paper.findViewByModel(link)?.el?.classList.add(DOOMED_LINK_CLASS)
+    }
+  }
+
+  /** Вернуть скрытое (конец жеста или ширина вернулась). */
+  function clearDoomed() {
+    const paper = canvas.paperRef.value
+    if (!paper) return
+    for (const cls of [DOOMED_PORT_CLASS, DOOMED_LINK_CLASS]) {
+      paper.el.querySelectorAll(`.${cls}`).forEach((n) => n.classList.remove(cls))
+    }
+  }
+
+  /**
+   * Провода на исчезнувших слотах удаляем на КОНЦЕ жеста: во время протяжки они лишь
+   * скрыты (markDoomed), поэтому лишний рывок мышью ничего не рвёт. Оставить их нельзя
+   * — порт висел бы правее тела шины, а после reload (`computeBusPorts` создаёт только
+   * слоты в пределах ширины) конец уехал бы в центр.
+   * Возвращает число удалённых.
+   */
+  function dropLinksBeyondWidth(cell, width) {
+    const doomed = linksBeyondWidth(cell, width)
+    for (const link of doomed) link.remove()
+    return doomed.length
+  }
+
   function onResizeEnd() {
     if (!activeResize) return
     // Snapshot только если ширина реально менялась. Клик по хэндлу без движения
     // (или дёрганье в пределах одного grid-шага) не должен порождать «пустой»
     // undo-шаг — onResizeMove обновляет lastWidth лишь на фактическом изменении.
     const changed = activeResize.lastWidth !== activeResize.startWidth
+    const graph = canvas.graphRef.value
+    const cell = graph?.getCell(activeResize.cellId)
+    const width = activeResize.lastWidth
+    const height = activeResize.startHeight
     activeResize = null
     dragging.value = false
-    if (changed) scheduleSnapshot()
+    clearDoomed()
+    if (!changed) return
+
+    if (cell) {
+      const removed = dropLinksBeyondWidth(cell, width)
+      if (removed) {
+        // Порты освободились — второй проход их снимет (первый оставлял занятые).
+        syncBusPorts(cell, width, height)
+        const paper = canvas.paperRef.value
+        const stencil = getStencilById(cell.get('tms')?.stencilId)
+        const view = paper?.findViewByModel(cell)
+        if (view && stencil) injectStencilSvg(view, stencil)
+        notify.warn(
+          'Шина сжата',
+          `${nplural(removed, 'провод отключён', 'провода отключены', 'проводов отключено')}: точка подключения вышла за край`
+        )
+      }
+    }
+    scheduleSnapshot()
   }
 
   return { isResizing, onMaybeStartResize }

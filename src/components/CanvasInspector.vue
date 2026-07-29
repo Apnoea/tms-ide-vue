@@ -364,7 +364,8 @@ const selectionSummary = computed(() => {
   if (links.length) parts.push(nplural(links.length, 'провод', 'провода', 'проводов'))
   return {
     label: parts.join(' + ') || 'ничего',
-    deletable: cells.length - lockedCells + links.length,
+    // Тот же фильтр, что у deleteItems и пункта «Удалить» в контекст-меню.
+    deletable: canvas.writableItems(sel).length,
     locked: lockedCells,
   }
 })

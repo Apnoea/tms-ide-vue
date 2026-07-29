@@ -70,7 +70,7 @@ src/
 │   ├── useStencilEditor.js    # модель редактора (фигуры / порты / снап / undo-redo / loadStencil)
 │   ├── usePan.js / useLasso.js # pan (средняя кнопка / Space+ЛКМ) / рамочное выделение (ЛКМ)
 │   ├── usePaletteDrag.js      # drag стенсила из палитры (превью + создание + врезка)
-│   ├── useContextMenu.js      # контекстное меню холста (+ группировка / замок)
+│   ├── useContextMenu.js      # контекстное меню холста (+ группировка / замок / порядок)
 │   ├── useHoverTooltip.js     # hover-плашка ячейки (лейбл + «В группе»)
 │   ├── useSelectionOverlay.js # overlay-кнопки выделенной ячейки (rotate/flip/delete/lock)
 │   ├── useAlign.js            # выравнивание/распределение ячеек (края/центры/равные интервалы, без наложений)

@@ -359,7 +359,6 @@ export function useProject({
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
     if (!graph || !paper) return
-    if (textEditing.value) commitTextEdit() // не потерять незакоммиченную правку текста
 
     const originalActive = workspace.activeFormId
     exportingProject.value = true
@@ -464,6 +463,10 @@ export function useProject({
     (fn) =>
     async (...args) => {
       if (projectBusy.value) return
+      // Незакоммиченная inline-правка текста — ДО любой операции: fromJSON ниже
+      // сменит граф, и правка ушла бы в никуда (ячейки уже нет), а оверлей-textarea
+      // остался бы висеть над чужой формой.
+      if (textEditing.value) commitTextEdit()
       projectBusy.value = true
       ui.setProjectBusy(true) // App гейтит всю область редактирования (inert) на это время
       try {

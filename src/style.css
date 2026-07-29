@@ -102,6 +102,14 @@ body,
   display: none;
 }
 
+/* Сжатие шины (жест ещё идёт, см. useBusResize.markDoomed): слот, который после
+   отпускания исчезнет, и его провод скрываем сразу — видно итог. Обратимо: вернул
+   ширину — классы снялись. */
+.joint-element .joint-port.tms-port-doomed,
+.joint-link.tms-link-doomed {
+  display: none;
+}
+
 /* Тумбны палитры: SVG стенсила вставляется через v-html и идёт со своими
    width/height. Переопределяем через CSS, чтобы вписать в 48×48 контейнер
    с сохранением aspect ratio (за счёт viewBox). */
