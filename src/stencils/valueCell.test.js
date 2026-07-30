@@ -2,19 +2,19 @@ import { describe, it, expect } from 'vitest'
 import { resolveValueDisplay } from './valueCell'
 
 describe('resolveValueDisplay', () => {
-  it('maps known current suffix to amperes', () => {
+  it('суффикс тока → амперы', () => {
     expect(resolveValueDisplay('PS031VV001.IA')).toEqual({ label: 'Ia', unit: 'А' })
   })
 
-  it('maps known voltage suffix to volts', () => {
+  it('суффикс напряжения → вольты', () => {
     expect(resolveValueDisplay('PS031TN001.UA')).toEqual({ label: 'Ua', unit: 'В' })
   })
 
-  it('maps cosphi to no unit', () => {
+  it('cosφ → без единицы', () => {
     expect(resolveValueDisplay('PS031VV001.COSF')).toEqual({ label: 'cosφ', unit: '' })
   })
 
-  it('falls back to suffix as label for unknown suffix', () => {
+  it('неизвестный суффикс → сам суффикс как подпись', () => {
     expect(resolveValueDisplay('PS031X.WHATEVER')).toEqual({ label: 'WHATEVER', unit: '' })
   })
 

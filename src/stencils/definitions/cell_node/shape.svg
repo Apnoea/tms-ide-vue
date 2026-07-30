@@ -6,5 +6,5 @@
     заканчивается в anchor.midSide (на стороне bbox'а — см. defaultAnchor
     в CanvasPane), поэтому визуально как-будто упирается прямо в точку.
   -->
-  <circle cx="10" cy="10" r="1" fill="#000" class="tms-voltage-fill" />
+  <circle cx="10" cy="10" r="1" fill="#000" class="tms-range-fill" />
 </svg>

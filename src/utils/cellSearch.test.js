@@ -26,9 +26,9 @@ describe('getCellSearchStrings', () => {
     expect(strings).toContain('PS031VK001.ALR')
   })
 
-  it('подхватывает voltageSource.tag, switchSources, valueTag', () => {
+  it('подхватывает rangeSource.tag, switchSources, valueTag', () => {
     const cell = makeCell({
-      voltageSource: { tag: 'PS031TN001.U' },
+      rangeSource: { tag: 'PS031TN001.U' },
       switchSources: { groups: [['ОБЩИЙ.ONOFF', 'LOCAL.ONOFF']] },
       valueTag: 'PS031TN001.UA',
     })
@@ -80,10 +80,10 @@ describe('cellMatchesQuery', () => {
 })
 
 describe('getCellTags / cellHasTag', () => {
-  it('собирает все привязанные теги (slots + voltage + switchSources + valueTag)', () => {
+  it('собирает все привязанные теги (slots + диапазоны + switchSources + valueTag)', () => {
     const cell = makeCell({
       slots: { onoff: 'A.ONOFF', alr: 'A.ALR' },
-      voltageSource: { tag: 'A.U' },
+      rangeSource: { tag: 'A.U' },
       switchSources: { groups: [['B.ONOFF', 'C.ONOFF']] },
       valueTag: 'A.IA',
     })
@@ -114,7 +114,7 @@ describe('getCellTagsFromTms', () => {
   it('принимает сырой tms-объект без cell-обёртки', () => {
     const tms = {
       slots: { onoff: 'X.ONOFF' },
-      voltageSource: { tag: 'V.U' },
+      rangeSource: { tag: 'V.U' },
       switchSources: { groups: [['S1', 'S2']] },
       valueTag: 'VT',
     }

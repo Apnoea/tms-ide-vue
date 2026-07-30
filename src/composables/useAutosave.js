@@ -4,6 +4,7 @@ import { withRestoreGuard } from '../utils/restoreGuard'
 import { toPlain } from '../utils/plain'
 import { idbGet, idbSet, idbDel, idbKeys } from '../utils/idb'
 import { loadStencilOverrides } from '../services/stencilOverrides'
+import { migrateGraphJson } from '../services/legacyFormat'
 import { parseTagList } from '../services/parsers'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -56,7 +57,12 @@ export function useAutosave({ restoringHistory }) {
     } else {
       const forms = []
       for (const id of meta.formIds) {
-        const graphJson = (await idbGet(formKey(id))) || { cells: [] }
+        const stored = (await idbGet(formKey(id))) || { cells: [] }
+        // Старый формат payload'а (см. services/legacyFormat) переписываем сразу:
+        // иначе форма жила бы в legacy до первой правки, а экспорт уже пишет новый
+        // ключ — привязки диапазонов ушли бы из архива.
+        const { json: graphJson, changed } = migrateGraphJson(stored)
+        if (changed) await idbSet(formKey(id), graphJson)
         forms.push({ id, graphJson })
       }
       workspace.loadForms(forms, meta.activeFormId)

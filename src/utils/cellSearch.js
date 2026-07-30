@@ -1,7 +1,7 @@
 import { switchSourceTags } from './switchSources'
 
 /**
- * Все привязанные теги payload'а: слоты, voltageSource.tag, switchSources, valueTag
+ * Все привязанные теги payload'а: слоты, rangeSource.tag, switchSources, valueTag
  * (text/navigation — не теги). Принимает СЫРОЙ tms, поэтому работает и с plain-
  * объектами exporter'а. Новое tag-поле добавлять здесь — поиск и detailTags
  * подхватят сразу.
@@ -17,7 +17,7 @@ export function getCellTagsFromTms(tms) {
       if (v) tags.push(String(v))
     }
   }
-  if (tms.voltageSource?.tag) tags.push(tms.voltageSource.tag)
+  if (tms.rangeSource?.tag) tags.push(tms.rangeSource.tag)
   for (const t of switchSourceTags(tms.switchSources)) if (t) tags.push(t)
   if (tms.valueTag) tags.push(tms.valueTag)
   return tags

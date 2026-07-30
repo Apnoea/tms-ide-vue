@@ -76,15 +76,15 @@ describe('applyBoolClip', () => {
 })
 
 describe('applyRangeClip', () => {
-  it('вставляет voltageSource свежим клоном', () => {
+  it('вставляет rangeSource свежим клоном', () => {
     const clip = { tag: 'PT', ranges: [{ min: 0, max: 1, class: 'animation-low' }] }
     const a = applyRangeClip({ color: '#000' }, clip, {})
-    expect(a.voltageSource).toEqual(clip)
-    expect(a.voltageSource).not.toBe(clip)
+    expect(a.rangeSource).toEqual(clip)
+    expect(a.rangeSource).not.toBe(clip)
     expect(a.color).toBe('#000')
     // Клон на каждую цель — не общая ссылка.
     const b = applyRangeClip({}, clip, {})
-    expect(a.voltageSource).not.toBe(b.voltageSource)
+    expect(a.rangeSource).not.toBe(b.rangeSource)
   })
 
   it('null для статичного стенсила и пустого буфера', () => {

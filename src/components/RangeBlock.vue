@@ -7,18 +7,18 @@ import { ANIMATION_CLASS_COLORS } from '../constants/animation'
 
 /**
  * Карточка анимации «Диапазоны значений» в инспекторе (аналоговое значение:
- * значение тега → класс по диапазону). Виден всегда; `voltageSource === null` —
+ * значение тега → класс по диапазону). Виден всегда; `rangeSource === null` —
  * пустое состояние (тег не выбран, порогов нет). Объект создаётся лениво в
  * родителе при выборе тега, очищается через × (× виден только при непустом).
  *
  * Эмитит intent'ы (openTagPicker/updateRange/highlight/remove). Состоянием
- * (объектом voltageSource) владеет родитель — мы только рендерим и зовём.
+ * (объектом rangeSource) владеет родитель — мы только рендерим и зовём.
  */
 defineProps({
-  voltageSource: { type: Object, default: null }, // { tag, ranges } | null
+  rangeSource: { type: Object, default: null }, // { tag, ranges } | null
   tagsLoaded: { type: Boolean, default: false },
   classOptions: { type: Array, default: () => [] },
-  // copyable — есть что копировать (задан voltageSource); pasteable — в буфере
+  // copyable — есть что копировать (задан rangeSource); pasteable — в буфере
   // анимаций лежат диапазоны, кнопку «вставить» показываем на любом выделении.
   copyable: { type: Boolean, default: false },
   pasteable: { type: Boolean, default: false },
@@ -56,7 +56,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
           @click="$emit('copy')"
         />
         <Button
-          v-if="voltageSource"
+          v-if="rangeSource"
           v-tooltip.bottom="'Очистить'"
           icon="pi pi-times"
           severity="secondary"
@@ -79,7 +79,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
           <span class="text-surface-400">для анимации элемента</span>
         </div>
         <TagField
-          :value="voltageSource?.tag || ''"
+          :value="rangeSource?.tag || ''"
           :can-pick="tagsLoaded"
           highlightable
           @pick="$emit('open-tag-picker')"
@@ -87,14 +87,10 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
         />
       </div>
 
-      <div v-if="voltageSource?.tag">
+      <div v-if="rangeSource?.tag">
         <div class="text-[11px] text-surface-500 mb-1">Диапазоны</div>
         <div class="space-y-1">
-          <div
-            v-for="(r, idx) in voltageSource.ranges"
-            :key="idx"
-            class="flex items-center gap-1.5"
-          >
+          <div v-for="(r, idx) in rangeSource.ranges" :key="idx" class="flex items-center gap-1.5">
             <InputText
               :model-value="String(r.min)"
               size="small"

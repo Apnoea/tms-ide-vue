@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { editRanges } from './useVoltageRanges'
+import { editRanges } from './useValueRanges'
 
 const RANGES = [
   { min: 0, max: 3.99, class: 'animation-low' },

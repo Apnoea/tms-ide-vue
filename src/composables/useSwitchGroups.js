@@ -67,11 +67,11 @@ export function useSwitchGroups({ details, mutateSelectedTms, openPicker }) {
     }))
   }
 
-  /** Открыть picker switch-зависимости. editingSwitch уже выставлен (add/replace);
-   *  switchPickerTags читаем ПОСЛЕ этого — picker берёт актуальный фильтр исключений. */
+  /** Открыть picker switch-зависимости. editingSwitch уже выставлен (add/replace),
+   *  геттер читает switchPickerTags — фильтр исключений всегда актуален. */
   function openSwitchPicker() {
     openPicker({
-      tags: switchPickerTags.value,
+      tags: () => switchPickerTags.value,
       header: 'Добавить булев тег',
       onSelect: onPickSwitchTag,
     })

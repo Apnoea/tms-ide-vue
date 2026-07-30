@@ -7,7 +7,7 @@ import { buildValueExportSvg } from '../stencils/valueCell'
 import {
   CLASS_OFF,
   CLASS_HIDDEN,
-  buildVoltageCssRules,
+  buildRangeCssRules,
   buildStateColorCssRules,
 } from '../constants/animation'
 import {
@@ -23,7 +23,7 @@ import {
 // Билдеры animation-карточек (рантайм-протокол) — в отдельном модуле; здесь только
 // оркестрация: обход графа → SVG-сборка + раскладка карточек по id.
 import {
-  buildVoltageCard,
+  buildRangeCard,
   buildSwitchCard,
   buildMultiCard,
   buildStateColorCard,
@@ -204,7 +204,7 @@ export function exportProject(graph, paper = null) {
       animId,
       svgContent: cellSvg,
       slots: tms.slots || null,
-      voltageSource: tms.voltageSource || null,
+      rangeSource: tms.rangeSource || null,
       switchSources: tms.switchSources || null,
       // navigation — имя другой view, на которую переходит рантайм при клике
       // (см. handler ниже: пишется в animation-entry как поле navigation).
@@ -309,7 +309,7 @@ export function exportProject(graph, paper = null) {
       id: wireId,
       linkId: link.id, // JointJS-id для round-trip восстановления редактором
       d: pathD,
-      voltageSource: linkTms.voltageSource || null,
+      rangeSource: linkTms.rangeSource || null,
       switchSources: linkTms.switchSources || null,
       // Толщина/цвет линии. Дефолты (2 / #000) не тащим — meta пишет только нестандартные.
       strokeWidth: linkTms.strokeWidth || null,
@@ -339,10 +339,10 @@ export function exportProject(graph, paper = null) {
     viewBoxH = Math.ceil(maxY - minY + padding * 2)
   }
 
-  // ─── Voltage / switch sources ───
+  // ─── Диапазоны / switch sources ───
   // Карточка на outer-id ячейки (+ merge во внутренние shape-карточки стенсила)
-  // либо на wire-id линка. needsMulti-цели получают одну `multi` (voltage +
-  // switch + quality слоями); остальные — shape (voltage + switch).
+  // либо на wire-id линка. needsMulti-цели получают одну `multi` (диапазоны +
+  // switch + quality слоями); остальные — shape (диапазоны + switch).
   // Единый список целей: ячейки (с stencilId/animId для inner-merge) и линки.
   const bindingTargets = [
     ...cellExports.map((c) => ({
@@ -364,12 +364,12 @@ export function exportProject(graph, paper = null) {
     assignOrMergeAnimation(animations, t.key, card)
     if (t.stencilId) mergeBindingsIntoStencilCards(animations, t.stencilId, t.animId, t.key, card)
   }
-  // Не-multi shape-источники. voltage (range → класс) + switch (плоский список,
+  // Не-multi shape-источники. диапазоны (range → класс) + switch (плоский список,
   // любой false → серый). needsMulti-цели пропускаем — их эффекты уже в multi.
   const shapeSources = [
     {
-      has: (s) => !!s.voltageSource?.tag && s.voltageSource.ranges?.length > 0,
-      build: (s) => buildVoltageCard(s.voltageSource),
+      has: (s) => !!s.rangeSource?.tag && s.rangeSource.ranges?.length > 0,
+      build: (s) => buildRangeCard(s.rangeSource),
     },
     {
       has: (s) => switchSourceTags(s.switchSources).length > 0,
@@ -384,25 +384,25 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── State-color: перекрас всего символа по состоянию (stateColors стенсила) ───
-  // Слой на outer (assignOrMerge уживается с voltage/switch/quality); на потомков
+  // Слой на outer (assignOrMerge уживается с диапазонами/switch/quality); на потомков
   // цвет каскадит через CSS. Работает и для needsMulti-целей (мержится в их multi).
   for (const c of cellExports) {
     const card = buildStateColorCard(c)
     if (card) assignOrMergeAnimation(animations, outerKeyFor(c.stencilId, c.animId), card)
   }
 
-  // ─── cell_node наследует voltage от соединённого провода ───
-  // Если у точки соединения нет своего voltageSource — берём первый connected
-  // wire с voltage. Узел получает ту же range-карточку → визуально перекрасится
+  // ─── cell_node наследует диапазоны от соединённого провода ───
+  // Если у точки соединения нет своего rangeSource — берём первый connected
+  // wire с диапазонами. Узел получает ту же range-карточку → визуально перекрасится
   // в тот же цвет что и провод в рантайме.
   for (const c of cellExports) {
     if (needsMulti(c)) continue
     if (c.stencilId !== 'cell_node') continue
-    if (c.voltageSource?.tag) continue
+    if (c.rangeSource?.tag) continue
     for (const l of linkExports) {
-      if (!l.voltageSource?.tag) continue
+      if (!l.rangeSource?.tag) continue
       if (l.source?.id !== c.cellId && l.target?.id !== c.cellId) continue
-      const card = buildVoltageCard(l.voltageSource)
+      const card = buildRangeCard(l.rangeSource)
       assignOrMergeAnimation(animations, outerKeyFor(c.stencilId, c.animId), card)
       break
     }
@@ -425,7 +425,7 @@ export function exportProject(graph, paper = null) {
   // карточки внешней обёртки. У cell_value detailTags ставится на text-карточку
   // (`animation-{valueTag}`) — рантайм-конвенция (text-handler находит элемент
   // по id равному тегу). Для всех остальных собираем все привязанные теги
-  // (slots, voltageSource.tag, switchSources) и кладём на outer-карточку
+  // (slots, rangeSource.tag, switchSources) и кладём на outer-карточку
   // (см. outerKeyFor) / wire.
   function attachDetailTags(key, tags) {
     if (!tags.length) return
@@ -446,7 +446,7 @@ export function exportProject(graph, paper = null) {
     }
   }
   // cellExports / linkExports structurally совместимы с tms-payload
-  // (`slots`, `voltageSource`, `switchSources` на верхнем уровне), так что
+  // (`slots`, `rangeSource`, `switchSources` на верхнем уровне), так что
   // тот же getCellTagsFromTms что и для поиска — без дубля сборки тегов.
   for (const c of cellExports) {
     if (getStencilById(c.stencilId)?.static) continue
@@ -474,7 +474,7 @@ export function exportProject(graph, paper = null) {
   for (const c of cellExports) {
     if (needsMulti(c)) continue
     if (!getStencilById(c.stencilId)?.quality) continue
-    // Собираем уникальные теги из inner-карточек (slot.onoff) + outer (voltage,
+    // Собираем уникальные теги из inner-карточек (slot.onoff) + outer (диапазоны,
     // switch). Без тегов quality-биндинги бессмысленны — пропускаем.
     const stencilPrefix = innerPrefix(c.stencilId, c.animId)
     const outerKey = outerKeyFor(c.stencilId, c.animId)
@@ -570,10 +570,10 @@ export function exportProject(graph, paper = null) {
 
   // Инлайн-стили — рантайм только навешивает классы, CSS должен быть в SVG.
   // Descendant-селектор `* { stroke }` нужен из-за inline presentation-атрибутов
-  // внутри ячеек. animation-off объявлен ПОСЛЕ voltage — перебивает по каскаду.
-  // voltage по диапазонам (stroke + opt-in fill) + animation-off серым поверх.
-  // Чистый SVG: без scope и без live-DOM исключений (см. buildVoltageCssRules).
-  const voltageCss = buildVoltageCssRules()
+  // внутри ячеек. animation-off объявлен ПОСЛЕ правил диапазонов — перебивает по каскаду.
+  // цвет по диапазонам (stroke + opt-in fill) + animation-off серым поверх.
+  // Чистый SVG: без scope и без live-DOM исключений (см. buildRangeCssRules).
+  const rangeCss = buildRangeCssRules()
     .map((r) => `    ${r}`)
     .join('\n')
   // State-color: перекрас символа по состоянию. Тот же генератор, что в симуляции.
@@ -583,7 +583,7 @@ export function exportProject(graph, paper = null) {
   const inlineStyles = `  <style>
     <![CDATA[
     .${CLASS_HIDDEN} { display: none; }
-${voltageCss}
+${rangeCss}
 ${stateColorCss}
     /* Quality-stencils: при bad-качестве (animation-off на outer) показываем
        обе позиции рычага одновременно — отменяем animation-hidden у потомков.

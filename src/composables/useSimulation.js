@@ -5,7 +5,7 @@ import {
   CLASS_OFF,
   CLASS_HIDDEN,
   STATE_COLOR_PREFIX,
-  buildVoltageCssRules,
+  buildRangeCssRules,
   buildStateColorCssRules,
   stateColorClass,
 } from '../constants/animation'
@@ -20,8 +20,8 @@ const SIM_CYCLE_MS = 1500
  * Симуляция: визуальный preview animation-классов через JS-таймер.
  *
  * Группировка по тегу — на каждом тике один rolling state per-tag (lazy,
- * через voltageFor / boolFalseFor), и все ячейки/линки привязанные к одному
- * тегу рисуются согласованно. Тег voltage → low/mid/high/none; тег bool →
+ * через rangeClassFor / boolFalseFor), и все ячейки/линки привязанные к одному
+ * тегу рисуются согласованно. Аналоговый тег → low/mid/high/none; тег bool →
  * true/false. Это даёт реалистичную картину распространения — одна шина
  * одного цвета, выключатель и его зависимости в согласованной фазе.
  *
@@ -44,7 +44,7 @@ export function useSimulation() {
   let simTick = 0
   const SIM_CSS_ID = 'tms-sim-css'
 
-  function pickRandomVoltageClass() {
+  function pickRandomRangeClass() {
     // null = пропустить (тег «нейтральный»). Доля null = 1/(N+1).
     const idx = Math.floor(Math.random() * (ANIMATION_CLASS_OPTIONS.length + 1))
     return ANIMATION_CLASS_OPTIONS[idx] || null
@@ -65,26 +65,24 @@ export function useSimulation() {
     document.getElementById(SIM_CSS_ID)?.remove()
     const style = document.createElement('style')
     style.id = SIM_CSS_ID
-    // Те же voltage/off-правила, что эмитит exporter, но scope'нуты под
+    // Те же range/off-правила, что эмитит exporter, но scope'нуты под
     // .tms-simulating и с доп. исключениями для живого DOM редактора:
     // [joint-selector="wrapper"] — широкий невидимый hit-path standard.Link
     // (без exclusion с !important красится и толстеет); .tms-hit-area — наш
     // прозрачный rect-хитбокс ячейки (иначе зелёная «рамка» у стенсилов без
     // своей rect-обёртки). animation-hidden гасим отдельно (в экспорте — без !important).
     const strokeExtra = ':not([joint-selector="wrapper"]):not(.tms-hit-area)'
-    const voltageOffCss = buildVoltageCssRules({ scope: '.tms-simulating ', strokeExtra }).join(
-      '\n'
-    )
+    const rangeOffCss = buildRangeCssRules({ scope: '.tms-simulating ', strokeExtra }).join('\n')
     // State-color: те же правила, что в exporter, но scope'нуты под .tms-simulating.
     const stateColorCss = buildStateColorCssRules(getAllStencils(), {
       scope: '.tms-simulating ',
       strokeExtra,
     }).join('\n')
-    style.textContent = `.tms-simulating .${CLASS_HIDDEN} { display: none !important; }\n${voltageOffCss}\n${stateColorCss}`
+    style.textContent = `.tms-simulating .${CLASS_HIDDEN} { display: none !important; }\n${rangeOffCss}\n${stateColorCss}`
     document.head.appendChild(style)
   }
 
-  /** Снимает все sim-классы — voltage с outer-g, animation-hidden/off с descendants. */
+  /** Снимает все sim-классы — range-класс с outer-g, animation-hidden/off с descendants. */
   function clearSimClasses() {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
@@ -116,33 +114,33 @@ export function useSimulation() {
 
     // Per-tag stateful pickers. Lazy: rolling state кэшируется при первом
     // обращении, последующие cell'ы с тем же тегом получают то же значение.
-    const voltageByTag = new Map() // tag → class | null
+    const rangeClassByTag = new Map() // tag → class | null
     const boolByTag = new Map() // tag → boolean (true = false-фаза/off, false = on)
-    const voltageFor = (tag) => {
-      if (!voltageByTag.has(tag)) voltageByTag.set(tag, pickRandomVoltageClass())
-      return voltageByTag.get(tag)
+    const rangeClassFor = (tag) => {
+      if (!rangeClassByTag.has(tag)) rangeClassByTag.set(tag, pickRandomRangeClass())
+      return rangeClassByTag.get(tag)
     }
     const boolFalseFor = (tag) => {
       if (!boolByTag.has(tag)) boolByTag.set(tag, Math.random() < 0.5)
       return boolByTag.get(tag)
     }
 
-    // Voltage: класс по тегу. Все ячейки/линки с PS031.UA в одном цвете.
+    // Диапазоны: класс по тегу. Все ячейки/линки с PS031.UA в одном цвете.
     for (const cell of graph.getCells()) {
-      const tag = cell.get('tms')?.voltageSource?.tag
+      const tag = cell.get('tms')?.rangeSource?.tag
       if (!tag) continue
-      const cls = voltageFor(tag)
+      const cls = rangeClassFor(tag)
       if (!cls) continue
       paper.findViewByModel(cell)?.el?.classList.add(cls)
     }
-    // cell_node наследует voltage от соединённого провода — берём тег первого
+    // cell_node наследует range-класс от соединённого провода — берём тег первого
     // подходящего линка и используем его state (тот же что у провода).
     for (const cell of graph.getElements()) {
       const tms = cell.get('tms') || {}
-      if (tms.stencilId !== 'cell_node' || tms.voltageSource?.tag) continue
-      const link = graph.getConnectedLinks(cell).find((l) => l.get('tms')?.voltageSource?.tag)
+      if (tms.stencilId !== 'cell_node' || tms.rangeSource?.tag) continue
+      const link = graph.getConnectedLinks(cell).find((l) => l.get('tms')?.rangeSource?.tag)
       if (!link) continue
-      const cls = voltageFor(link.get('tms').voltageSource.tag)
+      const cls = rangeClassFor(link.get('tms').rangeSource.tag)
       if (!cls) continue
       paper.findViewByModel(cell)?.el?.classList.add(cls)
     }

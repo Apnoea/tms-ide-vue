@@ -66,7 +66,7 @@ export function useClipboard({ scheduleSnapshot }) {
       if (!src?.id || !tgt?.id || !set.has(src.id) || !set.has(tgt.id)) continue
       out.push({
         // Только port — сами cell-id'ы переписываются на paste'е через oldToNew.
-        // tms (voltageSource/switchSources) переносим.
+        // tms (rangeSource/switchSources) переносим.
         sourcePort: src.port || undefined,
         targetPort: tgt.port || undefined,
         sourceCellId: src.id,

@@ -333,6 +333,71 @@ describe('useProject', () => {
     })
   })
 
+  describe('duplicateForm', () => {
+    const cells = [{ id: 'c1', type: 'tms.Stencil', tms: { stencilId: 'cell_qw' } }]
+
+    it('копирует граф под `<id>_copy`, персистит и открывает копию', async () => {
+      seedForms(
+        [
+          { id: 'a', graphJson: { cells } },
+          { id: 'b', graphJson: { cells: [] } },
+        ],
+        'b'
+      )
+      const deps = makeDeps()
+      const { duplicateForm } = useProject(deps)
+      await duplicateForm('a')
+
+      const ws = useWorkspaceStore()
+      expect(ws.hasForm('a_copy')).toBe(true)
+      expect(ws.activeFormId).toBe('a_copy')
+      expect(ws.getFormGraph('a_copy').cells).toEqual(cells)
+      expect(deps.autosave.saveActiveForm).toHaveBeenCalled() // дублируем актуальное
+      expect(deps.autosave.persistForm).toHaveBeenCalledWith('a_copy', { cells })
+      expect(deps.undo.initHistory).toHaveBeenCalled()
+    })
+
+    it('копия не делит ячейки с оригиналом (правка не течёт обратно)', async () => {
+      seedForms([{ id: 'a', graphJson: { cells } }], 'a')
+      const { duplicateForm } = useProject(makeDeps())
+      await duplicateForm('a')
+
+      const ws = useWorkspaceStore()
+      const copy = ws.getFormGraph('a_copy')
+      copy.cells[0].tms.stencilId = 'cell_bus'
+      expect(ws.getFormGraph('a').cells[0].tms.stencilId).toBe('cell_qw')
+    })
+
+    it('повторное дублирование даёт `_copy2`, узел встаёт после исходной формы', async () => {
+      seedForms(
+        [
+          { id: 'a', graphJson: { cells: [] } },
+          { id: 'z', graphJson: { cells: [] } },
+        ],
+        'a'
+      )
+      const ws = useWorkspaceStore()
+      ws.setFormTree(null) // плоское дерево, как после restore проекта без hierarchy.json
+      const { duplicateForm } = useProject(makeDeps())
+      await duplicateForm('a')
+      await duplicateForm('a')
+
+      expect(ws.hasForm('a_copy2')).toBe(true)
+      // Сиблинг после исходной, а не последним узлом корня (там 'z').
+      expect(ws.formTree.map((n) => n.id)).toEqual(['a', 'a_copy2', 'a_copy', 'z'])
+    })
+
+    it('несуществующую форму не дублирует', async () => {
+      seedForms([{ id: 'a', graphJson: { cells: [] } }], 'a')
+      const deps = makeDeps()
+      const { duplicateForm } = useProject(deps)
+      await duplicateForm('nope')
+
+      expect(useWorkspaceStore().formIds).toEqual(['a'])
+      expect(deps.autosave.persistForm).not.toHaveBeenCalled()
+    })
+  })
+
   describe('deleteForm', () => {
     it('последнюю форму удалить нельзя', async () => {
       seedForms([{ id: 'a', graphJson: { cells: [] } }], 'a')

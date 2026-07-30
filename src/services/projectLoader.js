@@ -77,9 +77,11 @@ export function parseSvgProject(svgText) {
 
       // Собираем tms-payload по тому же дескриптору, что пишет exporter
       // (CELL_META_FIELDS) — единый список, не плодим undefined.
+      // legacyKey — прежнее имя поля в старых архивах (см. services/legacyFormat):
+      // читаем как fallback и записываем уже под новым именем.
       const tms = { stencilId: meta.stencilId }
       for (const f of CELL_META_FIELDS) {
-        const v = meta[f.key]
+        const v = meta[f.key] ?? (f.legacyKey ? meta[f.legacyKey] : undefined)
         if (v !== undefined) tms[f.key] = f.clone ? { ...v } : v
       }
 
@@ -134,9 +136,10 @@ export function parseSvgProject(svgText) {
       if (Array.isArray(meta.vertices) && meta.vertices.length) link.vertices = meta.vertices
       // tms-поля провода по тому же дескриптору, что пишет exporter (LINK_META_FIELDS).
       for (const f of LINK_META_FIELDS) {
-        if (meta[f.key] === undefined) continue
+        const v = meta[f.key] ?? (f.legacyKey ? meta[f.legacyKey] : undefined)
+        if (v === undefined) continue
         link.tms = link.tms || {}
-        link.tms[f.key] = meta[f.key]
+        link.tms[f.key] = v
       }
       // Стиль линии из tms → attrs.line (иначе провод нарисуется дефолтным).
       const styleAttrs = linkStyleAttrs(link.tms)

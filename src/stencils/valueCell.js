@@ -58,7 +58,7 @@ export function resolveValueDisplay(tag) {
 // y=height-5. UNIT_ZONE рассчитан на самый широкий unit («квар») + зазор.
 const VALUE_STRIPE_W = 3
 const VALUE_BG_COLOR = '#fafafa'
-const VALUE_STRIPE_COLOR = '#000' // нейтральный — не конкурирует с voltage-цветами стенсилов и не выделяется по теме
+const VALUE_STRIPE_COLOR = '#000' // нейтральный — не конкурирует с цветами диапазонов и не выделяется по теме
 const VALUE_LABEL_COLOR = '#71717a' // zinc-500
 const VALUE_TEXT_COLOR = '#18181b' // zinc-900
 const VALUE_UNIT_COLOR = '#a1a1aa' // zinc-400
@@ -100,7 +100,7 @@ export function buildValueContent(cellView) {
   const out = [
     // Stripe-маркер слева
     svgEl('rect', { x: 0, y: 0, width: VALUE_STRIPE_W, height, fill: VALUE_STRIPE_COLOR }),
-    // Светлый фон до правого края (voltage-окраска — только в рантайме).
+    // Светлый фон до правого края (окраска по диапазонам — только в рантайме).
     svgEl('rect', {
       x: VALUE_STRIPE_W,
       y: 0,

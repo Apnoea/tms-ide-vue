@@ -10,13 +10,13 @@ export const ANIMATION_CLASS_COLORS = {
 
 export const ANIMATION_CLASS_OPTIONS = Object.keys(ANIMATION_CLASS_COLORS)
 
-// «Выключено»: slate-500, тот же уровень насыщенности, что у voltage-палитры.
-// Красит контуры серым поверх voltage — правило объявляется ПОСЛЕ них (каскад).
+// «Выключено»: slate-500, тот же уровень насыщенности, что у палитры диапазонов.
+// Красит контуры серым поверх цветов диапазонов — правило объявляется ПОСЛЕ них (каскад).
 // Не opacity: результат предсказуем независимо от родительских fill/stroke.
-// Наружу отдаём не hex, а готовые правила из buildVoltageCssRules.
+// Наружу отдаём не hex, а готовые правила из buildRangeCssRules.
 const ANIMATION_OFF_COLOR = '#64748b'
 
-// Class-name'ы wire-protocol'а (voltage-классы уже есть ключами выше).
+// Class-name'ы wire-protocol'а (классы диапазонов уже есть ключами выше).
 export const CLASS_OFF = 'animation-off'
 export const CLASS_HIDDEN = 'animation-hidden'
 
@@ -32,6 +32,10 @@ export function stateColorClass(stencilId, key) {
 // fill. Красим только их — иначе контуры и hit-area залились бы «блобом».
 export const STATE_FILL_CLASS = 'tms-state-fill'
 
+// Opt-in заливка по диапазонам/off (сейчас — тело шины и точка соединения).
+// Ставится и в экспортном SVG, и в живом DOM: иначе симуляция расходится с view.svg.
+export const RANGE_FILL_CLASS = 'tms-range-fill'
+
 /** stateColors[key] → { stroke, fill }: строка = только контур, объект = оба. */
 export function normalizeStateColor(value) {
   if (!value) return { stroke: '', fill: '' }
@@ -42,7 +46,7 @@ export function normalizeStateColor(value) {
 /**
  * CSS перекраса по состоянию — один источник для экспорта (scope '') и симуляции
  * (scope '.tms-simulating '). `:not(.animation-off)` — обесточивание бьёт цвет
- * состояния. Про scope/strokeExtra см. buildVoltageCssRules.
+ * состояния. Про scope/strokeExtra см. buildRangeCssRules.
  *
  * @param {Array<{id:string, stateColors?:Object}>} stencils
  */
@@ -66,8 +70,8 @@ export function buildStateColorCssRules(stencils, { scope = '', strokeExtra = ''
 }
 
 /**
- * CSS voltage/off для outer-g: stroke у потомков кроме text + opt-in fill; off
- * идёт ПОСЛЕ voltage и перебивает его каскадом. Один источник для экспорта и
+ * CSS диапазонов/off для outer-g: stroke у потомков кроме text + opt-in fill; off
+ * идёт ПОСЛЕ них и перебивает его каскадом. Один источник для экспорта и
  * симуляции — иначе превью расходится с view.svg. `!important` перебивает inline
  * presentation-атрибуты фигур.
  *
@@ -76,12 +80,12 @@ export function buildStateColorCssRules(stencils, { scope = '', strokeExtra = ''
  * @param {string} [opts.strokeExtra] — доп. `:not(...)` для живого DOM
  *        (joint-wrapper / hit-area), которых в экспортном SVG нет
  */
-export function buildVoltageCssRules({ scope = '', strokeExtra = '' } = {}) {
+export function buildRangeCssRules({ scope = '', strokeExtra = '' } = {}) {
   const rules = []
   const paint = (cls, hex) => {
     rules.push(
       `${scope}.${cls}, ${scope}.${cls} *:not(text)${strokeExtra} { stroke: ${hex} !important; }`,
-      `${scope}.${cls} .tms-voltage-fill, ${scope}.${cls}.tms-voltage-fill { fill: ${hex} !important; }`
+      `${scope}.${cls} .${RANGE_FILL_CLASS}, ${scope}.${cls}.${RANGE_FILL_CLASS} { fill: ${hex} !important; }`
     )
   }
   for (const [cls, hex] of Object.entries(ANIMATION_CLASS_COLORS)) paint(cls, hex)

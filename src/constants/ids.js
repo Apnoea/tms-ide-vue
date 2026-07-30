@@ -8,6 +8,8 @@
 //    (text-узел) — рантайм адресует text-карточку по id, равному тегу
 //  • провод:          animation-wire-<shortId>
 
+import { LEGACY_RANGE_KEY } from '../services/legacyFormat'
+
 // Без export: наружу торчат только key-билдеры ниже.
 const ANIM_PREFIX = 'animation-'
 const WIRE_PREFIX = 'animation-wire-'
@@ -23,9 +25,11 @@ export const ATTR_SUFFIX = 'data-anim-suffix'
  * tms-поля ЯЧЕЙКИ для round-trip через `data-tms-meta` — единый список для записи
  * (exporter) и чтения (projectLoader): забыть одну сторону = тихая потеря поля.
  *
- *  • keep(v) — писать ли в meta (отсекает дефолты)
- *  • flag    — писать `true` вместо значения
- *  • clone   — при чтении копировать объект (не шарить с meta)
+ *  • keep(v)   — писать ли в meta (отсекает дефолты)
+ *  • flag      — писать `true` вместо значения
+ *  • clone     — при чтении копировать объект (не шарить с meta)
+ *  • legacyKey — прежнее имя поля в архивах: читаем как fallback, пишем только
+ *                новое (см. services/legacyFormat — слой снимается целиком)
  *
  * `angle`/`z` не здесь: это поля верхнего уровня JointJS, а не tms.
  */
@@ -42,7 +46,7 @@ export const CELL_META_FIELDS = [
   { key: 'flipH', keep: Boolean, flag: true },
   { key: 'flipV', keep: Boolean, flag: true },
   { key: 'groupId', keep: Boolean },
-  { key: 'voltageSource', keep: Boolean },
+  { key: 'rangeSource', keep: Boolean, legacyKey: LEGACY_RANGE_KEY },
   { key: 'switchSources', keep: Boolean },
   { key: 'navigation', keep: Boolean },
 ]
@@ -54,7 +58,7 @@ export const CELL_META_FIELDS = [
  * — поле верхнего уровня линка.
  */
 export const LINK_META_FIELDS = [
-  { key: 'voltageSource', keep: Boolean },
+  { key: 'rangeSource', keep: Boolean, legacyKey: LEGACY_RANGE_KEY },
   { key: 'switchSources', keep: Boolean },
   { key: 'strokeWidth', keep: Boolean, attr: 'strokeWidth' },
   { key: 'strokeColor', keep: Boolean, attr: 'stroke' },

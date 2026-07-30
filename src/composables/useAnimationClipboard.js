@@ -33,7 +33,7 @@ export function applyBoolClip(tms, clip, { isStatic = false, hasBoolSlot = false
 /** Буфер диапазонов → новый tms (null у статичного). Клон на каждую цель. */
 export function applyRangeClip(tms, clip, { isStatic = false } = {}) {
   if (!clip || isStatic) return null
-  return { ...tms, voltageSource: toPlain(clip) }
+  return { ...tms, rangeSource: toPlain(clip) }
 }
 
 export function useAnimationClipboard() {

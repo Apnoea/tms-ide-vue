@@ -11,10 +11,10 @@ import { innerPrefix } from '../constants/ids'
 import { normalizeSwitchSources, switchSourceTags } from '../utils/switchSources'
 
 /**
- * Карточка анимации voltage-source: один range-биндинг, читающий выбранный тег
+ * Карточка анимации диапазонов: один range-биндинг, читающий выбранный тег
  * и добавляющий соответствующий класс в зависимости от диапазона значения.
  */
-export function buildVoltageCard(vs) {
+export function buildRangeCard(vs) {
   return {
     animation: 'shape',
     bindings: [
@@ -67,7 +67,7 @@ function openCondition(id, tag) {
 }
 
 /** multi-биндинг с ОДНИМ условием (expression='c'): тег под source/when →
- *  apply addClass. Для слоёв voltage-range / onoff / quality в multi-карточке. */
+ *  apply addClass. Для слоёв range / onoff / quality в multi-карточке. */
 function singleMultiBinding(tag, source, when, addClass) {
   return {
     multiCondition: {
@@ -82,7 +82,7 @@ function singleMultiBinding(tag, source, when, addClass) {
  * Outer-карточка типа `multi` — рантайм-тип с булевым `expression` по нескольким
  * тегам (единственный способ выразить ИЛИ-агрегацию групп switchSources, где
  * union-биндинги дают только AND). Несёт ВСЕ outer-эффекты слоями (бинды
- * независимы, ActionApplier складывает классы): voltage по диапазонам, группы
+ * независимы, ActionApplier складывает классы): цвет по диапазонам, группы
  * switchSources, quality. Кладётся на outer-id; на потомков классы каскадят через
  * CSS, поэтому merge во внутренние shape-карточки не нужен. Генерируется напрямую
  * из tms — только здесь есть семантика «какие теги в какой группе».
@@ -91,7 +91,7 @@ export function buildMultiCard(c) {
   const stencil = getStencilById(c.stencilId)
   const bindings = []
 
-  const vs = c.voltageSource
+  const vs = c.rangeSource
   if (vs?.tag && vs.ranges?.length) {
     for (const r of vs.ranges) {
       bindings.push(
@@ -153,7 +153,7 @@ export function buildMultiCard(c) {
  * Биндинг перекраса всего символа по состоянию (stateColors в stencil.json):
  * значение тега-слота состояния → класс `animation-color-<stencilId>-<ключ>` на outer, цвет
  * каскадит на потомков через CSS (см. inlineStyles). Кладётся слоем на outer
- * (assignOrMerge — уживается с voltage/switch/quality). Коды: режим значения —
+ * (assignOrMerge — уживается с диапазонами/switch/quality). Коды: режим значения —
  * из states, булев — сами ключи 'true'/'false'. null, если красить нечего или
  * тег слота не привязан. Обесточивание (animation-off) бьёт цвет в CSS.
  */
@@ -183,7 +183,7 @@ export function buildStateColorCard(c) {
 
 /**
  * Карточка под ключ либо создаётся, либо в существующую дописываются
- * bindings. Нужно потому что несколько источников (voltage + switch) могут
+ * bindings. Нужно потому что несколько источников (диапазоны + switch) могут
  * хотеть навесить биндинги на один и тот же outer-wrapper или link-id —
  * порядок добавления не должен затирать предыдущее.
  */

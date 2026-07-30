@@ -133,13 +133,13 @@ describe('exportProject', () => {
     expect(card.bindings[0].tag).toBe('PS031VV001.IA')
   })
 
-  it('voltageSource на ячейке → карточка outer + merge в стенсильные', () => {
+  it('rangeSource на ячейке → карточка outer + merge в стенсильные', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
         stencilId: 'cell_qw',
         slots: { onoff: 'PS031VK001.ONOFF' },
-        voltageSource: {
+        rangeSource: {
           tag: 'PS031.UA',
           ranges: [
             { min: 0, max: 5, class: 'animation-low' },
@@ -151,30 +151,30 @@ describe('exportProject', () => {
     const anims = exportProject(graph).animations.animations
     expect(anims).toHaveProperty('animation-cell_qw-c1')
     expect(anims['animation-cell_qw-c1'].bindings[0].tag).toBe('PS031.UA')
-    // voltage биндинг МЕРЖИТСЯ в стенсильную .true
+    // range-биндинг МЕРЖИТСЯ в стенсильную .true
     const vkBindings = anims['animation-cell_qw-c1.true'].bindings
     expect(vkBindings.some((b) => b.tag === 'PS031.UA')).toBe(true)
   })
 
-  it('voltageSource с tag но без ranges → не падает, voltage-карточка не создаётся', () => {
+  it('rangeSource с tag но без ranges → не падает, range-карточка не создаётся', () => {
     const graph = mockGraph([
-      mockCell({ id: 'c1', stencilId: 'cell_bus', w: 80, h: 8, voltageSource: { tag: 'X' } }),
+      mockCell({ id: 'c1', stencilId: 'cell_bus', w: 80, h: 8, rangeSource: { tag: 'X' } }),
     ])
     // Главное — экспорт не бросает TypeError на vs.ranges.map.
     const anims = exportProject(graph).animations.animations
-    // Без ranges range-биндинга нет (карточка либо отсутствует, либо без voltage-tag).
+    // Без ranges range-биндинга нет (карточка либо отсутствует, либо без тега).
     const card = anims['animation-cell_bus-c1']
     expect(card?.bindings?.some((b) => b.tag === 'X')).not.toBe(true)
   })
 
-  it('voltageSource с пустым ranges → не падает, voltage-карточка не создаётся', () => {
+  it('rangeSource с пустым ranges → не падает, range-карточка не создаётся', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
         stencilId: 'cell_bus',
         w: 80,
         h: 8,
-        voltageSource: { tag: 'X', ranges: [] },
+        rangeSource: { tag: 'X', ranges: [] },
       }),
     ])
     const anims = exportProject(graph).animations.animations
@@ -273,14 +273,14 @@ describe('exportProject', () => {
     expect(mc.conditions.map((c) => c.tag)).toEqual(['BR1.ONOFF', 'BR2.ONOFF', 'BR3.ONOFF'])
   })
 
-  it('switchSources группы + voltage: один multi-card со слоями (voltage + switch)', () => {
+  it('switchSources группы + диапазоны: один multi-card со слоями (диапазоны + switch)', () => {
     const graph = mockGraph([
       mockCell({
         id: 'b1',
         stencilId: 'cell_bus',
         w: 80,
         h: 8,
-        voltageSource: { tag: 'PS.UA', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
+        rangeSource: { tag: 'PS.UA', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
         switchSources: { groups: [['BR1.ONOFF'], ['BR2.ONOFF']] },
       }),
     ])
@@ -467,7 +467,7 @@ describe('exportProject', () => {
         stencilId: 'cell_qk',
         slots: { onoff: 'LOCAL.ONOFF' },
         switchSources: { groups: [['ОБЩИЙ.ONOFF']] },
-        voltageSource: {
+        rangeSource: {
           tag: 'PS031.UA',
           ranges: [{ min: 0, max: 5, class: 'animation-low' }],
         },
@@ -505,7 +505,7 @@ describe('exportProject', () => {
         id: 'c1',
         stencilId: 'cell_qw',
         slots: { onoff: 'LOCAL.ONOFF' },
-        voltageSource: {
+        rangeSource: {
           tag: 'PS031.UA',
           ranges: [{ min: 0, max: 5, class: 'animation-low' }],
         },

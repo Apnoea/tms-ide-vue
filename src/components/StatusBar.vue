@@ -47,7 +47,7 @@ const canvas = useCanvas()
     <div class="h-4 w-px bg-surface-200" aria-hidden="true"></div>
 
     <button
-      v-tooltip.bottom="'Горячие клавиши · ? или F1'"
+      v-tooltip.bottom="'Клавиши и приёмы · ? или F1'"
       type="button"
       class="flex items-center gap-1 text-surface-400 transition-colors hover:text-surface-700"
       @click="ui.openHelp"

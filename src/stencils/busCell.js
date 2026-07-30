@@ -1,6 +1,7 @@
 // Шина (cell_bus) — единственный стенсил с изменяемой шириной: порты и разметка
 // считаются от текущего размера, а не берутся из stencil.json. Геометрия портов
 // нужна и ресайзу (useBusResize), и созданию ячейки, и round-trip'у.
+import { RANGE_FILL_CLASS } from '../constants/animation'
 import { SVG_NS, svgEl } from '../utils/xml'
 
 /** Ширина resize-хэндлов (только редактор — в экспорт не идут). */
@@ -49,8 +50,8 @@ export function computeBusPorts(width, height) {
 
 /** Экспортный SVG: только тело, без resize-хэндлов (они редактор-only). */
 export function buildBusExportSvg(width, height) {
-  // tms-voltage-fill — opt-in заливки voltage-цветом (см. buildVoltageCssRules).
-  return `<svg xmlns="${SVG_NS}"><rect class="tms-voltage-fill" x="0" y="0" width="${width}" height="${height}" fill="#000"/></svg>`
+  // RANGE_FILL_CLASS — opt-in заливки цветом диапазона (см. buildRangeCssRules).
+  return `<svg xmlns="${SVG_NS}"><rect class="${RANGE_FILL_CLASS}" x="0" y="0" width="${width}" height="${height}" fill="#000"/></svg>`
 }
 
 /** Контент на холсте: тело по текущему размеру + resize-хэндлы по краям. */
@@ -62,7 +63,7 @@ export function buildBusContent(cellView) {
   const out = [
     // Тот же opt-in класс, что в экспорте: иначе симуляция расходится с view.svg.
     svgEl('rect', {
-      class: 'tms-voltage-fill',
+      class: RANGE_FILL_CLASS,
       x: hw,
       y: 0,
       width: Math.max(0, width - hw * 2),

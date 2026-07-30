@@ -49,7 +49,7 @@ function makeScene({ withView = true, vertices = [] } = {}) {
     vertices: vertices.map((v) => ({ ...v })),
   })
   link.set('tms', {
-    voltageSource: { tag: 'V', ranges: [] },
+    rangeSource: { tag: 'V', ranges: [] },
     switchSources: { groups: [['S']] },
   })
   graph.addCells([a, b, cell, link])
@@ -91,24 +91,24 @@ describe('spliceCellIntoLink', () => {
     expect(mockCanvas.selectOnly).toHaveBeenCalledWith('cell', cell.id)
   })
 
-  it('ячейка наследует voltage/switch провода', () => {
+  it('ячейка наследует диапазоны/switch провода', () => {
     const { graph, cell, link } = makeScene()
     useWireSplice().spliceCellIntoLink(link, cell, { x: 100, y: 50 })
 
-    expect(cell.get('tms').voltageSource).toEqual({ tag: 'V', ranges: [] })
+    expect(cell.get('tms').rangeSource).toEqual({ tag: 'V', ranges: [] })
     expect(cell.get('tms').switchSources).toEqual({ groups: [['S']] })
     // seg2 получает собственный клон (не общая ссылка с ячейкой).
     const seg2 = graph.getLinks().find((l) => l.id !== link.id)
-    expect(seg2.get('tms').voltageSource).not.toBe(cell.get('tms').voltageSource)
+    expect(seg2.get('tms').rangeSource).not.toBe(cell.get('tms').rangeSource)
   })
 
   it('собственная конфигурация ячейки приоритетнее наследуемой от провода', () => {
     const { cell, link } = makeScene()
-    cell.set('tms', { stencilId: 'cell_test_splice', voltageSource: { tag: 'OWN', ranges: [] } })
+    cell.set('tms', { stencilId: 'cell_test_splice', rangeSource: { tag: 'OWN', ranges: [] } })
     useWireSplice().spliceCellIntoLink(link, cell, { x: 100, y: 50 })
 
-    // voltage у ячейки был свой → не перетёрт проводом.
-    expect(cell.get('tms').voltageSource).toEqual({ tag: 'OWN', ranges: [] })
+    // диапазоны у ячейки были свои → не перетёрт проводом.
+    expect(cell.get('tms').rangeSource).toEqual({ tag: 'OWN', ranges: [] })
     // switch ячейка не имела → наследует от провода.
     expect(cell.get('tms').switchSources).toEqual({ groups: [['S']] })
   })

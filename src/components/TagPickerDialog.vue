@@ -6,12 +6,14 @@ import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
+import { useTagList } from '../composables/useTagList'
 import { nplural } from '../utils/plural'
 
 /**
  * Picker-диалог тега из tag-list'а. Модальный Dialog с поиском по name,
- * группировкой опций по prefix'у (всё до первой точки в имени), Listbox'ом
- * и dblclick'ом для быстрого выбора.
+ * группировкой опций по prefix'у (всё до первой точки в имени) и Listbox'ом.
+ * Одинарный клик по тегу СРАЗУ подтверждает выбор (кнопки «Выбрать» нет):
+ * привязка тегов — самая частая операция, второй клик на каждый тег лишний.
  *
  * Caller передаёт уже отфильтрованный массив `tags` (например только bool-теги
  * для switch-picker'а — фильтр живёт в CanvasInspector.booleanTags), и при
@@ -32,18 +34,30 @@ const search = ref('')
 const picked = ref(null)
 const searchRef = ref(null)
 
+const { pickTagList } = useTagList()
+
 // Автофокус поиска после появления диалога (@show — уже отрисован/анимирован).
 function onShow() {
   searchRef.value?.$el?.focus()
+}
+
+function confirmTag(name) {
+  if (!name) return
+  emit('select', name)
+  emit('update:visible', false)
 }
 
 // Enter из поля поиска подтверждает «активный» тег: текущий picked, если он ещё
 // в результатах, иначе — первый из отфильтрованных (кейс «набрал → Enter»).
 function confirmActive() {
   const t = picked.value && filtered.value.includes(picked.value) ? picked.value : filtered.value[0]
-  if (!t) return
-  emit('select', t.name)
-  emit('update:visible', false)
+  confirmTag(t?.name)
+}
+
+// Клик по опции = подтверждение. Listbox тоглит выбор, поэтому клик по уже
+// preselect'нутому тегу приходит с null — это тот же тег, а не сброс.
+function onPick(e) {
+  confirmTag(e.value?.name ?? props.selected)
 }
 
 const filtered = computed(() => {
@@ -80,12 +94,6 @@ watch(
       : null
   }
 )
-
-function confirm() {
-  if (!picked.value) return
-  emit('select', picked.value.name)
-  emit('update:visible', false)
-}
 
 function cancel() {
   emit('cancel')
@@ -133,7 +141,7 @@ function cancel() {
         option-group-children="items"
         class="w-full"
         list-style="max-height: 320px"
-        @dblclick="confirm"
+        @change="onPick"
       >
         <template #option="{ option }">
           <span class="flex items-center justify-between w-full font-mono">
@@ -150,15 +158,18 @@ function cancel() {
         </template>
       </Listbox>
 
-      <div v-else class="text-sm text-surface-400 py-4 text-center">
-        <template v-if="!tags.length">Tag-list не загружен</template>
-        <template v-else>Нет тегов по запросу</template>
+      <!-- Пустой tag-list — тупик: без файла тегов привязывать нечего. Даём
+           загрузку прямо здесь, диалог остаётся открытым и наполняется. -->
+      <div v-else-if="!tags.length" class="py-4 text-center space-y-3">
+        <p class="text-sm text-surface-400">Tag-list не загружен</p>
+        <Button label="Загрузить tag-list" icon="pi pi-tags" size="small" @click="pickTagList()" />
       </div>
+
+      <div v-else class="text-sm text-surface-400 py-4 text-center">Нет тегов по запросу</div>
     </div>
 
     <template #footer>
       <Button label="Отмена" severity="secondary" text @click="cancel" />
-      <Button label="Выбрать" icon="pi pi-check" :disabled="!picked" @click="confirm" />
     </template>
   </Dialog>
 </template>

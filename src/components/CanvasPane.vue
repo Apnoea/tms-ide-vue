@@ -152,6 +152,7 @@ const {
   importProjectFromArchive: guardedImportArchive,
   exportProjectToArchive: guardedExportArchive,
   createForm: guardedCreateForm,
+  duplicateForm: guardedDuplicateForm,
   deleteForm: guardedDeleteForm,
   renameForm: guardedRenameForm,
   moveFormNode: guardedMoveForm,
@@ -574,6 +575,7 @@ onMounted(async () => {
   // CRUD форм + DnD-перенос — FormTree дёргает через canvas.createForm/…/moveFormNode.
   canvas.setFormCrudFns({
     createForm: guardedCreateForm,
+    duplicateForm: guardedDuplicateForm,
     deleteForm: guardedDeleteForm,
     renameForm: guardedRenameForm,
     moveForm: guardedMoveForm,
@@ -647,7 +649,13 @@ onBeforeUnmount(() => {
   canvas.setSelectFormFn(null)
   canvas.setArchiveFns({ importFromArchive: null, exportToArchive: null })
   canvas.setFitViewFn(null)
-  canvas.setFormCrudFns({ createForm: null, deleteForm: null, renameForm: null, moveForm: null })
+  canvas.setFormCrudFns({
+    createForm: null,
+    duplicateForm: null,
+    deleteForm: null,
+    renameForm: null,
+    moveForm: null,
+  })
   paper?.remove()
   paper = null
   graph = null
@@ -887,7 +895,7 @@ function performClearCanvas(count) {
         @keydown.esc.prevent="cancelTextEdit"
       />
 
-      <!-- Hover-tooltip над ячейкой: лейбл стенсила, его id и id в animations.json.
+      <!-- Hover-tooltip над ячейкой: лейбл стенсила + «В группе (N)» у сгруппированной.
  pointer-events отключены чтобы tooltip не перехватывал клики/hover,
  иначе после mouseenter он бы сам ловил mouseleave при выходе из cell-bbox.
  Fade на исчезновение делает выход с ячейки мягче: появление с задержкой
@@ -916,10 +924,11 @@ function performClearCanvas(count) {
         </div>
       </Transition>
 
-      <!-- Inline-overlay одиночной выделенной ячейки: rotate-ccw /
-           rotate-cw / delete. Reactive HTML-overlay (а не JointJS
-           elementTools.Remove — кэширует позицию, не следует за resize).
-           rotate скрыт для noRotate-стенсилов. -->
+      <!-- Inline-overlay одиночной выделенной ячейки: поворот ↺/↻ и отражение H/V
+           (скрыты у noRotate/locked — `canTransform`), удаление (скрыто у locked)
+           и замок (виден всегда — им же блокировку снимают). Reactive
+           HTML-overlay, а не JointJS elementTools.Remove: тот кэширует позицию и
+           не следует за resize. -->
       <template v-if="overlayBtns">
         <Button
           v-if="overlayBtns.canTransform"

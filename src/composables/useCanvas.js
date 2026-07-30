@@ -43,6 +43,7 @@ const fitViewFn = shallowRef(null)
 // CRUD форм + DnD-перенос узла дерева (панель форм дёргает). Оркестрацию (стор +
 // IDB + перезагрузка холста) держит useProject в CanvasPane.
 const createFormFn = shallowRef(null)
+const duplicateFormFn = shallowRef(null)
 const deleteFormFn = shallowRef(null)
 const renameFormFn = shallowRef(null)
 const moveFormFn = shallowRef(null)
@@ -79,8 +80,8 @@ const dirtySinceExport = ref(false)
 const snapshotTick = ref(0)
 
 // Тег, по которому в данный момент подсвечены элементы. Матчит по любому
-// tag-полю (slots, voltageSource.tag, switchSources, valueTag —
-// см. cellHasTag), не только voltageSource. null = подсветки нет.
+// tag-полю (slots, rangeSource.tag, switchSources, valueTag —
+// см. cellHasTag), не только rangeSource. null = подсветки нет.
 // Кнопка «Подсветить на схеме» в RangeBlock / BooleanBlock
 // включает/выключает это значение через toggle: тот же тег второй раз
 // → снимает подсветку.
@@ -203,14 +204,18 @@ export function useCanvas() {
     fitToContent() {
       return fitViewFn.value?.()
     },
-    setFormCrudFns({ createForm, deleteForm, renameForm, moveForm }) {
+    setFormCrudFns({ createForm, duplicateForm, deleteForm, renameForm, moveForm }) {
       createFormFn.value = createForm
+      duplicateFormFn.value = duplicateForm
       deleteFormFn.value = deleteForm
       renameFormFn.value = renameForm
       moveFormFn.value = moveForm
     },
     createForm() {
       return createFormFn.value?.()
+    },
+    duplicateForm(id) {
+      return duplicateFormFn.value?.(id)
     },
     deleteForm(id) {
       return deleteFormFn.value?.(id)
@@ -471,7 +476,7 @@ export function useCanvas() {
     },
     /**
      * Модели выделения, доступные на ЗАПИСЬ: всё кроме заблокированных (`tms.locked`
-     * = read-only). Линки НЕ отбрасываем — замка у них нет, а voltage/switchSources
+     * = read-only). Линки НЕ отбрасываем — замка у них нет, а диапазоны/switchSources
      * на проводах валидны. Единая точка для массовых операций: `paper.interactive`
      * замок не защищает (правки идут программно), поэтому каждый такой путь обязан
      * фильтровать сам — раньше фильтр забывали, и замок обходился.

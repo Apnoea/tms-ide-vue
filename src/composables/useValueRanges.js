@@ -5,14 +5,14 @@ import { useProjectStore } from '../stores/useProjectStore'
 import { getStencilById } from '../stencils/registry'
 import { toPlain } from '../utils/plain'
 
-// Дефолтные диапазоны voltage-source; клонируем каждый диапазон на использование —
+// Дефолтные диапазоны; клонируем каждый диапазон на использование —
 // чтобы ячейки не делили один и тот же массив.
 //
 // max-границы укорочены на 0.01: WebScada condition-evaluator inclusive по
 // обоим концам (`>=min && <=max`). При max=4/4/7 значение 4 матчило бы и low,
 // и mid одновременно — итоговый цвет зависел бы от порядка CSS-правил, а не
 // от данных. Та же логика что для quality `[0, 191]` (max=191, не 192).
-const VOLTAGE_RANGE_DEFAULTS = [
+const RANGE_DEFAULTS = [
   { min: 0, max: 3.99, class: 'animation-low' },
   { min: 4, max: 6.99, class: 'animation-mid' },
   { min: 7, max: 10, class: 'animation-high' },
@@ -39,10 +39,10 @@ export function editRanges(ranges, idx, field, value) {
 }
 
 /**
- * Блок «Диапазоны значений» инспектора (`tms.voltageSource`: тег + пороги → класс
+ * Блок «Диапазоны значений» инспектора (`tms.rangeSource`: тег + пороги → класс
  * по диапазону) в двух режимах:
  *  • одиночный — правки идут прямо в выделенный элемент;
- *  • мульти — локальный ШАБЛОН `multiVoltage` (у выделения нет общего источника),
+ *  • мульти — локальный ШАБЛОН `multiRange` (у выделения нет общего источника),
  *    любая правка раздаётся на всё выделение; сбрасывается при смене состава.
  *
  * Вынесено из CanvasInspector: наружу нужны только props блока и обработчики его
@@ -53,52 +53,52 @@ export function editRanges(ranges, idx, field, value) {
  * @param {(updater: (tms: object) => object|undefined) => void} deps.mutateSelectedTms
  * @param {(config: object) => void} deps.openPicker — открыть единый tag-picker
  */
-export function useVoltageRanges({ details, mutateSelectedTms, openPicker }) {
+export function useValueRanges({ details, mutateSelectedTms, openPicker }) {
   const canvas = useCanvas()
   const notify = useNotify()
   const project = useProjectStore()
 
   /** patch=null — удаляет источник целиком; иначе мержит в существующий объект. */
-  function patchVoltageSource(patch) {
+  function patchRangeSource(patch) {
     mutateSelectedTms((tms) => ({
       ...tms,
-      voltageSource: patch === null ? null : { ...(tms.voltageSource || {}), ...patch },
+      rangeSource: patch === null ? null : { ...(tms.rangeSource || {}), ...patch },
     }))
   }
 
-  function openVoltagePicker() {
+  function openRangePicker() {
     openPicker({
-      tags: project.tags,
-      selected: details.value?.voltageSource?.tag || '',
+      tags: () => project.tags,
+      selected: details.value?.rangeSource?.tag || '',
       header: 'Выберите тег (диапазоны значений)',
       onSelect: onPickTag,
     })
   }
 
   function onPickTag(tag) {
-    // Если voltageSource ещё не существует (add-flow без созданной карточки),
+    // Если rangeSource ещё не существует (add-flow без созданной карточки),
     // создаём её с дефолтными диапазонами; иначе обновляем только тег.
-    if (details.value?.voltageSource) {
-      patchVoltageSource({ tag })
+    if (details.value?.rangeSource) {
+      patchRangeSource({ tag })
     } else {
-      patchVoltageSource({ tag, ranges: VOLTAGE_RANGE_DEFAULTS.map((r) => ({ ...r })) })
+      patchRangeSource({ tag, ranges: RANGE_DEFAULTS.map((r) => ({ ...r })) })
     }
   }
 
   function updateRange(idx, field, value) {
-    const vs = details.value?.voltageSource
+    const vs = details.value?.rangeSource
     if (!vs?.ranges) return
     const ranges = editRanges(vs.ranges, idx, field, value)
-    if (ranges) patchVoltageSource({ ranges })
+    if (ranges) patchRangeSource({ ranges })
   }
 
-  function removeVoltageSource() {
-    patchVoltageSource(null)
+  function removeRangeSource() {
+    patchRangeSource(null)
   }
 
-  /** «Подсветить на схеме»: toggle подсветки элементов с тем же voltageSource.tag. */
-  function toggleVoltageHighlight() {
-    const tag = details.value?.voltageSource?.tag
+  /** «Подсветить на схеме»: toggle подсветки элементов с тем же rangeSource.tag. */
+  function toggleRangeHighlight() {
+    const tag = details.value?.rangeSource?.tag
     if (!tag) {
       notify.warn(
         'Тег не выбран',
@@ -110,12 +110,12 @@ export function useVoltageRanges({ details, mutateSelectedTms, openPicker }) {
   }
 
   // ─── Мульти-режим: локальный шаблон (тег + пороги) ───
-  const multiVoltage = ref(null) // { tag, ranges } | null
+  const multiRange = ref(null) // { tag, ranges } | null
 
   watch(
     () => canvas.selection.value.map((i) => i.id).join('|'),
     () => {
-      multiVoltage.value = null
+      multiRange.value = null
     }
   )
 
@@ -132,70 +132,70 @@ export function useVoltageRanges({ details, mutateSelectedTms, openPicker }) {
   }
 
   /** Раздать текущий шаблон на всё выделение (клон на ячейку, без общих ссылок).
-   *  toPlain, не structuredClone: multiVoltage.value — Vue reactive-прокси,
+   *  toPlain, не structuredClone: multiRange.value — Vue reactive-прокси,
    *  structuredClone на нём бросает DataCloneError. */
-  function applyMultiVoltage() {
-    if (!multiVoltage.value) return
+  function applyMultiRange() {
+    if (!multiRange.value) return
     forEachSelectedCell((cell, tms) =>
-      cell.set('tms', { ...tms, voltageSource: toPlain(multiVoltage.value) })
+      cell.set('tms', { ...tms, rangeSource: toPlain(multiRange.value) })
     )
   }
 
-  function openMultiVoltagePicker() {
+  function openMultiRangePicker() {
     openPicker({
-      tags: project.tags,
+      tags: () => project.tags,
       header: 'Тег диапазонов для всех выделенных символов',
-      onSelect: onPickMultiVoltageTag,
+      onSelect: onPickMultiRangeTag,
     })
   }
 
-  function onPickMultiVoltageTag(tag) {
+  function onPickMultiRangeTag(tag) {
     if (!tag) return
-    const prev = multiVoltage.value
-    multiVoltage.value = {
+    const prev = multiRange.value
+    multiRange.value = {
       tag,
-      ranges: prev?.ranges ?? VOLTAGE_RANGE_DEFAULTS.map((r) => ({ ...r })),
+      ranges: prev?.ranges ?? RANGE_DEFAULTS.map((r) => ({ ...r })),
     }
-    applyMultiVoltage()
+    applyMultiRange()
   }
 
   /** Правка порога в шаблоне → перераздача на всё выделение. */
-  function updateMultiVoltageRange(idx, field, value) {
-    const vs = multiVoltage.value
+  function updateMultiRange(idx, field, value) {
+    const vs = multiRange.value
     if (!vs?.ranges) return
     const ranges = editRanges(vs.ranges, idx, field, value)
     if (!ranges) return
-    multiVoltage.value = { ...vs, ranges }
-    applyMultiVoltage()
+    multiRange.value = { ...vs, ranges }
+    applyMultiRange()
   }
 
   /** × — снять диапазоны со всех выделенных и очистить шаблон. */
-  function removeMultiVoltage() {
-    multiVoltage.value = null
+  function removeMultiRange() {
+    multiRange.value = null
     forEachSelectedCell((cell, tms) => {
-      if (!tms.voltageSource) return
+      if (!tms.rangeSource) return
       const next = { ...tms }
-      delete next.voltageSource
+      delete next.rangeSource
       cell.set('tms', next)
     })
   }
 
-  function toggleMultiVoltageHighlight() {
-    const tag = multiVoltage.value?.tag
+  function toggleMultiRangeHighlight() {
+    const tag = multiRange.value?.tag
     if (tag) canvas.toggleHighlightedTag(tag)
   }
 
   return {
     // одиночный режим
-    openVoltagePicker,
+    openRangePicker,
     updateRange,
-    removeVoltageSource,
-    toggleVoltageHighlight,
+    removeRangeSource,
+    toggleRangeHighlight,
     // мульти-режим
-    multiVoltage,
-    openMultiVoltagePicker,
-    updateMultiVoltageRange,
-    removeMultiVoltage,
-    toggleMultiVoltageHighlight,
+    multiRange,
+    openMultiRangePicker,
+    updateMultiRange,
+    removeMultiRange,
+    toggleMultiRangeHighlight,
   }
 }

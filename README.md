@@ -35,7 +35,7 @@ src/
 ├── main.js / App.vue / style.css
 ├── components/
 │   ├── StatusBar.vue          # статус выгрузки в .zip + справка F1 (верх справа)
-│   ├── FormTree.vue           # дерево форм (навигатор, слева над палитрой)
+│   ├── FormTree.vue           # дерево форм: создать / дублировать / переименовать / удалить + DnD
 │   ├── PalettePane.vue        # палитра стенсилов (слева) + создание/удаление стенсилов
 │   ├── StencilEditor.vue      # редактор стенсилов (оверлей поверх холста)
 │   ├── CanvasPane.vue         # JointJS-холст (центр)
@@ -49,8 +49,8 @@ src/
 │   ├── RangeBlock.vue         # карточка «Диапазоны значений» (аналоговое значение)
 │   ├── BooleanBlock.vue       # карточка «Булево значение» (свой тег + зависимости)
 │   ├── TagField.vue           # единое поле-тег (чип) для блоков инспектора
-│   ├── TagPickerDialog.vue    # picker тегов
-│   └── HelpDialog.vue         # справка по хоткеям
+│   ├── TagPickerDialog.vue    # picker тегов (клик = выбор; пустой умеет загрузить tag-list)
+│   └── HelpDialog.vue         # справка: клавиши и приёмы (жесты холста, формы, анимации)
 ├── composables/
 │   ├── useCanvas.js           # singleton graph/paper/selection + search + замок/группы/z
 │   ├── useCanvasZoom.js       # колесо / кнопки ± / fit-to-content / доводка ячейки в вид
@@ -64,9 +64,10 @@ src/
 │   ├── useNotify.js           # toast.add → notify.success/info/warn/error + TOAST_LIFE
 │   ├── useSimulation.js       # preview-анимация
 │   ├── useTextEdit.js         # inline edit cell_text
+│   ├── useTagList.js          # загрузка tag-list из файла + restore по file-handle
 │   ├── useBusResize.js        # drag-resize шины
 │   ├── useWireSplice.js       # врезка стенсила в провод + превью над проводом
-│   ├── useProject.js          # оркестрация: переключение / CRUD форм / импорт / экспорт
+│   ├── useProject.js          # оркестрация: переключение / CRUD форм (вкл. дублирование) / импорт / экспорт
 │   ├── useStencilEditor.js    # модель редактора (фигуры / порты / снап / undo-redo / loadStencil)
 │   ├── usePan.js / useLasso.js # pan (средняя кнопка / Space+ЛКМ) / рамочное выделение (ЛКМ)
 │   ├── usePaletteDrag.js      # drag стенсила из палитры (превью + создание + врезка)
@@ -75,7 +76,7 @@ src/
 │   ├── useSelectionOverlay.js # overlay-кнопки выделенной ячейки (rotate/flip/delete/lock)
 │   ├── useAlign.js            # выравнивание/распределение ячеек (края/центры/равные интервалы, без наложений)
 │   ├── useSwitchGroups.js     # DNF-группы switchSources (блок «Булево значение»)
-│   ├── useVoltageRanges.js    # диапазоны voltageSource, в т.ч. multi-select шаблон
+│   ├── useValueRanges.js      # диапазоны значений (tms.rangeSource) + multi-шаблон
 │   ├── useTextCellProps.js    # свойства cell_text + ресайз под текст
 │   └── useNavigationField.js  # поле навигации: выбор формы или ручной ввод view-id
 ├── stores/
@@ -95,14 +96,16 @@ src/
 │   └── definitions/<id>/{stencil.json, shape.svg}
 ├── services/
 │   ├── exporter.js            # view.svg + animations.json (пер-форма)
+│   ├── animationCards.js      # карточки анимаций: диапазоны / булево / multi-выражение / цвет состояния
 │   ├── projectLoader.js       # round-trip load (parseSvgProject)
+│   ├── legacyFormat.js        # чтение прежнего формата (voltageSource / tms-voltage-fill) + миграция
 │   ├── projectZip.js          # проект ↔ .zip (fflate): импорт/экспорт + collectUsedStencilIds
 │   ├── stencilLibrary.js      # persist/delete стенсила на диск (dev-эндпоинты /__stencils/*)
 │   ├── stencilOverrides.js    # персист правок стенсилов в IndexedDB (переживают reload в prod)
 │   ├── fileSystem.js          # File System Access API
 │   └── parsers.js             # tag-list парсер
 ├── constants/
-│   ├── animation.js           # voltage-палитра + CLASS_OFF / CLASS_HIDDEN
+│   ├── animation.js           # палитра диапазонов + CLASS_OFF / CLASS_HIDDEN
 │   └── ids.js                 # wire-protocol: prefixes / data-attrs / slot resolver
 └── utils/
     ├── cellSearch.js          # getCellTags(FromTms) + match для Ctrl+F
@@ -124,8 +127,9 @@ src/
 
 Тесты лежат рядом с модулями (`*.test.js`); общий helper — `composables/test-utils.js`
 (`withSetup` для композаблов, `mountWithApp` для компонентов — монтирует с Pinia и
-PrimeVue). Логика живёт в композаблах и покрыта юнит-тестами; компонентных всего два —
-инспектор холста (стык компонент↔стор) и `ShapePrimitive` (рендер примитивов).
+PrimeVue). Логика живёт в композаблах и покрыта юнит-тестами; компонентных всего три —
+инспектор холста (стык компонент↔стор), `ShapePrimitive` (рендер примитивов) и
+`TagPickerDialog` (поведение диалога выбора тега).
 
 ## Модель стенсила
 
@@ -179,7 +183,7 @@ Canvas читают флаги, никаких хардкод-списков в 
 | ---------- | ------------------- | --------------------------------------- |
 | cell_text  | Разметка и значения | Статический лейбл                       |
 | cell_value | Разметка и значения | Отображение значения тега               |
-| cell_node  | Разметка и значения | Точка соединения (наследует voltage)    |
+| cell_node  | Разметка и значения | Точка соединения (наследует диапазоны)  |
 | cell_bus   | Разметка и значения | Шина (resizable, динамические порты)    |
 | cell_tv2   | Трансформаторы      | Трансформатор (2 обмотки)               |
 | cell_tv3   | Трансформаторы      | Трансформатор (3 обмотки)               |
@@ -234,7 +238,7 @@ polygon, opt-in класс `tms-state-fill`), поэтому контур/hit-ar
 цвета, на экспорт не влияет). Чекбокс `quality` (серость + «показать все положения»
 при bad-качестве) — в том же блоке анимации, только при включённой анимации.
 Де-энергизация (серость по напряжению/качеству) в стенсиле не задаётся — это холст
-(`switchSources`/`voltageSource`). Стенсил регистрируется в реестре сразу (появляется
+(`switchSources`/`rangeSource`). Стенсил регистрируется в реестре сразу (появляется
 в палитре) и пишется в `definitions/<id>/` dev-плагином.
 
 Правка — кнопка-карандаш в строке стенсила (по ховеру, у всех **кроме залоченных**
@@ -311,7 +315,7 @@ qw / qr / qk / qf **редактируема** (единый формат `.true
 
 ## Поиск (Ctrl+F)
 
-Плавающий виджет ищет по: всем `slots.*`, `voltageSource.tag`,
+Плавающий виджет ищет по: всем `slots.*`, `rangeSource.tag`,
 `switchSources` (все теги групп), `valueTag`, тексту `cell_text`, `navigation`. Совпадения
 подсвечиваются амбер-ореолом, текущее — насыщенный оранжевый, паном
 центрируется в viewport (если за пределами). Enter/F3 — следующее,
@@ -344,7 +348,7 @@ Shift+Enter/F3 — предыдущее, Esc — закрыть.
 **Врезка** — drop стенсила с **≥2 портами** из палитры на провод разбивает его
 на два сегмента с проходом через элемент: исходный линк переиспользуется как
 `source→cell.in`, добавляется `cell.out→target` с клоном анимаций; элемент
-наследует voltage/switch провода (но его собственная конфигурация приоритетнее —
+наследует диапазоны/switch провода (но его собственная конфигурация приоритетнее —
 наследуется только то, чего у него нет). Во время drag над проводом превью липнет
 к линии и поворачивается под угол врезки.
 
@@ -409,9 +413,9 @@ cellId/linkId = JointJS UUID, стабилен между сессиями. Ес
 CSS в SVG:
 
 - `*:not(text)` для `stroke` — текст не перекрашивается
-- opt-in классы заливки: `.tms-voltage-fill` (voltage/off) и `.tms-state-fill`
+- opt-in классы заливки: `.tms-range-fill` (диапазоны/off) и `.tms-state-fill`
   (цвет состояния, замкнутые фигуры stateful-стенсилов)
-- `.animation-off` (slate-500) — поверх voltage-классов
+- `.animation-off` (slate-500) — поверх классов диапазонов
 - `.animation-hidden { display: none }`
 - `[data-tms-stencil="..."].animation-off .animation-hidden { display: initial }`
   — генерится для каждого стенсила с `quality: true` (cell_qk / cell_qr /
@@ -447,8 +451,9 @@ IDE работает с **проектом** — набором форм (схе
 индикатора успешного автосейва нет — он молчит, кричим только про ошибку записи.
 
 - **Формы** — дерево в левой панели: «+» в шапке создаёт пустую (падает
-  последним узлом в корень), карандаш у строки — переименование, × — удаление
-  (единственную удалить нельзя), **drag-and-drop** переносит/вкладывает узлы
+  последним узлом в корень), кнопка-копия дублирует форму (`<id>_copy`, копия
+  встаёт сиблингом и открывается), карандаш у строки — переименование, × —
+  удаление (единственную удалить нельзя), **drag-and-drop** переносит/вкладывает узлы
   (линия между строками = переставить, подсветка узла = вложить внутрь; своё
   поддерево — недоступная цель). Формы вне дерева показываются группой «Без
   иерархии», узлы на несуществующую форму — битыми. Имя формы = имя папки при

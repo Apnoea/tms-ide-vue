@@ -15,7 +15,7 @@ import {
 } from '../composables/useAnimationClipboard'
 import { useAlign } from '../composables/useAlign'
 import { useSwitchGroups } from '../composables/useSwitchGroups'
-import { useVoltageRanges } from '../composables/useVoltageRanges'
+import { useValueRanges } from '../composables/useValueRanges'
 import { useTextCellProps, ALIGN_OPTIONS, BOLD_OPTIONS } from '../composables/useTextCellProps'
 import { useNavigationField } from '../composables/useNavigationField'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -35,7 +35,7 @@ import { ANIMATION_CLASS_OPTIONS } from '../constants/animation'
 import { previewOuterKey } from '../constants/ids'
 
 // Статичные стенсилы (флаг `static: true` в stencil.json) — без визуальной
-// реакции на animation-классы; voltage/switch source на них бессмыслен, в
+// реакции на animation-классы; диапазоны/switch source на них бессмысленны, в
 // multi-select их пропускаем.
 function isStatic(stencilId) {
   return !!getStencilById(stencilId)?.static
@@ -192,7 +192,7 @@ const details = computed(() => {
         type: s.type,
         value: slotValues[s.key] || '',
       })),
-      voltageSource: tms.voltageSource || null,
+      rangeSource: tms.rangeSource || null,
       switchSources: tms.switchSources || null,
       navigation: tms.navigation || '',
     }
@@ -206,7 +206,7 @@ const details = computed(() => {
       // Толщина/цвет линии — из JointJS-attr (реально отрисованные); дефолты 2 / #000.
       strokeWidth: cell.attr('line/strokeWidth') ?? 2,
       strokeColor: cell.attr('line/stroke') || '#000000',
-      voltageSource: tms.voltageSource || null,
+      rangeSource: tms.rangeSource || null,
       switchSources: tms.switchSources || null,
     }
   }
@@ -229,13 +229,15 @@ function onDelete() {
 }
 
 // ─── Единый tag-picker ───
-// Все места открывают один диалог через openPicker(config). tags/selected/header
-// снимаются в момент открытия (во время открытого диалога tag-list не меняется);
-// onSelect — что делать с выбранным тегом. picker=null → диалог закрыт.
+// Все места открывают один диалог через openPicker(config): selected/header
+// снимаются в момент открытия, `tags` — ГЕТТЕР (пустой picker умеет загрузить
+// tag-list сам, и список должен наполниться, не закрывая диалог), onSelect —
+// что делать с выбранным тегом. picker=null → диалог закрыт.
 const picker = ref(null)
+const pickerTags = computed(() => picker.value?.tags?.() ?? [])
 
 function openPicker(config) {
-  picker.value = { selected: '', tags: [], header: 'Выберите тег', ...config }
+  picker.value = { selected: '', tags: () => [], header: 'Выберите тег', ...config }
 }
 
 function onPickerSelect(tag) {
@@ -248,7 +250,7 @@ function onPickerSelect(tag) {
 // Булев слот → только bool-теги; остальные — весь tag-list.
 function openSlotPicker(slot) {
   openPicker({
-    tags: isBooleanType(slot?.type) ? project.booleanTags : project.tags,
+    tags: () => (isBooleanType(slot?.type) ? project.booleanTags : project.tags),
     selected: slot?.value || '',
     header: 'Выберите тег',
     onSelect: (tag) => patchSlotTag(slot.key, tag),
@@ -415,7 +417,7 @@ function onToggleLock() {
 // ─── Tag-picker для cell_value (отображаемый тег) ───
 function openValueTagPicker() {
   openPicker({
-    tags: project.floatTags,
+    tags: () => project.floatTags,
     selected: details.value?.valueTag || '',
     header: 'Выберите тег для отображения значения',
     onSelect: onPickValueTag,
@@ -457,19 +459,19 @@ function mutateSelectedTms(updater) {
   canvas.requestSnapshot()
 }
 
-// ─── Диапазоны значений (voltageSource) ───
-// Секция целиком в useVoltageRanges: одиночный режим + мульти-шаблон.
+// ─── Диапазоны значений (rangeSource) ───
+// Секция целиком в useValueRanges: одиночный режим + мульти-шаблон.
 const {
-  openVoltagePicker,
+  openRangePicker,
   updateRange,
-  removeVoltageSource,
-  toggleVoltageHighlight,
-  multiVoltage,
-  openMultiVoltagePicker,
-  updateMultiVoltageRange,
-  removeMultiVoltage,
-  toggleMultiVoltageHighlight,
-} = useVoltageRanges({ details, mutateSelectedTms, openPicker })
+  removeRangeSource,
+  toggleRangeHighlight,
+  multiRange,
+  openMultiRangePicker,
+  updateMultiRange,
+  removeMultiRange,
+  toggleMultiRangeHighlight,
+} = useValueRanges({ details, mutateSelectedTms, openPicker })
 
 // ─── switchSources: зависимости-теги ГРУППАМИ (DNF) ───
 // Секция целиком в useSwitchGroups (форма { groups }, picker, add/edit/remove).
@@ -487,7 +489,7 @@ const {
 /** Открыть picker массовой привязки булева тега (multi-select). */
 function openMultiSwitchPicker() {
   openPicker({
-    tags: project.booleanTags,
+    tags: () => project.booleanTags,
     header: 'Булев тег для всех выделенных символов',
     onSelect: onPickMultiSwitchTag,
   })
@@ -553,11 +555,11 @@ function copyBool() {
   notify.success('Скопировано', 'Булевые настройки анимации')
 }
 
-/** Копировать диапазоны выделенного (voltageSource целиком: тег + пороги). */
+/** Копировать диапазоны выделенного (rangeSource целиком: тег + пороги). */
 function copyRange() {
   const d = details.value
-  if (!d?.voltageSource) return
-  animClip.copyRange(toPlain(d.voltageSource))
+  if (!d?.rangeSource) return
+  animClip.copyRange(toPlain(d.rangeSource))
   notify.success('Скопировано', 'Диапазоны значений')
 }
 
@@ -583,7 +585,7 @@ function pasteBool() {
   )('Булевые настройки вставлены')
 }
 
-/** Вставить диапазоны из буфера на всё текущее выделение (voltageSource целиком,
+/** Вставить диапазоны из буфера на всё текущее выделение (rangeSource целиком,
  *  свежий клон на ячейку). Статичные стенсилы пропускаем. */
 function pasteRange() {
   pasteClip(animClip.rangeClip.value, (tms) =>
@@ -741,7 +743,7 @@ const {
                (общего состояния у выделения нет → списки пустые/шаблон, выбор тега
                и порогов раздаётся на всё выделение). Булев — BooleanBlock без групп:
                «+ группа» раздаёт тег новой группой на всё выделение. Range — шаблон
-               multiVoltage: задаёшь тег → правишь пороги → на все выделенные. -->
+               multiRange: задаёшь тег → правишь пороги → на все выделенные. -->
           <div class="space-y-2">
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
             <BooleanBlock
@@ -755,14 +757,14 @@ const {
               @paste="pasteBool"
             />
             <RangeBlock
-              :voltage-source="multiVoltage"
+              :range-source="multiRange"
               :tags-loaded="!!project.tags.length"
               :class-options="ANIMATION_CLASS_OPTIONS"
               :pasteable="animClip.hasRange.value"
-              @open-tag-picker="openMultiVoltagePicker"
-              @update-range="updateMultiVoltageRange"
-              @highlight="toggleMultiVoltageHighlight"
-              @remove="removeMultiVoltage"
+              @open-tag-picker="openMultiRangePicker"
+              @update-range="updateMultiRange"
+              @highlight="toggleMultiRangeHighlight"
+              @remove="removeMultiRange"
               @paste="pasteRange"
             />
           </div>
@@ -1096,18 +1098,18 @@ const {
             />
 
             <!-- Диапазоны значений (аналоговое значение) — виден всегда.
-                 voltageSource создаётся лениво при выборе тега (onPickTag),
+                 rangeSource создаётся лениво при выборе тега (onPickTag),
                  очищается через × (виден при непустом). -->
             <RangeBlock
-              :voltage-source="details.voltageSource"
+              :range-source="details.rangeSource"
               :tags-loaded="!!project.tags.length"
               :class-options="ANIMATION_CLASS_OPTIONS"
-              :copyable="!!details.voltageSource"
+              :copyable="!!details.rangeSource"
               :pasteable="animClip.hasRange.value"
-              @open-tag-picker="openVoltagePicker"
+              @open-tag-picker="openRangePicker"
               @update-range="updateRange"
-              @highlight="toggleVoltageHighlight"
-              @remove="removeVoltageSource"
+              @highlight="toggleRangeHighlight"
+              @remove="removeRangeSource"
               @copy="copyRange"
               @paste="pasteRange"
             />
@@ -1120,7 +1122,7 @@ const {
          булев / multi-select) — открывается через openPicker, см. picker-ref. -->
     <TagPickerDialog
       :visible="!!picker"
-      :tags="picker?.tags || []"
+      :tags="pickerTags"
       :selected="picker?.selected || ''"
       :header="picker?.header || 'Выберите тег'"
       @update:visible="(v) => !v && (picker = null)"

@@ -14,6 +14,7 @@ import { persistStencilsToDisk } from '../services/stencilLibrary'
 import { replaceStencilOverrides, stencilSignature } from '../services/stencilOverrides'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { nplural } from '../utils/plural'
+import { toPlain } from '../utils/plain'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from './useNotify'
@@ -21,8 +22,8 @@ import { useCanvas } from './useCanvas'
 
 /**
  * Оркестрация проектных операций: переключение формы, CRUD форм (создать /
- * удалить / переименовать), импорт и экспорт проекта в .zip. Без UI — поэтому
- * логика мутаций графа/стора под сериями await'ов тестируема в изоляции.
+ * дублировать / удалить / переименовать), импорт и экспорт проекта в .zip. Без UI
+ * — поэтому логика мутаций графа/стора под сериями await'ов тестируема в изоляции.
  *
  * graph/paper берём из `useCanvas` (как `useAutosave`); зависимости из других
  * композаблов инжектятся бэгом — их lifecycle-хуки должны жить в компоненте.
@@ -129,6 +130,41 @@ export function useProject({
     flagIfNotSaved(ok)
     loadActiveIntoCanvas(graph, paper, { cells: [] })
     canvas.markDirty() // новая форма → проект разошёлся с .zip
+  }
+
+  /** Свободное имя на базе `base`: `base`, `base2`, `base3`… */
+  function uniqueFormId(base) {
+    if (!workspace.hasForm(base)) return base
+    let n = 2
+    while (workspace.hasForm(`${base}${n}`)) n++
+    return `${base}${n}`
+  }
+
+  /**
+   * Дублировать форму (`<id>_copy`) и переключиться на копию. Граф клонируем
+   * через `toPlain`: стор держит объекты ячеек, и по общей ссылке правка копии
+   * уехала бы в оригинал. id ячеек не меняем — они уникальны в пределах формы,
+   * а экспорт пер-форма. Узел копии ставим сиблингом после исходной
+   * (`addForm` кладёт в конец корня — копия улетала бы от родителя).
+   */
+  async function duplicateForm(id) {
+    const graph = canvas.graphRef.value
+    const paper = canvas.paperRef.value
+    if (!graph || !paper || !workspace.hasForm(id)) return
+    cancelPendingSnapshot()
+    if (simulating.value) stopSimulation()
+    await saveActiveForm() // дублируем актуальное состояние, а не последнее сохранённое
+    const copyId = uniqueFormId(`${id}_copy`)
+    const json = toPlain(workspace.getFormGraph(id) || { cells: [] })
+    workspace.addForm(copyId, json)
+    workspace.moveNode(copyId, id, 'after')
+    let ok = await persistForm(copyId, json)
+    workspace.setActiveFormId(copyId)
+    ok = (await persistMeta()) && ok
+    flagIfNotSaved(ok)
+    loadActiveIntoCanvas(graph, paper, json)
+    canvas.markDirty() // новая форма → проект разошёлся с .zip
+    notify.success('Форма скопирована', `Открыта «${copyId}»`)
   }
 
   /**
@@ -489,6 +525,7 @@ export function useProject({
     importProjectFromArchive: withProjectBusy(importProjectFromArchive),
     exportProjectToArchive: withProjectBusy(exportProjectToArchive),
     createForm: withProjectBusy(createForm),
+    duplicateForm: withProjectBusy(duplicateForm),
     deleteForm: withProjectBusy(deleteForm),
     renameForm: withProjectBusy(renameForm),
     moveFormNode: withProjectBusy(moveFormNode),

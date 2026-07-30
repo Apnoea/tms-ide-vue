@@ -58,7 +58,7 @@ export function buildTextExportSvg(
 ) {
   const y = height / 2
   const weight = bold ? ' font-weight="bold"' : ''
-  // Статичная подпись — цвет задаёт автор (tms.color), voltage-fill тут не нужен.
+  // Статичная подпись — цвет задаёт автор (tms.color), заливка по диапазонам тут не нужна.
   return `<svg xmlns="${SVG_NS}"><text x="${TEXT_PADDING_X}" y="${y}" dominant-baseline="central" font-size="${fontSize}" font-family="sans-serif"${weight} fill="${escapeAttr(color || '#000')}">${escapeXml(text)}</text></svg>`
 }
 
