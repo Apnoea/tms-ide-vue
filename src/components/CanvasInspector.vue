@@ -4,6 +4,7 @@ import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import AutoComplete from 'primevue/autocomplete'
+import Select from 'primevue/select'
 import SelectButton from 'primevue/selectbutton'
 import ToggleSwitch from 'primevue/toggleswitch'
 import { useNotify } from '../composables/useNotify'
@@ -176,6 +177,9 @@ const details = computed(() => {
       color: tms.color || '',
       isValue: tms.stencilId === 'cell_value',
       valueTag: tms.valueTag ?? '',
+      // Явно выбранная пара «подпись + единица» (перебивает пресет по суффиксу).
+      valueLabel: tms.valueLabel ?? '',
+      valueUnit: tms.valueUnit ?? '',
       // id outer-карточки в animations.json/SVG (тот же, что эмитит exporter).
       exportId: previewOuterKey(tms.stencilId, cell.id, tms.valueTag),
       // Стенсилы с булевым слотом-драйвером (key onoff — см. hasBoolSlot; это
@@ -424,10 +428,43 @@ function openValueTagPicker() {
   })
 }
 
+// Пресеты величин объявлены в stencil.json cell_value (`valuePresets`) — единый
+// источник и для автоподстановки по суффиксу тега, и для выбора в инспекторе.
+const valuePresets = computed(() => {
+  if (!details.value?.isValue) return []
+  return getStencilById(details.value.stencilId)?.valuePresets || []
+})
+
 const valueDisplay = computed(() => {
   if (!details.value?.isValue) return null
-  return resolveValueDisplay(details.value.valueTag)
+  const d = details.value
+  return resolveValueDisplay(d.valueTag, d, valuePresets.value)
 })
+
+// Пресет, соответствующий текущей паре (явной или подставленной по суффиксу) —
+// им подсвечивается выбранная строка Select'а.
+const valuePreset = computed(() => {
+  const cur = valueDisplay.value
+  if (!cur?.label) return null
+  return (
+    valuePresets.value.find((p) => p.label === cur.label && (p.unit || '') === cur.unit) ?? null
+  )
+})
+
+/** Выбор пары в инспекторе: пишем ЯВНО в tms — она перебивает пресет по суффиксу. */
+function onPickValuePreset(preset) {
+  if (!preset) return
+  withSelectedCell(
+    ({ cell, tms, d }) => {
+      if (!d.isValue) return false
+      const next = { ...tms, valueLabel: preset.label }
+      if (preset.unit) next.valueUnit = preset.unit
+      else delete next.valueUnit
+      cell.set('tms', next)
+    },
+    { reinject: true }
+  )
+}
 
 function onPickValueTag(tag) {
   // Перерисовка — buildValueContent читает свежий tms.valueTag и обновляет label/unit.
@@ -952,16 +989,36 @@ const {
                 :can-pick="!!project.tags.length"
                 @pick="openValueTagPicker"
               />
-              <div
-                v-if="details.valueTag && valueDisplay"
-                class="text-[11px] text-surface-500 mt-2 font-mono"
-              >
-                Подпись:
-                <span class="text-surface-700">{{ valueDisplay.label }}</span>
-                <template v-if="valueDisplay.unit">
-                  · единица:
-                  <span class="text-surface-700">{{ valueDisplay.unit }}</span>
-                </template>
+              <!-- Величина = пара «подпись + единица» из пресетов стенсила. Пара
+                   подставляется по суффиксу тега (`.UA` → «Ua · В»), но имена тегов
+                   не во всех проектах следуют конвенции — поэтому выбор явный, и он
+                   перебивает автоподстановку. -->
+              <div v-if="valuePresets.length" class="mt-2">
+                <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
+                  Величина
+                </div>
+                <Select
+                  :model-value="valuePreset"
+                  :options="valuePresets"
+                  option-label="label"
+                  placeholder="Выберите величину"
+                  size="small"
+                  class="w-full"
+                  @update:model-value="onPickValuePreset"
+                >
+                  <template #value="{ value }">
+                    <span v-if="value" class="text-xs">
+                      {{ value.label }}
+                      <span v-if="value.unit" class="text-surface-500">· {{ value.unit }}</span>
+                    </span>
+                  </template>
+                  <template #option="{ option }">
+                    <span class="text-xs">
+                      {{ option.label }}
+                      <span v-if="option.unit" class="text-surface-500">· {{ option.unit }}</span>
+                    </span>
+                  </template>
+                </Select>
               </div>
             </div>
 

@@ -41,8 +41,11 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
     const br = projectToScreen(paper, aabb.x + aabb.width, aabb.y + aabb.height)
     const { x: left, y: top } = tl
     const { x: right, y: bottom } = br
-    const HALF = 16
-    const GAP = 10
+    const HALF = 16 // половина кнопки (32×32) — позиции считаем по её центру
+    // Зазор от края символа до края кнопки. У мелких символов (20×20) кнопки
+    // крупнее самого символа, поэтому отодвигаем заметно — иначе они наползают
+    // на него и на соседей, и клик по соседнему символу попадает в кнопку.
+    const GAP = 24
     return {
       id: cell.id,
       canTransform: canCellTransform(cell),

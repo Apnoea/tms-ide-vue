@@ -3,7 +3,7 @@ import { instantiate } from '../stencils/parser'
 import { flipTransform } from '../stencils/svgInjector'
 import { buildBusExportSvg } from '../stencils/busCell'
 import { buildTextExportSvg } from '../stencils/textCell'
-import { buildValueExportSvg } from '../stencils/valueCell'
+import { buildValueExportSvg, resolveValueDisplay } from '../stencils/valueCell'
 import {
   CLASS_OFF,
   CLASS_HIDDEN,
@@ -173,7 +173,12 @@ export function exportProject(graph, paper = null) {
         color: tms.color,
       })
     } else if (tms.stencilId === 'cell_value') {
-      cellSvg = buildValueExportSvg(animId, tms.valueTag || '', size.width, size.height)
+      cellSvg = buildValueExportSvg(
+        animId,
+        size.width,
+        size.height,
+        resolveValueDisplay(tms.valueTag, tms, stencil.valuePresets)
+      )
       if (tms.valueTag) {
         // text-id = animation-{animId}; animId дедуплицирован выше → ключ уникален
         // даже при двух cell_value с одним valueTag. Конвенция WebScada-рантайма:

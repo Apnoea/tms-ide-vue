@@ -8,5 +8,22 @@
   "defaults": { "valueTag": "" },
   "shapeFile": "shape.svg",
   "width": 100,
-  "height": 20
+  "height": 20,
+  "valuePresets": [
+    { "suffix": ".IA", "label": "Ia", "unit": "А" },
+    { "suffix": ".IB", "label": "Ib", "unit": "А" },
+    { "suffix": ".IC", "label": "Ic", "unit": "А" },
+    { "suffix": ".UA", "label": "Ua", "unit": "В" },
+    { "suffix": ".UB", "label": "Ub", "unit": "В" },
+    { "suffix": ".UC", "label": "Uc", "unit": "В" },
+    { "suffix": ".UAB", "label": "Uab", "unit": "В" },
+    { "suffix": ".UBC", "label": "Ubc", "unit": "В" },
+    { "suffix": ".UCA", "label": "Uca", "unit": "В" },
+    { "suffix": ".PW", "label": "P", "unit": "кВт" },
+    { "suffix": ".QW", "label": "Q", "unit": "квар" },
+    { "suffix": ".SW", "label": "S", "unit": "кВА" },
+    { "suffix": ".COSF", "label": "cosφ", "unit": "" },
+    { "suffix": ".F", "label": "f", "unit": "Гц" },
+    { "suffix": ".T", "label": "t", "unit": "°C" }
+  ]
 }

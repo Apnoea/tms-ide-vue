@@ -1,12 +1,14 @@
 <script setup>
 /**
- * Статус-полоса (верх справа, над инспектором): состояние проекта + справка по
- * хоткеям. Единый локус статуса — отдельного индикатора автосейва нет. Приоритет:
- *   saveError       — браузер НЕ сохраняет (квота/приватный режим), риск потери;
- *   dirtySinceExport — есть правки после последнего экспорта/импорта в .zip;
- *   иначе            — состояние совпадает с последним доставленным архивом.
- * Автосейв в IndexedDB в норме молчит (успех — это ожидаемое), кричим только про
- * критичную ошибку записи.
+ * Статус-полоса (верх справа, над инспектором): справка + ОДИН статус —
+ * `saveError` (браузер не пишет в IndexedDB: квота / приватный режим, работа
+ * живёт только в памяти вкладки). В норме полоса пуста.
+ *
+ * «Есть правки, не попавшие в .zip» здесь НЕ показываем: это амбер-точка на
+ * кнопке «Экспорт» (ProjectActions) — рядом с действием, которое закрывает
+ * вопрос. Дублировать её текстом значило занимать место ровно в том состоянии,
+ * когда смотреть не надо, а «Выгружено» вообще сообщало «всё нормально».
+ * Успешный автосейв тоже молчит — кричим только про потерю данных.
  */
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from '../composables/useCanvas'
@@ -27,24 +29,9 @@ const canvas = useCanvas()
       <i class="pi pi-exclamation-triangle !text-[10px]" />
       Не сохранено
     </div>
-    <div
-      v-else-if="canvas.dirtySinceExport.value"
-      v-tooltip.bottom="'Есть изменения, не попавшие в .zip. Ctrl+S — экспортировать проект'"
-      class="flex items-center gap-1.5 text-[11px] font-medium text-amber-600"
-    >
-      <i class="pi pi-circle-fill !text-[7px]" />
-      Не выгружено
-    </div>
-    <div
-      v-else
-      v-tooltip.bottom="'Нет изменений с последнего экспорта/импорта проекта'"
-      class="flex items-center gap-1.5 text-[11px] text-surface-400"
-    >
-      <i class="pi pi-check !text-[10px]" />
-      Выгружено
-    </div>
 
-    <div class="h-4 w-px bg-surface-200" aria-hidden="true"></div>
+    <!-- Разделитель — только когда слева есть статус, иначе висел бы у края. -->
+    <div v-if="canvas.saveError.value" class="h-4 w-px bg-surface-200" aria-hidden="true"></div>
 
     <button
       v-tooltip.bottom="'Клавиши и приёмы · ? или F1'"

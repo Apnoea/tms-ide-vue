@@ -4,54 +4,25 @@
 import { valueTextKey } from '../constants/ids'
 import { SVG_NS, escapeXml, escapeAttr, svgEl } from '../utils/xml'
 
-/** Суффикс тега → физическое имя и единица; неизвестный показываем как есть. */
-const VALUE_LABEL_BY_SUFFIX = {
-  '.IA': 'Ia',
-  '.IB': 'Ib',
-  '.IC': 'Ic',
-  '.UA': 'Ua',
-  '.UB': 'Ub',
-  '.UC': 'Uc',
-  '.UAB': 'Uab',
-  '.UBC': 'Ubc',
-  '.UCA': 'Uca',
-  '.PW': 'P',
-  '.QW': 'Q',
-  '.SW': 'S',
-  '.COSF': 'cosφ',
-  '.F': 'f',
-  '.T': 't',
-}
-
-const VALUE_UNIT_BY_SUFFIX = {
-  '.IA': 'А',
-  '.IB': 'А',
-  '.IC': 'А',
-  '.UA': 'В',
-  '.UB': 'В',
-  '.UC': 'В',
-  '.UAB': 'В',
-  '.UBC': 'В',
-  '.UCA': 'В',
-  '.PW': 'кВт',
-  '.QW': 'квар',
-  '.SW': 'кВА',
-  '.COSF': '',
-  '.F': 'Гц',
-  '.T': '°C',
-}
-
 function suffixOfTag(tag) {
   const dotIdx = (tag || '').indexOf('.')
   return dotIdx >= 0 ? tag.slice(dotIdx) : ''
 }
 
-/** Лейбл и единица для cell_value по полному тегу. */
-export function resolveValueDisplay(tag) {
+/**
+ * Подпись и единица карточки. Приоритет:
+ *  1. выбранная пользователем пара (`tms.valueLabel` / `valueUnit`) — последнее слово
+ *     за ним, имена тегов не во всех проектах следуют конвенции;
+ *  2. пресет стенсила по суффиксу тега (`valuePresets` в stencil.json) — привычный
+ *     электрический случай остаётся автоматическим;
+ *  3. пусто — подпись не выдумываем: суффикс тега в роли подписи («WHATEVER») и «?»
+ *     читались как сбой приложения.
+ */
+export function resolveValueDisplay(tag, tms = null, presets = []) {
+  if (tms?.valueLabel) return { label: tms.valueLabel, unit: tms.valueUnit || '' }
   const suffix = suffixOfTag(tag)
-  const label = VALUE_LABEL_BY_SUFFIX[suffix] ?? suffix.replace(/^\./, '')
-  const unit = VALUE_UNIT_BY_SUFFIX[suffix] ?? ''
-  return { label: label || '?', unit }
+  const preset = suffix ? presets.find((p) => p.suffix === suffix) : null
+  return { label: preset?.label || '', unit: preset?.unit || '' }
 }
 
 // Сетка карточки (100×20): [0..3] полоска, дальше фон, label с x=8, общая baseline
@@ -69,10 +40,11 @@ const VALUE_BASELINE_PAD = 5 // расстояние от пола ячейки 
 
 /**
  * Экспортный SVG: label + value + единица. У value-узла id = `animation-<animId>`
- * (обычно = valueTag): рантайм обновляет его текст по этому id.
+ * (обычно = valueTag): рантайм обновляет его текст по этому id. `display` —
+ * готовая пара от `resolveValueDisplay` (у вызывающего есть и tms, и пресеты).
  */
-export function buildValueExportSvg(animId, valueTag, width = 100, height = 20) {
-  const { label, unit } = resolveValueDisplay(valueTag)
+export function buildValueExportSvg(animId, width = 100, height = 20, display = {}) {
+  const { label = '', unit = '' } = display
   const by = height - VALUE_BASELINE_PAD
   const stripe = `<rect x="0" y="0" width="${VALUE_STRIPE_W}" height="${height}" fill="${VALUE_STRIPE_COLOR}"/>`
   const bg = `<rect x="${VALUE_STRIPE_W}" y="0" width="${Math.max(0, width - VALUE_STRIPE_W)}" height="${height}" fill="${VALUE_BG_COLOR}"/>`
@@ -90,9 +62,9 @@ export function buildValueExportSvg(animId, valueTag, width = 100, height = 20) 
  * Контент на холсте: полоска + фон + label/value/unit. Value показывает «--» —
  * реальное придёт в рантайме через text-анимацию.
  */
-export function buildValueContent(cellView) {
+export function buildValueContent(cellView, presets = []) {
   const tms = cellView.model.get('tms') || {}
-  const { label, unit } = resolveValueDisplay(tms.valueTag)
+  const { label, unit } = resolveValueDisplay(tms.valueTag, tms, presets)
   const { width, height } = cellView.model.size()
   // Общая baseline «по полу»; PAD взят с запасом под descender'ы (φ в cosφ).
   const by = height - VALUE_BASELINE_PAD

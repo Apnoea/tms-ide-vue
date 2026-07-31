@@ -61,10 +61,20 @@ export function validateStencilJson(path, json, svgText) {
     'noRotate',
     'defaults',
     'locked',
+    'valuePresets',
   ])
   for (const key of Object.keys(json)) {
     if (!known.has(key)) {
       issues.push(`[stencils] ${path}: неизвестное поле "${key}" (опечатка?)`)
+    }
+  }
+
+  // Пресеты величин cell_value: пара «подпись + единица», по которой инспектор даёт
+  // выбор, а `suffix` (опционален) подставляет пару автоматически по имени тега.
+  // Без label пресет нечего показывать в списке.
+  if (Array.isArray(json.valuePresets)) {
+    for (const [i, p] of json.valuePresets.entries()) {
+      if (!p.label) issues.push(`[stencils] ${path}: valuePresets[${i}] без "label"`)
     }
   }
 

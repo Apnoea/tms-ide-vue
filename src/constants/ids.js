@@ -42,6 +42,10 @@ export const CELL_META_FIELDS = [
   // 'left' — дефолт (отсутствие = left), в meta не пишем.
   { key: 'align', keep: (v) => v !== undefined && v !== 'left' },
   { key: 'valueTag', keep: (v) => v !== undefined },
+  // Выбранная пара «подпись + единица» cell_value. Пустые не пишем: отсутствие =
+  // «взять пресет стенсила по суффиксу тега» (см. resolveValueDisplay).
+  { key: 'valueLabel', keep: Boolean },
+  { key: 'valueUnit', keep: Boolean },
   { key: 'locked', keep: Boolean, flag: true },
   { key: 'flipH', keep: Boolean, flag: true },
   { key: 'flipV', keep: Boolean, flag: true },
