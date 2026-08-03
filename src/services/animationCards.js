@@ -8,7 +8,7 @@
 import { getStencilById } from '../stencils/registry'
 import { CLASS_OFF, stateColorClass } from '../constants/animation'
 import { innerPrefix } from '../constants/ids'
-import { normalizeSwitchSources, switchSourceTags } from '../utils/switchSources'
+import { normalizeBoolSource, boolSourceTags } from '../utils/boolSource'
 
 /**
  * Карточка анимации диапазонов: один range-биндинг, читающий выбранный тег
@@ -35,11 +35,11 @@ export function buildRangeCard(vs) {
 }
 
 /**
- * Shape-карточка switch: на каждый тег — bool-биндинг (false → animation-off).
+ * Shape-карточка булева источника: на каждый тег — bool-биндинг (false → animation-off).
  * Union биндингов = AND «любой false → серый». Для не-multi случая (чистая
  * цепочка / одиночный параллельный тег). Принимает плоский список тегов.
  */
-export function buildSwitchCard(tags) {
+export function buildBoolCard(tags) {
   return {
     animation: 'shape',
     bindings: tags.map((tag) => ({
@@ -53,11 +53,11 @@ export function buildSwitchCard(tags) {
   }
 }
 
-/** Нужна ли multi-карточка: ≥2 групп switchSources (ИЛИ-агрегация невыразима
+/** Нужна ли multi-карточка: ≥2 групп boolSource (ИЛИ-агрегация невыразима
  *  union-биндингами shape-карточки). Одна группа (чистое И) / нет групп → дешёвый
- *  shape (buildSwitchCard: любой тег группы false → animation-off). */
+ *  shape (buildBoolCard: любой тег группы false → animation-off). */
 export function needsMulti(c) {
-  return normalizeSwitchSources(c.switchSources).groups.length >= 2
+  return normalizeBoolSource(c.boolSource).groups.length >= 2
 }
 
 /** Условие «выключатель открыт» (value=false). ConditionEvaluator(map) вернёт
@@ -80,10 +80,10 @@ function singleMultiBinding(tag, source, when, addClass) {
 
 /**
  * Outer-карточка типа `multi` — рантайм-тип с булевым `expression` по нескольким
- * тегам (единственный способ выразить ИЛИ-агрегацию групп switchSources, где
+ * тегам (единственный способ выразить ИЛИ-агрегацию групп boolSource, где
  * union-биндинги дают только AND). Несёт ВСЕ outer-эффекты слоями (бинды
  * независимы, ActionApplier складывает классы): цвет по диапазонам, группы
- * switchSources, quality. Кладётся на outer-id; на потомков классы каскадят через
+ * boolSource, quality. Кладётся на outer-id; на потомков классы каскадят через
  * CSS, поэтому merge во внутренние shape-карточки не нужен. Генерируется напрямую
  * из tms — только здесь есть семантика «какие теги в какой группе».
  */
@@ -105,11 +105,11 @@ export function buildMultiCard(c) {
     }
   }
 
-  // switchSources — группы условий: активен, если ЛЮБАЯ группа выполнена целиком
+  // boolSource — группы условий: активен, если ЛЮБАЯ группа выполнена целиком
   // (все теги замкнуты). Гасим (animation-off), когда НИ одна не выполнена =
   // в КАЖДОЙ группе хотя бы один тег открыт. Без отрицания (рантайм-expression его
   // не даёт): произведение сумм — И по группам ( ИЛИ «открыт» внутри группы ).
-  const { groups } = normalizeSwitchSources(c.switchSources)
+  const { groups } = normalizeBoolSource(c.boolSource)
   const conditions = []
   const factors = []
   groups.forEach((group, gi) => {
@@ -132,7 +132,7 @@ export function buildMultiCard(c) {
 
   if (stencil?.quality) {
     const qTags = [
-      ...new Set([vs?.tag, c.slots?.onoff, ...switchSourceTags(c.switchSources)].filter(Boolean)),
+      ...new Set([vs?.tag, c.slots?.onoff, ...boolSourceTags(c.boolSource)].filter(Boolean)),
     ]
     for (const tag of qTags) {
       bindings.push(
@@ -153,7 +153,7 @@ export function buildMultiCard(c) {
  * Биндинг перекраса всего символа по состоянию (stateColors в stencil.json):
  * значение тега-слота состояния → класс `animation-color-<stencilId>-<ключ>` на outer, цвет
  * каскадит на потомков через CSS (см. inlineStyles). Кладётся слоем на outer
- * (assignOrMerge — уживается с диапазонами/switch/quality). Коды: режим значения —
+ * (assignOrMerge — уживается с диапазонами/булевым/quality). Коды: режим значения —
  * из states, булев — сами ключи 'true'/'false'. null, если красить нечего или
  * тег слота не привязан. Обесточивание (animation-off) бьёт цвет в CSS.
  */
@@ -183,7 +183,7 @@ export function buildStateColorCard(c) {
 
 /**
  * Карточка под ключ либо создаётся, либо в существующую дописываются
- * bindings. Нужно потому что несколько источников (диапазоны + switch) могут
+ * bindings. Нужно потому что несколько источников (диапазоны + булево) могут
  * хотеть навесить биндинги на один и тот же outer-wrapper или link-id —
  * порядок добавления не должен затирать предыдущее.
  */

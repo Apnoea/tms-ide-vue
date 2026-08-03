@@ -80,7 +80,7 @@ const dirtySinceExport = ref(false)
 const snapshotTick = ref(0)
 
 // Тег, по которому в данный момент подсвечены элементы. Матчит по любому
-// tag-полю (slots, rangeSource.tag, switchSources, valueTag —
+// tag-полю (slots, rangeSource.tag, boolSource, valueTag —
 // см. cellHasTag), не только rangeSource. null = подсветки нет.
 // Кнопка «Подсветить на схеме» в RangeBlock / BooleanBlock
 // включает/выключает это значение через toggle: тот же тег второй раз
@@ -476,7 +476,7 @@ export function useCanvas() {
     },
     /**
      * Модели выделения, доступные на ЗАПИСЬ: всё кроме заблокированных (`tms.locked`
-     * = read-only). Линки НЕ отбрасываем — замка у них нет, а диапазоны/switchSources
+     * = read-only). Линки НЕ отбрасываем — замка у них нет, а диапазоны/boolSource
      * на проводах валидны. Единая точка для массовых операций: `paper.interactive`
      * замок не защищает (правки идут программно), поэтому каждый такой путь обязан
      * фильтровать сам — раньше фильтр забывали, и замок обходился.

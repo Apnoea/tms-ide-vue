@@ -109,9 +109,9 @@ export function useWireSplice() {
 
   /**
    * Разбивает провод на два сегмента с проходом через cell. Исходный линк
-   * переиспользуется как source→cell.in (его tms/диапазоны/switch сохраняются),
+   * переиспользуется как source→cell.in (его tms/диапазоны/булево сохраняются),
    * добавляется новый cell.out→target с клоном анимаций. Элемент наследует
-   * диапазоны/switch провода. Всё синхронно → один шаг undo (debounced snapshot).
+   * диапазоны/булево провода. Всё синхронно → один шаг undo (debounced snapshot).
    */
   function spliceCellIntoLink(link, cell, cursor = null) {
     const graph = canvas.graphRef.value
@@ -179,7 +179,7 @@ export function useWireSplice() {
     const linkTms = link.get('tms') || {}
     const inherited = {}
     if (linkTms.rangeSource) inherited.rangeSource = structuredClone(linkTms.rangeSource)
-    if (linkTms.switchSources) inherited.switchSources = structuredClone(linkTms.switchSources)
+    if (linkTms.boolSource) inherited.boolSource = structuredClone(linkTms.boolSource)
 
     // Сегмент 1: переиспользуем провод A→cell.in (tms остаётся на нём). Изломы —
     // только те, что были до точки врезки. Если распределить не удалось, исходные
@@ -197,7 +197,7 @@ export function useWireSplice() {
     })
     graph.addCell(seg2)
 
-    // Элемент наследует анимации провода (диапазоны + switch), но собственная
+    // Элемент наследует анимации провода (диапазоны + булево), но собственная
     // конфигурация ячейки приоритетнее — это явный выбор пользователя, наследуем
     // только то, чего у элемента ещё нет.
     if (Object.keys(inherited).length) {

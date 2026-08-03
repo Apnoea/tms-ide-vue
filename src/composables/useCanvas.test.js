@@ -33,7 +33,7 @@ describe('useCanvas: замок в массовых операциях', () => {
     expect(out.map((c) => c.id)).toEqual([free.id])
   })
 
-  it('writableItems НЕ отбрасывает провода (замка у них нет, диапазоны/switch валидны)', () => {
+  it('writableItems НЕ отбрасывает провода (замка у них нет, диапазоны/булево валидны)', () => {
     const a = cell()
     const b = cell()
     const link = new shapes.standard.Link({ source: { id: a.id }, target: { id: b.id } })

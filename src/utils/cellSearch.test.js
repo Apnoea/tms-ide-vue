@@ -26,10 +26,10 @@ describe('getCellSearchStrings', () => {
     expect(strings).toContain('PS031VK001.ALR')
   })
 
-  it('подхватывает rangeSource.tag, switchSources, valueTag', () => {
+  it('подхватывает rangeSource.tag, boolSource, valueTag', () => {
     const cell = makeCell({
       rangeSource: { tag: 'PS031TN001.U' },
-      switchSources: { groups: [['ОБЩИЙ.ONOFF', 'LOCAL.ONOFF']] },
+      boolSource: { groups: [['ОБЩИЙ.ONOFF', 'LOCAL.ONOFF']] },
       valueTag: 'PS031TN001.UA',
     })
     const strings = getCellSearchStrings(cell)
@@ -80,11 +80,11 @@ describe('cellMatchesQuery', () => {
 })
 
 describe('getCellTags / cellHasTag', () => {
-  it('собирает все привязанные теги (slots + диапазоны + switchSources + valueTag)', () => {
+  it('собирает все привязанные теги (slots + диапазоны + boolSource + valueTag)', () => {
     const cell = makeCell({
       slots: { onoff: 'A.ONOFF', alr: 'A.ALR' },
       rangeSource: { tag: 'A.U' },
-      switchSources: { groups: [['B.ONOFF', 'C.ONOFF']] },
+      boolSource: { groups: [['B.ONOFF', 'C.ONOFF']] },
       valueTag: 'A.IA',
     })
     expect(getCellTags(cell).sort()).toEqual(
@@ -100,7 +100,7 @@ describe('getCellTags / cellHasTag', () => {
   it('cellHasTag exact-match по любому tag-полю', () => {
     const cell = makeCell({
       slots: { onoff: 'A.ONOFF' },
-      switchSources: { groups: [['B.ONOFF']] },
+      boolSource: { groups: [['B.ONOFF']] },
     })
     expect(cellHasTag(cell, 'A.ONOFF')).toBe(true)
     expect(cellHasTag(cell, 'B.ONOFF')).toBe(true)
@@ -115,7 +115,7 @@ describe('getCellTagsFromTms', () => {
     const tms = {
       slots: { onoff: 'X.ONOFF' },
       rangeSource: { tag: 'V.U' },
-      switchSources: { groups: [['S1', 'S2']] },
+      boolSource: { groups: [['S1', 'S2']] },
       valueTag: 'VT',
     }
     expect(getCellTagsFromTms(tms)).toEqual(['X.ONOFF', 'V.U', 'S1', 'S2', 'VT'])
@@ -127,11 +127,11 @@ describe('getCellTagsFromTms', () => {
     expect(getCellTagsFromTms({})).toEqual([])
   })
 
-  it('пустые значения в slots / switchSources фильтруются', () => {
+  it('пустые значения в slots / boolSource фильтруются', () => {
     expect(
       getCellTagsFromTms({
         slots: { a: 'A', b: '', c: null },
-        switchSources: { groups: [['X', '', 'Y']] },
+        boolSource: { groups: [['X', '', 'Y']] },
       })
     ).toEqual(['A', 'X', 'Y'])
   })

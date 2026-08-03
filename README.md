@@ -6,17 +6,20 @@ Web IDE на Vue 3 для сборки SVG-мнемосхем SCADA и эксп�
 ## Стек
 
 - **Vue 3.5** (Composition API, `<script setup>`)
-- **Pinia 3** — state management
-- **Vite 7** — build / dev
+- **Pinia 4** — state management
+- **Vite 8** (Rolldown) — build / dev
 - **PrimeVue 4** (Aura, primary cyan) — UI kit
-- **Tailwind CSS 3** — layout / utility
+- **Tailwind CSS 4** (CSS-first, плагин `@tailwindcss/vite` — конфиг-файлов нет) — layout / utility
 - **@joint/core 4** (JointJS) — SVG-редактор
 - **fflate** — ZIP-экспорт/импорт проекта архивом
 - **interactjs** — drag/resize/снап примитивов в редакторе стенсилов
 - **@vueuse/core** — listener'ы/observer'ы с auto-cleanup
-- **Vitest 3 + jsdom + @vue/test-utils 2** — unit- и компонентные тесты
+- **Vitest 4 + jsdom + @vue/test-utils 2** — unit- и компонентные тесты
 
 ## Запуск
+
+Нужна **Node 22.22+ / 24.15+** (планку задаёт jsdom 30 в тестах; проверяется через
+`engines` в package.json).
 
 ```bash
 npm install
@@ -24,9 +27,13 @@ npm run dev       # http://localhost:5174/
 npm run build     # production-сборка в dist/
 npm test          # тесты однократно
 npm run lint      # eslint
-npm run format:check  # prettier (CI валится на нём)
+npm run format:check  # prettier
 npm run knip      # неиспользуемые экспорты
 ```
+
+CI (GitHub Pages, `.github/workflows/deploy.yml`) на каждый push в `main` гоняет
+`format:check` → `lint` → `test` → `knip` → `build`, поэтому любой из этих шагов
+валит деплой.
 
 ## Структура
 
@@ -75,7 +82,7 @@ src/
 │   ├── useHoverTooltip.js     # hover-плашка ячейки (лейбл + «В группе»)
 │   ├── useSelectionOverlay.js # overlay-кнопки выделенной ячейки (rotate/flip/delete/lock)
 │   ├── useAlign.js            # выравнивание/распределение ячеек (края/центры/равные интервалы, без наложений)
-│   ├── useSwitchGroups.js     # DNF-группы switchSources (блок «Булево значение»)
+│   ├── useBoolGroups.js       # DNF-группы boolSource (блок «Булево значение»)
 │   ├── useValueRanges.js      # диапазоны значений (tms.rangeSource) + multi-шаблон
 │   ├── useTextCellProps.js    # свойства cell_text + ресайз под текст
 │   └── useNavigationField.js  # поле навигации: выбор формы или ручной ввод view-id
@@ -98,7 +105,7 @@ src/
 │   ├── exporter.js            # view.svg + animations.json (пер-форма)
 │   ├── animationCards.js      # карточки анимаций: диапазоны / булево / multi-выражение / цвет состояния
 │   ├── projectLoader.js       # round-trip load (parseSvgProject)
-│   ├── legacyFormat.js        # чтение прежнего формата (voltageSource / tms-voltage-fill) + миграция
+│   ├── legacyFormat.js        # чтение прежних имён (voltageSource / switchSources / tms-voltage-fill)
 │   ├── projectZip.js          # проект ↔ .zip (fflate): импорт/экспорт + collectUsedStencilIds
 │   ├── stencilLibrary.js      # persist/delete стенсила на диск (dev-эндпоинты /__stencils/*)
 │   ├── stencilOverrides.js    # персист правок стенсилов в IndexedDB (переживают reload в prod)
@@ -117,7 +124,7 @@ src/
     ├── paperGeom.js           # projectToScreen + rotatedAabb (габарит с учётом поворота)
     ├── xml.js                 # SVG_NS + escapeXml / escapeAttr + svgEl (SVG-узел)
     ├── editorRulers.js        # линейки редактора символов (деления/подписи)
-    ├── switchSources.js       # normalizeSwitchSources { groups } (DNF: И внутри группы, ИЛИ между)
+    ├── boolSource.js         # normalizeBoolSource { groups } (DNF: И внутри группы, ИЛИ между)
     ├── wireSplice.js          # врезка (pickPassThroughPorts/spliceRotation) + срастание (planWireBridge)
     ├── restoreGuard.js        # withRestoreGuard: try/finally вокруг restoringHistory
     ├── confirmDanger.js       # единый стиль ConfirmPopup для всех подтверждений
@@ -239,7 +246,7 @@ polygon, opt-in класс `tms-state-fill`), поэтому контур/hit-ar
 цвета, на экспорт не влияет). Чекбокс `quality` (серость + «показать все положения»
 при bad-качестве) — в том же блоке анимации, только при включённой анимации.
 Де-энергизация (серость по напряжению/качеству) в стенсиле не задаётся — это холст
-(`switchSources`/`rangeSource`). Стенсил регистрируется в реестре сразу (появляется
+(`boolSource`/`rangeSource`). Стенсил регистрируется в реестре сразу (появляется
 в палитре) и пишется в `definitions/<id>/` dev-плагином.
 
 Правка — кнопка-карандаш в строке стенсила (по ховеру, у всех **кроме залоченных**
@@ -322,7 +329,7 @@ qw / qr / qk / qf **редактируема** (единый формат `.true
 ## Поиск (Ctrl+F)
 
 Плавающий виджет ищет по: всем `slots.*`, `rangeSource.tag`,
-`switchSources` (все теги групп), `valueTag`, тексту `cell_text`, `navigation`. Совпадения
+`boolSource` (все теги групп), `valueTag`, тексту `cell_text`, `navigation`. Совпадения
 подсвечиваются амбер-ореолом, текущее — насыщенный оранжевый, паном
 центрируется в viewport (если за пределами). Enter/F3 — следующее,
 Shift+Enter/F3 — предыдущее, Esc — закрыть.
@@ -354,7 +361,7 @@ Shift+Enter/F3 — предыдущее, Esc — закрыть.
 **Врезка** — drop стенсила с **≥2 портами** из палитры на провод разбивает его
 на два сегмента с проходом через элемент: исходный линк переиспользуется как
 `source→cell.in`, добавляется `cell.out→target` с клоном анимаций; элемент
-наследует диапазоны/switch провода (но его собственная конфигурация приоритетнее —
+наследует диапазоны/булево провода (но его собственная конфигурация приоритетнее —
 наследуется только то, чего у него нет). Во время drag над проводом превью липнет
 к линии и поворачивается под угол врезки.
 
@@ -401,6 +408,11 @@ JointJS снёс бы оба). Логика — `utils/wireSplice.js` → `planW
 шаг = один слот порта. При резайзе **влево** origin уезжает, поэтому порт-рефы
 подключённых линков сдвигаются на число слотов (`top_i → top_(i+k)`) — порты не
 пересоздаются, абсолютные позиции подключённых проводов сохраняются.
+
+**Сжатие** прижимает провода к крайнему существующему слоту (с обеих сторон
+одинаково): исчезнувший слот означает несуществующий порт, а провод на нём после
+перезагрузки уехал бы в центр шины. Ничего не удаляется, отмена — `Ctrl+Z` вместе
+с ресайзом.
 
 ## Экспорт
 

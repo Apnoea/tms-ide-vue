@@ -10,7 +10,7 @@ import {
   stateColorClass,
 } from '../constants/animation'
 import { innerKey, resolveSlotTemplate } from '../constants/ids'
-import { normalizeSwitchSources } from '../utils/switchSources'
+import { normalizeBoolSource } from '../utils/boolSource'
 import { getStencilById, getAllStencils } from '../stencils/registry'
 import { useCanvas } from './useCanvas'
 
@@ -95,7 +95,7 @@ export function useSimulation() {
       for (const cls of [...view.el.classList]) {
         if (cls.startsWith(STATE_COLOR_PREFIX)) view.el.classList.remove(cls)
       }
-      // animation-off от switchSource висит на outer-g (затемнение всей ячейки),
+      // animation-off от boolSource висит на outer-g (затемнение всей ячейки),
       // от стенсильного template — на внутренних элементах. Чистим оба места.
       view.el.classList.remove(CLASS_OFF)
       for (const el of view.el.querySelectorAll(`.${CLASS_HIDDEN}, .${CLASS_OFF}`)) {
@@ -212,11 +212,11 @@ export function useSimulation() {
       if (color) view.el.classList.add(stateColorClass(stencil.id, active.key))
     }
 
-    // switchSources: группы условий. Каждый тег делит состояние со всеми
+    // boolSource: группы условий. Каждый тег делит состояние со всеми
     // использованиями (общий тег → согласованно). Активен, если ЛЮБАЯ группа
     // выполнена целиком (все её теги on = !boolFalse); иначе гаснет.
     for (const cell of graph.getCells()) {
-      const { groups } = normalizeSwitchSources(cell.get('tms')?.switchSources)
+      const { groups } = normalizeBoolSource(cell.get('tms')?.boolSource)
       if (!groups.length) continue
       const active = groups.some((g) => g.every((t) => !boolFalseFor(t)))
       if (active) continue

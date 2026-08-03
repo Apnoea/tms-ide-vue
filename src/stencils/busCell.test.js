@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  busPortX,
-  desiredBusPortCount,
-  computeBusPorts,
-  busPortIndex,
-  isBusPortOutOfRange,
-} from './busCell'
+import { busPortX, desiredBusPortCount, computeBusPorts, busPortIndex } from './busCell'
 
 describe('bus port math', () => {
   it('busPortX returns step * (index + 1)', () => {
@@ -34,22 +28,13 @@ describe('bus port math', () => {
   })
 })
 
-describe('порт за краем шины', () => {
-  it('busPortIndex достаёт индекс из id', () => {
+describe('busPortIndex', () => {
+  it('достаёт индекс из id порта', () => {
     expect(busPortIndex('top_0')).toBe(0)
     expect(busPortIndex('bot_12')).toBe(12)
+    // Сжатие слева двигает порт-рефы вниз (shiftBusLinkPorts) — индекс уходит в
+    // минус до того, как clampBusLinkPorts прижмёт его к нулю.
+    expect(busPortIndex('top_-2')).toBe(-2)
     expect(busPortIndex('port')).toBeNaN()
-  })
-
-  it('ширина 100 держит слоты 0..3, дальше — за краем', () => {
-    // desiredBusPortCount(100) = 100/20 - 1 = 4 → слоты 0..3.
-    expect(isBusPortOutOfRange('top_3', 100)).toBe(false)
-    expect(isBusPortOutOfRange('bot_4', 100)).toBe(true)
-    expect(isBusPortOutOfRange('top_9', 100)).toBe(true)
-  })
-
-  it('сжатие шины уводит за край ранее валидные слоты', () => {
-    expect(isBusPortOutOfRange('top_5', 200)).toBe(false)
-    expect(isBusPortOutOfRange('top_5', 60)).toBe(true)
   })
 })

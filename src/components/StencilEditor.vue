@@ -650,7 +650,7 @@ onBeforeUnmount(() => {
           :step="10"
           :use-grouping="false"
           size="small"
-          input-class="!w-14 text-center"
+          input-class="w-14! text-center"
           @blur="commit"
         />
         <span class="text-surface-400">×</span>
@@ -660,7 +660,7 @@ onBeforeUnmount(() => {
           :step="10"
           :use-grouping="false"
           size="small"
-          input-class="!w-14 text-center"
+          input-class="w-14! text-center"
           @blur="commit"
         />
       </div>

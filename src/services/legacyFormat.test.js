@@ -1,10 +1,11 @@
-// Чтение старого формата: проект/символ, сохранённые до переименования
-// «voltage» → «диапазоны», должны открываться без потерь и переезжать на новые
-// имена. Регрессия дорогая: молча теряются привязки диапазонов всей схемы.
+// Чтение старого формата: проект/символ, сохранённые до переименований доменных
+// имён, должны открываться без потерь и переезжать на новые. Регрессия дорогая:
+// молча теряются привязки анимаций всей схемы.
 import { describe, it, expect } from 'vitest'
 import { migrateTms, migrateGraphJson, migrateStencilSvg } from './legacyFormat'
 
 const SRC = { tag: 'PS.UA', ranges: [{ min: 0, max: 5, class: 'animation-low' }] }
+const BOOL = { groups: [['BR1.ONOFF', 'BR2.ONOFF'], ['BR3.ONOFF']] }
 
 describe('migrateTms', () => {
   it('переносит старый ключ в rangeSource и убирает legacy-поле', () => {
@@ -22,6 +23,17 @@ describe('migrateTms', () => {
   it('оба ключа: новый приоритетнее, старый отбрасывается', () => {
     const out = migrateTms({ rangeSource: SRC, voltageSource: { tag: 'OLD', ranges: [] } })
     expect(out).toEqual({ rangeSource: SRC })
+  })
+
+  it('switchSources → boolSource', () => {
+    const out = migrateTms({ stencilId: 'cell_qw', switchSources: BOOL })
+    expect(out).toEqual({ stencilId: 'cell_qw', boolSource: BOOL })
+    expect('switchSources' in out).toBe(false)
+  })
+
+  it('оба legacy-ключа сразу переезжают за один проход', () => {
+    const out = migrateTms({ voltageSource: SRC, switchSources: BOOL })
+    expect(out).toEqual({ rangeSource: SRC, boolSource: BOOL })
   })
 })
 

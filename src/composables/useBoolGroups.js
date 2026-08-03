@@ -1,22 +1,22 @@
 import { ref, computed } from 'vue'
 import { useProjectStore } from '../stores/useProjectStore'
-import { normalizeSwitchSources } from '../utils/switchSources'
+import { normalizeBoolSource } from '../utils/boolSource'
 
 /**
- * Блок «Зависимость от других элементов» инспектора: `tms.switchSources` в
+ * Блок «Зависимость от других элементов» инспектора: `tms.boolSource` в
  * канонической форме `{ groups: [[tag,…],…] }` (DNF — внутри группы теги через И,
  * группы между собой через ИЛИ; элемент активен, если выполнена ЛЮБАЯ группа
  * целиком, иначе тускнеет). Экспорт: одна группа → дешёвый shape, ≥2 → multi.
  *
  * Вынесено из CanvasInspector — секция автономна: наружу нужны только
- * `switchGroups`/`switchRemovable` (props блока) и обработчики его эмитов.
+ * `boolGroups`/`boolRemovable` (props блока) и обработчики его эмитов.
  *
  * @param {object} deps
  * @param {import('vue').ComputedRef} deps.details — текущий выделенный элемент
  * @param {(updater: (tms: object) => object|undefined) => void} deps.mutateSelectedTms
  * @param {(config: object) => void} deps.openPicker — открыть единый tag-picker
  */
-export function useSwitchGroups({ details, mutateSelectedTms, openPicker }) {
+export function useBoolGroups({ details, mutateSelectedTms, openPicker }) {
   const project = useProjectStore()
 
   // Цель добавления/замены тега: { groupIdx, tagIdx }.
@@ -24,33 +24,33 @@ export function useSwitchGroups({ details, mutateSelectedTms, openPicker }) {
   //   groupIdx=число, tagIdx=null    — добавить тег в группу gi;
   //   groupIdx=число, tagIdx=число   — заменить тег по индексу.
   // groupIdx=undefined — пасс (cancel).
-  const editingSwitch = ref({ groupIdx: undefined, tagIdx: null })
+  const editingBool = ref({ groupIdx: undefined, tagIdx: null })
 
-  // Канонические группы switchSources текущей ячейки (нормализует/чистит форму).
-  const switchGroups = computed(() => normalizeSwitchSources(details.value?.switchSources).groups)
+  // Канонические группы boolSource текущей ячейки (нормализует/чистит форму).
+  const boolGroups = computed(() => normalizeBoolSource(details.value?.boolSource).groups)
 
   // Показывать × «Удалить все зависимости» в шапке блока. У intrinsic-свитча
   // (cell_qw) блок виден всегда из-за slot.onoff — × имеет смысл ТОЛЬКО когда есть
   // группы-зависимости (иначе чистить нечего, клик был бы no-op'ом: slot.onoff им
-  // не удаляется). У не-свитча блок появляется лишь при наличии switchSources, и ×
+  // не удаляется). У не-свитча блок появляется лишь при наличии boolSource, и ×
   // убирает его целиком (в т.ч. пустой) — там достаточно самого факта присутствия.
-  const switchRemovable = computed(() =>
-    details.value?.hasBoolSlot ? switchGroups.value.length > 0 : !!details.value?.switchSources
+  const boolRemovable = computed(() =>
+    details.value?.hasBoolSlot ? boolGroups.value.length > 0 : !!details.value?.boolSource
   )
 
-  // Picker для switch-зависимостей исключает: основной тег ячейки (slot.onoff у
+  // Picker булевых зависимостей исключает: основной тег ячейки (slot.onoff у
   // cell_qw) + теги ТЕКУЩЕЙ редактируемой группы (внутри группы тег уникален),
   // кроме редактируемого по индексу (его оставляем, чтобы юзер видел значение).
   // Теги других групп НЕ исключаем — тег свободно повторяется между группами.
   // Для новой группы (groupIdx=null) фильтруем только onoff-тег.
-  const switchPickerTags = computed(() => {
+  const boolPickerTags = computed(() => {
     const d = details.value
     if (!d) return project.booleanTags
     const excluded = new Set()
     if (d.hasBoolSlot && d.onoffTag) excluded.add(d.onoffTag)
-    const { groupIdx, tagIdx } = editingSwitch.value
+    const { groupIdx, tagIdx } = editingBool.value
     if (typeof groupIdx === 'number') {
-      const group = normalizeSwitchSources(d.switchSources).groups[groupIdx] || []
+      const group = normalizeBoolSource(d.boolSource).groups[groupIdx] || []
       group.forEach((t, i) => {
         if (t && i !== tagIdx) excluded.add(t)
       })
@@ -58,45 +58,45 @@ export function useSwitchGroups({ details, mutateSelectedTms, openPicker }) {
     return project.booleanTags.filter((t) => !excluded.has(t.name))
   })
 
-  /** Полная замена switchSources на { groups }; нет групп → удаляем источник. */
-  function writeSwitchGroups(groups) {
+  /** Полная замена boolSource на { groups }; нет групп → удаляем источник. */
+  function writeBoolGroups(groups) {
     const clean = groups.map((g) => [...new Set(g.filter(Boolean))]).filter((g) => g.length)
     mutateSelectedTms((tms) => ({
       ...tms,
-      switchSources: clean.length ? { groups: clean } : null,
+      boolSource: clean.length ? { groups: clean } : null,
     }))
   }
 
-  /** Открыть picker switch-зависимости. editingSwitch уже выставлен (add/replace),
-   *  геттер читает switchPickerTags — фильтр исключений всегда актуален. */
-  function openSwitchPicker() {
+  /** Открыть picker булевой зависимости. editingBool уже выставлен (add/replace),
+   *  геттер читает boolPickerTags — фильтр исключений всегда актуален. */
+  function openBoolPicker() {
     openPicker({
-      tags: () => switchPickerTags.value,
+      tags: () => boolPickerTags.value,
       header: 'Добавить булев тег',
-      onSelect: onPickSwitchTag,
+      onSelect: onPickBoolTag,
     })
   }
 
   /** «+ группа» — новая группа, рождается первым выбранным тегом (пустых нет). */
   function onAddGroup() {
-    editingSwitch.value = { groupIdx: null, tagIdx: null }
-    openSwitchPicker()
+    editingBool.value = { groupIdx: null, tagIdx: null }
+    openBoolPicker()
   }
 
   /** «+ тег (И)» внутри группы gi. */
   function onAddSwitchTag(gi) {
-    editingSwitch.value = { groupIdx: gi, tagIdx: null }
-    openSwitchPicker()
+    editingBool.value = { groupIdx: gi, tagIdx: null }
+    openBoolPicker()
   }
 
   /** Клик по тегу-зависимости → замена по индексу (gi, ti). */
   function editSwitchTagAt(gi, ti) {
-    editingSwitch.value = { groupIdx: gi, tagIdx: ti }
-    openSwitchPicker()
+    editingBool.value = { groupIdx: gi, tagIdx: ti }
+    openBoolPicker()
   }
 
   function removeSwitchSources() {
-    writeSwitchGroups([])
+    writeBoolGroups([])
   }
 
   /**
@@ -105,16 +105,16 @@ export function useSwitchGroups({ details, mutateSelectedTms, openPicker }) {
    * (между группами тег повторяется свободно). Основной тег стенсила (slot.onoff)
    * в зависимости не допускаем.
    */
-  function onPickSwitchTag(tag) {
+  function onPickBoolTag(tag) {
     const d = details.value
-    const { groupIdx, tagIdx } = editingSwitch.value
-    editingSwitch.value = { groupIdx: undefined, tagIdx: null }
+    const { groupIdx, tagIdx } = editingBool.value
+    editingBool.value = { groupIdx: undefined, tagIdx: null }
     if (groupIdx === undefined || !tag) return
     if (d?.hasBoolSlot && d.onoffTag === tag) return
 
-    const groups = normalizeSwitchSources(d?.switchSources).groups
+    const groups = normalizeBoolSource(d?.boolSource).groups
     if (groupIdx === null) {
-      writeSwitchGroups([...groups, [tag]])
+      writeBoolGroups([...groups, [tag]])
       return
     }
     const group = [...(groups[groupIdx] || [])]
@@ -126,25 +126,25 @@ export function useSwitchGroups({ details, mutateSelectedTms, openPicker }) {
       group.push(tag)
     }
     const next = groups.map((g, i) => (i === groupIdx ? group : g))
-    writeSwitchGroups(next)
+    writeBoolGroups(next)
   }
 
-  /** × на строке тега (gi, ti). Опустевшая группа отбрасывается (в writeSwitchGroups). */
+  /** × на строке тега (gi, ti). Опустевшая группа отбрасывается (в writeBoolGroups). */
   function removeSwitchTagAt(gi, ti) {
-    const groups = normalizeSwitchSources(details.value?.switchSources).groups
+    const groups = normalizeBoolSource(details.value?.boolSource).groups
     const next = groups.map((g, i) => (i === gi ? g.filter((_, j) => j !== ti) : g))
-    writeSwitchGroups(next)
+    writeBoolGroups(next)
   }
 
   /** × в шапке группы — удалить группу целиком. */
   function removeSwitchGroup(gi) {
-    const groups = normalizeSwitchSources(details.value?.switchSources).groups
-    writeSwitchGroups(groups.filter((_, i) => i !== gi))
+    const groups = normalizeBoolSource(details.value?.boolSource).groups
+    writeBoolGroups(groups.filter((_, i) => i !== gi))
   }
 
   return {
-    switchGroups,
-    switchRemovable,
+    boolGroups,
+    boolRemovable,
     onAddGroup,
     onAddSwitchTag,
     editSwitchTagAt,

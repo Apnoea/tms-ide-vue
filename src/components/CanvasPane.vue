@@ -797,7 +797,7 @@ function performClearCanvas(count) {
             severity="secondary"
             text
             size="small"
-            class="!font-mono !min-w-[3.25rem] !justify-center"
+            class="font-mono! min-w-[3.25rem]! justify-center!"
             @click="fitToContent"
           />
           <Button
@@ -858,7 +858,7 @@ function performClearCanvas(count) {
         value="Симуляция"
         icon="pi pi-play-circle"
         severity="success"
-        class="!absolute !top-3 !right-3 !z-30 pointer-events-none !text-xs !shadow-md"
+        class="absolute! top-3! right-3! z-30! pointer-events-none text-xs! shadow-md!"
       />
 
       <!-- SearchBar (Ctrl+F): плавающая панель поиска в правом верхнем углу.
@@ -918,7 +918,7 @@ function performClearCanvas(count) {
             v-if="cellHoverTooltip.groupCount > 1"
             class="text-[10px] opacity-75 mt-1 flex items-center gap-1"
           >
-            <i class="pi pi-th-large !text-[9px]" />
+            <i class="pi pi-th-large text-[9px]!" />
             В группе ({{ cellHoverTooltip.groupCount }})
           </div>
         </div>
@@ -937,7 +937,7 @@ function performClearCanvas(count) {
           severity="secondary"
           rounded
           size="small"
-          class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
+          class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
           :style="overlayBtns.rotateCcw"
           @click="rotateSelectedBy(-90)"
         />
@@ -948,7 +948,7 @@ function performClearCanvas(count) {
           severity="secondary"
           rounded
           size="small"
-          class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
+          class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
           :style="overlayBtns.rotateCw"
           @click="rotateSelectedBy(90)"
         />
@@ -959,7 +959,7 @@ function performClearCanvas(count) {
           severity="secondary"
           rounded
           size="small"
-          class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
+          class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
           :style="overlayBtns.flipH"
           @click="flipSelected('h')"
         />
@@ -970,7 +970,7 @@ function performClearCanvas(count) {
           severity="secondary"
           rounded
           size="small"
-          class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
+          class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
           :style="overlayBtns.flipV"
           @click="flipSelected('v')"
         />
@@ -981,7 +981,7 @@ function performClearCanvas(count) {
           severity="secondary"
           rounded
           size="small"
-          class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
+          class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
           :style="overlayBtns.delete"
           @click="onDeleteSelected"
         />
@@ -993,7 +993,7 @@ function performClearCanvas(count) {
           :severity="overlayBtns.locked ? 'primary' : 'secondary'"
           rounded
           size="small"
-          class="!absolute !z-20 !w-8 !h-8 !p-0 !min-w-0 !border !border-surface-300 hover:!border-surface-400"
+          class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
           :style="overlayBtns.lock"
           @click="toggleLockSelected"
         />
@@ -1013,7 +1013,7 @@ function performClearCanvas(count) {
         class="absolute z-10 pointer-events-none flex h-[18px] w-[18px] items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm"
         :style="{ left: b.left, top: b.top }"
       >
-        <i class="pi pi-lock !text-[9px]" />
+        <i class="pi pi-lock text-[9px]!" />
       </div>
 
       <!-- Floating info-bar: координаты курсора + selection label. Плавает

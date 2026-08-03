@@ -44,7 +44,7 @@ defineEmits(['pick', 'highlight', 'remove'])
       severity="secondary"
       text
       size="small"
-      class="!p-1 !w-6 !h-6"
+      class="p-1! w-6! h-6!"
       @click="$emit('highlight')"
     />
     <Button
@@ -54,7 +54,7 @@ defineEmits(['pick', 'highlight', 'remove'])
       severity="secondary"
       text
       size="small"
-      class="!p-1 !w-6 !h-6"
+      class="p-1! w-6! h-6!"
       @click="$emit('remove')"
     />
   </div>

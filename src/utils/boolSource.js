@@ -1,5 +1,5 @@
 /**
- * switchSources — булевы теги-условия, гасящие элемент (обесточен/неактивен —
+ * boolSource — булевы теги-условия, гасящие элемент (обесточен/неактивен —
  * тускнеет `animation-off`). Каноническая форма — ГРУППЫ: `{ groups: [[tag,…],…] }`.
  *
  * Внутри группы теги через И (все = true), группы между собой через ИЛИ: элемент
@@ -10,7 +10,7 @@
  * Тег уникален ВНУТРИ группы; между группами повторяется свободно (общее условие
  * на нескольких ветках). Форма без `groups` → «нет групп» (элемент всегда активен).
  */
-export function normalizeSwitchSources(ss) {
+export function normalizeBoolSource(ss) {
   const groups = Array.isArray(ss?.groups) ? ss.groups : []
   return {
     groups: groups
@@ -20,6 +20,6 @@ export function normalizeSwitchSources(ss) {
 }
 
 /** Плоский уникальный список всех тегов групп (для поиска / detailTags). */
-export function switchSourceTags(ss) {
-  return [...new Set(normalizeSwitchSources(ss).groups.flat())]
+export function boolSourceTags(ss) {
+  return [...new Set(normalizeBoolSource(ss).groups.flat())]
 }

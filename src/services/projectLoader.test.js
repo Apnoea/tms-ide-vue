@@ -72,7 +72,7 @@ describe('parseSvgProject', () => {
     expect(cell.tms.align).toBe('center')
   })
 
-  it('round-trip angle/navigation/switchSources/rangeSource на ячейке', () => {
+  it('round-trip angle/navigation/boolSource/rangeSource на ячейке', () => {
     const meta = {
       id: 'c1',
       stencilId: 'cell_qw',
@@ -82,7 +82,7 @@ describe('parseSvgProject', () => {
       navigation: 'view_other',
       locked: true,
       groupId: 'grp-xyz',
-      switchSources: { groups: [['A.ONOFF'], ['B.ONOFF']] },
+      boolSource: { groups: [['A.ONOFF'], ['B.ONOFF']] },
       rangeSource: { tag: 'V.U', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
     }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
@@ -93,23 +93,32 @@ describe('parseSvgProject', () => {
     expect(cell.tms.navigation).toBe('view_other')
     expect(cell.tms.locked).toBe(true)
     expect(cell.tms.groupId).toBe('grp-xyz')
-    expect(cell.tms.switchSources).toEqual({ groups: [['A.ONOFF'], ['B.ONOFF']] })
+    expect(cell.tms.boolSource).toEqual({ groups: [['A.ONOFF'], ['B.ONOFF']] })
     expect(cell.tms.rangeSource).toEqual({
       tag: 'V.U',
       ranges: [{ min: 0, max: 5, class: 'animation-low' }],
     })
   })
 
-  it('архив со старым ключом voltageSource читается в rangeSource (ячейка + провод)', () => {
-    // Проекты, выгруженные до переименования: legacyKey в META_FIELDS — единственное
-    // место, где старое имя ещё живёт (см. services/legacyFormat).
+  it('архив со старыми ключами читается в rangeSource/boolSource (ячейка + провод)', () => {
+    // Проекты, выгруженные до переименований: legacyKey в META_FIELDS — единственное
+    // место, где старые имена ещё живут (см. services/legacyFormat).
     const src = { tag: 'V.U', ranges: [{ min: 0, max: 5, class: 'animation-low' }] }
-    const cell = { id: 'a', stencilId: 'cell_qw', width: 20, height: 20, voltageSource: src }
+    const bool = { groups: [['A.ONOFF']] }
+    const cell = {
+      id: 'a',
+      stencilId: 'cell_qw',
+      width: 20,
+      height: 20,
+      voltageSource: src,
+      switchSources: bool,
+    }
     const link = {
       id: 'link-old',
       source: { id: 'a', port: 'right' },
       target: { id: 'b', port: 'left' },
       voltageSource: src,
+      switchSources: bool,
     }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
       <g transform="translate(0,0)" data-tms-meta='${attr(cell)}'/>
@@ -118,12 +127,15 @@ describe('parseSvgProject', () => {
     </svg>`
     const out = parseSvgProject(svg)
     expect(out.cells[0].tms.rangeSource).toEqual(src)
+    expect(out.cells[0].tms.boolSource).toEqual(bool)
     expect(out.cells[0].tms.voltageSource).toBeUndefined()
+    expect(out.cells[0].tms.switchSources).toBeUndefined()
     const parsedLink = out.cells.find((c) => c.id === 'link-old')
     expect(parsedLink.tms.rangeSource).toEqual(src)
+    expect(parsedLink.tms.boolSource).toEqual(bool)
   })
 
-  it('round-trip vertices/switchSources на проводе', () => {
+  it('round-trip vertices/boolSource на проводе', () => {
     const verts = [
       { x: 20, y: 0 },
       { x: 20, y: 40 },
@@ -133,7 +145,7 @@ describe('parseSvgProject', () => {
       source: { id: 'a', port: 'right' },
       target: { id: 'b', port: 'left' },
       vertices: verts,
-      switchSources: { groups: [['S.ONOFF']] },
+      boolSource: { groups: [['S.ONOFF']] },
     }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
       ${cellG('a')}${cellG('b')}
@@ -141,7 +153,7 @@ describe('parseSvgProject', () => {
     </svg>`
     const link = parseSvgProject(svg).cells.find((c) => c.type === 'standard.Link')
     expect(link.vertices).toEqual(verts)
-    expect(link.tms.switchSources).toEqual({ groups: [['S.ONOFF']] })
+    expect(link.tms.boolSource).toEqual({ groups: [['S.ONOFF']] })
   })
 
   it('парсит провод <path> с source/target', () => {

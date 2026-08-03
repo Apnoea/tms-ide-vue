@@ -58,9 +58,8 @@ export function useAutosave({ restoringHistory }) {
       const forms = []
       for (const id of meta.formIds) {
         const stored = (await idbGet(formKey(id))) || { cells: [] }
-        // Старый формат payload'а (см. services/legacyFormat) переписываем сразу:
-        // иначе форма жила бы в legacy до первой правки, а экспорт уже пишет новый
-        // ключ — привязки диапазонов ушли бы из архива.
+        // Старый формат (services/legacyFormat) переписываем сразу: экспорт уже пишет
+        // новый ключ, и до первой правки привязки диапазонов ушли бы из архива.
         const { json: graphJson, changed } = migrateGraphJson(stored)
         if (changed) await idbSet(formKey(id), graphJson)
         forms.push({ id, graphJson })

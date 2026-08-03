@@ -8,7 +8,7 @@
 //    (text-узел) — рантайм адресует text-карточку по id, равному тегу
 //  • провод:          animation-wire-<shortId>
 
-import { LEGACY_RANGE_KEY } from '../services/legacyFormat'
+import { LEGACY_RANGE_KEY, LEGACY_BOOL_KEY } from '../services/legacyFormat'
 
 // Без export: наружу торчат только key-билдеры ниже.
 const ANIM_PREFIX = 'animation-'
@@ -51,7 +51,7 @@ export const CELL_META_FIELDS = [
   { key: 'flipV', keep: Boolean, flag: true },
   { key: 'groupId', keep: Boolean },
   { key: 'rangeSource', keep: Boolean, legacyKey: LEGACY_RANGE_KEY },
-  { key: 'switchSources', keep: Boolean },
+  { key: 'boolSource', keep: Boolean, legacyKey: LEGACY_BOOL_KEY },
   { key: 'navigation', keep: Boolean },
 ]
 
@@ -63,7 +63,7 @@ export const CELL_META_FIELDS = [
  */
 export const LINK_META_FIELDS = [
   { key: 'rangeSource', keep: Boolean, legacyKey: LEGACY_RANGE_KEY },
-  { key: 'switchSources', keep: Boolean },
+  { key: 'boolSource', keep: Boolean, legacyKey: LEGACY_BOOL_KEY },
   { key: 'strokeWidth', keep: Boolean, attr: 'strokeWidth' },
   { key: 'strokeColor', keep: Boolean, attr: 'stroke' },
 ]

@@ -321,7 +321,7 @@ onBeforeUnmount(() => {
                 @click="toggle(row.id)"
               >
                 <i
-                  class="pi !text-[10px]"
+                  class="pi text-[10px]!"
                   :class="collapsed.has(row.id) ? 'pi-chevron-right' : 'pi-chevron-down'"
                 />
               </button>
@@ -332,7 +332,7 @@ onBeforeUnmount(() => {
                 :ref="setRenameInput"
                 v-model="editValue"
                 size="small"
-                class="relative z-10 my-0.5 w-full !py-0.5 font-mono !text-xs"
+                class="relative z-10 my-0.5 w-full py-0.5! font-mono text-xs!"
                 @keyup.enter="commitRename"
                 @keyup.esc="cancelRename"
                 @blur="commitRename"
@@ -352,7 +352,7 @@ onBeforeUnmount(() => {
                   @click="onNameClick(row)"
                 >
                   <i
-                    class="pi pi-file !text-[10px] shrink-0"
+                    class="pi pi-file text-[10px]! shrink-0"
                     :class="
                       row.id === workspace.activeFormId ? 'text-primary-500' : 'text-surface-400'
                     "
@@ -367,7 +367,7 @@ onBeforeUnmount(() => {
                   class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
                   @click.stop="canvas.duplicateForm(row.id)"
                 >
-                  <i class="pi pi-clone !text-[10px]" />
+                  <i class="pi pi-clone text-[10px]!" />
                 </button>
                 <button
                   v-if="!row.broken"
@@ -377,7 +377,7 @@ onBeforeUnmount(() => {
                   class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
                   @click.stop="startRename(row.id)"
                 >
-                  <i class="pi pi-pencil !text-[10px]" />
+                  <i class="pi pi-pencil text-[10px]!" />
                 </button>
                 <button
                   v-if="!row.broken && workspace.formIds.length > 1"
@@ -387,7 +387,7 @@ onBeforeUnmount(() => {
                   class="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
                   @click="confirmDelete($event, row.id)"
                 >
-                  <i class="pi pi-times !text-[10px]" />
+                  <i class="pi pi-times text-[10px]!" />
                 </button>
               </template>
             </div>
@@ -403,7 +403,7 @@ onBeforeUnmount(() => {
         class="pointer-events-none fixed z-[100] flex items-center gap-1.5 rounded bg-surface-0 px-2 py-1 font-mono text-xs shadow-lg ring-1 ring-surface-300"
         :style="{ left: `${dragPos.x + 12}px`, top: `${dragPos.y + 8}px` }"
       >
-        <i class="pi pi-file !text-[10px] text-primary-500" />
+        <i class="pi pi-file text-[10px]! text-primary-500" />
         {{ dragId }}
       </div>
     </Teleport>

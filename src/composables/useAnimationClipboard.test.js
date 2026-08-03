@@ -33,7 +33,7 @@ describe('applyBoolClip', () => {
       { onoffTag: null, groups: [['A', 'B'], ['C']] },
       {}
     )
-    expect(next.switchSources).toEqual({ groups: [['A', 'B'], ['C']] })
+    expect(next.boolSource).toEqual({ groups: [['A', 'B'], ['C']] })
   })
 
   it('пишет onoff-тег только при булевом слоте', () => {
@@ -42,13 +42,13 @@ describe('applyBoolClip', () => {
     expect(applyBoolClip({}, clip, { hasBoolSlot: false }).slots).toBeUndefined()
   })
 
-  it('пустые группы снимают switchSources у цели', () => {
+  it('пустые группы снимают boolSource у цели', () => {
     const next = applyBoolClip(
-      { switchSources: { groups: [['OLD']] } },
+      { boolSource: { groups: [['OLD']] } },
       { onoffTag: null, groups: [[]] },
       {}
     )
-    expect(next.switchSources).toBeUndefined()
+    expect(next.boolSource).toBeUndefined()
   })
 
   it('сохраняет прочие поля tms', () => {
@@ -70,8 +70,8 @@ describe('applyBoolClip', () => {
     const clip = { onoffTag: null, groups: [['A']] }
     const a = applyBoolClip({}, clip, {})
     const b = applyBoolClip({}, clip, {})
-    expect(a.switchSources).not.toBe(b.switchSources)
-    expect(a.switchSources.groups[0]).not.toBe(clip.groups[0])
+    expect(a.boolSource).not.toBe(b.boolSource)
+    expect(a.boolSource.groups[0]).not.toBe(clip.groups[0])
   })
 })
 

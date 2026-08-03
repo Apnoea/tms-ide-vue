@@ -1,5 +1,5 @@
 // Покрываем copy/paste-инварианты: bridge-link рефы через oldToNew, angle
-// rotated-ячеек, round-trip tms линка (switchSources). Plus
+// rotated-ячеек, round-trip tms линка (boolSource). Plus
 // pair тестов для toast-веток (empty selection / skipped по unknown stencil).
 // JointJS Graph + TMSStencil реальные; useCanvas singleton / useToast / registry
 // mock'аем чтобы не таскать palette-загрузку и tag-list.
@@ -179,13 +179,13 @@ describe('useClipboard', () => {
     expect(newCell.angle()).toBe(90)
   })
 
-  it('paste: tms линка round-trip переносит switchSources на новый линк', () => {
+  it('paste: tms линка round-trip переносит boolSource на новый линк', () => {
     const a = makeCell({ x: 0 })
     const b = makeCell({ x: 100 })
     const link = new shapes.standard.Link({
       source: { id: a.id },
       target: { id: b.id },
-      tms: { switchSources: { groups: [['BR1.ONOFF']] } },
+      tms: { boolSource: { groups: [['BR1.ONOFF']] } },
     })
     graph.addCells([a, b, link])
     mockCanvas.selection.value = [
@@ -198,7 +198,7 @@ describe('useClipboard', () => {
     pasteClipboard()
 
     const newLink = graph.getLinks().find((l) => l.id !== link.id)
-    expect(newLink.get('tms')?.switchSources).toEqual({ groups: [['BR1.ONOFF']] })
+    expect(newLink.get('tms')?.boolSource).toEqual({ groups: [['BR1.ONOFF']] })
   })
 
   it('paste: стиль линка (толщина/цвет) попадает и в tms, и в attrs.line', () => {

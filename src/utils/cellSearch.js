@@ -1,7 +1,7 @@
-import { switchSourceTags } from './switchSources'
+import { boolSourceTags } from './boolSource'
 
 /**
- * Все привязанные теги payload'а: слоты, rangeSource.tag, switchSources, valueTag
+ * Все привязанные теги payload'а: слоты, rangeSource.tag, boolSource, valueTag
  * (text/navigation — не теги). Принимает СЫРОЙ tms, поэтому работает и с plain-
  * объектами exporter'а. Новое tag-поле добавлять здесь — поиск и detailTags
  * подхватят сразу.
@@ -18,7 +18,7 @@ export function getCellTagsFromTms(tms) {
     }
   }
   if (tms.rangeSource?.tag) tags.push(tms.rangeSource.tag)
-  for (const t of switchSourceTags(tms.switchSources)) if (t) tags.push(t)
+  for (const t of boolSourceTags(tms.boolSource)) if (t) tags.push(t)
   if (tms.valueTag) tags.push(tms.valueTag)
   return tags
 }

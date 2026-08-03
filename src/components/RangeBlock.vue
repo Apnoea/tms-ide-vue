@@ -42,7 +42,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
           severity="secondary"
           text
           size="small"
-          class="!p-1 !w-6 !h-6"
+          class="p-1! w-6! h-6!"
           @click="$emit('paste')"
         />
         <Button
@@ -52,7 +52,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
           severity="secondary"
           text
           size="small"
-          class="!p-1 !w-6 !h-6"
+          class="p-1! w-6! h-6!"
           @click="$emit('copy')"
         />
         <Button
@@ -62,7 +62,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
           severity="secondary"
           text
           size="small"
-          class="!p-1 !w-6 !h-6"
+          class="p-1! w-6! h-6!"
           @click="$emit('remove')"
         />
       </div>
@@ -94,7 +94,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
             <InputText
               :model-value="String(r.min)"
               size="small"
-              class="w-20 font-mono !text-xs"
+              class="w-20 font-mono text-xs!"
               inputmode="decimal"
               @change="$emit('update-range', idx, 'min', $event.target.value)"
             />
@@ -102,7 +102,7 @@ const CLASS_COLORS = ANIMATION_CLASS_COLORS
             <InputText
               :model-value="String(r.max)"
               size="small"
-              class="w-20 font-mono !text-xs"
+              class="w-20 font-mono text-xs!"
               inputmode="decimal"
               @change="$emit('update-range', idx, 'max', $event.target.value)"
             />

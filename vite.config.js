@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import tailwindcss from '@tailwindcss/vite'
 
 // Dev-плагин: приложение в браузере не может писать в исходники проекта, а
 // при импорте проекта стенсилы должны физически лечь в src/stencils/definitions/
@@ -90,7 +91,7 @@ function stencilWritePlugin() {
 
 export default defineConfig({
   base: './',
-  plugins: [vue(), stencilWritePlugin()],
+  plugins: [vue(), tailwindcss(), stencilWritePlugin()],
   server: {
     port: 5174,
   },

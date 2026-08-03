@@ -244,13 +244,13 @@ function clearStateColor(key, which) {
                   :model-value="st.label"
                   disabled
                   size="small"
-                  class="flex-1 min-w-0 !text-xs"
+                  class="flex-1 min-w-0 text-xs!"
                 />
                 <InputText
                   :model-value="st.value"
                   disabled
                   size="small"
-                  class="w-16 font-mono !text-xs"
+                  class="w-16 font-mono text-xs!"
                 />
                 <div class="flex w-14 shrink-0 items-center justify-center gap-0.5">
                   <input
@@ -269,7 +269,7 @@ function clearStateColor(key, which) {
                     class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
                     @click="clearStateColor(st.value, 'stroke')"
                   >
-                    <i class="pi pi-times !text-[9px]" />
+                    <i class="pi pi-times text-[9px]!" />
                   </button>
                   <span v-else class="w-4 shrink-0" aria-hidden="true"></span>
                 </div>
@@ -293,7 +293,7 @@ function clearStateColor(key, which) {
                     class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
                     @click="clearStateColor(st.value, 'fill')"
                   >
-                    <i class="pi pi-times !text-[9px]" />
+                    <i class="pi pi-times text-[9px]!" />
                   </button>
                   <span v-else class="w-4 shrink-0" aria-hidden="true"></span>
                 </div>
@@ -325,7 +325,7 @@ function clearStateColor(key, which) {
                   :model-value="st.code"
                   placeholder="код"
                   size="small"
-                  class="w-16 font-mono !text-xs"
+                  class="w-16 font-mono text-xs!"
                   @update:model-value="updateState(st.key, { code: $event })"
                   @change="commit"
                 />
@@ -346,7 +346,7 @@ function clearStateColor(key, which) {
                     class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
                     @click="clearStateColor(st.key, 'stroke')"
                   >
-                    <i class="pi pi-times !text-[9px]" />
+                    <i class="pi pi-times text-[9px]!" />
                   </button>
                   <span v-else class="w-4 shrink-0" aria-hidden="true"></span>
                 </div>
@@ -370,7 +370,7 @@ function clearStateColor(key, which) {
                     class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
                     @click="clearStateColor(st.key, 'fill')"
                   >
-                    <i class="pi pi-times !text-[9px]" />
+                    <i class="pi pi-times text-[9px]!" />
                   </button>
                   <span v-else class="w-4 shrink-0" aria-hidden="true"></span>
                 </div>
@@ -380,7 +380,7 @@ function clearStateColor(key, which) {
                   severity="secondary"
                   text
                   size="small"
-                  class="!p-1 !w-6 !h-6"
+                  class="p-1! w-6! h-6!"
                   @click="removeState(st.key)"
                 />
               </div>
@@ -390,7 +390,7 @@ function clearStateColor(key, which) {
                   class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
                   @click="addState"
                 >
-                  <i class="pi pi-plus !text-[10px]" />
+                  <i class="pi pi-plus text-[10px]!" />
                   состояние
                 </button>
                 <button
@@ -401,7 +401,7 @@ function clearStateColor(key, which) {
                   class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
                   @click="applyPositionPreset"
                 >
-                  <i class="pi pi-bolt !text-[10px]" />
+                  <i class="pi pi-bolt text-[10px]!" />
                   Сигнал положения
                 </button>
               </div>
@@ -452,7 +452,7 @@ function clearStateColor(key, which) {
               show-buttons
               button-layout="horizontal"
               size="small"
-              input-class="!w-12 text-center"
+              input-class="w-12! text-center"
               @update:model-value="setStrokeWidth"
               @blur="commit"
             />

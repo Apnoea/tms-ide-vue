@@ -24,7 +24,7 @@ import {
 // оркестрация: обход графа → SVG-сборка + раскладка карточек по id.
 import {
   buildRangeCard,
-  buildSwitchCard,
+  buildBoolCard,
   buildMultiCard,
   buildStateColorCard,
   needsMulti,
@@ -33,7 +33,7 @@ import {
 } from './animationCards'
 import { SVG_NS, escapeAttr } from '../utils/xml'
 import { getCellTagsFromTms } from '../utils/cellSearch'
-import { switchSourceTags } from '../utils/switchSources'
+import { boolSourceTags } from '../utils/boolSource'
 
 /**
  * Короткий id из UUID: первый сегмент, при коллизии добираем следующие. Без этого две
@@ -210,7 +210,7 @@ export function exportProject(graph, paper = null) {
       svgContent: cellSvg,
       slots: tms.slots || null,
       rangeSource: tms.rangeSource || null,
-      switchSources: tms.switchSources || null,
+      boolSource: tms.boolSource || null,
       // navigation — имя другой view, на которую переходит рантайм при клике
       // (см. handler ниже: пишется в animation-entry как поле navigation).
       navigation: tms.navigation || null,
@@ -315,7 +315,7 @@ export function exportProject(graph, paper = null) {
       linkId: link.id, // JointJS-id для round-trip восстановления редактором
       d: pathD,
       rangeSource: linkTms.rangeSource || null,
-      switchSources: linkTms.switchSources || null,
+      boolSource: linkTms.boolSource || null,
       // Толщина/цвет линии. Дефолты (2 / #000) не тащим — meta пишет только нестандартные.
       strokeWidth: linkTms.strokeWidth || null,
       strokeColor: linkTms.strokeColor || null,
@@ -344,10 +344,10 @@ export function exportProject(graph, paper = null) {
     viewBoxH = Math.ceil(maxY - minY + padding * 2)
   }
 
-  // ─── Диапазоны / switch sources ───
+  // ─── Диапазоны / булевы источники ───
   // Карточка на outer-id ячейки (+ merge во внутренние shape-карточки стенсила)
   // либо на wire-id линка. needsMulti-цели получают одну `multi` (диапазоны +
-  // switch + quality слоями); остальные — shape (диапазоны + switch).
+  // булево + quality слоями); остальные — shape (диапазоны + булево).
   // Единый список целей: ячейки (с stencilId/animId для inner-merge) и линки.
   const bindingTargets = [
     ...cellExports.map((c) => ({
@@ -377,8 +377,8 @@ export function exportProject(graph, paper = null) {
       build: (s) => buildRangeCard(s.rangeSource),
     },
     {
-      has: (s) => switchSourceTags(s.switchSources).length > 0,
-      build: (s) => buildSwitchCard(switchSourceTags(s.switchSources)),
+      has: (s) => boolSourceTags(s.boolSource).length > 0,
+      build: (s) => buildBoolCard(boolSourceTags(s.boolSource)),
     },
   ]
   for (const { has, build } of shapeSources) {
@@ -389,7 +389,7 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── State-color: перекрас всего символа по состоянию (stateColors стенсила) ───
-  // Слой на outer (assignOrMerge уживается с диапазонами/switch/quality); на потомков
+  // Слой на outer (assignOrMerge уживается с диапазонами/булевым/quality); на потомков
   // цвет каскадит через CSS. Работает и для needsMulti-целей (мержится в их multi).
   for (const c of cellExports) {
     const card = buildStateColorCard(c)
@@ -430,7 +430,7 @@ export function exportProject(graph, paper = null) {
   // карточки внешней обёртки. У cell_value detailTags ставится на text-карточку
   // (`animation-{valueTag}`) — рантайм-конвенция (text-handler находит элемент
   // по id равному тегу). Для всех остальных собираем все привязанные теги
-  // (slots, rangeSource.tag, switchSources) и кладём на outer-карточку
+  // (slots, rangeSource.tag, boolSource) и кладём на outer-карточку
   // (см. outerKeyFor) / wire.
   function attachDetailTags(key, tags) {
     if (!tags.length) return
@@ -451,7 +451,7 @@ export function exportProject(graph, paper = null) {
     }
   }
   // cellExports / linkExports structurally совместимы с tms-payload
-  // (`slots`, `rangeSource`, `switchSources` на верхнем уровне), так что
+  // (`slots`, `rangeSource`, `boolSource` на верхнем уровне), так что
   // тот же getCellTagsFromTms что и для поиска — без дубля сборки тегов.
   for (const c of cellExports) {
     if (getStencilById(c.stencilId)?.static) continue
@@ -480,7 +480,7 @@ export function exportProject(graph, paper = null) {
     if (needsMulti(c)) continue
     if (!getStencilById(c.stencilId)?.quality) continue
     // Собираем уникальные теги из inner-карточек (slot.onoff) + outer (диапазоны,
-    // switch). Без тегов quality-биндинги бессмысленны — пропускаем.
+    // булево). Без тегов quality-биндинги бессмысленны — пропускаем.
     const stencilPrefix = innerPrefix(c.stencilId, c.animId)
     const outerKey = outerKeyFor(c.stencilId, c.animId)
     const seen = new Set()

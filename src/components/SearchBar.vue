@@ -76,7 +76,7 @@ function onKeyDown(event) {
       v-model="query"
       size="small"
       placeholder="Найти на схеме: тег / текст"
-      class="!text-xs !w-56 !py-1"
+      class="text-xs! w-56! py-1!"
       @keydown="onKeyDown"
     />
     <span

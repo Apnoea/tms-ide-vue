@@ -16,14 +16,14 @@ const hasRange = computed(() => !!rangeClip.value)
 /**
  * Булев буфер → новый tms (null = цель несовместима, вызывающий считает пропуском).
  * Группы — любому не-static элементу, свой тег `onoff` — только стенсилу с булевым
- * слотом. Вставка заменяет блок целиком, поэтому пустой буфер снимает switchSources.
+ * слотом. Вставка заменяет блок целиком, поэтому пустой буфер снимает boolSource.
  */
 export function applyBoolClip(tms, clip, { isStatic = false, hasBoolSlot = false } = {}) {
   if (!clip || isStatic) return null
   const groups = (clip.groups || []).filter((g) => g.length)
   const next = { ...tms }
-  if (groups.length) next.switchSources = { groups: groups.map((g) => [...g]) }
-  else delete next.switchSources
+  if (groups.length) next.boolSource = { groups: groups.map((g) => [...g]) }
+  else delete next.boolSource
   if (clip.onoffTag && hasBoolSlot) {
     next.slots = { ...(tms.slots || {}), onoff: clip.onoffTag }
   }

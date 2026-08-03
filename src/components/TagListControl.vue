@@ -43,7 +43,7 @@ onMounted(async () => {
       v-if="tags.length"
       :value="tags.length"
       size="small"
-      class="!bg-surface-200 !text-surface-600"
+      class="bg-surface-200! text-surface-600!"
     />
   </div>
 </template>

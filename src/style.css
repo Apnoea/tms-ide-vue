@@ -1,6 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind 4 CSS-first: конфиг-файлов нет (плагин @tailwindcss/vite), набор
+   utilities и контент-скан задаются отсюда. primeui-плагин даёт классы
+   surface / primary поверх токенов темы PrimeVue. */
+@import 'tailwindcss';
+@import 'tailwindcss-primeui';
 
 html,
 body,
@@ -99,14 +101,6 @@ body,
    прячем (как порты): картина без интерактивных элементов, ближе к рантайму.
    display:none заодно снимает pointer-events — ресайз за хэндл не стартует. */
 .tms-simulating .tms-resize-handle {
-  display: none;
-}
-
-/* Сжатие шины (жест ещё идёт, см. useBusResize.markDoomed): слот, который после
-   отпускания исчезнет, и его провод скрываем сразу — видно итог. Обратимо: вернул
-   ширину — классы снялись. */
-.joint-element .joint-port.tms-port-doomed,
-.joint-link.tms-link-doomed {
   display: none;
 }
 

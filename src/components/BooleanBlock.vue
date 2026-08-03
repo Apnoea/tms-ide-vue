@@ -62,7 +62,7 @@ defineEmits([
           severity="secondary"
           text
           size="small"
-          class="!p-1 !w-6 !h-6"
+          class="p-1! w-6! h-6!"
           @click="$emit('paste')"
         />
         <Button
@@ -72,7 +72,7 @@ defineEmits([
           severity="secondary"
           text
           size="small"
-          class="!p-1 !w-6 !h-6"
+          class="p-1! w-6! h-6!"
           @click="$emit('copy')"
         />
         <Button
@@ -82,7 +82,7 @@ defineEmits([
           severity="secondary"
           text
           size="small"
-          class="!p-1 !w-6 !h-6"
+          class="p-1! w-6! h-6!"
           @click="$emit('remove')"
         />
       </div>
@@ -124,7 +124,7 @@ defineEmits([
               severity="secondary"
               text
               size="small"
-              class="!p-1 !w-5 !h-5 ml-auto"
+              class="p-1! w-5! h-5! ml-auto"
               @click="$emit('remove-group', gi)"
             />
           </div>
@@ -148,7 +148,7 @@ defineEmits([
               v-tooltip.bottom="tagsLoaded ? 'Добавить тег (И)' : 'Загрузи tag-list'"
               @click="tagsLoaded && $emit('add-tag', gi)"
             >
-              <i class="pi pi-plus !text-[10px]" />
+              <i class="pi pi-plus text-[10px]!" />
               тег (И)
             </button>
           </div>
@@ -164,7 +164,7 @@ defineEmits([
         v-tooltip.bottom="tagsLoaded ? 'Новая группа условий (ИЛИ)' : 'Загрузи tag-list'"
         @click="tagsLoaded && $emit('add-group')"
       >
-        <i class="pi pi-plus !text-[10px]" />
+        <i class="pi pi-plus text-[10px]!" />
         группа (ИЛИ)
       </button>
     </div>

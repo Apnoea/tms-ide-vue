@@ -2,20 +2,9 @@ import { ref, computed } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { getStencilById } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
-import {
-  busPortX,
-  desiredBusPortCount,
-  isBusPortOutOfRange,
-  BUS_PORT_SPACING,
-} from '../stencils/busCell'
+import { busPortX, busPortIndex, desiredBusPortCount, BUS_PORT_SPACING } from '../stencils/busCell'
 import { snapToGrid } from '../utils/grid'
-import { nplural } from '../utils/plural'
-import { useNotify } from './useNotify'
 import { useCanvas } from './useCanvas'
-
-// Скрытие слота и провода, которые исчезнут после сжатия (оформление — style.css).
-const DOOMED_PORT_CLASS = 'tms-port-doomed'
-const DOOMED_LINK_CLASS = 'tms-link-doomed'
 
 /**
  * Ресайз шины: drag edge-хэндла меняет ширину, порты досоздаются/удаляются под новую
@@ -28,7 +17,6 @@ const DOOMED_LINK_CLASS = 'tms-link-doomed'
  */
 export function useBusResize({ scheduleSnapshot }) {
   const canvas = useCanvas()
-  const notify = useNotify()
   let activeResize = null
   const dragging = ref(false)
   const dragTarget = computed(() => (dragging.value ? document : null))
@@ -117,25 +105,22 @@ export function useBusResize({ scheduleSnapshot }) {
     }
     activeResize.lastWidth = newWidth
 
+    // Строго ДО syncBusPorts: тот не удаляет занятые порты, поэтому без клампа за
+    // краем оставался бы висячий слот с проводом.
+    clampBusLinkPorts(cell, newWidth)
+
     syncBusPorts(cell, newWidth, activeResize.startHeight)
 
     const cellView = paper.findViewByModel(cell)
     if (cellView && stencil) injectStencilSvg(cellView, stencil)
-
-    // Слот за краем и его провод скрываем сразу — виден итог сжатия. Классами, а не
-    // удалением: жест обратим. Перевешиваем каждый кадр — syncBusPorts и reinject
-    // пересоздают DOM портов.
-    markDoomed(cell, newWidth)
   }
 
   /**
-   * Левый резайз сдвигает origin → канонические порты (индекс от левого края)
-   * уезжают вместе с ним и тащат подключённые провода. Чтобы провода стояли,
-   * сдвигаем порт-РЕФЫ линков на `k` слотов: линк на `top_4` → `top_(4+k)`. Сам
-   * порт `top_(4+k)` создаёт `syncBusPorts` на канонической позиции, которая после
-   * сдвига origin совпадает со старой абсолютной → провод на месте. Порты НЕ
-   * пересоздаём (никакого remove/add → провода не теряются, без лага). idx<0
-   * (срез слева за точку подключения) клампим к 0 — провод липнет к новому краю.
+   * Левый резайз сдвигает origin, и канонические порты уехали бы вместе с ним,
+   * потащив провода. Поэтому сдвигаем порт-РЕФЫ линков на `k` слотов
+   * (`top_4` → `top_(4+k)`): новый порт `syncBusPorts` создаст там, где старый был
+   * абсолютно, — провод стоит на месте. Сами порты не пересоздаём (remove/add терял
+   * бы провода). Выход за диапазон правит `clampBusLinkPorts`.
    */
   function shiftBusLinkPorts(cell, k) {
     const graph = canvas.graphRef.value
@@ -145,8 +130,32 @@ export function useBusResize({ scheduleSnapshot }) {
         const ref = link.get(end)
         if (ref?.id !== cell.id || !ref.port) continue
         const us = ref.port.indexOf('_')
-        const newIdx = Math.max(0, Number(ref.port.slice(us + 1)) + k)
+        const newIdx = Number(ref.port.slice(us + 1)) + k
         link.prop([end, 'port'], `${ref.port.slice(0, us)}_${newIdx}`)
+      }
+    }
+  }
+
+  /**
+   * Прижимает порт-рефы линков к существующим слотам `0..desired-1`: сжатие уводит
+   * крайние за границу (справа индекс >= desired, слева — отрицательный), и провод
+   * переезжает на крайний слот вместо того, чтобы висеть на несуществующем порту
+   * (после reload `computeBusPorts` его не создаст → конец уехал бы в центр шины).
+   */
+  function clampBusLinkPorts(cell, width) {
+    const graph = canvas.graphRef.value
+    if (!graph) return
+    const last = desiredBusPortCount(width) - 1
+    for (const link of graph.getConnectedLinks(cell)) {
+      for (const end of ['source', 'target']) {
+        const ref = link.get(end)
+        if (ref?.id !== cell.id || !ref.port) continue
+        const idx = busPortIndex(ref.port)
+        if (!Number.isFinite(idx)) continue
+        const clamped = Math.min(Math.max(0, idx), last)
+        if (clamped === idx) continue
+        const us = ref.port.indexOf('_')
+        link.prop([end, 'port'], `${ref.port.slice(0, us)}_${clamped}`)
       }
     }
   }
@@ -200,89 +209,15 @@ export function useBusResize({ scheduleSnapshot }) {
     }
   }
 
-  /** Провода, чей конец сидит на слоте за краем шины такой ширины. */
-  function linksBeyondWidth(cell, width) {
-    const graph = canvas.graphRef.value
-    if (!graph) return []
-    const out = new Set()
-    for (const link of graph.getConnectedLinks(cell)) {
-      for (const end of ['source', 'target']) {
-        const ref = link.get(end)
-        if (ref?.id !== cell.id || !ref.port) continue
-        if (isBusPortOutOfRange(ref.port, width)) out.add(link)
-      }
-    }
-    return [...out]
-  }
-
-  /** Прячет слоты за краем шины и их провода (CSS в style.css). */
-  function markDoomed(cell, width) {
-    const paper = canvas.paperRef.value
-    if (!paper) return
-    clearDoomed()
-    const view = paper.findViewByModel(cell)
-    for (const node of view?.el?.querySelectorAll('[port]') || []) {
-      if (isBusPortOutOfRange(node.getAttribute('port'), width)) {
-        node.classList.add(DOOMED_PORT_CLASS)
-      }
-    }
-    for (const link of linksBeyondWidth(cell, width)) {
-      paper.findViewByModel(link)?.el?.classList.add(DOOMED_LINK_CLASS)
-    }
-  }
-
-  /** Вернуть скрытое (конец жеста или ширина вернулась). */
-  function clearDoomed() {
-    const paper = canvas.paperRef.value
-    if (!paper) return
-    for (const cls of [DOOMED_PORT_CLASS, DOOMED_LINK_CLASS]) {
-      paper.el.querySelectorAll(`.${cls}`).forEach((n) => n.classList.remove(cls))
-    }
-  }
-
-  /**
-   * Провода на исчезнувших слотах удаляем на КОНЦЕ жеста: во время протяжки они лишь
-   * скрыты (markDoomed), поэтому лишний рывок мышью ничего не рвёт. Оставить их нельзя
-   * — порт висел бы правее тела шины, а после reload (`computeBusPorts` создаёт только
-   * слоты в пределах ширины) конец уехал бы в центр.
-   * Возвращает число удалённых.
-   */
-  function dropLinksBeyondWidth(cell, width) {
-    const doomed = linksBeyondWidth(cell, width)
-    for (const link of doomed) link.remove()
-    return doomed.length
-  }
-
   function onResizeEnd() {
     if (!activeResize) return
     // Snapshot только если ширина реально менялась. Клик по хэндлу без движения
     // (или дёрганье в пределах одного grid-шага) не должен порождать «пустой»
     // undo-шаг — onResizeMove обновляет lastWidth лишь на фактическом изменении.
     const changed = activeResize.lastWidth !== activeResize.startWidth
-    const graph = canvas.graphRef.value
-    const cell = graph?.getCell(activeResize.cellId)
-    const width = activeResize.lastWidth
-    const height = activeResize.startHeight
     activeResize = null
     dragging.value = false
-    clearDoomed()
     if (!changed) return
-
-    if (cell) {
-      const removed = dropLinksBeyondWidth(cell, width)
-      if (removed) {
-        // Порты освободились — второй проход их снимет (первый оставлял занятые).
-        syncBusPorts(cell, width, height)
-        const paper = canvas.paperRef.value
-        const stencil = getStencilById(cell.get('tms')?.stencilId)
-        const view = paper?.findViewByModel(cell)
-        if (view && stencil) injectStencilSvg(view, stencil)
-        notify.warn(
-          'Шина сжата',
-          `${nplural(removed, 'провод отключён', 'провода отключены', 'проводов отключено')}: точка подключения вышла за край`
-        )
-      }
-    }
     scheduleSnapshot()
   }
 

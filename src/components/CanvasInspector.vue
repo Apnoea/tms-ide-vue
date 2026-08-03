@@ -15,7 +15,7 @@ import {
   applyRangeClip,
 } from '../composables/useAnimationClipboard'
 import { useAlign } from '../composables/useAlign'
-import { useSwitchGroups } from '../composables/useSwitchGroups'
+import { useBoolGroups } from '../composables/useBoolGroups'
 import { useValueRanges } from '../composables/useValueRanges'
 import { useTextCellProps, ALIGN_OPTIONS, BOLD_OPTIONS } from '../composables/useTextCellProps'
 import { useNavigationField } from '../composables/useNavigationField'
@@ -25,7 +25,7 @@ import { injectStencilSvg } from '../stencils/svgInjector'
 import { TEXT_FONT_SIZE } from '../stencils/textCell'
 import { resolveValueDisplay } from '../stencils/valueCell'
 import { nplural } from '../utils/plural'
-import { normalizeSwitchSources } from '../utils/switchSources'
+import { normalizeBoolSource } from '../utils/boolSource'
 import { toPlain } from '../utils/plain'
 import { isBooleanType } from '../services/parsers'
 import TagPickerDialog from './TagPickerDialog.vue'
@@ -36,7 +36,7 @@ import { ANIMATION_CLASS_OPTIONS } from '../constants/animation'
 import { previewOuterKey } from '../constants/ids'
 
 // Статичные стенсилы (флаг `static: true` в stencil.json) — без визуальной
-// реакции на animation-классы; диапазоны/switch source на них бессмысленны, в
+// реакции на animation-классы; диапазоны/булев источник на них бессмысленны, в
 // multi-select их пропускаем.
 function isStatic(stencilId) {
   return !!getStencilById(stencilId)?.static
@@ -184,9 +184,9 @@ const details = computed(() => {
       exportId: previewOuterKey(tms.stencilId, cell.id, tms.valueTag),
       // Стенсилы с булевым слотом-драйвером (key onoff — см. hasBoolSlot; это
       // cell_qw/qr/qk/qf, cell_alr, пользовательские) рендерят его через BooleanBlock
-      // первой строкой (основной тег) вместе с зависимостями switchSources.
+      // первой строкой (основной тег) вместе с зависимостями boolSource.
       hasBoolSlot: hasBoolSlot(stencil),
-      // Тег основного булева слота (slot.onoff) — для исключения из switchSources.
+      // Тег основного булева слота (slot.onoff) — для исключения из boolSource.
       // Из payload (tms.slots.onoff), как и multi-select; не по индексу slots[0].
       onoffTag: slotValues.onoff || '',
       // Слоты для UI: декларация из стенсила + текущее значение из tms.slots.
@@ -197,7 +197,7 @@ const details = computed(() => {
         value: slotValues[s.key] || '',
       })),
       rangeSource: tms.rangeSource || null,
-      switchSources: tms.switchSources || null,
+      boolSource: tms.boolSource || null,
       navigation: tms.navigation || '',
     }
   }
@@ -211,7 +211,7 @@ const details = computed(() => {
       strokeWidth: cell.attr('line/strokeWidth') ?? 2,
       strokeColor: cell.attr('line/stroke') || '#000000',
       rangeSource: tms.rangeSource || null,
-      switchSources: tms.switchSources || null,
+      boolSource: tms.boolSource || null,
     }
   }
 
@@ -233,10 +233,9 @@ function onDelete() {
 }
 
 // ─── Единый tag-picker ───
-// Все места открывают один диалог через openPicker(config): selected/header
-// снимаются в момент открытия, `tags` — ГЕТТЕР (пустой picker умеет загрузить
-// tag-list сам, и список должен наполниться, не закрывая диалог), onSelect —
-// что делать с выбранным тегом. picker=null → диалог закрыт.
+// Один диалог на все места: `openPicker(config)`, где selected/header снимаются при
+// открытии, а `tags` — ГЕТТЕР (пустой picker сам грузит tag-list, список должен
+// наполниться не закрывая диалог). picker=null → закрыт.
 const picker = ref(null)
 const pickerTags = computed(() => picker.value?.tags?.() ?? [])
 
@@ -510,18 +509,18 @@ const {
   toggleMultiRangeHighlight,
 } = useValueRanges({ details, mutateSelectedTms, openPicker })
 
-// ─── switchSources: зависимости-теги ГРУППАМИ (DNF) ───
-// Секция целиком в useSwitchGroups (форма { groups }, picker, add/edit/remove).
+// ─── boolSource: зависимости-теги ГРУППАМИ (DNF) ───
+// Секция целиком в useBoolGroups (форма { groups }, picker, add/edit/remove).
 const {
-  switchGroups,
-  switchRemovable,
+  boolGroups,
+  boolRemovable,
   onAddGroup,
   onAddSwitchTag,
   editSwitchTagAt,
   removeSwitchTagAt,
   removeSwitchGroup,
   removeSwitchSources,
-} = useSwitchGroups({ details, mutateSelectedTms, openPicker })
+} = useBoolGroups({ details, mutateSelectedTms, openPicker })
 
 /** Открыть picker массовой привязки булева тега (multi-select). */
 function openMultiSwitchPicker() {
@@ -532,7 +531,7 @@ function openMultiSwitchPicker() {
   })
 }
 
-/** Multi-select: добавить тег НОВОЙ группой [tag] в switchSources всех
+/** Multi-select: добавить тег НОВОЙ группой [tag] в boolSource всех
  * выделенных (у выделения нет общего состояния → каждому — своя новая группа,
  * не дублируя уже существующую одиночную группу с этим тегом). */
 function onPickMultiSwitchTag(tag) {
@@ -550,18 +549,18 @@ function onPickMultiSwitchTag(tag) {
       continue
     }
     // Свитчи (стенсилы с slot.onoff) не должны зависеть от своего же тега —
-    // slot.onoff уже отвечает за переключение, дубль в switchSources бессмыслен.
+    // slot.onoff уже отвечает за переключение, дубль в boolSource бессмыслен.
     if (hasBoolSlot(getStencilById(tms.stencilId)) && tms.slots?.onoff === tag) {
       skipped++
       continue
     }
-    const groups = normalizeSwitchSources(tms.switchSources).groups
+    const groups = normalizeBoolSource(tms.boolSource).groups
     // Уже есть одиночная группа ровно с этим тегом → не плодим дубль.
     if (groups.some((g) => g.length === 1 && g[0] === tag)) {
       applied++
       continue
     }
-    cell.set('tms', { ...tms, switchSources: { groups: [...groups, [tag]] } })
+    cell.set('tms', { ...tms, boolSource: { groups: [...groups, [tag]] } })
     applied++
   }
   canvas.bumpVersion()
@@ -588,7 +587,7 @@ function onPickMultiSwitchTag(tag) {
 function copyBool() {
   const d = details.value
   if (!d) return
-  animClip.copyBool(toPlain({ onoffTag: d.onoffTag || null, groups: switchGroups.value }))
+  animClip.copyBool(toPlain({ onoffTag: d.onoffTag || null, groups: boolGroups.value }))
   notify.success('Скопировано', 'Булевые настройки анимации')
 }
 
@@ -602,13 +601,13 @@ function copyRange() {
 
 /**
  * Вставить булев блок из буфера на всё текущее выделение. Группы-зависимости
- * (switchSources) раздаём любому не-static элементу/проводу; свой булев тег
+ * (boolSource) раздаём любому не-static элементу/проводу; свой булев тег
  * (onoff) — только стенсилам с булевым слотом (иначе некуда его писать). Статичные
  * стенсилы (текст/значение) пропускаем со счётчиком.
  */
 function pasteBool() {
   const clip = animClip.boolClip.value
-  // Вставка ЗАМЕНЯЕТ блок целиком: буфер без групп снимает switchSources у цели.
+  // Вставка ЗАМЕНЯЕТ блок целиком: буфер без групп снимает boolSource у цели.
   // Считаем такие случаи, чтобы не стереть зависимости молча (тост станет warn).
   const clipHasGroups = !!(clip?.groups || []).some((g) => g.length)
   pasteClip(
@@ -618,7 +617,7 @@ function pasteBool() {
         isStatic: isStatic(tms.stencilId),
         hasBoolSlot: hasBoolSlot(getStencilById(tms.stencilId)),
       }),
-    (tms) => !clipHasGroups && !!tms.switchSources
+    (tms) => !clipHasGroups && !!tms.boolSource
   )('Булевые настройки вставлены')
 }
 
@@ -698,7 +697,7 @@ const {
         text
         rounded
         size="small"
-        class="!absolute !right-2 !top-1/2 !-translate-y-1/2 !w-8 !h-8 !p-0"
+        class="absolute! right-2! top-1/2! !-translate-y-1/2 w-8! h-8! p-0!"
         @click="onToggleLock"
       />
     </div>
@@ -853,7 +852,7 @@ const {
               <div class="mb-2 uppercase tracking-wider text-surface-500">Подсказки</div>
               <ul class="flex flex-col gap-2 text-surface-500">
                 <li class="flex items-center gap-2">
-                  <i class="pi pi-arrows-alt !text-[10px] text-surface-400" />
+                  <i class="pi pi-arrows-alt text-[10px]! text-surface-400" />
                   Перетащи символ из палитры на холст
                 </li>
                 <li class="flex items-center gap-2">
@@ -921,7 +920,7 @@ const {
                   show-buttons
                   button-layout="horizontal"
                   size="small"
-                  input-class="!w-12 text-center"
+                  input-class="w-12! text-center"
                   class="ml-auto"
                   @update:model-value="applyFontSize"
                 />
@@ -989,10 +988,9 @@ const {
                 :can-pick="!!project.tags.length"
                 @pick="openValueTagPicker"
               />
-              <!-- Величина = пара «подпись + единица» из пресетов стенсила. Пара
-                   подставляется по суффиксу тега (`.UA` → «Ua · В»), но имена тегов
-                   не во всех проектах следуют конвенции — поэтому выбор явный, и он
-                   перебивает автоподстановку. -->
+              <!-- Величина = пара «подпись + единица» из пресетов стенсила. По
+                   суффиксу тега подставляется сама (`.UA` → «Ua · В»); выбор её
+                   перебивает — имена тегов не всегда следуют конвенции. -->
               <div v-if="valuePresets.length" class="mt-2">
                 <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
                   Величина
@@ -1046,7 +1044,7 @@ const {
                   size="small"
                   placeholder="Форма или view-id"
                   class="w-full"
-                  input-class="w-full !text-xs"
+                  input-class="w-full text-xs!"
                   @update:model-value="(v) => (navInput = v)"
                   @complete="onNavComplete"
                   @item-select="commitNav"
@@ -1086,7 +1084,7 @@ const {
                   show-buttons
                   button-layout="horizontal"
                   size="small"
-                  input-class="!w-12 text-center"
+                  input-class="w-12! text-center"
                   class="ml-auto"
                   @update:model-value="applyStrokeWidth"
                 />
@@ -1132,14 +1130,14 @@ const {
 
             <!-- Булево значение — виден ВСЕГДА. У стенсила с булевым слотом
                  (onoff, в т.ч. cell_alr) первой строкой идёт этот слот (основной
-                 тег), ниже — зависимости switchSources. Теги пишутся лениво через
-                 «Добавить»; × очищает (switchRemovable). -->
+                 тег), ниже — зависимости boolSource. Теги пишутся лениво через
+                 «Добавить»; × очищает (boolRemovable). -->
             <BooleanBlock
               :slot-info="details.hasBoolSlot ? details.slots[0] : null"
-              :groups="switchGroups"
-              :removable="switchRemovable"
+              :groups="boolGroups"
+              :removable="boolRemovable"
               :tags-loaded="!!project.tags.length"
-              :copyable="!!(details.onoffTag || switchGroups.length)"
+              :copyable="!!(details.onoffTag || boolGroups.length)"
               :pasteable="animClip.hasBool.value"
               title="Булево значение"
               @open-slot-picker="openSlotPicker(details.slots[0])"

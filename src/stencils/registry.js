@@ -69,9 +69,8 @@ export function validateStencilJson(path, json, svgText) {
     }
   }
 
-  // Пресеты величин cell_value: пара «подпись + единица», по которой инспектор даёт
-  // выбор, а `suffix` (опционален) подставляет пару автоматически по имени тега.
-  // Без label пресет нечего показывать в списке.
+  // Пресеты величин cell_value: пара «подпись + единица» для выбора в инспекторе,
+  // опциональный `suffix` подставляет её по имени тега. Без label показывать нечего.
   if (Array.isArray(json.valuePresets)) {
     for (const [i, p] of json.valuePresets.entries()) {
       if (!p.label) issues.push(`[stencils] ${path}: valuePresets[${i}] без "label"`)
@@ -177,7 +176,7 @@ const PINNED_FIRST_CATEGORIES = ['Разметка и значения']
 
 /**
  * Булев слот-драйвер (`onoff`) — единый ключ всех булевых стенсилов. Инспектор
- * рендерит его первой строкой «Булево значение» и исключает из switchSources.
+ * рендерит его первой строкой «Булево значение» и исключает из boolSource.
  */
 export function hasBoolSlot(stencil) {
   return !!stencil?.slots?.some((s) => s.key === 'onoff')

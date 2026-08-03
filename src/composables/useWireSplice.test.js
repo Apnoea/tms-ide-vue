@@ -50,7 +50,7 @@ function makeScene({ withView = true, vertices = [] } = {}) {
   })
   link.set('tms', {
     rangeSource: { tag: 'V', ranges: [] },
-    switchSources: { groups: [['S']] },
+    boolSource: { groups: [['S']] },
   })
   graph.addCells([a, b, cell, link])
 
@@ -91,12 +91,12 @@ describe('spliceCellIntoLink', () => {
     expect(mockCanvas.selectOnly).toHaveBeenCalledWith('cell', cell.id)
   })
 
-  it('ячейка наследует диапазоны/switch провода', () => {
+  it('ячейка наследует диапазоны/булево провода', () => {
     const { graph, cell, link } = makeScene()
     useWireSplice().spliceCellIntoLink(link, cell, { x: 100, y: 50 })
 
     expect(cell.get('tms').rangeSource).toEqual({ tag: 'V', ranges: [] })
-    expect(cell.get('tms').switchSources).toEqual({ groups: [['S']] })
+    expect(cell.get('tms').boolSource).toEqual({ groups: [['S']] })
     // seg2 получает собственный клон (не общая ссылка с ячейкой).
     const seg2 = graph.getLinks().find((l) => l.id !== link.id)
     expect(seg2.get('tms').rangeSource).not.toBe(cell.get('tms').rangeSource)
@@ -109,8 +109,8 @@ describe('spliceCellIntoLink', () => {
 
     // диапазоны у ячейки были свои → не перетёрт проводом.
     expect(cell.get('tms').rangeSource).toEqual({ tag: 'OWN', ranges: [] })
-    // switch ячейка не имела → наследует от провода.
-    expect(cell.get('tms').switchSources).toEqual({ groups: [['S']] })
+    // булева источника ячейка не имела → наследует от провода.
+    expect(cell.get('tms').boolSource).toEqual({ groups: [['S']] })
   })
 
   it('распределяет изломы по сегментам относительно точки врезки', () => {

@@ -14,7 +14,7 @@ export const useProjectStore = defineStore('project', () => {
     tags.value = newTags
   }
 
-  // Подмножества по типу для tag-picker'ов: булевы (слоты/switch — эффект «false →
+  // Подмножества по типу для tag-picker'ов: булевы (слоты/булев источник — эффект «false →
   // затемнение»), float (аналоговое значение cell_value). Держим в сторе, чтобы
   // не дублировать фильтр в компонентах.
   const booleanTags = computed(() => tags.value.filter((t) => isBooleanType(t.type)))

@@ -248,7 +248,7 @@ async function removeStencil(id) {
                 ref="searchInput"
                 v-model="search"
                 size="small"
-                class="w-full !h-8"
+                class="w-full h-8!"
                 placeholder="Поиск по названию или id..."
                 @keyup.esc="closeSearch"
               />
@@ -324,7 +324,7 @@ async function removeStencil(id) {
                 @pointerdown.stop
                 @click="ui.openStencilEditor(stencil.id)"
               >
-                <i class="pi pi-pencil !text-sm" />
+                <i class="pi pi-pencil text-sm!" />
               </button>
               <!-- Удаление — у всех, кроме залоченных (`locked`). Видно по ховеру
                    строки. @pointerdown.stop глушит старт drag'а (строка тащится по
@@ -339,7 +339,7 @@ async function removeStencil(id) {
                 @pointerdown.stop
                 @click="confirmDeleteStencil($event, stencil)"
               >
-                <i class="pi pi-trash !text-sm" />
+                <i class="pi pi-trash text-sm!" />
               </button>
             </div>
           </AccordionContent>
