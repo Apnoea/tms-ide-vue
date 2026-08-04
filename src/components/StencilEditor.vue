@@ -25,7 +25,7 @@ import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { snapToGrid } from '../utils/grid'
-import { stencilDraftIssues, isFillableShape } from '../utils/stencilSvg'
+import { stencilDraftIssues, isFillableShape, TEXT_SHAPE_SIZE } from '../utils/stencilSvg'
 import { confirmDanger } from '../utils/confirmDanger'
 import { range, rangeFromTo, gridLineColor, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
@@ -78,6 +78,11 @@ const DRAW_TOOLS = [
     key: 'polyline',
     icon: 'pi pi-chart-line',
     tip: 'Ломаная (клик по началу — замкнуть, двойной клик — завершить)',
+  },
+  {
+    key: 'text',
+    icon: 'pi pi-pencil',
+    tip: 'Подпись (клик — поставить, текст правится в инспекторе)',
   },
   { key: 'port', icon: 'pi pi-map-marker', tip: 'Порт (клик по порту — удалить)' },
 ]
@@ -333,6 +338,12 @@ function onSurfaceDown(e) {
     addPort(u.x, u.y)
     return
   }
+  // Подпись ставится одним кликом (не drag'ом): габарит задаёт шрифт, а не рамка.
+  if (tool.value === 'text') {
+    const u = snappedShape(e)
+    addShape({ type: 'text', x: u.x, y: u.y, text: 'Текст', fontSize: TEXT_SHAPE_SIZE })
+    return
+  }
   if (tool.value === 'polyline') {
     const u = snappedShape(e)
     const pts = polyPoints.value
@@ -458,13 +469,15 @@ let dragCtx = null
 const clone = (v) => JSON.parse(JSON.stringify(v))
 
 function anchorOf(s) {
-  if (s.type === 'rect') return { x: s.x, y: s.y }
+  // text — как rect: точка привязки лежит в x/y. Без этой ветки drag падал в
+  // polyline-случай и читал `points[0]`, которого у подписи нет.
+  if (s.type === 'rect' || s.type === 'text') return { x: s.x, y: s.y }
   if (s.type === 'circle') return { x: s.cx, y: s.cy }
   if (s.type === 'line') return { x: s.x1, y: s.y1 }
   return { x: s.points[0][0], y: s.points[0][1] }
 }
 function translated(s, dx, dy) {
-  if (s.type === 'rect') return { x: s.x + dx, y: s.y + dy }
+  if (s.type === 'rect' || s.type === 'text') return { x: s.x + dx, y: s.y + dy }
   if (s.type === 'circle') return { cx: s.cx + dx, cy: s.cy + dy }
   if (s.type === 'line') return { x1: s.x1 + dx, y1: s.y1 + dy, x2: s.x2 + dx, y2: s.y2 + dy }
   return { points: s.points.map(([x, y]) => [x + dx, y + dy]) }

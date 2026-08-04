@@ -2,7 +2,7 @@ import { reinjectAllStencils } from '../stencils/svgInjector'
 import { registerStencil } from '../stencils/registry'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { toPlain } from '../utils/plain'
-import { idbGet, idbSet, idbDel, idbKeys } from '../utils/idb'
+import { idbGet, idbTryGet, idbSet, idbDel, idbKeys } from '../utils/idb'
 import { loadStencilOverrides } from '../services/stencilOverrides'
 import { migrateGraphJson } from '../services/legacyFormat'
 import { parseTagList } from '../services/parsers'
@@ -32,10 +32,19 @@ export function useAutosave({ restoringHistory }) {
   const workspace = useWorkspaceStore()
   const project = useProjectStore()
 
+  // Чтение проекта на старте не удалось (хранилище недоступно, битая транзакция).
+  // Пока флаг поднят, В IDB НЕ ПИШЕМ вообще: данные там целы, а в сторе — пустышка,
+  // и любая запись затёрла бы проект. Сессия становится read-only до перезагрузки.
+  let storageUnreadable = false
+  const readOnly = () => storageUnreadable
+
   /**
    * Восстанавливает проект из IndexedDB и грузит активную форму в граф.
-   * Нет проекта в IDB → бутстрап пустой формы `main`. Возвращает кол-во ячеек
-   * активной формы (0 — пусто).
+   * Нет проекта в IDB → бутстрап пустой формы `main`.
+   *
+   * @returns {Promise<number>} число ячеек активной формы; `0` — пусто,
+   *   **`-1` — хранилище не прочиталось**: запись выключена (read-only), вызывающий
+   *   обязан сказать это пользователю.
    */
   async function restoreProject() {
     const graph = canvas.graphRef.value
@@ -47,7 +56,16 @@ export function useAutosave({ restoringHistory }) {
     // Переживают reload без dev-плагина (см. stencilOverrides).
     for (const s of await loadStencilOverrides()) registerStencil(s.stencilJson, s.shapeSvg)
 
-    const meta = await idbGet(META_KEY)
+    // Сбой чтения меты НЕ равен «проекта ещё нет»: приняв одно за другое, бутстрап
+    // ниже перезаписал бы существующий проект пустой формой. При ошибке уходим в
+    // read-only и отдаём -1 — вызывающий покажет ошибку вместо «восстановлено».
+    const metaRead = await idbTryGet(META_KEY)
+    if (!metaRead.ok) {
+      storageUnreadable = true
+      canvas.setSaveError(true)
+      return -1
+    }
+    const meta = metaRead.value
 
     if (!meta || !Array.isArray(meta.formIds) || meta.formIds.length === 0) {
       await idbSet(formKey(DEFAULT_FORM_ID), { cells: [] })
@@ -57,7 +75,15 @@ export function useAutosave({ restoringHistory }) {
     } else {
       const forms = []
       for (const id of meta.formIds) {
-        const stored = (await idbGet(formKey(id))) || { cells: [] }
+        const read = await idbTryGet(formKey(id))
+        // Форма не прочиталась — в IDB она, скорее всего, цела, а в сторе окажется
+        // пустой. Пишем что-либо нельзя: первый autosave затёр бы её пустотой.
+        if (!read.ok) {
+          storageUnreadable = true
+          canvas.setSaveError(true)
+          return -1
+        }
+        const stored = read.value || { cells: [] }
         // Старый формат (services/legacyFormat) переписываем сразу: экспорт уже пишет
         // новый ключ, и до первой правки привязки диапазонов ушли бы из архива.
         const { json: graphJson, changed } = migrateGraphJson(stored)
@@ -92,6 +118,7 @@ export function useAutosave({ restoringHistory }) {
    * просматриваемую форму, а не первую.
    */
   async function persistMeta() {
+    if (readOnly()) return false
     return idbSet(
       META_KEY,
       toPlain({
@@ -116,7 +143,7 @@ export function useAutosave({ restoringHistory }) {
   async function saveActiveForm(json, jsonStr) {
     const graph = canvas.graphRef.value
     const id = workspace.activeFormId
-    if (!graph || !id || restoringHistory.value) return
+    if (!graph || !id || restoringHistory.value || readOnly()) return
     const graphJson = json ?? graph.toJSON()
     workspace.updateActiveGraph(graphJson)
     // Сами считаем только на редких путях (CRUD форм, переключение, экспорт).
@@ -134,7 +161,7 @@ export function useAutosave({ restoringHistory }) {
     const id = workspace.activeFormId
     workspace.clearActiveForm()
     lastSaved = null // пишем в обход saveActiveForm — его память о IDB устарела
-    if (id) await idbSet(formKey(id), { cells: [] })
+    if (id && !readOnly()) await idbSet(formKey(id), { cells: [] })
   }
 
   /**
@@ -153,6 +180,8 @@ export function useAutosave({ restoringHistory }) {
    * @returns {Promise<boolean>}
    */
   async function replaceProject(forms, tagsText, hierarchy = null, projectName = null) {
+    // Хранилище не читается → и не пишем: импорт молча потерял бы данные проекта.
+    if (readOnly()) return false
     // GC форм прежнего проекта: импорт заменяет проект целиком, а старые
     // project:form:<id> дальше не читаются (restore идёт по formIds меты) и копили
     // бы мёртвые blob'ы до квоты. Чистим ДО записи новых — освобождаем место.
@@ -184,12 +213,14 @@ export function useAutosave({ restoringHistory }) {
 
   /** Запись graphJson формы по id (создание / переименование). */
   function persistForm(id, json) {
+    if (readOnly()) return Promise.resolve(false)
     if (lastSaved?.id === id) lastSaved = null // пишем ту же форму мимо saveActiveForm
     return idbSet(formKey(id), json)
   }
 
   /** Удалить форму из IDB по id. */
   function removeFormPersist(id) {
+    if (readOnly()) return Promise.resolve()
     if (lastSaved?.id === id) lastSaved = null
     return idbDel(formKey(id))
   }

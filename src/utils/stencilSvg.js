@@ -8,14 +8,20 @@
  * никакого парсинга/санитайза чужого SVG не требуется. Координаты в модели уже
  * в системе стенсила (0..W, 0..H) и снапнуты к сетке, здесь только рендер.
  *
- * Поддерживаемые примитивы: rect, line, circle, polyline. Внутренняя анимация
+ * Поддерживаемые примитивы: rect, line, circle, polyline, text. Внутренняя анимация
  * состояния: фигуры группируются по state в <g data-anim-suffix=".<ключ>">, из
  * них же строится animationTemplate. Ключи — либо булевы (true/false), либо
  * произвольные состояния «по значению» (см. meta.stateMode / meta.states).
+ *
+ * `text` — статичная подпись внутри символа («Wh» у счётчика): в анимациях НЕ
+ * участвует, потому что CSS перекраски намеренно исключает `<text>` (селектор
+ * `*:not(text)` в constants/animation) и заливку даёт только заливаемым фигурам.
  */
 
 import { ATTR_SUFFIX } from '../constants/ids'
 import { STATE_FILL_CLASS, normalizeStateColor } from '../constants/animation'
+import { escapeXml } from './xml'
+import { measureTextWidth, SVG_FONT } from './textMetrics'
 
 // Числа в атрибутах — без хвостовых нулей и float-мусора (модель снапнута к
 // сетке, но масштаб/дробный шаг могут дать 12.5 → оставляем как есть, а 12.0 → 12).
@@ -53,6 +59,30 @@ function fillClassAttr(shape, markFill) {
 // Радиус скругления углов прямоугольника (в user-единицах) при shape.rounded.
 export const ROUND_RX = 2
 
+// Подпись: размер по умолчанию и якорь. Anchor фиксирован `middle` — подпись в
+// символе почти всегда центрируется по фигуре, а выбор из трёх вариантов добавлял
+// бы контрол в инспектор без реальной пользы. Шрифт — общий SVG_FONT (см.
+// utils/textMetrics): он же используется в замере, иначе bbox разойдётся с рендером.
+export const TEXT_SHAPE_SIZE = 10
+export const TEXT_SHAPE_ANCHOR = 'middle'
+
+/**
+ * Габарит подписи: ширину меряем canvas-метрикой (шрифт задаёт размер, рамки у
+ * текста нет), высоту берём как fontSize с небольшим запасом на descender'ы.
+ * `x`/`y` — точка привязки: baseline по y, центр по x (anchor=middle).
+ */
+export function textShapeBox(shape) {
+  const w = measureTextWidth(shape.text, shape.fontSize ?? TEXT_SHAPE_SIZE, shape.bold, -1)
+  const width = w < 0 ? (shape.text || '').length * (shape.fontSize ?? TEXT_SHAPE_SIZE) * 0.6 : w
+  const size = shape.fontSize ?? TEXT_SHAPE_SIZE
+  return {
+    x: shape.x - width / 2,
+    y: shape.y - size,
+    w: width,
+    h: size * 1.25,
+  }
+}
+
 // Опциональное скругление (тумблер в редакторе): у линии/ломаной — круглые торцы
 // и стыки, у прямоугольника — скруглённые углы (rx). У круга скруглять нечего.
 function roundingAttrs(shape) {
@@ -87,13 +117,23 @@ function serializeShape(shape, markFill) {
       const tag = shape.closed ? 'polygon' : 'polyline'
       return `<${tag}${fillClassAttr(shape, markFill)} points="${pts}" ${fillAttr(shape)} ${strokeAttrs(shape)}${roundingAttrs(shape)}/>`
     }
+    case 'text': {
+      // Цвет подписи — это fill (обводки у текста нет), поэтому stroke не пишем:
+      // он дал бы «жирный контур» вокруг глифов.
+      const weight = shape.bold ? ' font-weight="bold"' : ''
+      return (
+        `<text x="${num(shape.x)}" y="${num(shape.y)}" text-anchor="${TEXT_SHAPE_ANCHOR}" ` +
+        `font-size="${num(shape.fontSize ?? TEXT_SHAPE_SIZE)}" font-family="${SVG_FONT}"${weight} ` +
+        `fill="${shape.stroke || '#000'}">${escapeXml(shape.text || '')}</text>`
+      )
+    }
     default:
       return ''
   }
 }
 
 export function translateShape(s, dx, dy) {
-  if (s.type === 'rect') return { ...s, x: s.x + dx, y: s.y + dy }
+  if (s.type === 'rect' || s.type === 'text') return { ...s, x: s.x + dx, y: s.y + dy }
   if (s.type === 'line') return { ...s, x1: s.x1 + dx, y1: s.y1 + dy, x2: s.x2 + dx, y2: s.y2 + dy }
   if (s.type === 'circle') return { ...s, cx: s.cx + dx, cy: s.cy + dy }
   if (s.type === 'polyline') return { ...s, points: s.points.map(([x, y]) => [x + dx, y + dy]) }
@@ -132,6 +172,12 @@ export function cropToContent(shapes, ports = [], grid = 10) {
       acc(s.cx + s.r, s.cy + s.r)
     } else if (s.type === 'polyline') {
       for (const [x, y] of s.points) acc(x, y)
+    } else if (s.type === 'text') {
+      // Габарит подписи задаёт шрифт — без замера она вылезла бы за viewBox и
+      // обрезалась на сохранении.
+      const b = textShapeBox(s)
+      acc(b.x, b.y)
+      acc(b.x + b.w, b.y + b.h)
     }
   }
   for (const p of ports) acc(p.x, p.y)
@@ -256,6 +302,20 @@ function elementToShape(el) {
       if (el.tagName.toLowerCase() === 'polygon') shape.closed = true
       return shape
     }
+    case 'text':
+      // Цвет подписи лежит в fill (у текста нет обводки), поэтому кладём его в
+      // `stroke` модели — редактор правит цвет фигуры одним полем для всех типов.
+      return {
+        type: 'text',
+        x: n('x'),
+        y: n('y'),
+        text: (el.textContent || '').trim(),
+        fontSize: n('font-size') || TEXT_SHAPE_SIZE,
+        bold: el.getAttribute('font-weight') === 'bold',
+        stroke: fill === 'none' ? '#000' : fill,
+        strokeWidth: 2,
+        fill: 'none',
+      }
     default:
       return null
   }

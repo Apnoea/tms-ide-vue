@@ -126,6 +126,28 @@ describe('serializeSvg', () => {
     expect(svg).toContain('cx="10" cy="10" r="7.5"')
   })
 
+  it('text — подпись с anchor=middle, цвет в fill, без обводки', () => {
+    // Обводки у текста нет: stroke дал бы контур вокруг глифов, поэтому цвет
+    // модели (`stroke`) уходит в fill.
+    const svg = serializeSvg(
+      [{ type: 'text', x: 20, y: 28, text: 'Wh', fontSize: 12, bold: true, stroke: '#333' }],
+      { width: 40, height: 40 }
+    )
+    expect(svg).toContain('<text x="20" y="28" text-anchor="middle"')
+    expect(svg).toContain('font-size="12" font-family="sans-serif" font-weight="bold"')
+    expect(svg).toContain('fill="#333">Wh</text>')
+    expect(svg.match(/<text[^>]*stroke=/)).toBeNull()
+  })
+
+  it('text — содержимое эскейпится (XML не должен ломаться)', () => {
+    const svg = serializeSvg([{ type: 'text', x: 0, y: 10, text: 'A & B <c>' }], {
+      width: 20,
+      height: 20,
+    })
+    expect(svg).toContain('&amp;')
+    expect(svg).not.toContain('<c>')
+  })
+
   it('неизвестный тип примитива пропускается', () => {
     const svg = serializeSvg([{ type: 'bezier' }, { type: 'rect', x: 0, y: 0, w: 5, h: 5 }], {
       width: 10,
@@ -472,6 +494,20 @@ describe('stateColors (перекрас символа по состоянию)'
 })
 
 describe('cropToContent', () => {
+  it('подпись входит в bbox — иначе обрезалась бы на сохранении', () => {
+    // Габарит текста задаёт шрифт (без замера он не виден cropToContent), поэтому
+    // подпись правее фигуры обязана расширить бокс.
+    const withoutText = cropToContent([{ type: 'rect', x: 0, y: 0, w: 20, h: 20 }], [])
+    const withText = cropToContent(
+      [
+        { type: 'rect', x: 0, y: 0, w: 20, h: 20 },
+        { type: 'text', x: 60, y: 15, text: 'Wh', fontSize: 12 },
+      ],
+      []
+    )
+    expect(withText.width).toBeGreaterThan(withoutText.width)
+  })
+
   it('обрезает поля и сдвигает контент в (0,0)', () => {
     const { shapes, width, height } = cropToContent(
       [{ type: 'rect', x: 10, y: 10, w: 20, h: 20 }],
@@ -563,14 +599,54 @@ describe('parseStencilSvg (инверсия serializeSvg)', () => {
     expect(shapes.map((s) => s.type)).toEqual(['line', 'circle'])
   })
 
-  it('игнорирует незнакомые элементы (path/text) внутри группы', () => {
+  it('игнорирует незнакомые элементы (path) внутри группы', () => {
     const svg =
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">' +
       '<g data-anim-suffix=".X"><path d="M0 0"/>' +
-      '<rect x="0" y="0" width="10" height="10"/></g><text>Wh</text></svg>'
+      '<rect x="0" y="0" width="10" height="10"/></g></svg>'
     const shapes = parseStencilSvg(svg)
     expect(shapes).toHaveLength(1)
     expect(shapes[0].type).toBe('rect')
+  })
+
+  it('символ с подписью переживает round-trip parse → serialize → parse', () => {
+    // Случай cell_pi: корпус + надпись. После правки в редакторе подпись обязана
+    // вернуться той же — иначе символ терял бы обозначение.
+    const src =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><g>' +
+      '<rect x="5" y="6" width="30" height="28" fill="none" stroke="#000" stroke-width="2"/>' +
+      '<text x="20" y="28" text-anchor="middle" font-size="12" font-family="sans-serif" ' +
+      'font-weight="bold" fill="#000">Wh</text></g></svg>'
+    const first = parseStencilSvg(src)
+    const again = parseStencilSvg(serializeSvg(first, { width: 40, height: 40 }))
+    expect(again).toHaveLength(2)
+    expect(again.find((s) => s.type === 'text')).toMatchObject({
+      x: 20,
+      y: 28,
+      text: 'Wh',
+      fontSize: 12,
+      bold: true,
+    })
+    expect(again.find((s) => s.type === 'rect')).toMatchObject({ x: 5, y: 6, w: 30, h: 28 })
+  })
+
+  it('разбирает <text> в подпись (цвет из fill, bold по font-weight)', () => {
+    // Рукописные символы вроде cell_pi держат надпись текстом — редактор обязан
+    // прочитать её обратно, иначе правка символа теряла бы подпись.
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">' +
+      '<text x="20" y="28" text-anchor="middle" font-size="12" font-family="serif" ' +
+      'font-weight="bold" fill="#333">Wh</text></svg>'
+    const [shape] = parseStencilSvg(svg)
+    expect(shape).toMatchObject({
+      type: 'text',
+      x: 20,
+      y: 28,
+      text: 'Wh',
+      fontSize: 12,
+      bold: true,
+      stroke: '#333',
+    })
   })
 
   it('замкнутая ломаная сериализуется в <polygon>', () => {

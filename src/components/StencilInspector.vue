@@ -16,7 +16,7 @@ import Button from 'primevue/button'
 import { getCategories, registryVersion } from '../stencils/registry'
 import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor'
 import { normalizeStateColor } from '../constants/animation'
-import { isFillableShape } from '../utils/stencilSvg'
+import { isFillableShape, TEXT_SHAPE_SIZE } from '../utils/stencilSvg'
 
 const {
   meta,
@@ -37,7 +37,25 @@ const {
 // Свойства выделенной фигуры (цвет линии/заливка) правятся здесь же. У линии
 // заливки нет — только обводка.
 const selectedShape = computed(() => shapes.value.find((s) => s.id === selectedId.value) || null)
-const hasFill = computed(() => selectedShape.value && selectedShape.value.type !== 'line')
+const hasFill = computed(
+  () => selectedShape.value && selectedShape.value.type !== 'line' && !isTextShape.value
+)
+
+// Подпись правится содержимым/размером/жирностью; обводки, заливки, скругления и
+// видимости по состоянию у неё нет — текст всегда статичен (см. utils/stencilSvg).
+const isTextShape = computed(() => selectedShape.value?.type === 'text')
+const textSize = computed(() => selectedShape.value?.fontSize ?? TEXT_SHAPE_SIZE)
+function setText(v) {
+  if (selectedShape.value) updateShape(selectedShape.value.id, { text: v ?? '' })
+}
+function setTextSize(v) {
+  if (selectedShape.value && v != null) updateShape(selectedShape.value.id, { fontSize: v })
+}
+function setTextBold(on) {
+  if (!selectedShape.value) return
+  updateShape(selectedShape.value.id, { bold: !!on })
+  commit()
+}
 
 // Заливку по состоянию (state-color) показываем, только когда в стенсиле есть
 // заливаемые фигуры (замкнутые примитивы) — иначе цвет заливки некуда применить.
@@ -84,7 +102,9 @@ function toggleFill(on) {
 
 // Скругление: у линии/ломаной — круглые торцы/стыки, у прямоугольника — углы (rx).
 // Круг скруглять нечего — контрол скрыт.
-const hasRounding = computed(() => selectedShape.value && selectedShape.value.type !== 'circle')
+const hasRounding = computed(
+  () => selectedShape.value && selectedShape.value.type !== 'circle' && !isTextShape.value
+)
 const roundedEnabled = computed(() => !!selectedShape.value?.rounded)
 function toggleRounded(on) {
   if (!selectedShape.value) return
@@ -431,8 +451,46 @@ function clearStateColor(key, which) {
       </div>
       <div class="p-4 overflow-y-auto text-sm">
         <div v-if="selectedShape" class="space-y-2.5">
+          <!-- Подпись: содержимое + размер + жирность. Обводки, заливки, скругления
+               и видимости по состоянию у неё нет — текст всегда статичен. -->
+          <template v-if="isTextShape">
+            <div>
+              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
+              <InputText
+                :model-value="selectedShape.text"
+                size="small"
+                class="w-full"
+                @update:model-value="setText"
+                @change="commit"
+              />
+            </div>
+            <label class="flex items-center justify-between">
+              <span class="text-surface-700">Размер</span>
+              <InputNumber
+                :model-value="textSize"
+                :min="4"
+                :max="72"
+                :step="1"
+                show-buttons
+                button-layout="horizontal"
+                size="small"
+                input-class="w-12! text-center"
+                @update:model-value="setTextSize"
+                @blur="commit"
+              />
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                :model-value="!!selectedShape.bold"
+                binary
+                input-id="se-text-bold"
+                @update:model-value="setTextBold"
+              />
+              <span class="text-surface-700">Жирный</span>
+            </label>
+          </template>
           <label class="flex items-center justify-between cursor-pointer">
-            <span class="text-surface-700">Цвет линии</span>
+            <span class="text-surface-700">{{ isTextShape ? 'Цвет' : 'Цвет линии' }}</span>
             <input
               type="color"
               :value="strokeColor"
@@ -441,7 +499,7 @@ function clearStateColor(key, which) {
               @change="commit"
             />
           </label>
-          <label class="flex items-center justify-between">
+          <label v-if="!isTextShape" class="flex items-center justify-between">
             <span class="text-surface-700">Толщина линии</span>
             <InputNumber
               :model-value="strokeWidth"
@@ -489,7 +547,7 @@ function clearStateColor(key, which) {
           </label>
           <!-- Видимость (в каком состоянии видна фигура) — только при включённой
                анимации состояния; опции зависят от режима (см. shapeStateOptions). -->
-          <div v-if="meta.stateful" class="pt-1">
+          <div v-if="meta.stateful && !isTextShape" class="pt-1">
             <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Видимость</div>
             <Select
               v-model="shapeState"

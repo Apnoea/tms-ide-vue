@@ -3,6 +3,7 @@
 // (buildValueContent), иначе превью расходится с view.svg.
 import { valueTextKey } from '../constants/ids'
 import { SVG_NS, escapeXml, escapeAttr, svgEl } from '../utils/xml'
+import { SVG_FONT } from '../utils/textMetrics'
 
 function suffixOfTag(tag) {
   const dotIdx = (tag || '').indexOf('.')
@@ -45,12 +46,12 @@ export function buildValueExportSvg(animId, width = 100, height = 20, display = 
   const by = height - VALUE_BASELINE_PAD
   const stripe = `<rect x="0" y="0" width="${VALUE_STRIPE_W}" height="${height}" fill="${VALUE_STRIPE_COLOR}"/>`
   const bg = `<rect x="${VALUE_STRIPE_W}" y="0" width="${Math.max(0, width - VALUE_STRIPE_W)}" height="${height}" fill="${VALUE_BG_COLOR}"/>`
-  const labelText = `<text x="${VALUE_PAD_LEFT}" y="${by}" font-size="10" font-family="sans-serif" fill="${VALUE_LABEL_COLOR}">${escapeXml(label)}</text>`
+  const labelText = `<text x="${VALUE_PAD_LEFT}" y="${by}" font-size="10" font-family="${SVG_FONT}" fill="${VALUE_LABEL_COLOR}">${escapeXml(label)}</text>`
   // animId для cell_value = tms.valueTag, может содержать ", &, < — escapeAttr
   // обязателен, иначе невалидный XML и упадёт round-trip projectLoader'ом.
-  const valueText = `<text id="${escapeAttr(valueTextKey(animId))}" x="${width - VALUE_UNIT_ZONE}" y="${by}" text-anchor="end" font-size="12" font-family="sans-serif" font-weight="bold" fill="${VALUE_TEXT_COLOR}">--</text>`
+  const valueText = `<text id="${escapeAttr(valueTextKey(animId))}" x="${width - VALUE_UNIT_ZONE}" y="${by}" text-anchor="end" font-size="12" font-family="${SVG_FONT}" font-weight="bold" fill="${VALUE_TEXT_COLOR}">--</text>`
   const unitText = unit
-    ? `<text x="${width - VALUE_UNIT_RIGHT_PAD}" y="${by}" text-anchor="end" font-size="9" font-family="sans-serif" fill="${VALUE_UNIT_COLOR}">${escapeXml(unit)}</text>`
+    ? `<text x="${width - VALUE_UNIT_RIGHT_PAD}" y="${by}" text-anchor="end" font-size="9" font-family="${SVG_FONT}" fill="${VALUE_UNIT_COLOR}">${escapeXml(unit)}</text>`
     : ''
   return `<svg xmlns="${SVG_NS}">${stripe}${bg}${labelText}${valueText}${unitText}</svg>`
 }
@@ -84,7 +85,7 @@ export function buildValueContent(cellView, presets = []) {
         x: VALUE_PAD_LEFT,
         y: by,
         'font-size': 10,
-        'font-family': 'sans-serif',
+        'font-family': SVG_FONT,
         fill: VALUE_LABEL_COLOR,
       },
       label
@@ -97,7 +98,7 @@ export function buildValueContent(cellView, presets = []) {
         y: by,
         'text-anchor': 'end',
         'font-size': 12,
-        'font-family': 'sans-serif',
+        'font-family': SVG_FONT,
         'font-weight': 'bold',
         fill: VALUE_TEXT_COLOR,
       },
@@ -114,7 +115,7 @@ export function buildValueContent(cellView, presets = []) {
           y: by,
           'text-anchor': 'end',
           'font-size': 9,
-          'font-family': 'sans-serif',
+          'font-family': SVG_FONT,
           fill: VALUE_UNIT_COLOR,
         },
         unit

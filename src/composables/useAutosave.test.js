@@ -19,6 +19,9 @@ vi.mock('../stencils/svgInjector', () => ({ reinjectAllStencils: vi.fn() }))
 const { idbStore } = vi.hoisted(() => ({ idbStore: new Map() }))
 vi.mock('../utils/idb', () => ({
   idbGet: vi.fn(async (k) => idbStore.get(k)),
+  // Чтение с признаком успеха: restoreProject обязан отличать «нет записи»
+  // (ok:true, value:undefined) от сбоя чтения (ok:false).
+  idbTryGet: vi.fn(async (k) => ({ ok: true, value: idbStore.get(k) })),
   idbSet: vi.fn(async (k, v) => {
     idbStore.set(k, v)
     return true
@@ -36,7 +39,7 @@ const mockCanvas = makeMockCanvas({
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
 import { useAutosave } from './useAutosave'
-import { idbSet } from '../utils/idb'
+import { idbSet, idbTryGet } from '../utils/idb'
 
 const META_KEY = 'project:meta'
 const formKey = (id) => `project:form:${id}`
@@ -57,6 +60,10 @@ describe('useAutosave', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     idbStore.clear()
+    // Дефолт: всё читается. Тесты со сбоем подменяют реализацию ПО КЛЮЧУ —
+    // restoreProject читает несколько ключей (оверрайды, мета, формы), и Once
+    // ушёл бы не туда.
+    idbTryGet.mockImplementation(async (k) => ({ ok: true, value: idbStore.get(k) }))
     restoringHistory = ref(false)
     mockCanvas.graphRef.value = null
     mockCanvas.paperRef.value = { id: 'paper', freeze() {}, unfreeze() {} }
@@ -181,6 +188,53 @@ describe('useAutosave', () => {
         projectName: null,
       })
       expect(idbStore.get(formKey('main'))).toEqual({ cells: [] })
+    })
+
+    it('сбой чтения меты НЕ бутстрапит проект: read-only, -1, ни одной записи', async () => {
+      // Ключевая регрессия: `idbGet` при ошибке отдавал undefined, это выглядело как
+      // «проекта нет», и бутстрап затирал существующий проект пустой формой.
+      idbStore.set(META_KEY, { formIds: ['a'], activeFormId: 'a' })
+      idbStore.set(formKey('a'), { cells: [{ id: 'a1' }] })
+      idbTryGet.mockImplementation(async (k) =>
+        k === META_KEY ? { ok: false, value: undefined } : { ok: true, value: idbStore.get(k) }
+      )
+      mockCanvas.graphRef.value = makeMockGraph()
+      idbSet.mockClear()
+
+      const { restoreProject } = setup()
+      expect(await restoreProject()).toBe(-1)
+      expect(idbSet).not.toHaveBeenCalled()
+      expect(idbStore.get(formKey('a'))).toEqual({ cells: [{ id: 'a1' }] })
+      expect(mockCanvas.setSaveError).toHaveBeenCalledWith(true)
+    })
+
+    it('сбой чтения ОДНОЙ формы тоже уводит в read-only (autosave не затрёт её)', async () => {
+      idbStore.set(META_KEY, { formIds: ['a', 'b'], activeFormId: 'b' })
+      idbStore.set(formKey('a'), { cells: [{ id: 'a1' }] })
+      idbStore.set(formKey('b'), { cells: [{ id: 'b1' }] })
+      // Мета прочиталась, форма «a» — нет.
+      idbTryGet.mockImplementation(async (k) =>
+        k === formKey('a') ? { ok: false, value: undefined } : { ok: true, value: idbStore.get(k) }
+      )
+      mockCanvas.graphRef.value = makeMockGraph()
+
+      const { restoreProject } = setup()
+      expect(await restoreProject()).toBe(-1)
+    })
+
+    it('после сбоя чтения записи заблокированы: saveActiveForm/persistForm молчат', async () => {
+      idbTryGet.mockImplementation(async (k) =>
+        k === META_KEY ? { ok: false, value: undefined } : { ok: true, value: idbStore.get(k) }
+      )
+      mockCanvas.graphRef.value = makeMockGraph([{ id: 'x' }])
+      const { restoreProject, saveActiveForm, persistForm, persistMeta } = setup()
+      await restoreProject()
+      idbSet.mockClear()
+
+      await saveActiveForm()
+      expect(await persistForm('a', { cells: [] })).toBe(false)
+      expect(await persistMeta()).toBe(false)
+      expect(idbSet).not.toHaveBeenCalled()
     })
 
     it('существующий проект: грузит активную форму, бампает version', async () => {

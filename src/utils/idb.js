@@ -30,17 +30,35 @@ function openDB() {
   return dbPromise
 }
 
-export async function idbGet(key) {
+/**
+ * Читает значение. `{ ok, value }`: `ok: false` — чтение НЕ УДАЛОСЬ (хранилище
+ * недоступно / транзакция упала), это НЕ то же самое, что «записи нет»
+ * (`ok: true, value: undefined`). Разница критична для восстановления проекта:
+ * приняв сбой чтения за пустой старт, код перезаписал бы данные бутстрапом.
+ */
+export async function idbTryGet(key) {
   try {
     const db = await openDB()
-    return await new Promise((resolve, reject) => {
+    const value = await new Promise((resolve, reject) => {
       const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(key)
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
     })
-  } catch {
-    return undefined
+    return { ok: true, value }
+  } catch (e) {
+    console.error('[idb] чтение не удалось:', key, e)
+    return { ok: false, value: undefined }
   }
+}
+
+/**
+ * Читает значение, не различая «нет записи» и «ошибка чтения» — обе дают
+ * `undefined`. Годится там, где отсутствие данных безобидно (file-handle
+ * tag-list'а, сырой текст тегов). Для проекта — `idbTryGet`.
+ */
+export async function idbGet(key) {
+  const { value } = await idbTryGet(key)
+  return value
 }
 
 /**

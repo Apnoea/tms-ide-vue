@@ -1,16 +1,21 @@
 <script setup>
 /**
  * Одна фигура редактора символов: halo выделения (под фигурой, в её же слое) +
- * сам примитив. Пять типов (rect / line / circle / polygon / polyline) отличаются
+ * сам примитив. Типы (rect / line / circle / polygon / polyline) отличаются
  * только набором геометрических атрибутов, поэтому геометрия считается один раз
  * и переиспользуется halo и фигурой — раньше в шаблоне StencilEditor лежали пять
  * почти одинаковых блоков, и каждый новый атрибут приходилось дублировать в оба.
+ *
+ * Подпись (`text`) — отдельная ветка: обводки у неё нет, цвет задаётся `fill`, а
+ * halo рисуется рамкой по замеренному bbox (широкий stroke дал бы контур вокруг
+ * глифов вместо выделения).
  *
  * Двухкорневой шаблон (halo + фигура) — DOM остаётся плоским: interact.js цепляется
  * по глобальному `[data-se-move]`, а z-порядок фигур = порядок экспорта.
  */
 import { computed } from 'vue'
-import { ROUND_RX } from '../utils/stencilSvg'
+import { ROUND_RX, TEXT_SHAPE_ANCHOR, TEXT_SHAPE_SIZE, textShapeBox } from '../utils/stencilSvg'
+import { SVG_FONT } from '../utils/textMetrics'
 
 const props = defineProps({
   shape: { type: Object, required: true },
@@ -24,6 +29,8 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['select'])
+
+const isText = computed(() => props.shape.type === 'text')
 
 /** Тег и геометрические атрибуты примитива (общие для halo и самой фигуры). */
 const geom = computed(() => {
@@ -40,12 +47,34 @@ const geom = computed(() => {
   if (s.type === 'circle') {
     return { tag: 'circle', attrs: { cx: s.cx, cy: s.cy, r: s.r } }
   }
+  if (s.type === 'text') {
+    return {
+      tag: 'text',
+      attrs: {
+        x: s.x,
+        y: s.y,
+        'text-anchor': TEXT_SHAPE_ANCHOR,
+        'font-size': s.fontSize ?? TEXT_SHAPE_SIZE,
+        'font-family': SVG_FONT,
+        'font-weight': s.bold ? 'bold' : null,
+      },
+    }
+  }
   const points = s.points.map((p) => p.join(',')).join(' ')
   return { tag: s.closed ? 'polygon' : 'polyline', attrs: { points } }
 })
 
+// Рамка выделения подписи — по тому же bbox, что учитывает cropToContent.
+const textHalo = computed(() => (isText.value ? textShapeBox(props.shape) : null))
+
 // Заливка бессмысленна у линии (у ломаной — есть: замкнутая становится polygon).
-const fill = computed(() => (props.shape.type === 'line' ? null : props.shape.fill))
+// У текста fill — это его цвет, поэтому берём из `stroke` модели (единое поле цвета).
+const fill = computed(() => {
+  const s = props.shape
+  if (s.type === 'line') return null
+  if (s.type === 'text') return s.stroke || '#000'
+  return s.fill
+})
 
 // Скругление: у rect это rx (в geom), у линий — круглые торцы/стыки.
 const capJoin = computed(() => {
@@ -64,8 +93,19 @@ const capJoin = computed(() => {
 <template>
   <!-- Halo под фигурой: реальные цвет линии/заливка остаются видны поверх, а
        выделение читается по обводке вокруг + ручкам (их рисует редактор сверху). -->
+  <rect
+    v-if="selected && textHalo"
+    pointer-events="none"
+    fill="none"
+    :style="{ stroke: haloStroke }"
+    :stroke-width="haloWidth / 2"
+    :x="textHalo.x"
+    :y="textHalo.y"
+    :width="textHalo.w"
+    :height="textHalo.h"
+  />
   <g
-    v-if="selected"
+    v-else-if="selected"
     pointer-events="none"
     fill="none"
     :style="{ stroke: haloStroke }"
@@ -81,9 +121,11 @@ const capJoin = computed(() => {
     data-se-move="shape"
     :data-id="shape.id"
     :fill="fill"
-    :stroke="shape.stroke"
-    :stroke-width="shape.strokeWidth"
+    :stroke="isText ? null : shape.stroke"
+    :stroke-width="isText ? null : shape.strokeWidth"
     :pointer-events="pointerEvents"
     @pointerdown="emit('select')"
-  />
+  >
+    <template v-if="isText">{{ shape.text }}</template>
+  </component>
 </template>

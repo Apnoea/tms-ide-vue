@@ -1,6 +1,5 @@
 {
   "id": "cell_pi",
-  "locked": true,
   "label": "Счётчик электроэнергии",
   "category": "Измерения",
   "noRotate": true,

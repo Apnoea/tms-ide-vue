@@ -2,6 +2,7 @@
 // в tms, а не в shape.svg. Метрики (textCellWidth/Height) общие для автосайза
 // ячейки, inline-редактора и экспорта — иначе hit-area разъезжается с текстом.
 import { SVG_NS, escapeXml, escapeAttr, svgEl } from '../utils/xml'
+import { measureTextWidth, SVG_FONT } from '../utils/textMetrics'
 
 /** Параметры рендера текстового стенсила (общие для редактора и экспорта). */
 export const TEXT_FONT_SIZE = 14 // дефолт размера шрифта (pt)
@@ -12,24 +13,14 @@ export function textCellHeight(fontSize) {
   return fontSize + 6
 }
 
-// Один canvas на модуль — иначе detached canvas на каждый замер.
-let _measureCtx = null
-function getMeasureCtx() {
-  if (!_measureCtx && typeof document !== 'undefined') {
-    _measureCtx = document.createElement('canvas').getContext('2d')
-  }
-  return _measureCtx
-}
-
 /**
- * Ширина ячейки под текст/шрифт/жирность. Canvas API мерит близко к SVG-рендеру,
- * но не точно. Минимум 24px — пустой текст не должен схлопываться в 0.
+ * Ширина ячейки под текст/шрифт/жирность (метрика — `utils/textMetrics`).
+ * Минимум 24px: пустой текст не должен схлопываться в 0. Без canvas (SSR/jsdom)
+ * отдаём 100 — ячейка остаётся кликабельной.
  */
 export function textCellWidth(text, fontSize, bold = false) {
-  const ctx = getMeasureCtx()
-  if (!ctx) return 100 // SSR fallback
-  ctx.font = `${bold ? 'bold ' : ''}${fontSize}px sans-serif`
-  const w = ctx.measureText(text || '').width
+  const w = measureTextWidth(text, fontSize, bold, -1)
+  if (w < 0) return 100
   return Math.max(24, Math.ceil(w) + TEXT_PADDING_X * 2)
 }
 
@@ -59,7 +50,7 @@ export function buildTextExportSvg(
   const y = height / 2
   const weight = bold ? ' font-weight="bold"' : ''
   // Статичная подпись — цвет задаёт автор (tms.color), заливка по диапазонам тут не нужна.
-  return `<svg xmlns="${SVG_NS}"><text x="${TEXT_PADDING_X}" y="${y}" dominant-baseline="central" font-size="${fontSize}" font-family="sans-serif"${weight} fill="${escapeAttr(color || '#000')}">${escapeXml(text)}</text></svg>`
+  return `<svg xmlns="${SVG_NS}"><text x="${TEXT_PADDING_X}" y="${y}" dominant-baseline="central" font-size="${fontSize}" font-family="${SVG_FONT}"${weight} fill="${escapeAttr(color || '#000')}">${escapeXml(text)}</text></svg>`
 }
 
 /** Контент на холсте: одна <text>-нода из tms.text. Стенсил статичный. */
@@ -76,7 +67,7 @@ export function buildTextContent(cellView) {
         y: height / 2,
         'dominant-baseline': 'central',
         'font-size': fontSize,
-        'font-family': 'sans-serif',
+        'font-family': SVG_FONT,
         'font-weight': tms.bold ? 'bold' : null,
         fill: tms.color || '#000',
       },
