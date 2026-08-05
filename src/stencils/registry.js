@@ -5,7 +5,7 @@
  */
 
 import { ref } from 'vue'
-import { ATTR_SUFFIX } from '../constants/ids'
+import { ATTR_SUFFIX, STENCIL_ID_RE } from '../constants/ids'
 
 // Сам Map не реактивен, поэтому палитра читает этот счётчик в computed'ах —
 // рантайм-регистрация обновляет список без перезагрузки.
@@ -39,6 +39,10 @@ export function validateStencilJson(path, json, svgText) {
     if (json[key] === undefined || json[key] === null) {
       issues.push(`[stencils] ${path}: отсутствует поле "${key}"`)
     }
+  }
+
+  if (json.id != null && !STENCIL_ID_RE.test(String(json.id))) {
+    issues.push(`[stencils] ${path}: id "${json.id}" вне маски [a-z0-9_] — стенсил не загружен`)
   }
 
   // Декларативные флаги (quality/static/noRotate) — источник правды о спец-поведении
@@ -109,6 +113,16 @@ export function validateStencilJson(path, json, svgText) {
 }
 
 /**
+ * Единственный вход id стенсила в приложение: дальше он попадает в
+ * `data-tms-stencil`, в CSS-классы состояний и в селекторы внутри CDATA
+ * экспорта, а стенсилы приходят из чужого .zip. Отсекаем здесь — тогда все
+ * писатели SVG-строк могут считать id безопасным (см. STENCIL_ID_RE).
+ */
+function isValidStencilId(id) {
+  return typeof id === 'string' && STENCIL_ID_RE.test(id)
+}
+
+/**
  * Собранный реестр: id → объект стенсила со встроенным svgText.
  */
 const registry = (() => {
@@ -116,9 +130,10 @@ const registry = (() => {
 
   for (const [path, json] of Object.entries(jsonModules)) {
     // Vite glob уже фильтрует пути по `./definitions/*/stencil.json` —
-    // дополнительный regex-guard здесь был бы тавтологией.
-    if (!json?.id) {
-      console.warn(`[stencils] Пропускаю ${path}: отсутствует поле "id"`)
+    // дополнительный regex-guard на ПУТЬ здесь был бы тавтологией; маску id
+    // проверяем всё равно (см. isValidStencilId — инвариант держится на реестре).
+    if (!isValidStencilId(json?.id)) {
+      console.warn(`[stencils] Пропускаю ${path}: id "${json?.id}" отсутствует или вне маски`)
       continue
     }
 
@@ -158,11 +173,19 @@ export function getStencilById(id) {
  * Регистрация в рантайме, минуя glob. Нужна при импорте проекта: стенсилы из
  * library/ должны быть в реестре ДО parseSvgProject, иначе их ячейки выкинутся как
  * нераспознанные. Персистентность — за оверрайдами в IDB / файлами в definitions/.
+ *
+ * Возвращает успех: `false` — id чужого стенсила вне маски, он НЕ зарегистрирован
+ * (его ячейки при импорте выкинутся как нераспознанные — это и есть желаемое,
+ * иначе id уехал бы в экспортный SVG/CSS). Вызывающий обязан сказать это вслух.
  */
 export function registerStencil(json, svgText) {
-  if (!json?.id) return
+  if (!isValidStencilId(json?.id)) {
+    if (json?.id) console.warn(`[stencils] id "${json.id}" вне маски — стенсил отклонён`)
+    return false
+  }
   registry.set(json.id, { ...json, svgText: svgText || '' })
   registryVersion.value++
+  return true
 }
 
 /** Удаление из рантайм-реестра; файлы definitions/<id>/ сносит dev-плагин. */

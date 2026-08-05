@@ -51,6 +51,11 @@ export function useClipboard({ scheduleSnapshot }) {
       position: { x: pos.x, y: pos.y },
       size: { width: size.width, height: size.height },
       angle: c.angle() || 0,
+      // Не для восстановления абсолютного z (вставка обязана лечь сверху), а для
+      // порядка материализации: addCell даёт z = max+1, поэтому взаимное наложение
+      // копий = порядок обхода. Без z обход шёл в порядке ВЫДЕЛЕНИЯ, и копия
+      // «символ поверх шины» могла перевернуться.
+      z: c.get('z') ?? 0,
     }
   }
 
@@ -100,7 +105,10 @@ export function useClipboard({ scheduleSnapshot }) {
     }
     const groupIdMap = new Map()
 
-    for (const snap of snaps.cells) {
+    // Материализуем в порядке z оригиналов — см. snapshotCell.z. Сортируем копию
+    // массива: буфер переиспользуется на каждый Ctrl+V.
+    const ordered = [...snaps.cells].sort((a, b) => (a.z ?? 0) - (b.z ?? 0))
+    for (const snap of ordered) {
       const stencil = getStencilById(snap.stencilId)
       if (!stencil) {
         skipped++

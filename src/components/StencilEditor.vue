@@ -25,7 +25,12 @@ import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { snapToGrid } from '../utils/grid'
-import { stencilDraftIssues, isFillableShape, TEXT_SHAPE_SIZE } from '../utils/stencilSvg'
+import {
+  stencilDraftIssues,
+  isFillableShape,
+  shapeBounds,
+  TEXT_SHAPE_SIZE,
+} from '../utils/stencilSvg'
 import { confirmDanger } from '../utils/confirmDanger'
 import { range, rangeFromTo, gridLineColor, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
@@ -34,6 +39,7 @@ import { reinjectAllStencils } from '../stencils/svgInjector'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
 import { upsertStencilOverride } from '../services/stencilOverrides'
 import { useStencilEditor, SHAPE_GRID, PORT_GRID } from '../composables/useStencilEditor'
+import { useEditorLasso } from '../composables/useEditorLasso'
 import ShapePrimitive from './ShapePrimitive.vue'
 
 const ui = useUiStore()
@@ -47,6 +53,8 @@ const {
   ports,
   tool,
   selectedId,
+  selectedIds,
+  selectedSet,
   editingId,
   previewState,
   canUndo,
@@ -57,9 +65,13 @@ const {
   reset,
   loadStencil,
   select,
+  toggleSelect,
+  selectMany,
+  selectAll,
   addShape,
   updateShape,
-  removeShape,
+  updateShapes,
+  removeShapes,
   addPort,
   movePort,
   removePort,
@@ -328,10 +340,10 @@ const polyCursor = ref(null) // «резинка» до курсора
 
 function onSurfaceDown(e) {
   if (e.button !== 0) return
-  if (tool.value === 'select') {
-    if (!e.target.closest('[data-se-move]')) select(null)
-    return
-  }
+  // Режим выбора обрабатывает stage целиком (onStageDown) — рамку можно начинать и
+  // за пределами символа. Здесь остаются только рисующие инструменты: рисовать
+  // по-прежнему разрешено лишь внутри области стенсила.
+  if (tool.value === 'select') return
   if (tool.value === 'port') {
     if (e.target.closest('[data-se-move="port"]')) return // клик по порту — его хендлер
     const u = unitsFromEvent(e)
@@ -436,10 +448,67 @@ const polyPreview = computed(() => {
   return pts.map(([x, y]) => `${x},${y}`).join(' ')
 })
 
+// Клик по фигуре: Ctrl/Cmd — добавить/убрать из выделения (как на холсте), иначе
+// выделить одну. Перемещение пачки стартует в interact-хендлере ниже — он и решает,
+// тащить ли всё выделение.
+function onShapeSelect(id, e) {
+  if (tool.value !== 'select') return
+  if (e?.ctrlKey || e?.metaKey) toggleSelect(id)
+  else if (!selectedSet.value.has(id)) select(id)
+}
+
+// ─── Лассо (рамка выделения по пустому месту) ───
+/**
+ * Старт рамки. Слушаем не сам SVG, а всю область просмотра (stage): выделение
+ * логично начинать с пустого поля вокруг символа, когда фигура прижата к краю
+ * холста и «пустого места» внутри просто нет. Координаты считает unitsFromEvent —
+ * функция линейная, за границами viewBox работает так же (значения выходят за
+ * 0..W/H, для рамки это нормально: в модель они не пишутся).
+ */
+function onStageDown(e) {
+  if (e.button !== 0 || tool.value !== 'select') return
+  // Клик по фигуре/ручке/порту — их жест (drag через interact.js).
+  if (e.target.closest('[data-se-move]')) return
+  startLasso(e)
+}
+
+const { lassoRect, startLasso } = useEditorLasso({
+  shapes,
+  unitsFromEvent,
+  onSelect: (ids, additive) => selectMany(ids, additive),
+  onClear: () => select(null),
+})
+
+// Рамка вокруг всего выделения при N>1: у отдельных фигур halo своё, но общий
+// габарит показывает, что жест drag/Delete применится ко всей пачке. При одной
+// фигуре не рисуем — там есть halo и ручки.
+const selectionBox = computed(() => {
+  if (selectedIds.value.length < 2) return null
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const s of shapes.value) {
+    if (!selectedSet.value.has(s.id)) continue
+    const b = shapeBounds(s)
+    if (!b) continue
+    x0 = Math.min(x0, b.x)
+    y0 = Math.min(y0, b.y)
+    x1 = Math.max(x1, b.x + b.w)
+    y1 = Math.max(y1, b.y + b.h)
+  }
+  if (x0 === Infinity) return null
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+})
+
 // ─── Ручки выделенной фигуры ───
+// Только при ОДНОЙ выделенной (selectedId при N>1 — null): групповой ресайз по
+// общему bbox — отдельная механика, а ручки одной фигуры посреди пачки врут.
 const selectedShape = computed(() => shapes.value.find((s) => s.id === selectedId.value) || null)
-// Толщина halo-подсветки = реальная обводка + запас в несколько экранных px.
-const haloWidth = computed(() => (selectedShape.value?.strokeWidth || 2) + 4 / scale.value)
+// Толщина halo-подсветки = обводка САМОЙ фигуры + запас в несколько экранных px.
+// Считаем на каждую фигуру, а не на выделение: с общим значением у тонкой линии
+// halo раздувался в широкую полосу, а у толстой прятался под её же обводкой.
+const haloWidthFor = (s) => (s.strokeWidth || 2) + 4 / scale.value
 const handles = computed(() => {
   const s = selectedShape.value
   if (!s) return []
@@ -524,9 +593,13 @@ function setupInteract() {
         const id = el.dataset.id
         dragCtx = { role, id, hKey: el.dataset.h }
         if (role === 'shape') {
+          // Ведущая фигура: по ней считаем сдвиг и снап. Тащим всё выделение, если
+          // ведущая в него входит; клик по фигуре вне выделения — переключаемся на
+          // неё (иначе drag увёз бы невидимо выделенную пачку).
+          if (!selectedSet.value.has(id)) select(id)
           dragCtx.snapshot = clone(shapes.value.find((s) => s.id === id))
+          dragCtx.group = clone(shapes.value.filter((s) => selectedSet.value.has(s.id)))
           dragCtx.start = unitsFromEvent(e)
-          select(id)
         } else if (role === 'handle') {
           dragCtx.snapshot = clone(shapes.value.find((s) => s.id === id))
         }
@@ -539,10 +612,17 @@ function setupInteract() {
         } else if (dragCtx.role === 'handle') {
           reshape(dragCtx.snapshot, dragCtx.hKey, cur)
         } else if (dragCtx.role === 'shape') {
+          // Снап считаем ОДИН раз по ведущей фигуре и применяем общий dx/dy ко всей
+          // пачке: если снапить каждую отдельно, фигуры разъедутся друг относительно
+          // друга (у каждой своя дробная часть координат).
           const a = anchorOf(dragCtx.snapshot)
           const dx = snapShapeX(a.x + (cur.x - dragCtx.start.x)) - a.x
           const dy = snapShapeY(a.y + (cur.y - dragCtx.start.y)) - a.y
-          updateShape(dragCtx.id, translated(dragCtx.snapshot, dx, dy))
+          const byId = new Map(dragCtx.group.map((s) => [s.id, s]))
+          updateShapes(
+            dragCtx.group.map((s) => s.id),
+            (s) => translated(byId.get(s.id), dx, dy)
+          )
         }
       },
       end() {
@@ -585,15 +665,22 @@ useEventListener(window, 'keydown', (e) => {
       redo()
       return
     }
-    // Ctrl+C / Ctrl+V — копировать/вставить выделенную фигуру (со свойствами).
+    // Ctrl+C / Ctrl+V — копировать/вставить выделенное (со свойствами).
     if (e.code === 'KeyC') {
       e.preventDefault()
-      ed.copyShape()
+      ed.copyShapes()
       return
     }
     if (e.code === 'KeyV') {
       e.preventDefault()
-      ed.pasteShape()
+      ed.pasteShapes()
+      return
+    }
+    // Ctrl+A — все фигуры (порты в выделение не входят, у них свой режим).
+    if (e.code === 'KeyA') {
+      e.preventDefault()
+      setTool('select')
+      selectAll()
       return
     }
   }
@@ -602,18 +689,27 @@ useEventListener(window, 'keydown', (e) => {
     // его сам (PrimeVue close-on-escape); редактор не трогаем, иначе один Esc закрыл
     // бы и диалог, и сам редактор.
     if (document.querySelector('.p-dialog-mask')) return
+    // Порядок как на холсте: сначала отменяем активный жест, потом снимаем
+    // выделение, и только «пустым» Esc закрываем редактор — иначе Esc после
+    // выделения рамкой уводил бы из редактора целиком.
     if (drawing.value || polyPoints.value.length) {
       drawing.value = null
       polyPoints.value = []
       polyCursor.value = null
+    } else if (selectedIds.value.length) {
+      select(null)
     } else {
       requestClose()
     }
     return
   }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && !isInInput(e.target) && selectedId.value) {
+  if (
+    (e.key === 'Delete' || e.key === 'Backspace') &&
+    !isInInput(e.target) &&
+    selectedIds.value.length
+  ) {
     e.preventDefault()
-    removeShape(selectedId.value)
+    removeShapes(selectedIds.value)
   }
 })
 
@@ -710,8 +806,8 @@ onBeforeUnmount(() => {
         text
         size="small"
         class="tms-icon-btn"
-        :disabled="!selectedId"
-        @click="selectedId && removeShape(selectedId)"
+        :disabled="!selectedIds.length"
+        @click="removeShapes(selectedIds)"
       />
 
       <div class="flex-1"></div>
@@ -819,6 +915,7 @@ onBeforeUnmount(() => {
           ref="stageEl"
           class="flex flex-1 items-center justify-center overflow-auto bg-surface-100"
           @scroll="updateRuler"
+          @pointerdown="onStageDown"
         >
           <svg
             ref="svgEl"
@@ -902,11 +999,11 @@ onBeforeUnmount(() => {
               v-for="s in renderShapes"
               :key="s.id"
               :shape="s"
-              :selected="s.id === selectedId"
-              :halo-width="haloWidth"
+              :selected="selectedSet.has(s.id)"
+              :halo-width="haloWidthFor(s)"
               :halo-stroke="SEL_STROKE"
               :pointer-events="shapePointerEvents"
-              @select="tool === 'select' && select(s.id)"
+              @select="onShapeSelect(s.id, $event)"
             />
 
             <!-- Превью тянущейся фигуры -->
@@ -951,6 +1048,36 @@ onBeforeUnmount(() => {
               :style="{ stroke: SEL_STROKE }"
               stroke-width="1"
               stroke-dasharray="3 2"
+              vector-effect="non-scaling-stroke"
+            />
+
+            <!-- Рамка лассо + общий габарит выделения (при N>1). Обе в user-
+                 координатах, поэтому зум/скролл их не сдвигают. -->
+            <rect
+              v-if="lassoRect"
+              pointer-events="none"
+              :x="lassoRect.x"
+              :y="lassoRect.y"
+              :width="lassoRect.w"
+              :height="lassoRect.h"
+              fill="none"
+              :style="{ stroke: SEL_STROKE }"
+              stroke-width="1"
+              stroke-dasharray="4 2"
+              vector-effect="non-scaling-stroke"
+            />
+            <rect
+              v-if="selectionBox"
+              pointer-events="none"
+              :x="selectionBox.x"
+              :y="selectionBox.y"
+              :width="selectionBox.w"
+              :height="selectionBox.h"
+              fill="none"
+              :style="{ stroke: SEL_STROKE }"
+              stroke-width="1"
+              stroke-dasharray="2 2"
+              opacity="0.7"
               vector-effect="non-scaling-stroke"
             />
 

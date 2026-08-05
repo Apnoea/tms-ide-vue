@@ -569,7 +569,9 @@ export function exportProject(graph, paper = null) {
       if (c.angle) transform += ` rotate(${c.angle} ${c.width / 2} ${c.height / 2})`
       // escapeAttr на outer-id: для cell_value c.animId = valueTag, который
       // может содержать ", &, < и т.п. — без эскейпа SVG становится невалидным.
-      return `  <g id="${escapeAttr(outerKeyFor(c.stencilId, c.animId))}" transform="${transform}" ${ATTR_STENCIL}="${c.stencilId}" ${ATTR_META}="${metaAttr}">${inner}</g>`
+      // stencilId по инварианту реестра уже в маске [a-z0-9_], escapeAttr на нём —
+      // страховка от нового пути регистрации в обход registry.isValidStencilId.
+      return `  <g id="${escapeAttr(outerKeyFor(c.stencilId, c.animId))}" transform="${transform}" ${ATTR_STENCIL}="${escapeAttr(c.stencilId)}" ${ATTR_META}="${metaAttr}">${inner}</g>`
     })
     .join('\n')
 
@@ -592,7 +594,10 @@ ${rangeCss}
 ${stateColorCss}
     /* Quality-stencils: при bad-качестве (animation-off на outer) показываем
        обе позиции рычага одновременно — отменяем animation-hidden у потомков.
-       Конвенция «данные ненадёжны → не врём про конкретное состояние». */
+       Конвенция «данные ненадёжны → не врём про конкретное состояние».
+       id подставляется в селектор внутри CDATA без эскейпа сознательно: в
+       CSS-контексте escapeAttr не помог бы, безопасность держит маска реестра
+       (constants/ids STENCIL_ID_RE). */
 ${getAllStencils()
   .filter((s) => s.quality)
   .map(

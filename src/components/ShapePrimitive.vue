@@ -124,7 +124,7 @@ const capJoin = computed(() => {
     :stroke="isText ? null : shape.stroke"
     :stroke-width="isText ? null : shape.strokeWidth"
     :pointer-events="pointerEvents"
-    @pointerdown="emit('select')"
+    @pointerdown="emit('select', $event)"
   >
     <template v-if="isText">{{ shape.text }}</template>
   </component>

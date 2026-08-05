@@ -43,6 +43,15 @@ export function normalizeStateColor(value) {
   return { stroke: value.stroke || '', fill: value.fill || '' }
 }
 
+// Ключ состояния и цвет уезжают в CSS-селектор и CSS-значение экспортного view.svg
+// (внутри CDATA), а stateColors импортированного стенсила — чужой json: `}` в ключе
+// или `; }` в цвете сломали бы весь <style> или подсунули своё правило. Редактор
+// генерирует ключи сам (s1/true/false) и цвет пикером, так что маски отсекают только
+// подделку. Цвет — hex или CSS-имя, ничего экзотичнее нам не нужно.
+const STATE_KEY_RE = /^[A-Za-z0-9_-]+$/
+const CSS_COLOR_RE = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+)$/
+const cssColor = (v) => (CSS_COLOR_RE.test(v) ? v : '')
+
 /**
  * CSS перекраса по состоянию — один источник для экспорта (scope '') и симуляции
  * (scope '.tms-simulating '). `:not(.animation-off)` — обесточивание бьёт цвет
@@ -56,7 +65,10 @@ export function buildStateColorCssRules(stencils, { scope = '', strokeExtra = ''
     const colors = s.stateColors
     if (!colors) continue
     for (const [key, value] of Object.entries(colors)) {
-      const { stroke, fill } = normalizeStateColor(value)
+      if (!STATE_KEY_RE.test(key)) continue
+      const norm = normalizeStateColor(value)
+      const stroke = cssColor(norm.stroke)
+      const fill = cssColor(norm.fill)
       const sel = `${scope}.${stateColorClass(s.id, key)}:not(.${CLASS_OFF})`
       if (stroke)
         rules.push(`${sel}, ${sel} *:not(text)${strokeExtra} { stroke: ${stroke} !important; }`)

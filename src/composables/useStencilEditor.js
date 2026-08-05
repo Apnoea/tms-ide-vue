@@ -87,7 +87,13 @@ export function createStencilEditor() {
   const shapes = ref([])
   const ports = ref([])
   const tool = ref('select') // 'select' | 'rect' | 'line' | 'circle' | 'polyline' | 'port'
-  const selectedId = ref(null)
+  // Выделение — множественное (клик, Ctrl+клик, лассо). Порты в него не входят:
+  // у них свой режим («Порт»), где клик добавляет/удаляет.
+  const selectedIds = ref([])
+  const selectedSet = computed(() => new Set(selectedIds.value))
+  // «Ровно одна выделена» — гейт для операций, осмысленных только над одной
+  // фигурой: ручки ресайза и поля геометрии/текста в инспекторе. При N>1 — null.
+  const selectedId = computed(() => (selectedIds.value.length === 1 ? selectedIds.value[0] : null))
   // Превью состояния (эмуляция animation-hidden на холсте): 'all' — все фигуры,
   // иначе ключ состояния. В синглтоне, т.к. селектор рисуется в инспекторе, а
   // фильтрация фигур — в StencilEditor. Выключение анимации → сброс на 'all'.
@@ -131,7 +137,7 @@ export function createStencilEditor() {
     Object.assign(meta, clone(snap.meta))
     shapes.value = clone(snap.shapes)
     ports.value = clone(snap.ports)
-    selectedId.value = null
+    selectedIds.value = []
     // Превью могло смотреть на состояние, которого в восстановленной мете нет.
     if (previewState.value !== 'all' && !stateKeyExists(previewState.value)) {
       previewState.value = 'all'
@@ -163,26 +169,56 @@ export function createStencilEditor() {
 
   function setTool(t) {
     tool.value = t
-    if (t !== 'select') selectedId.value = null
+    if (t !== 'select') selectedIds.value = []
   }
 
+  /** Выделить ровно одну фигуру (null — снять выделение). */
   function select(id) {
-    selectedId.value = id
+    selectedIds.value = id ? [id] : []
   }
+
+  /** Ctrl/Cmd+клик: добавить/убрать фигуру, не теряя остальные. */
+  function toggleSelect(id) {
+    if (!id) return
+    selectedIds.value = selectedSet.value.has(id)
+      ? selectedIds.value.filter((x) => x !== id)
+      : [...selectedIds.value, id]
+  }
+
+  /**
+   * Результат лассо. additive — рамка с Ctrl/Cmd: объединяем с текущим выделением
+   * (дедуп по id), иначе заменяем. Порядок фигур в выделении не важен — операции
+   * идут по id.
+   */
+  function selectMany(ids, additive = false) {
+    if (!additive) {
+      selectedIds.value = [...ids]
+      return
+    }
+    const seen = new Set(selectedIds.value)
+    selectedIds.value = [...selectedIds.value, ...ids.filter((id) => !seen.has(id))]
+  }
+
+  function selectAll() {
+    selectedIds.value = shapes.value.map((s) => s.id)
+  }
+
+  // Фигура + внутренний id и дефолты стиля (общее для рисования и вставки).
+  const makeShape = (shape) => ({
+    id: nextId(),
+    stroke: '#000',
+    strokeWidth: 2,
+    fill: 'none',
+    state: 'always',
+    ...shape,
+  })
 
   // Добавить фигуру: присваиваем id, кладём в список, сразу выделяем и
   // возвращаемся в режим выбора (нарисовал → правь).
   function addShape(shape) {
-    const withId = {
-      id: nextId(),
-      stroke: '#000',
-      strokeWidth: 2,
-      fill: 'none',
-      state: 'always',
-      ...shape,
-    }
+    const withId = makeShape(shape)
     shapes.value = [...shapes.value, withId]
-    selectedId.value = withId.id
+    selectedIds.value = [withId.id]
     tool.value = 'select'
     commit()
     return withId
@@ -194,34 +230,99 @@ export function createStencilEditor() {
     shapes.value = shapes.value.map((s) => (s.id === id ? { ...s, ...patch } : s))
   }
 
+  /**
+   * Как updateShape, но по нескольким id за один проход: групповой drag двигает
+   * всё выделение, и патч у каждой фигуры свой (координаты). История — на
+   * вызывающем, как и у updateShape.
+   *
+   * @param {(shape: object) => object|null} patchOf — патч для фигуры (null — не менять)
+   */
+  function updateShapes(ids, patchOf) {
+    const set = new Set(ids)
+    shapes.value = shapes.value.map((s) => {
+      if (!set.has(s.id)) return s
+      const patch = patchOf(s)
+      return patch ? { ...s, ...patch } : s
+    })
+  }
+
+  // ─── Групповая правка свойств (инспектор при мультивыделении) ───
+  // Свойство есть не у каждого примитива (у линии нет заливки, у круга —
+  // скругления, у подписи ни того ни другого), поэтому и правка, и чтение общего
+  // значения фильтруются одним и тем же предикатом применимости: контрол показан,
+  // если применим хоть к одной выделенной, и трогает только применимые.
+
+  /** Выделенные фигуры, к которым применимо свойство (filter — предикат по типу). */
+  function selectedFor(filter) {
+    return shapes.value.filter((s) => selectedSet.value.has(s.id) && (!filter || filter(s)))
+  }
+
+  /**
+   * Общее значение свойства у выделения: `undefined` — свойство расходится
+   * (инспектор показывает «разные»/пустое поле) либо применимых фигур нет.
+   */
+  function commonValue(getter, filter) {
+    const picked = selectedFor(filter)
+    if (!picked.length) return undefined
+    const first = getter(picked[0])
+    return picked.every((s) => getter(s) === first) ? first : undefined
+  }
+
+  /**
+   * Применить патч ко всем применимым выделенным. Историю не коммитит — как
+   * updateShape: цветовая пипетка/спиннер шлют правку «живьём», снимок ставит
+   * вызывающий на конце жеста (@change/@blur).
+   */
+  function applyToSelected(patch, filter) {
+    const ids = selectedFor(filter).map((s) => s.id)
+    if (!ids.length) return
+    updateShapes(ids, () => patch)
+  }
+
   function removeShape(id) {
-    shapes.value = shapes.value.filter((s) => s.id !== id)
-    if (selectedId.value === id) selectedId.value = null
+    removeShapes([id])
+  }
+
+  /** Удалить выделенное — один снимок истории на всю пачку. */
+  function removeShapes(ids) {
+    const set = new Set(ids)
+    if (!set.size) return
+    shapes.value = shapes.value.filter((s) => !set.has(s.id))
+    selectedIds.value = selectedIds.value.filter((id) => !set.has(id))
     commit()
   }
 
-  // Буфер копирования ОДНОЙ фигуры (без внутреннего id — paste присвоит новый).
-  // Живёт на сессию редактора; хранит клон всех свойств (stroke/fill/points/…).
-  const clipboardShape = ref(null)
+  // Буфер копирования (без внутренних id — paste присвоит новые). Живёт на сессию
+  // редактора; хранит клоны всех свойств (stroke/fill/points/…). Массив, а не одна
+  // фигура: Ctrl+C при выделении рамкой обязан взять всё выделенное.
+  const clipboardShapes = ref([])
 
-  function copyShape() {
-    const s = shapes.value.find((x) => x.id === selectedId.value)
-    if (!s) return false
-    const rest = { ...s }
-    delete rest.id
-    clipboardShape.value = JSON.parse(JSON.stringify(rest))
+  function copyShapes() {
+    const picked = shapes.value.filter((s) => selectedSet.value.has(s.id))
+    if (!picked.length) return false
+    clipboardShapes.value = picked.map((s) => {
+      const rest = { ...s }
+      delete rest.id
+      return JSON.parse(JSON.stringify(rest))
+    })
     return true
   }
 
-  function pasteShape() {
-    if (!clipboardShape.value) return null
-    // Сдвиг на шаг сетки — копия не ложится точно поверх оригинала.
-    const clone = translateShape(
-      JSON.parse(JSON.stringify(clipboardShape.value)),
-      SHAPE_GRID,
-      SHAPE_GRID
+  /**
+   * Вставка буфера: пачка сдвигается на шаг сетки целиком (взаимное расположение
+   * сохраняется) и становится новым выделением — как на холсте. Один снимок
+   * истории на всю вставку, поэтому идём мимо addShape.
+   */
+  function pasteShapes() {
+    if (!clipboardShapes.value.length) return []
+    const added = clipboardShapes.value.map((s) =>
+      makeShape(translateShape(JSON.parse(JSON.stringify(s)), SHAPE_GRID, SHAPE_GRID))
     )
-    return addShape(clone) // присвоит id, выделит, commit
+    shapes.value = [...shapes.value, ...added]
+    selectedIds.value = added.map((s) => s.id)
+    tool.value = 'select'
+    commit()
+    return added
   }
 
   // Состояние видимости фигуры (внутренняя анимация): always | <ключ состояния>.
@@ -398,7 +499,7 @@ export function createStencilEditor() {
     // Присваиваем внутренние id — без них не работают выделение/ручки/удаление.
     shapes.value = parseStencilSvg(def.svgText).map((s) => ({ id: nextId(), ...s }))
     ports.value = (def.ports || []).map((p) => ({ id: nextId(), name: p.name, x: p.x, y: p.y }))
-    selectedId.value = null
+    selectedIds.value = []
     tool.value = 'select'
     previewState.value = 'all' // превью прошлого черновика ссылалось на чужие состояния
     history.value = []
@@ -426,7 +527,7 @@ export function createStencilEditor() {
     shapes.value = []
     ports.value = []
     tool.value = 'select'
-    selectedId.value = null
+    selectedIds.value = []
     editingId.value = null
     history.value = []
     histIndex.value = -1
@@ -454,6 +555,8 @@ export function createStencilEditor() {
     ports,
     tool,
     selectedId,
+    selectedIds,
+    selectedSet,
     editingId,
     previewState,
     canUndo,
@@ -464,11 +567,19 @@ export function createStencilEditor() {
     reset,
     loadStencil,
     select,
+    toggleSelect,
+    selectMany,
+    selectAll,
     addShape,
     updateShape,
+    updateShapes,
+    selectedFor,
+    commonValue,
+    applyToSelected,
     removeShape,
-    copyShape,
-    pasteShape,
+    removeShapes,
+    copyShapes,
+    pasteShapes,
     setShapeState,
     setStateMode,
     setAnimationMode,

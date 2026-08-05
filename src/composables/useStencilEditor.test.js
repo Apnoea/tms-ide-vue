@@ -32,7 +32,7 @@ describe('useStencilEditor', () => {
     expect(ed.selectedId.value).toBeNull()
   })
 
-  it('copyShape/pasteShape: клон со свойствами, новый id, сдвиг, выделение копии', () => {
+  it('copyShapes/pasteShapes: клон со свойствами, новый id, сдвиг, выделение копии', () => {
     const ed = createStencilEditor()
     const a = ed.addShape({
       type: 'rect',
@@ -44,8 +44,8 @@ describe('useStencilEditor', () => {
       strokeWidth: 3,
     })
     ed.select(a.id)
-    expect(ed.copyShape()).toBe(true)
-    const b = ed.pasteShape()
+    expect(ed.copyShapes()).toBe(true)
+    const [b] = ed.pasteShapes()
     expect(ed.shapes.value).toHaveLength(2)
     expect(b.id).not.toBe(a.id)
     expect(b.fill).toBe('#f00') // свойства сохранены
@@ -54,12 +54,160 @@ describe('useStencilEditor', () => {
     expect(ed.selectedId.value).toBe(b.id) // paste выделяет копию
   })
 
-  it('copyShape без выделения → false; pasteShape с пустым буфером → null', () => {
+  it('copyShapes без выделения → false; pasteShapes с пустым буфером → []', () => {
     const ed = createStencilEditor()
     ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
     ed.select(null)
-    expect(ed.copyShape()).toBe(false)
-    expect(createStencilEditor().pasteShape()).toBeNull()
+    expect(ed.copyShapes()).toBe(false)
+    expect(createStencilEditor().pasteShapes()).toEqual([])
+  })
+
+  // Мультиселект: рамка/Ctrl+клик выделяют пачку, drag и Delete работают на всю.
+  it('select/toggleSelect/selectMany/selectAll ведут selectedIds; selectedId только при одной', () => {
+    const ed = createStencilEditor()
+    const a = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    const b = ed.addShape({ type: 'rect', x: 20, y: 0, w: 10, h: 10 })
+
+    ed.select(a.id)
+    expect(ed.selectedId.value).toBe(a.id)
+
+    ed.toggleSelect(b.id)
+    expect(ed.selectedIds.value).toEqual([a.id, b.id])
+    // Свойства и ручки при N>1 недоступны — это и означает selectedId === null.
+    expect(ed.selectedId.value).toBeNull()
+
+    ed.toggleSelect(a.id)
+    expect(ed.selectedIds.value).toEqual([b.id])
+
+    ed.select(a.id)
+    ed.selectMany([b.id], true) // additive-лассо
+    expect(ed.selectedSet.value.has(a.id)).toBe(true)
+    expect(ed.selectedSet.value.has(b.id)).toBe(true)
+
+    ed.selectMany([b.id]) // обычная рамка заменяет выделение
+    expect(ed.selectedIds.value).toEqual([b.id])
+
+    ed.selectAll()
+    expect(ed.selectedIds.value).toHaveLength(2)
+  })
+
+  it('additive-выделение не дублирует уже выделенное', () => {
+    const ed = createStencilEditor()
+    const a = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    ed.select(a.id)
+    ed.selectMany([a.id], true)
+    expect(ed.selectedIds.value).toEqual([a.id])
+  })
+
+  it('removeShapes удаляет пачку одним шагом истории и чистит выделение', () => {
+    const ed = createStencilEditor()
+    const a = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    const b = ed.addShape({ type: 'rect', x: 20, y: 0, w: 10, h: 10 })
+    const c = ed.addShape({ type: 'rect', x: 40, y: 0, w: 10, h: 10 })
+    ed.selectMany([a.id, b.id])
+
+    ed.removeShapes(ed.selectedIds.value)
+    expect(ed.shapes.value.map((s) => s.id)).toEqual([c.id])
+    expect(ed.selectedIds.value).toEqual([])
+    // Один Ctrl+Z возвращает обе удалённые, а не по одной.
+    ed.undo()
+    expect(ed.shapes.value).toHaveLength(3)
+  })
+
+  it('pasteShapes: пачка вставляется одним шагом истории и становится выделением', () => {
+    const ed = createStencilEditor()
+    const a = ed.addShape({ type: 'rect', x: 10, y: 10, w: 10, h: 10 })
+    const b = ed.addShape({ type: 'circle', cx: 30, cy: 10, r: 5 })
+    ed.selectMany([a.id, b.id])
+    ed.copyShapes()
+    const added = ed.pasteShapes()
+
+    expect(added).toHaveLength(2)
+    expect(ed.shapes.value).toHaveLength(4)
+    expect(ed.selectedIds.value).toEqual(added.map((s) => s.id))
+    // Взаимное расположение сохранено: обе копии сдвинуты на один и тот же шаг.
+    expect(added[0].x - a.x).toBe(added[1].cx - b.cx)
+    ed.undo()
+    expect(ed.shapes.value).toHaveLength(2)
+  })
+
+  it('updateShapes патчит только выделенные, по патчу на фигуру', () => {
+    const ed = createStencilEditor()
+    const a = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    const b = ed.addShape({ type: 'rect', x: 20, y: 0, w: 10, h: 10 })
+    const c = ed.addShape({ type: 'rect', x: 40, y: 0, w: 10, h: 10 })
+    ed.updateShapes([a.id, b.id], (s) => ({ x: s.x + 5 }))
+    const byId = (id) => ed.shapes.value.find((s) => s.id === id)
+    expect(byId(a.id).x).toBe(5)
+    expect(byId(b.id).x).toBe(25)
+    expect(byId(c.id).x).toBe(40)
+  })
+
+  // Групповая правка свойств в инспекторе: контрол виден, если свойство применимо
+  // хоть к одной выделенной, значение общее (или «разные»), правка — ко всем.
+  describe('commonValue / applyToSelected / selectedFor', () => {
+    const NOT_TEXT = (s) => s.type !== 'text'
+
+    it('общее значение отдаётся, расходящееся — undefined', () => {
+      const ed = createStencilEditor()
+      const a = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10, strokeWidth: 2 })
+      const b = ed.addShape({ type: 'rect', x: 20, y: 0, w: 10, h: 10, strokeWidth: 2 })
+      ed.selectMany([a.id, b.id])
+      expect(ed.commonValue((s) => s.strokeWidth)).toBe(2)
+
+      ed.updateShape(b.id, { strokeWidth: 5 })
+      expect(ed.commonValue((s) => s.strokeWidth)).toBeUndefined()
+    })
+
+    it('фильтр применимости отсекает неподходящие типы (и в чтении, и в правке)', () => {
+      const ed = createStencilEditor()
+      const rect = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10, strokeWidth: 2 })
+      const text = ed.addShape({ type: 'text', x: 5, y: 5, text: 'Wh' })
+      ed.selectMany([rect.id, text.id])
+
+      // Подпись в толщину линии не входит — расхождения нет, значение общее.
+      expect(ed.commonValue((s) => s.strokeWidth ?? 2, NOT_TEXT)).toBe(2)
+      expect(ed.selectedFor(NOT_TEXT).map((s) => s.id)).toEqual([rect.id])
+
+      ed.applyToSelected({ strokeWidth: 4 }, NOT_TEXT)
+      const byId = (id) => ed.shapes.value.find((s) => s.id === id)
+      expect(byId(rect.id).strokeWidth).toBe(4)
+      // У подписи поле есть (дефолт makeShape), но обводки она не рисует — правка
+      // его не касается, иначе «толщина линии» меняла бы данные впустую.
+      expect(byId(text.id).strokeWidth).toBe(2)
+    })
+
+    it('applyToSelected правит все выделенные и не трогает остальные', () => {
+      const ed = createStencilEditor()
+      const a = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+      const b = ed.addShape({ type: 'circle', cx: 30, cy: 10, r: 5 })
+      const c = ed.addShape({ type: 'rect', x: 60, y: 0, w: 10, h: 10 })
+      ed.selectMany([a.id, b.id])
+      ed.applyToSelected({ stroke: '#ff0000' })
+
+      const byId = (id) => ed.shapes.value.find((s) => s.id === id)
+      expect(byId(a.id).stroke).toBe('#ff0000')
+      expect(byId(b.id).stroke).toBe('#ff0000')
+      expect(byId(c.id).stroke).toBe('#000')
+    })
+
+    it('без выделения правка — no-op, общее значение — undefined', () => {
+      const ed = createStencilEditor()
+      const a = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+      ed.select(null)
+      ed.applyToSelected({ stroke: '#ff0000' })
+      expect(ed.shapes.value.find((s) => s.id === a.id).stroke).toBe('#000')
+      expect(ed.commonValue((s) => s.stroke)).toBeUndefined()
+    })
+  })
+
+  it('смена инструмента снимает выделение целиком', () => {
+    const ed = createStencilEditor()
+    ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    ed.addShape({ type: 'rect', x: 20, y: 0, w: 10, h: 10 })
+    ed.selectAll()
+    ed.setTool('rect')
+    expect(ed.selectedIds.value).toEqual([])
   })
 
   it('applyPositionPreset: фигуры со старых ключей возвращаются в always (не теряются в SVG)', () => {

@@ -295,8 +295,16 @@ export function useProject({
         changedStencils.push(s)
       }
     }
-    const importedStencils = [...newStencils, ...changedStencils]
-    for (const s of importedStencils) registerStencil(s.stencilJson, s.shapeSvg)
+    // registerStencil отклоняет id вне маски (см. registry.isValidStencilId) —
+    // такой стенсил не попадёт ни в реестр, ни в оверрайды IDB, а его ячейки
+    // выкинет парсер как нераспознанные. Говорим об этом прямо: молча пропавшее
+    // оборудование выглядит как баг импорта.
+    const importedStencils = []
+    const rejectedStencils = []
+    for (const s of [...newStencils, ...changedStencils]) {
+      if (registerStencil(s.stencilJson, s.shapeSvg)) importedStencils.push(s)
+      else rejectedStencils.push(String(s.id ?? '?'))
+    }
 
     const forms = []
     const usedStencilIds = new Set()
@@ -326,9 +334,14 @@ export function useProject({
 
     // Стенсилы, на которые ссылаются формы (по meta SVG), но которых нет ни в базе,
     // ни в бандле — отрисовать их нечем, предупреждаем.
+    // По ВСЕМ стенсилам бандла, включая отклонённые: про них уже сказано отдельным
+    // тостом ниже, во «не хватает» они были бы вторым сообщением об одном и том же.
     const importedIds = new Set(data.stencils.map((s) => s.id))
     const missing = [...usedStencilIds].filter((id) => !getStencilById(id) && !importedIds.has(id))
     if (missing.length) notify.warn('Не хватает стенсилов', missing.join(', '))
+    if (rejectedStencils.length) {
+      notify.warn('Символы с недопустимым id пропущены', rejectedStencils.join(', '))
+    }
     if (parseWarnings.length) {
       const head = parseWarnings.slice(0, 5).join('; ')
       const tail = parseWarnings.length > 5 ? ` (+${parseWarnings.length - 5})` : ''

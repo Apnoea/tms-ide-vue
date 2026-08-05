@@ -5,6 +5,7 @@ import {
   stencilDraftIssues,
   cropToContent,
   parseStencilSvg,
+  shapeBounds,
 } from './stencilSvg'
 
 describe('serializeSvg', () => {
@@ -544,6 +545,53 @@ describe('cropToContent', () => {
 
   it('пустой ввод → нулевой размер', () => {
     expect(cropToContent([], [])).toMatchObject({ width: 0, height: 0 })
+  })
+})
+
+// Общий габарит фигуры: на нём стоят и обрезка холста, и хит-тест лассо —
+// разойдутся, и рамка начнёт ловить не то, что попадёт в границы стенсила.
+describe('shapeBounds', () => {
+  it('rect / circle / line / polyline', () => {
+    expect(shapeBounds({ type: 'rect', x: 5, y: 6, w: 10, h: 4 })).toEqual({
+      x: 5,
+      y: 6,
+      w: 10,
+      h: 4,
+    })
+    expect(shapeBounds({ type: 'circle', cx: 20, cy: 20, r: 8 })).toEqual({
+      x: 12,
+      y: 12,
+      w: 16,
+      h: 16,
+    })
+    // Линия «справа налево»: габарит нормализован, отрицательной ширины не бывает.
+    expect(shapeBounds({ type: 'line', x1: 30, y1: 10, x2: 10, y2: 20 })).toEqual({
+      x: 10,
+      y: 10,
+      w: 20,
+      h: 10,
+    })
+    expect(
+      shapeBounds({
+        type: 'polyline',
+        points: [
+          [4, 8],
+          [20, 2],
+          [10, 12],
+        ],
+      })
+    ).toEqual({ x: 4, y: 2, w: 16, h: 10 })
+  })
+
+  it('подпись — по замеренному габариту (не нулевой)', () => {
+    const b = shapeBounds({ type: 'text', x: 10, y: 10, text: 'Wh', fontSize: 10 })
+    expect(b.w).toBeGreaterThan(0)
+    expect(b.h).toBeGreaterThan(0)
+  })
+
+  it('без габарита (нет фигуры / ломаная без вершин) → null', () => {
+    expect(shapeBounds(null)).toBeNull()
+    expect(shapeBounds({ type: 'polyline', points: [] })).toBeNull()
   })
 })
 

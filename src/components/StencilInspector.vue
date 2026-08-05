@@ -23,9 +23,12 @@ const {
   editingId,
   shapes,
   selectedId,
+  selectedIds,
   updateShape,
+  selectedFor,
+  commonValue,
+  applyToSelected,
   commit,
-  setShapeState,
   setAnimationMode,
   addState,
   updateState,
@@ -34,12 +37,22 @@ const {
   applyPositionPreset,
 } = useStencilEditor()
 
-// Свойства выделенной фигуры (цвет линии/заливка) правятся здесь же. У линии
-// заливки нет — только обводка.
+// Свойства фигуры правятся сразу по ВСЕМУ выделению (рамкой выделяют именно чтобы
+// задать общий цвет/толщину); поля геометрии и подписи — только когда выделена
+// одна (selectedShape). Расхождение значений показываем, а не прячем: см. *Mixed.
 const selectedShape = computed(() => shapes.value.find((s) => s.id === selectedId.value) || null)
-const hasFill = computed(
-  () => selectedShape.value && selectedShape.value.type !== 'line' && !isTextShape.value
-)
+const multiCount = computed(() => selectedIds.value.length)
+
+// Применимость по типу примитива: у линии нет заливки, у круга — скругления,
+// подпись всегда статична (ни заливки, ни скругления, ни видимости). Цвет есть у
+// всех — у подписи это цвет глифов (поле `stroke`, см. ShapePrimitive).
+const FILLABLE = (s) => s.type !== 'line' && s.type !== 'text'
+const ROUNDABLE = (s) => s.type !== 'circle' && s.type !== 'text'
+const NOT_TEXT = (s) => s.type !== 'text'
+
+// Контрол показываем, если свойство применимо хоть к одной выделенной фигуре.
+const hasFill = computed(() => selectedFor(FILLABLE).length > 0)
+const hasStrokeWidth = computed(() => selectedFor(NOT_TEXT).length > 0)
 
 // Подпись правится содержимым/размером/жирностью; обводки, заливки, скругления и
 // видимости по состоянию у неё нет — текст всегда статичен (см. utils/stencilSvg).
@@ -73,42 +86,49 @@ function normHex(c, fallback) {
   }
   return c
 }
-const strokeColor = computed(() => normHex(selectedShape.value?.stroke, '#000000'))
-const fillEnabled = computed(() => {
-  const f = selectedShape.value?.fill
-  return !!f && f !== 'none'
-})
-const fillColor = computed(() => normHex(selectedShape.value?.fill, '#ffffff'))
+// «Разные» = значение у выделенных фигур расходится (commonValue → undefined).
+// У <input type="color"> пустого состояния нет, поэтому там показываем дефолт и
+// подписываем расхождение словом; у числа/селекта — пустое поле с «—».
+const mixed = (v, filter) => v === undefined && selectedFor(filter).length > 1
+
+const strokeCommon = computed(() => commonValue((s) => s.stroke))
+const strokeColor = computed(() => normHex(strokeCommon.value, '#000000'))
+const strokeMixed = computed(() => mixed(strokeCommon.value))
+
+const fillCommon = computed(() => commonValue((s) => s.fill, FILLABLE))
+const fillState = computed(() => commonValue((s) => !!s.fill && s.fill !== 'none', FILLABLE))
+const fillEnabled = computed(() => fillState.value === true)
+const fillMixed = computed(() => mixed(fillState.value, FILLABLE))
+const fillColor = computed(() => normHex(fillCommon.value, '#ffffff'))
 
 // Живое обновление на @input (видно на холсте сразу), один снимок истории на
 // @change (закрытие пипетки) — как жесты рисования.
 function setStroke(e) {
-  if (selectedShape.value) updateShape(selectedShape.value.id, { stroke: e.target.value })
+  applyToSelected({ stroke: e.target.value })
 }
-const strokeWidth = computed(() => selectedShape.value?.strokeWidth ?? 2)
+const strokeWidthCommon = computed(() => commonValue((s) => s.strokeWidth ?? 2, NOT_TEXT))
+const strokeWidth = computed(() => strokeWidthCommon.value ?? null)
 function setStrokeWidth(v) {
-  if (selectedShape.value && v != null) updateShape(selectedShape.value.id, { strokeWidth: v })
+  if (v != null) applyToSelected({ strokeWidth: v }, NOT_TEXT)
 }
 function setFill(e) {
-  if (selectedShape.value) updateShape(selectedShape.value.id, { fill: e.target.value })
+  applyToSelected({ fill: e.target.value }, FILLABLE)
 }
 function toggleFill(on) {
-  if (!selectedShape.value) return
-  updateShape(selectedShape.value.id, {
-    fill: on ? normHex(selectedShape.value.fill, '#ffffff') : 'none',
-  })
+  // При расхождении галка приходит в true — первый клик включает заливку всем
+  // (цвет берём общий, а если и он разный — дефолтный белый).
+  applyToSelected({ fill: on ? normHex(fillCommon.value, '#ffffff') : 'none' }, FILLABLE)
   commit()
 }
 
 // Скругление: у линии/ломаной — круглые торцы/стыки, у прямоугольника — углы (rx).
 // Круг скруглять нечего — контрол скрыт.
-const hasRounding = computed(
-  () => selectedShape.value && selectedShape.value.type !== 'circle' && !isTextShape.value
-)
-const roundedEnabled = computed(() => !!selectedShape.value?.rounded)
+const hasRounding = computed(() => selectedFor(ROUNDABLE).length > 0)
+const roundedState = computed(() => commonValue((s) => !!s.rounded, ROUNDABLE))
+const roundedEnabled = computed(() => roundedState.value === true)
+const roundedMixed = computed(() => mixed(roundedState.value, ROUNDABLE))
 function toggleRounded(on) {
-  if (!selectedShape.value) return
-  updateShape(selectedShape.value.id, { rounded: on })
+  applyToSelected({ rounded: !!on }, ROUNDABLE)
   commit()
 }
 
@@ -146,10 +166,15 @@ const shapeStateOptions = computed(() => {
     ...meta.states.map((s) => ({ label: s.label || s.key, value: s.key })),
   ]
 })
+// Видимость — тоже на всё выделение; при расхождении селект пуст (placeholder «—»),
+// выбор применяется ко всем. Дискретная операция → снимок истории сразу.
+const hasShapeState = computed(() => meta.stateful && selectedFor(NOT_TEXT).length > 0)
 const shapeState = computed({
-  get: () => selectedShape.value?.state || 'always',
+  get: () => commonValue((s) => s.state || 'always', NOT_TEXT) ?? null,
   set: (v) => {
-    if (selectedShape.value) setShapeState(selectedShape.value.id, v)
+    if (!v) return
+    applyToSelected({ state: v }, NOT_TEXT)
+    commit()
   },
 })
 
@@ -443,14 +468,19 @@ function clearStateColor(key, which) {
       </div>
     </div>
 
-    <!-- Плашка «Фигура»: свойства выделенного элемента (контекстно). Видимость
-         (в каком состоянии видна фигура) живёт здесь — это свойство элемента. -->
+    <!-- Плашка «Фигура»: свойства выделенного (контекстно, на всё выделение).
+         Видимость (в каком состоянии видна фигура) живёт здесь — это свойство
+         элемента. Контролы показаны, если свойство применимо хоть к одной
+         выделенной фигуре, и правят только применимые. -->
     <div class="flex min-h-0 max-h-[50%] shrink-0 flex-col border-t border-surface-200">
-      <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
+      <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center gap-2">
         <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Фигура</h2>
+        <span v-if="multiCount > 1" class="text-xs text-surface-500">
+          выделено: {{ multiCount }}
+        </span>
       </div>
       <div class="p-4 overflow-y-auto text-sm">
-        <div v-if="selectedShape" class="space-y-2.5">
+        <div v-if="multiCount" class="space-y-2.5">
           <!-- Подпись: содержимое + размер + жирность. Обводки, заливки, скругления
                и видимости по состоянию у неё нет — текст всегда статичен. -->
           <template v-if="isTextShape">
@@ -490,7 +520,10 @@ function clearStateColor(key, which) {
             </label>
           </template>
           <label class="flex items-center justify-between cursor-pointer">
-            <span class="text-surface-700">{{ isTextShape ? 'Цвет' : 'Цвет линии' }}</span>
+            <span class="text-surface-700">
+              {{ isTextShape ? 'Цвет' : 'Цвет линии' }}
+              <span v-if="strokeMixed" class="text-xs text-surface-400">разные</span>
+            </span>
             <input
               type="color"
               :value="strokeColor"
@@ -499,7 +532,7 @@ function clearStateColor(key, which) {
               @change="commit"
             />
           </label>
-          <label v-if="!isTextShape" class="flex items-center justify-between">
+          <label v-if="hasStrokeWidth" class="flex items-center justify-between">
             <span class="text-surface-700">Толщина линии</span>
             <InputNumber
               :model-value="strokeWidth"
@@ -511,6 +544,7 @@ function clearStateColor(key, which) {
               button-layout="horizontal"
               size="small"
               input-class="w-12! text-center"
+              placeholder="—"
               @update:model-value="setStrokeWidth"
               @blur="commit"
             />
@@ -519,8 +553,11 @@ function clearStateColor(key, which) {
                чтобы тумблер не добавлял новую строку и layout не прыгал. -->
           <div v-if="hasFill" class="flex min-h-7 items-center justify-between">
             <label class="flex items-center gap-2 cursor-pointer">
+              <!-- indeterminate — заливка есть у части выделенных: галка не врёт,
+                   что её нет, а первый клик включает всем. -->
               <Checkbox
                 :model-value="fillEnabled"
+                :indeterminate="fillMixed"
                 binary
                 input-id="se-fill"
                 @update:model-value="toggleFill"
@@ -539,6 +576,7 @@ function clearStateColor(key, which) {
           <label v-if="hasRounding" class="flex items-center gap-2 cursor-pointer">
             <Checkbox
               :model-value="roundedEnabled"
+              :indeterminate="roundedMixed"
               binary
               input-id="se-rounded"
               @update:model-value="toggleRounded"
@@ -547,7 +585,7 @@ function clearStateColor(key, which) {
           </label>
           <!-- Видимость (в каком состоянии видна фигура) — только при включённой
                анимации состояния; опции зависят от режима (см. shapeStateOptions). -->
-          <div v-if="meta.stateful && !isTextShape" class="pt-1">
+          <div v-if="hasShapeState" class="pt-1">
             <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Видимость</div>
             <Select
               v-model="shapeState"
@@ -556,8 +594,14 @@ function clearStateColor(key, which) {
               option-value="value"
               size="small"
               class="w-full"
+              placeholder="—"
             />
           </div>
+          <!-- Геометрия и текст правятся по одной фигуре: у пачки нет общего
+               «размера», а массовая замена текста снесла бы разные подписи. -->
+          <p v-if="multiCount > 1" class="pt-1 text-xs text-surface-400">
+            Размер и текст — при выделении одной фигуры.
+          </p>
         </div>
         <p v-else class="text-xs text-surface-400">Выделите фигуру на холсте</p>
       </div>

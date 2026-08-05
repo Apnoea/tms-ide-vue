@@ -226,6 +226,30 @@ describe('useClipboard', () => {
     expect(newLink.attr('line/stroke')).toBe('#ff0000')
   })
 
+  // Порядок наложения копий = z оригиналов, а не порядок выделения: выделяют часто
+  // рамкой/Ctrl-кликами, и без сортировки «символ поверх шины» переворачивался.
+  it('paste: взаимный z-порядок копий повторяет оригиналы (выделение в обратном порядке)', () => {
+    const back = makeCell({ x: 0 })
+    const front = makeCell({ x: 40 })
+    graph.addCells([back, front])
+    back.set('z', 1)
+    front.set('z', 9)
+    // Выделение перечисляет верхнюю ПЕРВОЙ — обход буфера обязан это проигнорировать.
+    mockCanvas.selection.value = [
+      { kind: 'cell', id: front.id },
+      { kind: 'cell', id: back.id },
+    ]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+
+    const originals = new Set([back.id, front.id])
+    const copies = graph.getElements().filter((e) => !originals.has(e.id))
+    const copyOf = (x) => copies.find((c) => c.get('position').x === x)
+    expect(copyOf(20).get('z')).toBeLessThan(copyOf(60).get('z'))
+  })
+
   it('copySelection: пустое выделение → info-toast, буфер не меняется', () => {
     mockCanvas.selection.value = []
     const { copySelection, hasClipboard } = setup()

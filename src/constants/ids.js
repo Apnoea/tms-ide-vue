@@ -22,6 +22,15 @@ export const ATTR_STENCIL = 'data-tms-stencil'
 export const ATTR_SUFFIX = 'data-anim-suffix'
 
 /**
+ * Допустимый id стенсила. Не косметика: id уезжает в `data-tms-stencil` и в
+ * CSS-селектор внутри `<![CDATA[…]]>` экспорта, а стенсилы приходят из чужого
+ * .zip — кавычка или `]]>` в id сломала бы стиль или дала инъекцию. Реестр
+ * отсекает нарушителей (см. stencils/registry), поэтому дальше по конвейеру id
+ * безопасен по инварианту.
+ */
+export const STENCIL_ID_RE = /^[a-z0-9_]+$/
+
+/**
  * tms-поля ЯЧЕЙКИ для round-trip через `data-tms-meta` — единый список для записи
  * (exporter) и чтения (projectLoader): забыть одну сторону = тихая потеря поля.
  *

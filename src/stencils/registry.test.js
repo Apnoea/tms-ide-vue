@@ -60,6 +60,11 @@ describe('validateStencilJson', () => {
     }
   })
 
+  it('id вне маски [a-z0-9_] → issue', () => {
+    const issues = validateStencilJson(PATH, validStencil({ id: 'Cell-X' }))
+    expect(issues.some((s) => s.includes('вне маски'))).toBe(true)
+  })
+
   it('опечатка в имени поля (slts вместо slots) → issue про неизвестное поле', () => {
     const issues = validateStencilJson(PATH, validStencil({ slts: [] }))
     expect(issues.some((s) => s.includes('неизвестное поле "slts"'))).toBe(true)
@@ -153,8 +158,28 @@ describe('registerStencil', () => {
   })
 
   it('без id ничего не регистрирует (no-op)', () => {
-    registerStencil({ label: 'нет id' }, '<g/>')
+    expect(registerStencil({ label: 'нет id' }, '<g/>')).toBe(false)
     expect(getStencilById(undefined)).toBeUndefined()
+  })
+
+  // id уезжает в data-tms-stencil и в CSS-селектор экспорта — реестр единственная
+  // точка отсева, дальше по конвейеру id считается безопасным.
+  it.each(['cell x', 'cell"x', 'Cell_X', 'cell]]>x', 'cell{x}', '../evil'])(
+    'id вне маски (%s) отклоняется',
+    (id) => {
+      const before = registryVersion.value
+      expect(
+        registerStencil({ id, label: 'X', category: 'Т', width: 20, height: 20 }, '<g/>')
+      ).toBe(false)
+      expect(getStencilById(id)).toBeUndefined()
+      expect(registryVersion.value).toBe(before)
+    }
+  )
+
+  it('валидный id → true', () => {
+    expect(
+      registerStencil({ id: 'cell_ok_1', label: 'X', category: 'Т', width: 20, height: 20 }, '<g/>')
+    ).toBe(true)
   })
 
   it('бампает registryVersion', () => {

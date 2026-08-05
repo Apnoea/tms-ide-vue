@@ -18,7 +18,7 @@
  * `*:not(text)` в constants/animation) и заливку даёт только заливаемым фигурам.
  */
 
-import { ATTR_SUFFIX } from '../constants/ids'
+import { ATTR_SUFFIX, STENCIL_ID_RE } from '../constants/ids'
 import { STATE_FILL_CLASS, normalizeStateColor } from '../constants/animation'
 import { escapeXml } from './xml'
 import { measureTextWidth, SVG_FONT } from './textMetrics'
@@ -141,6 +141,38 @@ export function translateShape(s, dx, dy) {
 }
 
 /**
+ * bbox одной фигуры в user-координатах. Один источник для обрезки холста
+ * (cropToContent) и хит-теста лассо в редакторе — иначе рамка ловила бы не то,
+ * что потом попадёт в границы стенсила. Обводка в габарит не входит (см.
+ * cropToContent), у подписи габарит задаёт шрифт (textShapeBox).
+ *
+ * @returns {{x:number, y:number, w:number, h:number}|null} null — тип без габарита
+ */
+export function shapeBounds(s) {
+  if (!s) return null
+  if (s.type === 'rect') return { x: s.x, y: s.y, w: s.w, h: s.h }
+  if (s.type === 'text') return textShapeBox(s)
+  if (s.type === 'circle') return { x: s.cx - s.r, y: s.cy - s.r, w: s.r * 2, h: s.r * 2 }
+  if (s.type === 'line') {
+    return {
+      x: Math.min(s.x1, s.x2),
+      y: Math.min(s.y1, s.y2),
+      w: Math.abs(s.x2 - s.x1),
+      h: Math.abs(s.y2 - s.y1),
+    }
+  }
+  if (s.type === 'polyline') {
+    if (!s.points?.length) return null
+    const xs = s.points.map(([x]) => x)
+    const ys = s.points.map(([, y]) => y)
+    const x = Math.min(...xs)
+    const y = Math.min(...ys)
+    return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y }
+  }
+  return null
+}
+
+/**
  * Обрезка пустых полей: считаем bbox фигур + портов, расширяем до кратных grid
  * границ (min — вниз, max — вверх, чтобы контент не срезался), сдвигаем всё в
  * (0,0). Итоговый стенсил = ровно контент, размеры кратны grid. Обводку в bbox
@@ -161,24 +193,10 @@ export function cropToContent(shapes, ports = [], grid = 10) {
     if (y > maxY) maxY = y
   }
   for (const s of shapes) {
-    if (s.type === 'rect') {
-      acc(s.x, s.y)
-      acc(s.x + s.w, s.y + s.h)
-    } else if (s.type === 'line') {
-      acc(s.x1, s.y1)
-      acc(s.x2, s.y2)
-    } else if (s.type === 'circle') {
-      acc(s.cx - s.r, s.cy - s.r)
-      acc(s.cx + s.r, s.cy + s.r)
-    } else if (s.type === 'polyline') {
-      for (const [x, y] of s.points) acc(x, y)
-    } else if (s.type === 'text') {
-      // Габарит подписи задаёт шрифт — без замера она вылезла бы за viewBox и
-      // обрезалась на сохранении.
-      const b = textShapeBox(s)
-      acc(b.x, b.y)
-      acc(b.x + b.w, b.y + b.h)
-    }
+    const b = shapeBounds(s)
+    if (!b) continue
+    acc(b.x, b.y)
+    acc(b.x + b.w, b.y + b.h)
   }
   for (const p of ports) acc(p.x, p.y)
 
@@ -360,10 +378,6 @@ export function parseStencilSvg(svgText) {
   collectShapes(doc.documentElement, out)
   return out
 }
-
-// id стенсила = имя папки в definitions/, поэтому та же маска, что у dev-плагина
-// (анти-traversal): только латиница в нижнем регистре, цифры и подчёркивание.
-const STENCIL_ID_RE = /^[a-z0-9_]+$/
 
 /**
  * Проверка черновика перед сохранением. Чистая: uniqueness сверяем по

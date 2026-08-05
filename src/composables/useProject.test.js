@@ -9,9 +9,11 @@ import { tmsNamespace } from '../stencils/tmsStencil'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 
 vi.mock('../stencils/svgInjector', () => ({ reinjectAllStencils: vi.fn() }))
+// registerStencil возвращает успех: false = id стенсила вне маски (реальный
+// реестр отклоняет такие), поэтому по умолчанию true.
 vi.mock('../stencils/registry', () => ({
   getStencilById: vi.fn(() => null),
-  registerStencil: vi.fn(),
+  registerStencil: vi.fn(() => true),
 }))
 vi.mock('../services/exporter', () => ({
   exportProject: vi.fn(() => ({ svgText: '<svg/>', animationsJson: '{}' })),
@@ -80,6 +82,7 @@ describe('useProject', () => {
     vi.clearAllMocks()
     parseSvgProject.mockReset()
     getStencilById.mockReturnValue(null)
+    registerStencil.mockReturnValue(true) // тест на отклонённый id ставит свою
   })
 
   function seedForms(list, active) {
@@ -277,6 +280,27 @@ describe('useProject', () => {
       )
       const savedOverrides = replaceStencilOverrides.mock.calls.at(-1)[0]
       expect(savedOverrides.map((s) => s.id)).toEqual(['cell_qw'])
+    })
+
+    // id вне маски реестр не принимает: такой стенсил не должен попасть ни в
+    // оверрайды IDB, ни на диск — иначе он вернулся бы после reload и уехал в
+    // экспортный SVG/CSS. Пользователю говорим прямо, что символ пропущен.
+    it('стенсил с отклонённым id не уходит в оверрайды, о нём предупреждаем', async () => {
+      bundle([{ id: 'f1', svgText: 'x' }], {
+        stencils: [
+          { id: 'cell_ok', stencilJson: { id: 'cell_ok' }, shapeSvg: 'A' },
+          { id: 'ev"il', stencilJson: { id: 'ev"il' }, shapeSvg: 'B' },
+        ],
+      })
+      parseSvgProject.mockReturnValue({ ok: true, cells: [], stencilIds: [] })
+      registerStencil.mockImplementation((json) => json.id === 'cell_ok')
+      const deps = makeDeps()
+      const { importProjectFromArchive } = useProject(deps)
+      await importProjectFromArchive()
+
+      const savedOverrides = replaceStencilOverrides.mock.calls.at(-1)[0]
+      expect(savedOverrides.map((s) => s.id)).toEqual(['cell_ok'])
+      expect(mockNotify.warn).toHaveBeenCalledWith('Символы с недопустимым id пропущены', 'ev"il')
     })
 
     it('неизменённый существующий стенсил НЕ перерегистрируется', async () => {

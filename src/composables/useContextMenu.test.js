@@ -112,3 +112,65 @@ describe('useContextMenu — «Удалить»', () => {
     scope.stop()
   })
 })
+
+// Замок доступен и в мультивыделении/на группе: toggleLocked групповой, иначе
+// подложку из десятка символов пришлось бы лочить по одному.
+describe('useContextMenu — замок', () => {
+  beforeEach(() => {
+    mockCanvas.toggleLocked.mockClear()
+    mockCanvas.selection.value = []
+    mockCanvas.graphRef.value = null
+  })
+
+  function lockItemFor(api, target) {
+    api.showContextMenu(target, { preventDefault() {} })
+    return api.ctxItems.value.find((i) => /блокировать/.test(i.label || ''))
+  }
+
+  it('мультивыделение: пункт есть, со счётчиком, и лочит всё выделение', () => {
+    mockCanvas.graphRef.value = graphOf({ a: {}, b: {}, c: {} })
+    const sel = [
+      { kind: 'cell', id: 'a' },
+      { kind: 'cell', id: 'b' },
+      { kind: 'cell', id: 'c' },
+    ]
+    mockCanvas.selection.value = sel
+    const { api, scope } = setup()
+
+    const item = lockItemFor(api, { kind: 'cell', id: 'b' })
+    expect(item.label).toBe('Заблокировать (3)')
+    item.command()
+    expect(mockCanvas.toggleLocked).toHaveBeenCalledWith(sel)
+    scope.stop()
+  })
+
+  it('часть выделения свободна → пункт лочит (как toggleLocked), а не разлочивает', () => {
+    mockCanvas.graphRef.value = graphOf({ a: { locked: true }, b: {} })
+    mockCanvas.selection.value = [
+      { kind: 'cell', id: 'a' },
+      { kind: 'cell', id: 'b' },
+    ]
+    const { api, scope } = setup()
+    expect(lockItemFor(api, { kind: 'cell', id: 'a' }).label).toBe('Заблокировать (2)')
+    scope.stop()
+  })
+
+  it('всё выделение заблокировано → «Разблокировать»', () => {
+    mockCanvas.graphRef.value = graphOf({ a: { locked: true }, b: { locked: true } })
+    mockCanvas.selection.value = [
+      { kind: 'cell', id: 'a' },
+      { kind: 'cell', id: 'b' },
+    ]
+    const { api, scope } = setup()
+    expect(lockItemFor(api, { kind: 'cell', id: 'b' }).label).toBe('Разблокировать (2)')
+    scope.stop()
+  })
+
+  it('одиночная ячейка — label без счётчика', () => {
+    mockCanvas.graphRef.value = graphOf({ a: {} })
+    mockCanvas.selection.value = [{ kind: 'cell', id: 'a' }]
+    const { api, scope } = setup()
+    expect(lockItemFor(api, { kind: 'cell', id: 'a' }).label).toBe('Заблокировать')
+    scope.stop()
+  })
+})

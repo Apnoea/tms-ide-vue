@@ -58,16 +58,11 @@ export function useContextMenu({
               },
             }
           : null
-      // Замок — только для ОДИНОЧНОЙ ячейки (в мультивыделении/группе блокировку
-      // не предлагаем).
-      const lockItem =
-        selCellCount <= 1
-          ? {
-              label: locked ? 'Разблокировать' : 'Заблокировать',
-              icon: locked ? 'pi pi-unlock' : 'pi pi-lock',
-              command: () => runOnTarget(t, () => canvas.toggleLocked(canvas.selection.value)),
-            }
-          : null
+      // Замок работает на всё выделение (toggleLocked: хоть одна свободна → лочим
+      // все), поэтому и в мультивыделении, и на группе пункт доступен — иначе
+      // подложку из десятка символов пришлось бы лочить по одному. Overlay-кнопка
+      // остаётся одиночной: она позиционируется по AABB одной ячейки.
+      const lockItem = lockMenuItem(t, locked, selCellCount)
       // Порядок наложения (z): подменю для выделенных ячеек. Провода всегда сзади.
       const orderItem = {
         label: 'Порядок',
@@ -126,6 +121,29 @@ export function useContextMenu({
   function deleteTargets(target) {
     const sel = canvas.selection.value
     return sel.some((i) => i.id === target.id) ? sel : [target]
+  }
+
+  /**
+   * Пункт замка. Направление действия — как у toggleLocked: пока в выделении есть
+   * хоть одна свободная ячейка, пункт лочит (а не разлочивает наполовину). Счётчик
+   * в label при нескольких целях — видно, что операция затронет всех.
+   */
+  function lockMenuItem(target, targetLocked, selCellCount) {
+    const graph = canvas.graphRef.value
+    const cells = canvas.selection.value
+      .filter((i) => i.kind === 'cell')
+      .map((i) => graph?.getCell(i.id))
+      .filter(Boolean)
+    // Меню могли открыть по невыделенной ячейке — тогда решает её собственный замок
+    // (выделит её runOnTarget уже на выполнении команды).
+    const lock = cells.length ? cells.some((c) => !c.get('tms')?.locked) : !targetLocked
+    const n = Math.max(selCellCount, 1)
+    const suffix = n > 1 ? ` (${n})` : ''
+    return {
+      label: (lock ? 'Заблокировать' : 'Разблокировать') + suffix,
+      icon: lock ? 'pi pi-lock' : 'pi pi-unlock',
+      command: () => runOnTarget(target, () => canvas.toggleLocked(canvas.selection.value)),
+    }
   }
 
   /** Пункт «Удалить»; счётчик в label при нескольких целях (locked не удаляются). */
