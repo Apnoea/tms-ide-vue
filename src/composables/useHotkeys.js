@@ -17,41 +17,17 @@ function isFocusInInput(t) {
  * Исключение — стрелки и Del/Backspace: они одинаковы во всех раскладках,
  * там event.key безопасен.
  *
- * Раскладка:
- *  Ctrl+F      — открыть/перезапустить поиск (работает даже в инпутах:
- *                перехватываем стандартный браузерный find-in-page)
- *  F3          — листать совпадения поиска (Shift = назад)
- *  Escape      — снять highlight тега → снять выделение
- *  Ctrl+Z/Y    — undo/redo (Shift+Z = redo как альтернатива)
- *  Ctrl+S      — экспорт проекта (через переданный onExport)
- *  Ctrl+O      — диспатч `tms-open-project` (ловит ProjectActions)
- *  Ctrl+C/V/D  — copy/paste/duplicate выделения
- *  Ctrl+A      — выделить все ячейки
- *  R / Shift+R — повернуть выделенные ячейки по / против часовой (90°)
- *  Shift+H/V   — отразить выделенные ячейки по горизонтали / вертикали
- *  Стрелки     — сдвиг выделенных ячеек на gridSize (Shift = ×5)
- *  Del/Bksp    — удалить выделение
+ * Полный список сочетаний — в F1 (HelpDialog), здесь только неочевидное.
  *
- * Поведение при фокусе в input/textarea/contenteditable:
- *  • Ctrl+S / Ctrl+O — глобальные команды приложения, работают из любого
- *    фокуса (как Ctrl+S в десктоп-редакторе). preventDefault обязателен — иначе
- *    браузер перехватит: Ctrl+S → «Сохранить страницу», Ctrl+O → диалог файла.
- *  • Ctrl+D — дублировать ячейку из инпута бессмысленно, но браузерную закладку
- *    давим: preventDefault всегда, сам duplicate — только вне инпута.
- *  • Ctrl+Z/Y/C/V/A — НЕ перехватываем: это штатная правка текста в поле
- *    (undo/redo/copy/paste/select-all), ломать её нельзя.
- *  • Стрелки / Del — не трогаем ввод текста.
+ * При фокусе в поле ввода:
+ *  • Ctrl+S / Ctrl+O работают из любого фокуса (глобальные команды приложения);
+ *    preventDefault обязателен, иначе браузер откроет «Сохранить страницу»/файл.
+ *  • Ctrl+D давит браузерную закладку всегда, дублирует — только вне поля.
+ *  • Ctrl+Z/Y/C/V/A и стрелки/Del не перехватываем: это штатная правка текста.
  *
- * Зависимости передаются опциями (приходят из composables, которые держит
- * CanvasPane): undo/redo/scheduleSnapshot из useUndoRedo, copy/paste/duplicate
- * из useClipboard, onExport — локальная функция CanvasPane, projectBusy —
- * ref из useProject.
- *
- * Мутирующие граф/стор хоткеи (undo/redo/paste/duplicate/delete/nudge) гейтятся
- * `projectBusy`: во время экспорта/импорта/переключения формы живой граф между
- * await'ами держит ЧУЖУЮ форму — правка бы записала её JSON под ключ активной в
- * store/IDB и утекла бы в экспортный SVG. copy (read-only) и search/Esc/Ctrl+S/O
- * (сами no-op под busy) — не гейтим.
+ * Мутирующие граф хоткеи гейтятся `projectBusy`: во время экспорта/импорта живой
+ * граф между await'ами держит ЧУЖУЮ форму, и правка записала бы её под ключ
+ * активной. copy и поиск read-only, их не гейтим.
  */
 export function useHotkeys({
   undo,
@@ -167,6 +143,17 @@ export function useHotkeys({
         event.preventDefault()
         event.stopPropagation()
         canvas.selectAllCells()
+        return
+      }
+      // Ctrl+] / Ctrl+[ — выше / ниже, с Shift — на передний / задний план.
+      // Работает и на проводах (у них порядок виден на пересечении).
+      if (code === 'BracketRight' || code === 'BracketLeft') {
+        event.preventDefault()
+        event.stopPropagation()
+        if (projectBusy.value) return
+        const up = code === 'BracketRight'
+        const mode = event.shiftKey ? (up ? 'front' : 'back') : up ? 'forward' : 'backward'
+        canvas.reorderCells(canvas.selection.value, mode)
         return
       }
       // Ctrl+G — сгруппировать выделенное, Ctrl+Shift+G — разгруппировать.

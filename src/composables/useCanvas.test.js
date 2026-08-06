@@ -58,3 +58,62 @@ describe('useCanvas: замок в массовых операциях', () => {
     expect(locked.get('tms').groupId).toBe('grp-1')
   })
 })
+
+// Порядок наложения. Символы и провода — разные слои: команда двигает только свой,
+// и полосы z не пересекаются (иначе символ ушёл бы под провод или наоборот).
+describe('useCanvas: reorderCells', () => {
+  let canvas
+  let graph
+
+  beforeEach(() => {
+    canvas = useCanvas()
+    graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    canvas.setCanvasRefs(graph, { id: 'paper' })
+  })
+
+  function wire(a, b) {
+    return new shapes.standard.Link({ source: { id: a.id }, target: { id: b.id } })
+  }
+
+  it('провод «на передний план» получает больший z — мостик рисует он', () => {
+    const a = cell()
+    const b = cell()
+    const w1 = wire(a, b)
+    const w2 = wire(a, b)
+    graph.addCells([a, b, w1, w2])
+    canvas.reorderCells([{ kind: 'link', id: w1.id }], 'front')
+    expect(w1.get('z')).toBeGreaterThan(w2.get('z'))
+  })
+
+  it('провода остаются под символами, символы не падают ниже нуля', () => {
+    const a = cell()
+    const b = cell()
+    const w = wire(a, b)
+    graph.addCells([a, b, w])
+    canvas.reorderCells([{ kind: 'link', id: w.id }], 'front')
+    canvas.reorderCells([{ kind: 'cell', id: a.id }], 'back')
+    expect(a.get('z')).toBeGreaterThanOrEqual(0)
+    expect(w.get('z')).toBeLessThan(a.get('z'))
+  })
+
+  it('правки идут одним батчем — иначе jumpover не пересчитает соседний провод', () => {
+    const a = cell()
+    const b = cell()
+    const w1 = wire(a, b)
+    graph.addCells([a, b, w1, wire(a, b)])
+    let stops = 0
+    graph.on('batch:stop', () => stops++)
+    canvas.reorderCells([{ kind: 'link', id: w1.id }], 'front')
+    expect(stops).toBe(1)
+  })
+
+  it('команда без эффекта не пишет шаг истории', () => {
+    const a = cell()
+    const b = cell()
+    graph.addCells([a, b])
+    canvas.reorderCells([{ kind: 'cell', id: b.id }], 'front') // b и так сверху
+    const tick = canvas.snapshotTick.value
+    canvas.reorderCells([{ kind: 'cell', id: b.id }], 'front')
+    expect(canvas.snapshotTick.value).toBe(tick)
+  })
+})

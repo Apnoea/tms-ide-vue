@@ -1,21 +1,17 @@
 <script setup>
 /**
- * Одна фигура редактора символов: halo выделения (под фигурой, в её же слое) +
- * сам примитив. Типы (rect / line / circle / polygon / polyline) отличаются
- * только набором геометрических атрибутов, поэтому геометрия считается один раз
- * и переиспользуется halo и фигурой — раньше в шаблоне StencilEditor лежали пять
- * почти одинаковых блоков, и каждый новый атрибут приходилось дублировать в оба.
+ * Одна фигура редактора символов: halo выделения (под фигурой, в её слое) + сам
+ * примитив. Геометрия считается один раз и переиспользуется обоими.
  *
- * Подпись (`text`) — отдельная ветка: обводки у неё нет, цвет задаётся `fill`, а
- * halo рисуется рамкой по замеренному bbox (широкий stroke дал бы контур вокруг
- * глифов вместо выделения).
+ * Подпись (`text`) — отдельная ветка: обводки нет, цвет в `fill`, halo — рамка по
+ * замеренному bbox (широкий stroke дал бы контур вокруг глифов).
  *
- * Двухкорневой шаблон (halo + фигура) — DOM остаётся плоским: interact.js цепляется
- * по глобальному `[data-se-move]`, а z-порядок фигур = порядок экспорта.
+ * Двухкорневой шаблон держит DOM плоским: interact.js цепляется по глобальному
+ * `[data-se-move]`, а z-порядок фигур = порядок экспорта.
  */
 import { computed } from 'vue'
 import { ROUND_RX, TEXT_SHAPE_ANCHOR, TEXT_SHAPE_SIZE, textShapeBox } from '../utils/stencilSvg'
-import { SVG_FONT } from '../utils/textMetrics'
+import { normalizeFont } from '../utils/textMetrics'
 
 const props = defineProps({
   shape: { type: Object, required: true },
@@ -55,7 +51,7 @@ const geom = computed(() => {
         y: s.y,
         'text-anchor': TEXT_SHAPE_ANCHOR,
         'font-size': s.fontSize ?? TEXT_SHAPE_SIZE,
-        'font-family': SVG_FONT,
+        'font-family': normalizeFont(s.fontFamily),
         'font-weight': s.bold ? 'bold' : null,
       },
     }

@@ -1,4 +1,4 @@
-import { TEXT_FONT_SIZE, textCellHeight, textCellWidth, resizeTextCell } from '../stencils/textCell'
+import { textCellSize, resizeTextCell } from '../stencils/textCell'
 
 // Выравнивание = якорь блока при росте (см. resizeTextCell), не раскладка строки.
 export const ALIGN_OPTIONS = [
@@ -31,20 +31,16 @@ export function useTextCellProps({ withSelectedCell }) {
           next.fontSize === tms.fontSize &&
           next.bold === tms.bold &&
           next.color === tms.color &&
+          next.fontFamily === tms.fontFamily &&
           (next.align || 'left') === (tms.align || 'left')
         if (same) return false
         cell.set('tms', next)
         // Подгоняем и ширину, и высоту: hit-area совпадает с отображаемым текстом,
         // inline-× прижимается к нему. Якорь держит resizeTextCell; смена одного align
-        // ширину не меняет — он сработает при следующем росте текста.
-        const fontSize = next.fontSize ?? TEXT_FONT_SIZE
-        const bold = !!next.bold
-        resizeTextCell(
-          cell,
-          textCellWidth(next.text ?? '', fontSize, bold),
-          textCellHeight(fontSize),
-          next.align || 'left'
-        )
+        // ширину не меняет — он сработает при следующем росте текста. Шрифт меняет
+        // ширину строки, поэтому идёт в замер наравне с размером и жирностью.
+        const size = textCellSize(next)
+        resizeTextCell(cell, size.width, size.height, next.align || 'left')
       },
       { reinject: true }
     )
@@ -56,5 +52,6 @@ export function useTextCellProps({ withSelectedCell }) {
     applyBold: (bold) => patchTextCell({ bold }),
     applyColor: (color) => patchTextCell({ color }),
     applyAlign: (align) => patchTextCell({ align }),
+    applyFontFamily: (fontFamily) => patchTextCell({ fontFamily }),
   }
 }

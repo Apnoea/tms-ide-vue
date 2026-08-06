@@ -2,33 +2,20 @@ import { ref, watch, nextTick } from 'vue'
 import { onClickOutside } from '@vueuse/core'
 import { getStencilById } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
-import {
-  TEXT_FONT_SIZE,
-  TEXT_PADDING_X,
-  textCellHeight,
-  textCellWidth,
-  resizeTextCell,
-} from '../stencils/textCell'
+import { TEXT_FONT_SIZE, TEXT_PADDING_X, textCellSize, resizeTextCell } from '../stencils/textCell'
+import { normalizeFont } from '../utils/textMetrics'
 import { useCanvas } from './useCanvas'
 
 /**
- * Edit-in-place для cell_text: double-click открывает HTML-overlay
- * <input type="text"> поверх SVG-text'а. На время edit'а SVG-text прячется
- * (visibility:hidden), на commit/cancel — восстанавливается. Ширина ячейки
- * адаптивно ресайзится под печатаемый текст в реальном времени.
+ * Edit-in-place для cell_text: double-click открывает HTML-overlay поверх
+ * SVG-text'а (тот прячется на время правки), ширина ячейки ресайзится под
+ * печатаемый текст.
  *
- * Коммит на клик-вне ловим через `onClickOutside(textEditorRef)` — у самого
- * <input> @blur не срабатывает из-за JointJS preventDefault на pointerdown.
+ * Коммит на клик-вне ловим через `onClickOutside` — у <input> @blur не приходит
+ * из-за JointJS preventDefault на pointerdown.
  *
- * Возвращает:
- *  • `textEditing` (Ref) — `null` либо `{ id, original, style }`. Шаблон
- *    рендерит overlay по `v-if="textEditing"`. Другие места (hover-tooltip,
- *    delete-button) читают для подавления своих UI на время edit'а.
- *  • `textEditValue` (Ref<string>) — `v-model` overlay-инпута.
- *  • `textEditorRef` (Ref) — template ref на overlay-инпут (нужен для focus
- *    + onClickOutside).
- *  • `startTextEdit(cellId)` — открывает overlay (зовётся из paper.on dblclick).
- *  • `commitTextEdit` / `cancelTextEdit` — @keydown.enter / @keydown.esc.
+ * `textEditing` (null | { id, original, style }) читают и другие места, чтобы
+ * подавить свой UI на время правки.
  */
 export function useTextEdit({ scheduleSnapshot }) {
   const canvas = useCanvas()
@@ -46,13 +33,12 @@ export function useTextEdit({ scheduleSnapshot }) {
     const cell = graph?.getCell(editing.id)
     if (!cell) return
     const tms = cell.get('tms') || {}
-    const fz = tms.fontSize ?? TEXT_FONT_SIZE
-    const newCellW = textCellWidth(val, fz, !!tms.bold)
+    const { width: newCellW, height: newCellH } = textCellSize(tms, val)
     const currentW = cell.get('size').width
     if (newCellW !== currentW) {
       // resizeTextCell держит якорь (align): при center/right блок при печати
       // «уезжает» от выбранного края — поэтому ниже пересчитываем и left overlay.
-      resizeTextCell(cell, newCellW, textCellHeight(fz), tms.align)
+      resizeTextCell(cell, newCellW, newCellH, tms.align)
       // bumpVersion реактивно перепозиционирует HTML × overlay.
       canvas.bumpVersion()
     }
@@ -107,6 +93,10 @@ export function useTextEdit({ scheduleSnapshot }) {
         height: `${size.height * scale}px`,
         fontSize: `${fontSize * scale}px`,
         fontWeight: tms.bold ? 'bold' : 'normal',
+        // Шрифт и цвет — как у подписи: ширину инпута мы считаем своей метрикой,
+        // и под системным шрифтом текст в поле «прыгал» бы на коммите.
+        fontFamily: normalizeFont(tms.fontFamily),
+        color: tms.color || '#000',
       },
     }
 
@@ -137,8 +127,8 @@ export function useTextEdit({ scheduleSnapshot }) {
 
     cell.set('tms', { ...tms, text: newText })
     // Ресайз под новый текст — ширина адаптивная, высота под шрифт; якорь по align.
-    const fz = tms.fontSize ?? TEXT_FONT_SIZE
-    resizeTextCell(cell, textCellWidth(newText, fz, !!tms.bold), textCellHeight(fz), tms.align)
+    const size = textCellSize(tms, newText)
+    resizeTextCell(cell, size.width, size.height, tms.align)
     const cellView = paper?.findViewByModel(cell)
     if (cellView) injectStencilSvg(cellView, stencil)
     canvas.bumpVersion()

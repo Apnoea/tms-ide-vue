@@ -17,6 +17,7 @@ import { getCategories, registryVersion } from '../stencils/registry'
 import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor'
 import { normalizeStateColor } from '../constants/animation'
 import { isFillableShape, TEXT_SHAPE_SIZE } from '../utils/stencilSvg'
+import { FONT_FAMILIES, normalizeFont } from '../utils/textMetrics'
 
 const {
   meta,
@@ -67,6 +68,14 @@ function setTextSize(v) {
 function setTextBold(on) {
   if (!selectedShape.value) return
   updateShape(selectedShape.value.id, { bold: !!on })
+  commit()
+}
+// Шрифт меняет габарит подписи (cropToContent считает его замером), поэтому
+// коммитим сразу — как жирность, а не как ввод текста.
+const textFont = computed(() => normalizeFont(selectedShape.value?.fontFamily))
+function setTextFont(v) {
+  if (!selectedShape.value) return
+  updateShape(selectedShape.value.id, { fontFamily: normalizeFont(v) })
   commit()
 }
 
@@ -508,6 +517,23 @@ function clearStateColor(key, which) {
                 @update:model-value="setTextSize"
                 @blur="commit"
               />
+            </label>
+            <label class="flex items-center justify-between">
+              <span class="text-surface-700">Шрифт</span>
+              <!-- Пункты рисуются своим же семейством — выбор виден до применения. -->
+              <Select
+                :model-value="textFont"
+                :options="FONT_FAMILIES"
+                option-label="label"
+                option-value="value"
+                size="small"
+                class="w-40"
+                @update:model-value="setTextFont"
+              >
+                <template #option="{ option }">
+                  <span :style="{ fontFamily: option.value }">{{ option.label }}</span>
+                </template>
+              </Select>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
               <Checkbox

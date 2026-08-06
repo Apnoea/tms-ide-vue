@@ -140,6 +140,15 @@ describe('serializeSvg', () => {
     expect(svg.match(/<text[^>]*stroke=/)).toBeNull()
   })
 
+  it('text — шрифт из whitelist уходит в SVG, чужой падает в дефолт', () => {
+    const shape = (fontFamily) => [{ type: 'text', x: 0, y: 10, text: 'Wh', fontFamily }]
+    const box = { width: 20, height: 20 }
+    expect(serializeSvg(shape('monospace'), box)).toContain('font-family="monospace"')
+    // Значение приходит из чужого shape.svg — в выход попадает только наше семейство,
+    // иначе замер (canvas) и рендер панели считали бы разными шрифтами.
+    expect(serializeSvg(shape('Comic Sans MS'), box)).toContain('font-family="sans-serif"')
+  })
+
   it('text — содержимое эскейпится (XML не должен ломаться)', () => {
     const svg = serializeSvg([{ type: 'text', x: 0, y: 10, text: 'A & B <c>' }], {
       width: 20,
@@ -694,7 +703,15 @@ describe('parseStencilSvg (инверсия serializeSvg)', () => {
       fontSize: 12,
       bold: true,
       stroke: '#333',
+      fontFamily: 'serif',
     })
+  })
+
+  it('чужой font-family при разборе нормализуется в дефолт', () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">' +
+      '<text x="20" y="28" font-family="Comic Sans MS" fill="#000">Wh</text></svg>'
+    expect(parseStencilSvg(svg)[0].fontFamily).toBe('sans-serif')
   })
 
   it('замкнутая ломаная сериализуется в <polygon>', () => {

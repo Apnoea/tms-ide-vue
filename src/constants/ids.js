@@ -9,6 +9,7 @@
 //  • провод:          animation-wire-<shortId>
 
 import { LEGACY_RANGE_KEY, LEGACY_BOOL_KEY } from '../services/legacyFormat'
+import { SVG_FONT, normalizeFont } from '../utils/textMetrics'
 
 // Без export: наружу торчат только key-билдеры ниже.
 const ANIM_PREFIX = 'animation-'
@@ -48,6 +49,9 @@ export const CELL_META_FIELDS = [
   { key: 'fontSize', keep: (v) => v !== undefined },
   { key: 'bold', keep: (v) => v !== undefined },
   { key: 'color', keep: (v) => v !== undefined },
+  // Шрифт cell_text. `normalize` гоняет значение через whitelist на обоих концах
+  // round-trip'а. Дефолт (SVG_FONT) не пишем — отсутствие = он же.
+  { key: 'fontFamily', keep: (v) => v !== undefined && v !== SVG_FONT, normalize: normalizeFont },
   // 'left' — дефолт (отсутствие = left), в meta не пишем.
   { key: 'align', keep: (v) => v !== undefined && v !== 'left' },
   { key: 'valueTag', keep: (v) => v !== undefined },

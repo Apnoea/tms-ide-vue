@@ -58,42 +58,10 @@ export function useContextMenu({
               },
             }
           : null
-      // Замок работает на всё выделение (toggleLocked: хоть одна свободна → лочим
-      // все), поэтому и в мультивыделении, и на группе пункт доступен — иначе
-      // подложку из десятка символов пришлось бы лочить по одному. Overlay-кнопка
-      // остаётся одиночной: она позиционируется по AABB одной ячейки.
+      // Замок работает на всё выделение (хоть одна свободна → лочим все), поэтому
+      // доступен и в мультивыделении, и на группе. Overlay-кнопка остаётся
+      // одиночной: она позиционируется по AABB одной ячейки.
       const lockItem = lockMenuItem(t, locked, selCellCount)
-      // Порядок наложения (z): подменю для выделенных ячеек. Провода всегда сзади.
-      const orderItem = {
-        label: 'Порядок',
-        icon: 'pi pi-clone',
-        items: [
-          {
-            label: 'На передний план',
-            icon: 'pi pi-angle-double-up',
-            command: () =>
-              runOnTarget(t, () => canvas.reorderCells(canvas.selection.value, 'front')),
-          },
-          {
-            label: 'Выше',
-            icon: 'pi pi-angle-up',
-            command: () =>
-              runOnTarget(t, () => canvas.reorderCells(canvas.selection.value, 'forward')),
-          },
-          {
-            label: 'Ниже',
-            icon: 'pi pi-angle-down',
-            command: () =>
-              runOnTarget(t, () => canvas.reorderCells(canvas.selection.value, 'backward')),
-          },
-          {
-            label: 'На задний план',
-            icon: 'pi pi-angle-double-down',
-            command: () =>
-              runOnTarget(t, () => canvas.reorderCells(canvas.selection.value, 'back')),
-          },
-        ],
-      }
       const items = [
         {
           label: 'Дублировать',
@@ -102,16 +70,33 @@ export function useContextMenu({
         },
         { label: 'Скопировать', icon: 'pi pi-clone', command: () => runOnTarget(t, copySelection) },
       ]
-      const mid = [orderItem, groupItem, lockItem].filter(Boolean)
+      const mid = [orderMenuItem(t), groupItem, lockItem].filter(Boolean)
       if (mid.length) items.push({ separator: true }, ...mid)
       items.push({ separator: true }, deleteItem(t))
       return items
     }
     if (t.kind === 'link') {
-      return [deleteItem(t)]
+      // На пересечении мостик рисует верхний провод — так выбирают, кто поверх.
+      return [orderMenuItem(t), { separator: true }, deleteItem(t)]
     }
     return []
   })
+
+  /** Подменю «Порядок» (z) — общее для символов и проводов: слои разведены. */
+  function orderMenuItem(target) {
+    const cmd = (mode) => () =>
+      runOnTarget(target, () => canvas.reorderCells(canvas.selection.value, mode))
+    return {
+      label: 'Порядок',
+      icon: 'pi pi-clone',
+      items: [
+        { label: 'На передний план', icon: 'pi pi-angle-double-up', command: cmd('front') },
+        { label: 'Выше', icon: 'pi pi-angle-up', command: cmd('forward') },
+        { label: 'Ниже', icon: 'pi pi-angle-down', command: cmd('backward') },
+        { label: 'На задний план', icon: 'pi pi-angle-double-down', command: cmd('back') },
+      ],
+    }
+  }
 
   /**
    * Цели удаления: ПКМ по элементу ИЗ выделения удаляет всё выделение (как Del и как
@@ -124,9 +109,8 @@ export function useContextMenu({
   }
 
   /**
-   * Пункт замка. Направление действия — как у toggleLocked: пока в выделении есть
-   * хоть одна свободная ячейка, пункт лочит (а не разлочивает наполовину). Счётчик
-   * в label при нескольких целях — видно, что операция затронет всех.
+   * Пункт замка. Направление — как у toggleLocked: есть свободная ячейка → лочим.
+   * Счётчик в label показывает, что операция затронет всё выделение.
    */
   function lockMenuItem(target, targetLocked, selCellCount) {
     const graph = canvas.graphRef.value
@@ -134,8 +118,7 @@ export function useContextMenu({
       .filter((i) => i.kind === 'cell')
       .map((i) => graph?.getCell(i.id))
       .filter(Boolean)
-    // Меню могли открыть по невыделенной ячейке — тогда решает её собственный замок
-    // (выделит её runOnTarget уже на выполнении команды).
+    // Меню по невыделенной ячейке — решает её собственный замок (выделит runOnTarget).
     const lock = cells.length ? cells.some((c) => !c.get('tms')?.locked) : !targetLocked
     const n = Math.max(selCellCount, 1)
     const suffix = n > 1 ? ` (${n})` : ''

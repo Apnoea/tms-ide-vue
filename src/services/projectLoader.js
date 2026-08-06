@@ -4,7 +4,7 @@
 
 import { getStencilById } from '../stencils/registry'
 import { buildPortItems } from '../stencils/svgInjector'
-import { LINK_DEFAULTS, linkStyleAttrs } from '../stencils/linkDefaults'
+import { LINK_DEFAULTS, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkDefaults'
 import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 
 /**
@@ -81,8 +81,10 @@ export function parseSvgProject(svgText) {
       // читаем как fallback и записываем уже под новым именем.
       const tms = { stencilId: meta.stencilId }
       for (const f of CELL_META_FIELDS) {
-        const v = meta[f.key] ?? (f.legacyKey ? meta[f.legacyKey] : undefined)
-        if (v !== undefined) tms[f.key] = f.clone ? { ...v } : v
+        const raw = meta[f.key] ?? (f.legacyKey ? meta[f.legacyKey] : undefined)
+        if (raw === undefined) continue
+        const v = f.normalize ? f.normalize(raw) : raw
+        tms[f.key] = f.clone ? { ...v } : v
       }
 
       const cellJson = {
@@ -96,8 +98,9 @@ export function parseSvgProject(svgText) {
       // JointJS пишет angle в верхнее поле cell.toJSON() — там же его и читает
       // в fromJSON. Применится автоматически как transform на outer-`<g>`.
       if (meta.angle) cellJson.angle = meta.angle
-      // z-index (порядок наложения) — JointJS-поле верхнего уровня, как angle.
-      if (meta.z != null) cellJson.z = meta.z
+      // z — поле верхнего уровня JointJS, как angle. Дно 0: отрицательный z из
+      // чужого архива утащил бы символ под провода.
+      if (meta.z != null) cellJson.z = Math.max(0, meta.z)
       cells.push(cellJson)
       elementIds.add(meta.id)
     } catch (e) {
@@ -134,6 +137,9 @@ export function parseSvgProject(svgText) {
       // Ручные изломы: без них gridRightAngle-роутер перерисовал бы провод по
       // дефолтному маршруту, потеряв правки пользователя.
       if (Array.isArray(meta.vertices) && meta.vertices.length) link.vertices = meta.vertices
+      // Порядок в полосе проводов. Нормализуем: meta из чужого архива, значение
+      // вне полосы вынесло бы провод поверх символов.
+      if (meta.z != null) link.z = normalizeLinkZ(meta.z)
       // tms-поля провода по тому же дескриптору, что пишет exporter (LINK_META_FIELDS).
       for (const f of LINK_META_FIELDS) {
         const v = meta[f.key] ?? (f.legacyKey ? meta[f.legacyKey] : undefined)

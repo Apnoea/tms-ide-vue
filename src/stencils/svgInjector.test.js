@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { dia, shapes } from '@joint/core'
 import { tmsNamespace } from './tmsStencil'
-import { LINK_Z } from './linkDefaults'
+import { LINK_Z, LINK_Z_TOP, normalizeLinkZ } from './linkDefaults'
 import { reinjectAllStencils, flipTransform, buildPortItems } from './svgInjector'
 
 describe('reinjectAllStencils: z проводов', () => {
@@ -33,6 +33,28 @@ describe('reinjectAllStencils: z проводов', () => {
     reinjectAllStencils(graph, paper)
     const links = graph.getLinks()
     expect(links.every((l) => l.get('z') < 0)).toBe(true)
+  })
+
+  it('порядок внутри полосы сохраняется — reinject не сбрасывает выбор «кто сверху»', () => {
+    const { graph, a, b } = graphWithLinks()
+    a.set('z', LINK_Z)
+    b.set('z', LINK_Z + 3)
+    reinjectAllStencils(graph, paper)
+    expect([a.get('z'), b.get('z')]).toEqual([LINK_Z, LINK_Z + 3])
+  })
+})
+
+describe('normalizeLinkZ', () => {
+  it('значение из полосы — как есть', () => {
+    expect(normalizeLinkZ(LINK_Z + 5)).toBe(LINK_Z + 5)
+    expect(normalizeLinkZ(LINK_Z_TOP)).toBe(LINK_Z_TOP)
+  })
+  it('чужое значение падает на ДНО полосы, а не прижимается к ближайшей границе', () => {
+    // Авто-z от JointJS (1) прижался бы к потолку — новый провод оказался бы
+    // поверх всех, а несколько таких слиплись бы на одном уровне.
+    expect(normalizeLinkZ(1)).toBe(LINK_Z)
+    expect(normalizeLinkZ(-5000)).toBe(LINK_Z)
+    expect(normalizeLinkZ(undefined)).toBe(LINK_Z)
   })
 })
 

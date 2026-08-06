@@ -4,6 +4,7 @@ import { flipTransform } from '../stencils/svgInjector'
 import { buildBusExportSvg } from '../stencils/busCell'
 import { buildTextExportSvg } from '../stencils/textCell'
 import { buildValueExportSvg, resolveValueDisplay } from '../stencils/valueCell'
+import { LINK_Z } from '../stencils/linkDefaults'
 import {
   CLASS_OFF,
   CLASS_HIDDEN,
@@ -36,9 +37,9 @@ import { getCellTagsFromTms } from '../utils/cellSearch'
 import { boolSourceTags } from '../utils/boolSource'
 
 /**
- * Короткий id из UUID: первый сегмент, при коллизии добираем следующие. Без этого две
- * ячейки с одинаковым префиксом слились бы в одну карточку. Тот же UUID даёт тот же
- * short-id, а round-trip всё равно держится на полном UUID в data-tms-meta.
+ * Короткий id из UUID: первый сегмент, при коллизии добираем следующие — иначе две
+ * ячейки с общим префиксом слились бы в одну карточку. Round-trip держится на
+ * полном UUID в data-tms-meta.
  *
  * @param {string} fullId — JointJS UUID
  * @param {(candidate: string) => boolean} isTaken
@@ -93,14 +94,12 @@ const outerKeyFor = outerKey
  *  • view.svg        — целостный SVG со всеми ячейками
  *  • animations.json — объединённые карточки всех ячеек для WebScada-рантайма
  *
- * На каждой ячейке должна быть meta `tms = { stencilId, slots? }` —
- * CanvasPane проставляет её в момент создания. В выходной SVG зашиваются
+ * На ячейке должна быть meta `tms = { stencilId, slots? }`. В выходной SVG идут
  * data-tms-* атрибуты для round-trip (открыть view.svg обратно в IDE).
  *
  * @param {dia.Graph} graph
- * @param {dia.Paper} [paper] — если передан, в SVG для линий пишутся РЕАЛЬНЫЕ
- *   ортогональные пути (rightAngle-роутер), как видно на холсте.
- *   Без paper — линии экспортируются как прямые (fallback, см. ниже).
+ * @param {dia.Paper} [paper] — с ним линии экспортируются реальными ортогональными
+ *   путями, как на холсте; без него — прямыми (fallback).
  * @returns {{
  *   svgText: string, animationsJson: string, animations: object,
  *   count: number, linkCount: number, warnings: string[]
@@ -139,11 +138,9 @@ export function exportProject(graph, paper = null) {
     const pos = cell.get('position')
     const size = cell.get('size')
 
-    // Для cell_value с тегом animId = САМ ТЕГ целиком, без укорачивания: рантайм
-    // находит text-узел по id == тег. Иначе short-id из UUID cell.id (uniqueShortId
-    // с расширением при коллизии). При ДУБЛЕ valueTag даём уникальный суффикс —
-    // SVG обязан иметь уникальные id (иначе невалидный документ); по «чистому» тегу
-    // рантайм обновит только первый символ, о чём предупреждаем.
+    // У cell_value animId = сам тег: рантайм находит text-узел по id == тег.
+    // Остальным — short-id из UUID. Дубль valueTag получает суффикс (id в SVG
+    // обязаны быть уникальны), но по «чистому» тегу рантайм обновит только первый.
     let animId
     if (tms.stencilId === 'cell_value' && tms.valueTag) {
       animId = tms.valueTag
@@ -160,9 +157,8 @@ export function exportProject(graph, paper = null) {
     }
     usedOuterKeys.add(outerKeyFor(tms.stencilId, animId))
 
-    // Динамические стенсилы (шина, текст, значение) рендерятся по реальному
-    // размеру/контенту и без редактор-only декораций; у остальных — обычный
-    // svgText из шаблона + bindings из animationTemplate с подстановкой slots.
+    // Программные стенсилы (шина, текст, значение) рендерятся по реальному размеру
+    // и без редактор-only декораций; остальные — svgText шаблона + bindings.
     let cellSvg
     if (tms.stencilId === 'cell_bus') {
       cellSvg = buildBusExportSvg(size.width, size.height)
@@ -171,6 +167,7 @@ export function exportProject(graph, paper = null) {
         fontSize: tms.fontSize,
         bold: tms.bold,
         color: tms.color,
+        font: tms.fontFamily,
       })
     } else if (tms.stencilId === 'cell_value') {
       cellSvg = buildValueExportSvg(
@@ -219,6 +216,9 @@ export function exportProject(graph, paper = null) {
       fontSize: tms.fontSize,
       bold: tms.bold,
       color: tms.color,
+      // Шрифт подписи: габарит ячейки посчитан им, без round-trip'а замер
+      // разошёлся бы с рисунком после reload.
+      fontFamily: tms.fontFamily,
       // align (якорь роста текста) влияет только на позицию блока в редакторе —
       // сама позиция уже в c.x/c.y; поле нужно, чтобы после reload правки текста
       // блок продолжал расти от того же края.
@@ -326,6 +326,8 @@ export function exportProject(graph, paper = null) {
       // Ручные изломы — иначе round-trip перерисовал бы провод по дефолтному
       // маршруту (геометрия пути в `d` рантайму, изломы редактору).
       vertices: vertices.length ? vertices.map((v) => ({ x: v.x, y: v.y })) : null,
+      // Порядок в полосе проводов (кто кого огибает). Дно полосы не пишем — шум.
+      z: link.get('z') !== LINK_Z ? link.get('z') : null,
     })
   }
 
@@ -527,6 +529,7 @@ export function exportProject(graph, paper = null) {
         if (f.keep(l[f.key])) meta[f.key] = l[f.key]
       }
       if (l.vertices) meta.vertices = l.vertices
+      if (l.z != null) meta.z = l.z
       const metaAttr = escapeAttr(JSON.stringify(meta))
       // l.id и l.d сейчас составляются из UUID-производных и сгенерированных
       // path-данных — symbol-safe, но escapeAttr держит инвариант на случай
@@ -557,7 +560,7 @@ export function exportProject(graph, paper = null) {
       // tms-поля — по единому дескриптору (см. CELL_META_FIELDS), чтобы запись и
       // чтение (projectLoader) не разъезжались. angle — отдельно (в JointJS-поле).
       for (const f of CELL_META_FIELDS) {
-        const v = c[f.key]
+        const v = f.normalize ? f.normalize(c[f.key]) : c[f.key]
         if (f.keep(v)) meta[f.key] = f.flag ? true : v
       }
       if (c.angle) meta.angle = c.angle

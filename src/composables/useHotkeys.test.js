@@ -13,6 +13,7 @@ const mockCanvas = {
   highlightedTag: ref(null),
   deleteItems: vi.fn(),
   selectAllCells: vi.fn(),
+  reorderCells: vi.fn(),
   clearSelection: vi.fn(),
   clearHighlightedTag: vi.fn(),
   cycleSearchMatch: vi.fn(),
@@ -46,6 +47,7 @@ describe('useHotkeys — гейт мутирующих хоткеев по proje
     }
     mockCanvas.deleteItems.mockClear()
     mockCanvas.selectAllCells.mockClear()
+    mockCanvas.reorderCells.mockClear()
     ;[, scope] = withSetup(() => useHotkeys(deps))
   })
 
@@ -84,5 +86,51 @@ describe('useHotkeys — гейт мутирующих хоткеев по proje
     projectBusy.value = true
     key('KeyC', { ctrlKey: true })
     expect(deps.copySelection).toHaveBeenCalled()
+  })
+
+  it('busy=true → порядок наложения подавлен', () => {
+    projectBusy.value = true
+    key('BracketRight', { ctrlKey: true })
+    expect(mockCanvas.reorderCells).not.toHaveBeenCalled()
+  })
+})
+
+// Ctrl+]/[ — порядок наложения. `event.code` (физическая клавиша), поэтому
+// сочетание живёт и на нелатинской раскладке, где на этих клавишах «ъ»/«х».
+describe('useHotkeys — порядок наложения', () => {
+  let scope
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    mockCanvas.reorderCells.mockClear()
+    ;[, scope] = withSetup(() =>
+      useHotkeys({
+        undo: vi.fn(),
+        redo: vi.fn(),
+        scheduleSnapshot: vi.fn(),
+        copySelection: vi.fn(),
+        pasteClipboard: vi.fn(),
+        duplicateSelection: vi.fn(),
+        onExport: vi.fn(),
+        projectBusy: ref(false),
+      })
+    )
+  })
+
+  afterEach(() => scope?.stop())
+
+  it.each([
+    ['BracketRight', false, 'forward'],
+    ['BracketLeft', false, 'backward'],
+    ['BracketRight', true, 'front'],
+    ['BracketLeft', true, 'back'],
+  ])('%s (shift=%s) → %s', (code, shiftKey, mode) => {
+    key(code, { ctrlKey: true, shiftKey })
+    expect(mockCanvas.reorderCells).toHaveBeenCalledWith(mockCanvas.selection.value, mode)
+  })
+
+  it('без Ctrl — не наша команда (скобка идёт в ввод)', () => {
+    key('BracketRight')
+    expect(mockCanvas.reorderCells).not.toHaveBeenCalled()
   })
 })

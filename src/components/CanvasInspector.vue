@@ -26,6 +26,7 @@ import { TEXT_FONT_SIZE } from '../stencils/textCell'
 import { resolveValueDisplay } from '../stencils/valueCell'
 import { nplural } from '../utils/plural'
 import { normalizeBoolSource } from '../utils/boolSource'
+import { FONT_FAMILIES, normalizeFont } from '../utils/textMetrics'
 import { toPlain } from '../utils/plain'
 import { isBooleanType } from '../services/parsers'
 import TagPickerDialog from './TagPickerDialog.vue'
@@ -174,6 +175,7 @@ const details = computed(() => {
       fontSize: tms.fontSize ?? TEXT_FONT_SIZE,
       bold: !!tms.bold,
       align: tms.align || 'left',
+      fontFamily: normalizeFont(tms.fontFamily),
       color: tms.color || '',
       isValue: tms.stencilId === 'cell_value',
       valueTag: tms.valueTag ?? '',
@@ -299,9 +301,10 @@ function patchSlotTag(key, tag) {
 
 // ─── Редактирование текста (стенсил cell_text) ───
 // Секция целиком в useTextCellProps (patch + ресайз под текст; ALIGN/BOLD-опции там же).
-const { applyText, applyFontSize, applyBold, applyColor, applyAlign } = useTextCellProps({
-  withSelectedCell,
-})
+const { applyText, applyFontSize, applyBold, applyColor, applyAlign, applyFontFamily } =
+  useTextCellProps({
+    withSelectedCell,
+  })
 
 // ─── Провод: стиль линии (толщина/цвет) ───
 // Пишем в JointJS-attr (мгновенная отрисовка) + в tms[tmsKey] (round-trip через
@@ -924,6 +927,26 @@ const {
                   class="ml-auto"
                   @update:model-value="applyFontSize"
                 />
+              </div>
+
+              <div class="flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Шрифт
+                </span>
+                <!-- Пункты рисуются своим же семейством — выбор виден до применения. -->
+                <Select
+                  :model-value="details.fontFamily"
+                  :options="FONT_FAMILIES"
+                  option-label="label"
+                  option-value="value"
+                  size="small"
+                  class="ml-auto w-40"
+                  @update:model-value="applyFontFamily"
+                >
+                  <template #option="{ option }">
+                    <span :style="{ fontFamily: option.value }">{{ option.label }}</span>
+                  </template>
+                </Select>
               </div>
 
               <div class="flex items-center gap-3">

@@ -1,27 +1,23 @@
 /**
- * Сериализация модели редактора стенсилов в артефакты формата проекта:
- *   • serializeSvg(shapes, meta) → строка shape.svg (viewBox 0 0 W H)
- *   • buildStencilJson(meta, ports) → объект stencil.json
+ * Модель редактора символов → артефакты проекта:
+ *   • serializeSvg(shapes, meta) → shape.svg (viewBox 0 0 W H)
+ *   • buildStencilJson(meta, ports) → stencil.json
  *
- * Чистые функции без side-effect'ов и без обращения к DOM: модель у нас своя
- * (массив примитивов + порты), поэтому выход валиден и чист по построению —
- * никакого парсинга/санитайза чужого SVG не требуется. Координаты в модели уже
- * в системе стенсила (0..W, 0..H) и снапнуты к сетке, здесь только рендер.
+ * Чистые функции: модель своя (примитивы + порты), координаты уже в системе
+ * стенсила и снапнуты к сетке — здесь только рендер.
  *
- * Поддерживаемые примитивы: rect, line, circle, polyline, text. Внутренняя анимация
- * состояния: фигуры группируются по state в <g data-anim-suffix=".<ключ>">, из
- * них же строится animationTemplate. Ключи — либо булевы (true/false), либо
- * произвольные состояния «по значению» (см. meta.stateMode / meta.states).
+ * Примитивы: rect, line, circle, polyline, text. Анимация состояния — фигуры
+ * группируются по state в <g data-anim-suffix=".<ключ>">, оттуда же строится
+ * animationTemplate (ключи булевы или произвольные, см. meta.stateMode).
  *
- * `text` — статичная подпись внутри символа («Wh» у счётчика): в анимациях НЕ
- * участвует, потому что CSS перекраски намеренно исключает `<text>` (селектор
- * `*:not(text)` в constants/animation) и заливку даёт только заливаемым фигурам.
+ * `text` — статичная подпись: в анимациях не участвует, CSS перекраски исключает
+ * `<text>` селектором `*:not(text)`.
  */
 
 import { ATTR_SUFFIX, STENCIL_ID_RE } from '../constants/ids'
 import { STATE_FILL_CLASS, normalizeStateColor } from '../constants/animation'
 import { escapeXml } from './xml'
-import { measureTextWidth, SVG_FONT } from './textMetrics'
+import { measureTextWidth, normalizeFont } from './textMetrics'
 
 // Числа в атрибутах — без хвостовых нулей и float-мусора (модель снапнута к
 // сетке, но масштаб/дробный шаг могут дать 12.5 → оставляем как есть, а 12.0 → 12).
@@ -38,20 +34,16 @@ function fillAttr(shape) {
   return `fill="${shape.fill || 'none'}"`
 }
 
-// Фигура, которую МОЖНО залить — замкнутый примитив (rect/circle/замкнутая
-// ломаная=polygon). Именно у таких заливка по состоянию имеет смысл: контур
-// можно закрасить в конкретном состоянии (лампа/индикатор), даже если базово
-// fill=none. Линии и открытые ломаные заливки не имеют.
+// Заливаемая фигура — замкнутый примитив: у него заливка по состоянию имеет
+// смысл (лампа/индикатор), даже если базово fill=none.
 export function isFillableShape(shape) {
   if (!shape) return false
   if (shape.type === 'rect' || shape.type === 'circle') return true
   if (shape.type === 'polyline') return !!shape.closed
   return false
 }
-// Opt-in класс заливки — заливаемым примитивам, но только когда стенсил stateful
-// (иначе перекрашивать по состоянию нечем — класс был бы мёртвым шумом в каждом
-// статичном shape.svg). Пробел-префикс — дописать к атрибутам без спецкейсов.
-// Fill применится лишь в состояниях, где автор задал цвет (иначе фигура как есть).
+// Класс заливки — заливаемым примитивам и только у stateful-символа: иначе он
+// мёртвый шум в каждом статичном shape.svg.
 function fillClassAttr(shape, markFill) {
   return markFill && isFillableShape(shape) ? ` class="${STATE_FILL_CLASS}"` : ''
 }
@@ -59,10 +51,9 @@ function fillClassAttr(shape, markFill) {
 // Радиус скругления углов прямоугольника (в user-единицах) при shape.rounded.
 export const ROUND_RX = 2
 
-// Подпись: размер по умолчанию и якорь. Anchor фиксирован `middle` — подпись в
-// символе почти всегда центрируется по фигуре, а выбор из трёх вариантов добавлял
-// бы контрол в инспектор без реальной пользы. Шрифт — общий SVG_FONT (см.
-// utils/textMetrics): он же используется в замере, иначе bbox разойдётся с рендером.
+// Подпись: размер по умолчанию и якорь. Anchor фиксирован `middle` — подпись
+// почти всегда центрируется по фигуре. Шрифт — из whitelist'а utils/textMetrics,
+// тем же семейством идёт замер (иначе bbox разойдётся с рендером).
 export const TEXT_SHAPE_SIZE = 10
 export const TEXT_SHAPE_ANCHOR = 'middle'
 
@@ -72,9 +63,9 @@ export const TEXT_SHAPE_ANCHOR = 'middle'
  * `x`/`y` — точка привязки: baseline по y, центр по x (anchor=middle).
  */
 export function textShapeBox(shape) {
-  const w = measureTextWidth(shape.text, shape.fontSize ?? TEXT_SHAPE_SIZE, shape.bold, -1)
-  const width = w < 0 ? (shape.text || '').length * (shape.fontSize ?? TEXT_SHAPE_SIZE) * 0.6 : w
   const size = shape.fontSize ?? TEXT_SHAPE_SIZE
+  const w = measureTextWidth(shape.text, size, shape.bold, -1, shape.fontFamily)
+  const width = w < 0 ? (shape.text || '').length * size * 0.6 : w
   return {
     x: shape.x - width / 2,
     y: shape.y - size,
@@ -123,7 +114,7 @@ function serializeShape(shape, markFill) {
       const weight = shape.bold ? ' font-weight="bold"' : ''
       return (
         `<text x="${num(shape.x)}" y="${num(shape.y)}" text-anchor="${TEXT_SHAPE_ANCHOR}" ` +
-        `font-size="${num(shape.fontSize ?? TEXT_SHAPE_SIZE)}" font-family="${SVG_FONT}"${weight} ` +
+        `font-size="${num(shape.fontSize ?? TEXT_SHAPE_SIZE)}" font-family="${normalizeFont(shape.fontFamily)}"${weight} ` +
         `fill="${shape.stroke || '#000'}">${escapeXml(shape.text || '')}</text>`
       )
     }
@@ -141,10 +132,9 @@ export function translateShape(s, dx, dy) {
 }
 
 /**
- * bbox одной фигуры в user-координатах. Один источник для обрезки холста
- * (cropToContent) и хит-теста лассо в редакторе — иначе рамка ловила бы не то,
- * что потом попадёт в границы стенсила. Обводка в габарит не входит (см.
- * cropToContent), у подписи габарит задаёт шрифт (textShapeBox).
+ * bbox одной фигуры: общий источник для cropToContent и хит-теста лассо — иначе
+ * рамка ловила бы не то, что попадёт в границы символа. Обводка в габарит не
+ * входит, у подписи его задаёт шрифт (textShapeBox).
  *
  * @returns {{x:number, y:number, w:number, h:number}|null} null — тип без габарита
  */
@@ -329,6 +319,9 @@ function elementToShape(el) {
         y: n('y'),
         text: (el.textContent || '').trim(),
         fontSize: n('font-size') || TEXT_SHAPE_SIZE,
+        // Чужой shape.svg мог принести любой шрифт — берём только из whitelist,
+        // иначе замер (canvas) считал бы одним, а панель рисовала другим.
+        fontFamily: normalizeFont(el.getAttribute('font-family')),
         bold: el.getAttribute('font-weight') === 'bold',
         stroke: fill === 'none' ? '#000' : fill,
         strokeWidth: 2,

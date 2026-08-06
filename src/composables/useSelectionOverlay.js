@@ -5,12 +5,9 @@ import { injectStencilSvg, buildPortItems } from '../stencils/svgInjector'
 import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
 
 /**
- * HTML-overlay одиночной выделенной ячейки: кнопки по углам/серединам сторон
- * visual-AABB — rotate-ccw/cw + delete + lock (углы) и flip-H/flip-V (середины
- * верхней/левой сторон). Учитывает rotation (при 90/270° w/h меняются местами,
- * центр прежний). Позиция reactive через graphVersion + paperViewTick + selection.
- * HTML-overlay, а не JointJS elementTools — те кэшируют bbox при addTools и не
- * следуют за resize. rotate/flip скрыты для noRotate-стенсилов (`canCellTransform`).
+ * HTML-overlay одиночной выделенной ячейки: rotate/delete/lock по углам visual-AABB
+ * и flip на серединах сторон. Не JointJS elementTools — те кэшируют bbox при
+ * addTools и не следуют за resize. rotate/flip скрыты у noRotate (`canCellTransform`).
  */
 export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging }) {
   const canvas = useCanvas()
@@ -77,10 +74,9 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
   }
 
   /**
-   * Отражает выделенные ячейки по оси ('h' / 'v'): тоггл tms.flipH/flipV +
-   * пересчёт позиций портов (провода следуют за портами) + перерисовка визуала
-   * (transform на body). false-флаги не храним — round-trip пишет flip только при
-   * true. noRotate/locked пропускаем (canCellTransform).
+   * Отражение по оси ('h'/'v'): тоггл tms.flipH/flipV + пересчёт портов (провода
+   * идут за ними) + перерисовка визуала. false-флаги не храним. noRotate/locked
+   * пропускаем.
    */
   function flipSelected(axis) {
     const graph = canvas.graphRef.value
@@ -95,10 +91,8 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
       if (!stencil) continue
       const tms = cell.get('tms') || {}
       const next = { ...tms }
-      // axis — ЭКРАННАЯ ось кнопки. flipH/flipV хранятся в локальных координатах
-      // символа; при повороте на 90/270° локальные оси повёрнуты, поэтому экранную
-      // ось маппим на локальную — иначе «горизонтально»/«вертикально» менялись бы
-      // местами относительно того, что видит пользователь.
+      // axis — ЭКРАННАЯ ось кнопки, а flipH/flipV хранятся в локальных координатах:
+      // при 90/270° оси повёрнуты, поэтому маппим экранную ось на локальную.
       const angle = (cell.angle() || 0) % 360
       const swap = angle === 90 || angle === 270
       const localAxis = swap ? (axis === 'h' ? 'v' : 'h') : axis

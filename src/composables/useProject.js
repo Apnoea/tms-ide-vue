@@ -21,14 +21,12 @@ import { useNotify } from './useNotify'
 import { useCanvas } from './useCanvas'
 
 /**
- * Оркестрация проектных операций: переключение формы, CRUD форм (создать /
- * дублировать / удалить / переименовать), импорт и экспорт проекта в .zip. Без UI
- * — поэтому логика мутаций графа/стора под сериями await'ов тестируема в изоляции.
+ * Оркестрация проектных операций: переключение формы, CRUD форм, импорт и экспорт
+ * .zip. Без UI, поэтому мутации графа под сериями await'ов тестируемы в изоляции.
  *
- * graph/paper берём из `useCanvas` (как `useAutosave`); зависимости из других
- * композаблов инжектятся бэгом — их lifecycle-хуки должны жить в компоненте.
- * Возвращает уже обёрнутые в общий `projectBusy` функции (взаимное исключение —
- * параллельный запуск мутировал бы один граф) + ref `exportingProject` для оверлея.
+ * graph/paper — из `useCanvas`; остальные зависимости инжектятся бэгом (их
+ * lifecycle-хуки живут в компоненте). Функции обёрнуты в общий `projectBusy`:
+ * параллельный запуск мутировал бы один граф.
  *
  * @param {object} deps
  * @param {import('vue').Ref<boolean>} deps.restoringHistory — общий флаг с undo/autosave
@@ -397,11 +395,9 @@ export function useProject({
 
   /**
    * Прогон всех форм через живой paper → бандл проекта, затем `deliver(bundle)`
-   * доставляет его (скачивание .zip). Геометрию провода exporter берёт из
-   * отрисованного paper, а на нём живёт только активная форма → каждую форму
-   * прогоняем через живой граф (под restoreGuard, без autosave/undo), снимаем
-   * view.svg+animations.json, в finally возвращаем исходную. Стенсилы — used из
-   * реестра (GC); теги — из бандла проекта (IDB).
+   * доставляет его. Геометрию провода exporter берёт с отрисованного paper, а там
+   * живёт только активная форма → прогоняем каждую через живой граф (под
+   * restoreGuard, без autosave/undo), в finally возвращаем исходную.
    */
   async function buildAndDeliverBundle(deliver) {
     const graph = canvas.graphRef.value
@@ -410,18 +406,15 @@ export function useProject({
 
     const originalActive = workspace.activeFormId
     exportingProject.value = true
-    // Гасим отложенный snapshot: иначе его таймер выстрелит во время цикла (между
-    // await'ами restoringHistory снят), а в графе уже чужая форма → autosave
-    // запишет её JSON под ключ активной. fromJSON в цикле под guard'ом новых не
-    // планирует, так что одного сброса здесь достаточно.
+    // Гасим отложенный snapshot: его таймер выстрелил бы во время цикла, когда в
+    // графе чужая форма, и autosave записал бы её под ключ активной.
     cancelPendingSnapshot()
     try {
       await saveActiveForm() // зафиксировать текущую форму перед прогоном
       const formsOut = []
       const graphs = []
-      // Предупреждения exporter'а (пропущенные стенсилы, дубли valueTag) — иначе
-      // они уходят только в console.warn, и в поставленном .zip молча нет части
-      // оборудования. Копим по всем формам и показываем сводкой ниже.
+      // Предупреждения exporter'а копим по всем формам: без них в .zip молча нет
+      // части оборудования.
       const exportWarnings = []
 
       for (const id of [...workspace.formIds]) {
@@ -450,10 +443,8 @@ export function useProject({
       const tagsText = await readTagsText()
       await deliver({ forms: formsOut, stencils, tagsText, hierarchy: workspace.formTree })
 
-      // Архив отдан браузеру → снимаем «не выгружено». Подтверждения, что файл
-      // реально сохранён, у `<a download>` нет (клик синхронный, отмена диалога
-      // молчит), поэтому формулировки нейтральные: «отправлен на скачивание», а не
-      // «сохранён». Точный статус дал бы showSaveFilePicker (writable stream).
+      // Архив отдан браузеру → снимаем «не выгружено». У `<a download>` нет
+      // подтверждения записи, поэтому формулировка «отправлен на скачивание».
       canvas.markExported()
       notify.success(
         'Архив отправлен на скачивание',
@@ -471,12 +462,10 @@ export function useProject({
         notify.error('Ошибка экспорта проекта', e.message || String(e))
       }
     } finally {
-      // Возвращаем исходную активную форму на холст — в finally, чтобы при ошибке
-      // посреди прогона холст не остался на чужой форме (рассинхрон со стором).
-      // graph/paper читаем заново: могли занулиться, если компонент размонтировался
-      // во время await. initHistory НЕ зовём: восстанавливаем тот же JSON, что был
-      // до экспорта (промежуточные fromJSON шли под restoreGuard, снапшотов не
-      // писали), поэтому undo-стек остаётся валидным — сброс означал бы потерю истории.
+      // Исходную форму возвращаем в finally: при ошибке посреди прогона холст не
+      // должен остаться на чужой. graph/paper читаем заново — могли занулиться на
+      // размонтировании. initHistory не зовём: JSON тот же, что до экспорта, и
+      // undo-стек остаётся валидным.
       const liveGraph = canvas.graphRef.value
       const livePaper = canvas.paperRef.value
       if (liveGraph && livePaper) {

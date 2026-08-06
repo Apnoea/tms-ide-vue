@@ -71,11 +71,9 @@ let paper = null
 let graph = null
 
 // ─── Zoom / viewport ───
-// zoomPercent живёт в singleton useCanvas — общая ссылка, чтобы зум читался без
-// prop-drilling из любого компонента/композабла. Сама механика (колесо, кнопки ±,
-// fit-to-content, доводка ячейки в вид) — в useCanvasZoom.
-// Объявляем ДО listeners-блока: onWheel уходит туда ЗНАЧЕНИЕМ, а у `const`
-// hoisting'а нет (TDZ) — ниже блока это падало бы на setup'е.
+// zoomPercent живёт в singleton useCanvas — читается без prop-drilling; механика
+// (колесо, кнопки ±, fit) — в useCanvasZoom. Объявляем ДО listeners-блока: onWheel
+// уходит туда значением, а у `const` нет hoisting'а.
 const zoomPercent = canvas.zoomPercent
 const { onWheel, zoomByStep, fitToContent, centerOnCell } = useCanvasZoom(paperContainer)
 // Подсветки по тегу и результатам поиска (CSS-классы на view'ах) — в композабле;
@@ -85,9 +83,8 @@ const { clearCellClass } = useCellHighlight({ centerOnCell })
 // ниже (средняя кнопка или Space+ЛКМ).
 const { onPanStart, isPanning } = usePan()
 
-// useEventListener авто-снимает всё на unmount, а ref-target цепляется после mount.
-// Hoisted-функции можно ссылать до объявления, а всё из композаблов (`const`) —
-// только после (TDZ, см. блок зума выше).
+// useEventListener авто-снимает всё на unmount. Значения из композаблов (`const`)
+// можно ссылать только после объявления, hoisted-функции — до.
 useEventListener(paperContainer, 'wheel', onWheel, { passive: false })
 useEventListener(paperContainer, 'mousemove', onCanvasMouseMove)
 useEventListener(paperContainer, 'mouseenter', onCanvasEnter)
@@ -101,21 +98,19 @@ useEventListener(window, 'keydown', onSpaceDown)
 useEventListener(window, 'keyup', onSpaceUp)
 // Свои document/window-события pan/lasso/palette-drag слушают сами.
 
-// Ресайз окна → пересчёт размеров paper'а. Регистрируем в синхронном setup-скоупе:
-// в async onMounted (после await) vueuse не зацепит scope-dispose и observer утечёт.
+// Ресайз окна → пересчёт paper'а. В синхронном setup-скоупе: из async onMounted
+// vueuse не зацепит scope-dispose и observer утечёт.
 useResizeObserver(paperContainer, () => {
   if (!paper || !paperContainer.value) return
   paper.setDimensions(paperContainer.value.clientWidth, paperContainer.value.clientHeight)
 })
 
-// JointJS шлёт change:position ~60 раз/сек, и bumpVersion на каждый гонял бы
-// details/overlayBtns на каждом mousemove. Подавляем в окне pointerdown → pointerup,
-// эмитим один раз в конце. document-mouseup — fallback на отпускание вне холста
-// (в синхронном скоупе, иначе auto-cleanup не встанет).
+// JointJS шлёт change:position ~60 раз/сек — bumpVersion гонял бы details и
+// overlayBtns на каждом mousemove. Подавляем в окне pointerdown → pointerup.
+// document-mouseup — fallback на отпускание вне холста.
 let isPointerDownOnCell = false
-// «Ячейку тащат» — взводится на ПЕРВОМ change в окне pointer-down, т.е. на реальном
-// drag'е, не на клике. Пока true, overlay-кнопки скрыты: bumpVersion подавлен, и они
-// замерли бы на старом месте.
+// «Ячейку тащат» — взводится на первом change в окне pointer-down (реальный drag,
+// не клик). Пока true, overlay-кнопки скрыты: bumpVersion подавлен.
 const cellDragging = ref(false)
 function releasePointerDrag() {
   if (!isPointerDownOnCell) return
@@ -215,9 +210,8 @@ const { overlayBtns, rotateSelectedBy, flipSelected, onDeleteSelected, toggleLoc
     textEditing,
     dragging: cellDragging,
   })
-// Бейдж-замок в углу КАЖДОЙ заблокированной ячейки (виден без выделения — иначе
-// непонятно, почему ячейка read-only). Позиция — правый-верхний угол visual-AABB
-// (с учётом поворота), reactive через graphVersion/paperViewTick.
+// Бейдж-замок в углу каждой заблокированной ячейки — иначе непонятно, почему она
+// read-only. Позиция — правый-верхний угол visual-AABB (с учётом поворота).
 const lockedBadges = computed(() => {
   canvas.graphVersion.value
   canvas.paperViewTick.value
@@ -235,8 +229,7 @@ const lockedBadges = computed(() => {
     })
 })
 
-// Пунктирная рамка группы: при наведении на члена группы обводим весь её
-// visual-AABB — видно границы группы до клика. Прячем во время drag'а.
+// Пунктирная рамка группы по ховеру — видно её границы до клика.
 const hoveredCellId = ref(null)
 const groupHoverRect = computed(() => {
   canvas.graphVersion.value

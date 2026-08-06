@@ -56,15 +56,11 @@ let seq = 0
 const nextId = () => `s${++seq}`
 
 export function createStencilEditor() {
-  // noRotate/quality — декл-флаги стенсила, моделируем как поля (генератор их
-  // пишет в json, не теряются при пересохранении). Флаг `static` в редакторе не
-  // редактируется: его несут только встроенные text/value (locked), а на холсте
-  // он гейтит bulk-apply/detailTags (см. CanvasInspector.isStatic / exporter).
-  // stateful — мастер-тумблер внутренней анимации: пока выключен, стенсил по
-  // всем следам статичен (в json нет slots/animationTemplate). Включён — режим
-  // (stateMode) решает форму: `boolean` (частный случай, слот onoff, фигуры
-  // видимы при true/false) или `value` (слот value + список states: фигуры
-  // видимы при своём значении сигнала). Один режим за раз.
+  // noRotate/quality — декл-флаги стенсила, моделируем как поля (уезжают в json).
+  // `static` в редакторе не задаётся: его несут только встроенные text/value.
+  // stateful — мастер-тумблер анимации; выключен = в json нет slots и
+  // animationTemplate. Включён — stateMode решает форму: `boolean` (слот onoff,
+  // видимость по true/false) или `value` (слот value + states). Один режим за раз.
   const meta = reactive({
     id: '',
     label: '',
@@ -87,12 +83,10 @@ export function createStencilEditor() {
   const shapes = ref([])
   const ports = ref([])
   const tool = ref('select') // 'select' | 'rect' | 'line' | 'circle' | 'polyline' | 'port'
-  // Выделение — множественное (клик, Ctrl+клик, лассо). Порты в него не входят:
-  // у них свой режим («Порт»), где клик добавляет/удаляет.
+  // Выделение множественное (клик, Ctrl+клик, лассо). Порты в него не входят.
   const selectedIds = ref([])
   const selectedSet = computed(() => new Set(selectedIds.value))
-  // «Ровно одна выделена» — гейт для операций, осмысленных только над одной
-  // фигурой: ручки ресайза и поля геометрии/текста в инспекторе. При N>1 — null.
+  // «Ровно одна» — гейт ручек ресайза и полей геометрии/текста. При N>1 null.
   const selectedId = computed(() => (selectedIds.value.length === 1 ? selectedIds.value[0] : null))
   // Превью состояния (эмуляция animation-hidden на холсте): 'all' — все фигуры,
   // иначе ключ состояния. В синглтоне, т.к. селектор рисуется в инспекторе, а
@@ -107,15 +101,11 @@ export function createStencilEditor() {
   const editingId = ref(null)
 
   // ─── Undo/redo ───
-  // Стек полных снимков {meta, shapes, ports}: мета — такие же данные стенсила,
-  // как фигуры (размер холста, подпись, состояния и их цвета уезжают в stencil.json),
-  // поэтому Ctrl+Z обязан откатывать и её. Без меты в снимке половина операции
-  // откатывалась, а половина нет: смена режима анимации, например, сбрасывает
-  // видимость фигур (shapes) — она возвращалась, а сам режим оставался новым.
-  // Дискретные операции (добавить/удалить фигуру/порт/состояние, режим, видимость)
-  // коммитят сами; правки «живьём» (drag/resize, ввод в поле, пипетка) коммитит
-  // вызывающий на конце жеста — @change/@blur в инспекторе, pointerup в редакторе.
-  // previewState в снимок НЕ входит: это выбор просмотра, не данные стенсила.
+  // Снимки {meta, shapes, ports}: мета — такие же данные символа, как фигуры (всё
+  // уезжает в stencil.json), поэтому Ctrl+Z обязан откатывать и её — иначе смена
+  // режима анимации откатывалась бы наполовину. Дискретные операции коммитят сами,
+  // правки «живьём» (drag, ввод, пипетка) — вызывающий на конце жеста.
+  // previewState в снимок не входит: это выбор просмотра, не данные символа.
   const clone = (v) => JSON.parse(JSON.stringify(v))
   const history = ref([])
   const histIndex = ref(-1)
@@ -185,11 +175,7 @@ export function createStencilEditor() {
       : [...selectedIds.value, id]
   }
 
-  /**
-   * Результат лассо. additive — рамка с Ctrl/Cmd: объединяем с текущим выделением
-   * (дедуп по id), иначе заменяем. Порядок фигур в выделении не важен — операции
-   * идут по id.
-   */
+  /** Результат лассо. additive (Ctrl/Cmd) — объединяем с текущим, иначе заменяем. */
   function selectMany(ids, additive = false) {
     if (!additive) {
       selectedIds.value = [...ids]
@@ -231,11 +217,10 @@ export function createStencilEditor() {
   }
 
   /**
-   * Как updateShape, но по нескольким id за один проход: групповой drag двигает
-   * всё выделение, и патч у каждой фигуры свой (координаты). История — на
-   * вызывающем, как и у updateShape.
+   * Как updateShape, но по нескольким id: патч у каждой фигуры свой (координаты
+   * при групповом drag). История — на вызывающем.
    *
-   * @param {(shape: object) => object|null} patchOf — патч для фигуры (null — не менять)
+   * @param {(shape: object) => object|null} patchOf — патч (null — не менять)
    */
   function updateShapes(ids, patchOf) {
     const set = new Set(ids)
@@ -292,9 +277,8 @@ export function createStencilEditor() {
     commit()
   }
 
-  // Буфер копирования (без внутренних id — paste присвоит новые). Живёт на сессию
-  // редактора; хранит клоны всех свойств (stroke/fill/points/…). Массив, а не одна
-  // фигура: Ctrl+C при выделении рамкой обязан взять всё выделенное.
+  // Буфер копирования без внутренних id (paste присвоит новые), на сессию
+  // редактора. Массив — Ctrl+C берёт всё выделение.
   const clipboardShapes = ref([])
 
   function copyShapes() {
@@ -309,9 +293,8 @@ export function createStencilEditor() {
   }
 
   /**
-   * Вставка буфера: пачка сдвигается на шаг сетки целиком (взаимное расположение
-   * сохраняется) и становится новым выделением — как на холсте. Один снимок
-   * истории на всю вставку, поэтому идём мимо addShape.
+   * Вставка буфера: пачка сдвигается на шаг сетки целиком и становится выделением.
+   * Мимо addShape — иначе снимок истории на каждую фигуру вместо одного.
    */
   function pasteShapes() {
     if (!clipboardShapes.value.length) return []
@@ -434,9 +417,8 @@ export function createStencilEditor() {
     commit()
   }
 
-  // Порт живёт на ГРАНИЦЕ стенсила: снапим к PORT_GRID и проецируем на ближайшую
-  // сторону bbox (порт — точка подключения провода, логично по краю). Клик/драг
-  // «примерно туда» → порт садится на край.
+  // Порт живёт на границе: снапим к PORT_GRID и проецируем на ближайшую сторону
+  // bbox, поэтому клик «примерно туда» сажает порт на край.
   function portOnEdge(x, y) {
     const px = snapPortX(x)
     const py = snapPortY(y)
@@ -470,9 +452,8 @@ export function createStencilEditor() {
     commit()
   }
 
-  // Загрузка существующего стенсила на правку (только незалоченные — их SVG в
-  // нашем формате, парсится обратно однозначно). История сбрасывается: загруженное
-  // состояние = базовая точка (первый undo вернёт к нему, не к пустому холсту).
+  // Правка существующего стенсила (только незалоченные — их SVG в нашем формате).
+  // История сбрасывается: загруженное состояние = базовая точка для undo.
   function loadStencil(def) {
     editingId.value = def.id
     meta.id = def.id
@@ -482,10 +463,8 @@ export function createStencilEditor() {
     meta.height = def.height || 40
     meta.noRotate = !!def.noRotate
     meta.quality = !!def.quality
-    // Анимация состояния. Режим «по значению» опознаём по полю `states` в json
-    // (редакторные подписи/коды, рантайм их игнорит); иначе — булев (slots +
-    // animationTemplate). Ключ слота СОХРАНЯЕМ как есть (иначе правка переименовала
-    // бы его и сломала привязку у расставленных). Транзитный `state` → onoff.
+    // Режим «по значению» опознаём по полю `states` в json, иначе булев. Ключ слота
+    // сохраняем как есть — переименование сломало бы привязку у расставленных.
     const hasValueStates = Array.isArray(def.states) && def.states.length > 0
     meta.stateMode = hasValueStates ? 'value' : 'boolean'
     meta.states = hasValueStates
@@ -534,9 +513,8 @@ export function createStencilEditor() {
     commit()
   }
 
-  // Черновик → артефакты формата проекта. Перед сериализацией обрезаем пустые
-  // поля (bbox контента, кратно PORT_GRID) и сдвигаем в (0,0): итоговый стенсил =
-  // ровно нарисованное, без «воздуха» от размера холста. Внутренние id отбрасываются.
+  // Черновик → артефакты проекта. Перед сериализацией обрезаем пустые поля (bbox,
+  // кратно PORT_GRID) и сдвигаем в (0,0): символ = ровно нарисованное.
   function output() {
     const cropped = cropToContent(shapes.value, ports.value, PORT_GRID)
     const croppedMeta = { ...meta, width: cropped.width, height: cropped.height }
@@ -598,9 +576,8 @@ export function createStencilEditor() {
   }
 }
 
-// Синглтон для приложения: центр (StencilEditor) и панель свойств
-// (StencilInspector) делят один инстанс. Пересоздавать на каждое открытие не
-// нужно — при входе вызывается reset() (новый) либо loadStencil() (правка).
+// Синглтон: холст редактора и панель свойств делят один инстанс; при входе
+// вызывается reset() либо loadStencil().
 let instance = null
 export function useStencilEditor() {
   if (!instance) instance = createStencilEditor()

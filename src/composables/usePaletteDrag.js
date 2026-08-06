@@ -6,7 +6,7 @@ import { useProjectStore } from '../stores/useProjectStore'
 import { getStencilById } from '../stencils/registry'
 import { isFloatType } from '../services/parsers'
 import { materializeStencil } from '../stencils/svgInjector'
-import { TEXT_FONT_SIZE, textCellHeight, textCellWidth } from '../stencils/textCell'
+import { textCellSize } from '../stencils/textCell'
 import { snapToGrid } from '../utils/grid'
 
 /**
@@ -127,9 +127,7 @@ export function usePaletteDrag(paperContainer, wireSplice) {
     let cellWidth = stencil.width
     let cellHeight = stencil.height
     if (stencilId === 'cell_text') {
-      const fz = tms.fontSize ?? TEXT_FONT_SIZE
-      cellWidth = textCellWidth(tms.text ?? '', fz, !!tms.bold)
-      cellHeight = textCellHeight(fz)
+      ;({ width: cellWidth, height: cellHeight } = textCellSize(tms))
     }
 
     return materializeStencil(graph, paper, stencil, {

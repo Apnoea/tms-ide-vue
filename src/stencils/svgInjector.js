@@ -4,7 +4,7 @@
 import { instantiate } from './parser'
 import { getStencilById } from './registry'
 import { TMSStencil } from './tmsStencil'
-import { LINK_Z } from './linkDefaults'
+import { normalizeLinkZ } from './linkDefaults'
 import { svgEl } from '../utils/xml'
 import { computeBusPorts, buildBusContent } from './busCell'
 import { buildTextContent } from './textCell'
@@ -146,10 +146,10 @@ export function materializeStencil(graph, paper, stencil, { position, size, tms,
  * знает наших стенсилов. Проходим элементы с `tms` и инъектим SVG заново; angle
  * восстанавливать не нужно, его JointJS держит на outer-`<g>`.
  *
- * Проводам ставим LINK_Z: `fromJSON` шлёт `reset`, а не `add`, поэтому add-хендлер
- * молчит, а у импортированных проектов z вообще нет — линии рисовались бы поверх
- * ячеек. Пишем только при расхождении: операция идемпотентна, иначе z дрейфит и
- * ломает undo/redo (см. LINK_Z).
+ * Провода приводим к их полосе z: `fromJSON` шлёт `reset`, add-хендлер молчит, а у
+ * импортированных проектов z нет — линии легли бы поверх ячеек. Нормализация, а не
+ * константа: порядок внутри полосы задаёт пользователь. Пишем только при
+ * расхождении — иначе z дрейфит и ломает undo/redo (см. LINK_Z).
  */
 export function reinjectAllStencils(graph, paper) {
   if (!graph || !paper) return
@@ -162,6 +162,7 @@ export function reinjectAllStencils(graph, paper) {
     if (cellView) injectStencilSvg(cellView, stencil)
   }
   for (const link of graph.getLinks()) {
-    if (link.get('z') !== LINK_Z) link.set('z', LINK_Z)
+    const z = normalizeLinkZ(link.get('z'))
+    if (link.get('z') !== z) link.set('z', z)
   }
 }

@@ -65,10 +65,10 @@ export function useSimulation() {
     document.getElementById(SIM_CSS_ID)?.remove()
     const style = document.createElement('style')
     style.id = SIM_CSS_ID
-    // Те же range/off-правила, что эмитит exporter, но scope'нуты под
-    // .tms-simulating и с доп. исключениями для живого DOM редактора:
+    // Те же range/off-правила, что эмитит exporter, но под .tms-simulating и с
+    // исключениями для живого DOM редактора:
     // [joint-selector="wrapper"] — широкий невидимый hit-path standard.Link
-    // (без exclusion с !important красится и толстеет); .tms-hit-area — наш
+    // (без exclusion красится и толстеет); .tms-hit-area — наш
     // прозрачный rect-хитбокс ячейки (иначе зелёная «рамка» у стенсилов без
     // своей rect-обёртки). animation-hidden гасим отдельно (в экспорте — без !important).
     const strokeExtra = ':not([joint-selector="wrapper"]):not(.tms-hit-area)'

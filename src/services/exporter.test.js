@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { exportProject } from './exporter'
 import { parseSvgProject } from './projectLoader'
+import { LINK_Z } from '../stencils/linkDefaults'
 
 // Мок-граф: минимальный интерфейс JointJS-graph'а, который дёргает exporter.
 // Не зависит от реального dia.Graph — тесты быстрые и не требуют jsdom-setup'а
@@ -20,13 +21,14 @@ function mockCell({ id, stencilId, x = 0, y = 0, w = 40, h = 40, z, ...extra }) 
   }
 }
 
-function mockLink({ id, source, target, tms = null, vertices = null }) {
+function mockLink({ id, source, target, tms = null, vertices = null, z = undefined }) {
   return {
     id,
     get(key) {
       if (key === 'source') return source
       if (key === 'target') return target
       if (key === 'tms') return tms || {}
+      if (key === 'z') return z
       return undefined
     },
     vertices: () => vertices || [],
@@ -372,6 +374,28 @@ describe('exportProject', () => {
     expect(cell.tms.align).toBe('right')
   })
 
+  it('cell_text: шрифт переживает round-trip, дефолтный в meta не пишется', () => {
+    const graph = mockGraph([
+      mockCell({ id: 't1', stencilId: 'cell_text', text: 'QF-101', fontFamily: 'monospace' }),
+      mockCell({ id: 't2', stencilId: 'cell_text', text: 'Секция', fontFamily: 'sans-serif' }),
+    ])
+    const exported = exportProject(graph)
+    expect(exported.svgText).toContain('font-family="monospace"')
+    const parsed = parseSvgProject(exported.svgText)
+    expect(parsed.cells.find((c) => c.id === 't1').tms.fontFamily).toBe('monospace')
+    // Дефолт = отсутствие поля: meta не обрастает шумом на каждой подписи.
+    expect(parsed.cells.find((c) => c.id === 't2').tms.fontFamily).toBeUndefined()
+  })
+
+  it('cell_text: чужое семейство из архива не доезжает до SVG — только whitelist', () => {
+    const graph = mockGraph([
+      mockCell({ id: 't1', stencilId: 'cell_text', text: 'Секция', fontFamily: 'Comic Sans MS' }),
+    ])
+    const svg = exportProject(graph).svgText
+    expect(svg).not.toContain('Comic Sans')
+    expect(svg).toContain('font-family="sans-serif"')
+  })
+
   it('cell_text: align=left (дефолт) в meta не пишется', () => {
     const graph = mockGraph([
       mockCell({ id: 't1', stencilId: 'cell_text', text: 'Секция', align: 'left' }),
@@ -650,6 +674,23 @@ describe('exportProject', () => {
     const link = parsed.cells.find((c) => c.type === 'standard.Link')
     expect(link).toBeTruthy()
     expect(link.vertices).toEqual(verts)
+  })
+
+  it('порядок проводов (кто кого огибает) переживает round-trip', () => {
+    const cells = [
+      mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 }),
+      mockCell({ id: 'c2', stencilId: 'cell_qw', x: 100, y: 100, w: 20, h: 20 }),
+    ]
+    const ends = { source: { id: 'c1', port: 'right' }, target: { id: 'c2', port: 'left' } }
+    const graph = mockGraph(cells, [
+      mockLink({ id: 'l1', ...ends, z: LINK_Z }),
+      mockLink({ id: 'l2', ...ends, z: LINK_Z + 2 }),
+    ])
+    const parsed = parseSvgProject(exportProject(graph).svgText)
+    const byId = Object.fromEntries(parsed.cells.filter((c) => c.z != null).map((c) => [c.id, c.z]))
+    // Дно полосы не пишем в meta (шум в каждой линии) — важен поднятый провод.
+    expect(byId.l1).toBeUndefined()
+    expect(byId.l2).toBe(LINK_Z + 2)
   })
 
   it('толщина провода: round-trip через stroke-width + meta', () => {

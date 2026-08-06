@@ -6,6 +6,7 @@
 
 import { ref } from 'vue'
 import { ATTR_SUFFIX, STENCIL_ID_RE } from '../constants/ids'
+import { sanitizeSvgMarkup } from '../utils/sanitizeSvg'
 
 // Сам Map не реактивен, поэтому палитра читает этот счётчик в computed'ах —
 // рантайм-регистрация обновляет список без перезагрузки.
@@ -123,6 +124,20 @@ function isValidStencilId(id) {
 }
 
 /**
+ * То же для РАЗМЕТКИ: `shape.svg` из чужого архива уходит в v-html и appendChild,
+ * поэтому чистим на входе в реестр, а рендер-пути дальше не санитайзят. Встроенные
+ * символы гоняем через тот же фильтр: иначе `stencilSignature` сравнивал бы
+ * очищенную версию из бандла с сырой из glob'а и считал наш символ «изменённым».
+ */
+function cleanSvg(id, svgText) {
+  const { svg, removed } = sanitizeSvgMarkup(svgText)
+  if (removed.length) {
+    console.warn(`[stencils] "${id}": из разметки убрано ${removed.join(', ')}`)
+  }
+  return { svg, removed }
+}
+
+/**
  * Собранный реестр: id → объект стенсила со встроенным svgText.
  */
 const registry = (() => {
@@ -154,7 +169,7 @@ const registry = (() => {
 
     out.set(json.id, {
       ...json,
-      svgText: svgText || '',
+      svgText: cleanSvg(json.id, svgText).svg,
     })
   }
 
@@ -174,16 +189,16 @@ export function getStencilById(id) {
  * library/ должны быть в реестре ДО parseSvgProject, иначе их ячейки выкинутся как
  * нераспознанные. Персистентность — за оверрайдами в IDB / файлами в definitions/.
  *
- * Возвращает успех: `false` — id чужого стенсила вне маски, он НЕ зарегистрирован
- * (его ячейки при импорте выкинутся как нераспознанные — это и есть желаемое,
- * иначе id уехал бы в экспортный SVG/CSS). Вызывающий обязан сказать это вслух.
+ * Возвращает успех: `false` — id вне маски, стенсил НЕ зарегистрирован (его
+ * ячейки при импорте выкинутся как нераспознанные), вызывающий обязан сказать
+ * это вслух. Разметка не отклоняется, а чистится (cleanSvg).
  */
 export function registerStencil(json, svgText) {
   if (!isValidStencilId(json?.id)) {
     if (json?.id) console.warn(`[stencils] id "${json.id}" вне маски — стенсил отклонён`)
     return false
   }
-  registry.set(json.id, { ...json, svgText: svgText || '' })
+  registry.set(json.id, { ...json, svgText: cleanSvg(json.id, svgText).svg })
   registryVersion.value++
   return true
 }

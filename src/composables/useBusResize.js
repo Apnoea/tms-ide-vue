@@ -7,13 +7,11 @@ import { snapToGrid } from '../utils/grid'
 import { useCanvas } from './useCanvas'
 
 /**
- * Ресайз шины: drag edge-хэндла меняет ширину, порты досоздаются/удаляются под новую
- * длину. Жест живёт на document-listener'ах параллельно JointJS (внутрь события не
- * уходят); реактивный target у useEventListener сам цепляет и снимает их по dragging.
+ * Ресайз шины: drag edge-хэндла меняет ширину, порты пересчитываются под новую
+ * длину. Жест живёт на document-listener'ах параллельно JointJS.
  *
- * `onMaybeStartResize` вешают на mousedown контейнера в capture-фазе — раньше
- * JointJS, иначе он начнёт свой drag. `isResizing()` нужен потребителям, которым
- * надо подавить свой UI на время жеста (hover-плашка и т.п.).
+ * `onMaybeStartResize` цепляется в capture-фазе — до JointJS, иначе он начнёт свой
+ * drag. `isResizing()` нужен тем, кто подавляет свой UI на время жеста.
  */
 export function useBusResize({ scheduleSnapshot }) {
   const canvas = useCanvas()

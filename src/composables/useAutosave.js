@@ -32,9 +32,8 @@ export function useAutosave({ restoringHistory }) {
   const workspace = useWorkspaceStore()
   const project = useProjectStore()
 
-  // Чтение проекта на старте не удалось (хранилище недоступно, битая транзакция).
-  // Пока флаг поднят, В IDB НЕ ПИШЕМ вообще: данные там целы, а в сторе — пустышка,
-  // и любая запись затёрла бы проект. Сессия становится read-only до перезагрузки.
+  // Чтение проекта на старте не удалось: в IDB данные целы, а в сторе пустышка —
+  // любая запись затёрла бы проект. Сессия read-only до перезагрузки.
   let storageUnreadable = false
   const readOnly = () => storageUnreadable
 
@@ -56,9 +55,8 @@ export function useAutosave({ restoringHistory }) {
     // Переживают reload без dev-плагина (см. stencilOverrides).
     for (const s of await loadStencilOverrides()) registerStencil(s.stencilJson, s.shapeSvg)
 
-    // Сбой чтения меты НЕ равен «проекта ещё нет»: приняв одно за другое, бутстрап
-    // ниже перезаписал бы существующий проект пустой формой. При ошибке уходим в
-    // read-only и отдаём -1 — вызывающий покажет ошибку вместо «восстановлено».
+    // Сбой чтения меты НЕ равен «проекта ещё нет»: иначе бутстрап ниже перезаписал
+    // бы существующий проект пустой формой.
     const metaRead = await idbTryGet(META_KEY)
     if (!metaRead.ok) {
       storageUnreadable = true
@@ -76,16 +74,16 @@ export function useAutosave({ restoringHistory }) {
       const forms = []
       for (const id of meta.formIds) {
         const read = await idbTryGet(formKey(id))
-        // Форма не прочиталась — в IDB она, скорее всего, цела, а в сторе окажется
-        // пустой. Пишем что-либо нельзя: первый autosave затёр бы её пустотой.
+        // Форма не прочиталась: в IDB она цела, в сторе пусто — первый autosave
+        // затёр бы её.
         if (!read.ok) {
           storageUnreadable = true
           canvas.setSaveError(true)
           return -1
         }
         const stored = read.value || { cells: [] }
-        // Старый формат (services/legacyFormat) переписываем сразу: экспорт уже пишет
-        // новый ключ, и до первой правки привязки диапазонов ушли бы из архива.
+        // Старый формат переписываем сразу: экспорт пишет новый ключ, и до первой
+        // правки привязки ушли бы из архива.
         const { json: graphJson, changed } = migrateGraphJson(stored)
         if (changed) await idbSet(formKey(id), graphJson)
         forms.push({ id, graphJson })
@@ -165,13 +163,11 @@ export function useAutosave({ restoringHistory }) {
   }
 
   /**
-   * Заменяет проект целиком (импорт): пишет все формы + мету + теги в IndexedDB и
-   * грузит их в стор. Граф НЕ трогает — это делает либо reload (если импорт дописал
-   * стенсилы), либо вызывающий код вручную (если стенсилов нет).
+   * Заменяет проект целиком (импорт): формы + мета + теги в IDB и в стор. Граф не
+   * трогает — это reload или вызывающий код.
    *
-   * Возвращает true, если ВСЕ записи в IDB прошли. При false стор всё равно
-   * загружен (сессия рабочая), но IDB неполон — caller обязан предупредить, иначе
-   * после reload часть форм окажется пустой (квота), а импорт «успешен».
+   * true = все записи прошли. При false стор загружен (сессия рабочая), но IDB
+   * неполон — caller обязан предупредить, иначе после reload часть форм пуста.
    *
    * @param {{ id: string, graphJson: object }[]} forms
    * @param {string|null} [tagsText] — сырой текст tag-list'а проекта
@@ -182,9 +178,8 @@ export function useAutosave({ restoringHistory }) {
   async function replaceProject(forms, tagsText, hierarchy = null, projectName = null) {
     // Хранилище не читается → и не пишем: импорт молча потерял бы данные проекта.
     if (readOnly()) return false
-    // GC форм прежнего проекта: импорт заменяет проект целиком, а старые
-    // project:form:<id> дальше не читаются (restore идёт по formIds меты) и копили
-    // бы мёртвые blob'ы до квоты. Чистим ДО записи новых — освобождаем место.
+    // GC форм прежнего проекта: restore идёт по formIds меты, старые ключи копили
+    // бы мёртвые blob'ы до квоты. Чистим ДО записи новых.
     lastSaved = null // проект меняется целиком — прежняя запись ни о чём не говорит
     const keep = new Set(forms.map((f) => formKey(f.id)))
     for (const key of await idbKeys()) {

@@ -2,6 +2,8 @@ import { shallowRef, ref, computed } from 'vue'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cellMatchesQuery } from '../utils/cellSearch'
 import { planWireBridge } from '../utils/wireSplice'
+import { planZOrder, ELEMENT_Z_BOUNDS } from '../utils/zOrder'
+import { LINK_Z_BOUNDS } from '../stencils/linkDefaults'
 
 // Уникальный id логической группы ячеек (`tms.groupId`). Короткий, но глобально
 // уникальный — round-trip'ится в data-tms-meta.
@@ -475,11 +477,9 @@ export function useCanvas() {
       return cells.length
     },
     /**
-     * Модели выделения, доступные на ЗАПИСЬ: всё кроме заблокированных (`tms.locked`
-     * = read-only). Линки НЕ отбрасываем — замка у них нет, а диапазоны/boolSource
-     * на проводах валидны. Единая точка для массовых операций: `paper.interactive`
-     * замок не защищает (правки идут программно), поэтому каждый такой путь обязан
-     * фильтровать сам — раньше фильтр забывали, и замок обходился.
+     * Модели выделения, доступные на ЗАПИСЬ: всё кроме заблокированных. Линки не
+     * отбрасываем — замка у них нет. Единая точка для массовых операций:
+     * `paper.interactive` замок не защищает, правки идут программно.
      */
     writableItems(items) {
       const graph = graphRef.value
@@ -509,39 +509,38 @@ export function useCanvas() {
       return count
     },
     /**
-     * Порядок наложения (z-index) выделенных ЯЧЕЕК. mode: 'front'/'back' —
-     * `toFront`/`toBack` (JointJS max+1/min-1); 'forward'/'backward' — swap z с
-     * ближайшим соседом-элементом. Провода в z-командах не участвуют (всегда сзади).
+     * Порядок наложения (z): 'front' / 'back' / 'forward' / 'backward'. Символы и
+     * провода — разные слои со своими полосами, поэтому команда не может перемешать
+     * их между собой; каждая перенумеровывает свой слой целиком (utils/zOrder).
+     * У проводов порядок виден на пересечении: мостик рисует тот, кто выше.
+     *
+     * Одним батчем: `jumpover` пересчитывает пути по `batch:stop`, без него мостик
+     * залипает на прежнем проводе до следующего чужого обновления.
      */
     reorderCells(items, mode) {
       const graph = graphRef.value
       if (!graph) return
-      const cells = (items || [])
-        .filter((i) => i.kind === 'cell')
-        .map((i) => graph.getCell(i.id))
-        .filter(Boolean)
-      if (!cells.length) return
-      // front/back считаем по ЭЛЕМЕНТАМ, а не через toFront/toBack: те берут min/max
-      // по всем cells, включая провода (у них фиксированный LINK_Z далеко внизу), и
-      // «на задний план» уронило бы символ ПОД провода.
-      const els = graph.getElements()
-      if (mode === 'front' || mode === 'back') {
-        const zs = els.map((e) => e.get('z') ?? 0)
-        const edge = mode === 'front' ? Math.max(...zs) + 1 : Math.min(...zs) - 1
-        // Все выделенные на один уровень — их взаимный порядок сохраняет коллекция.
-        for (const c of cells) c.set('z', edge)
-      } else {
-        // Снимок текущего z-порядка ячеек; swap z с соседом по этому порядку.
-        for (const c of cells) {
-          const idx = els.indexOf(c)
-          const neighbor = mode === 'forward' ? els[idx + 1] : els[idx - 1]
-          if (!neighbor) continue
-          const z1 = c.get('z')
-          const z2 = neighbor.get('z')
-          c.set('z', z2)
-          neighbor.set('z', z1)
-        }
+      const ids = new Set((items || []).map((i) => i.id))
+      const layers = [
+        { cells: graph.getElements(), bounds: ELEMENT_Z_BOUNDS },
+        { cells: graph.getLinks(), bounds: LINK_Z_BOUNDS },
+      ]
+      let changed = false
+      graph.startBatch('reorder')
+      for (const { cells, bounds } of layers) {
+        const targets = cells.filter((c) => ids.has(c.id)).map((c) => c.id)
+        if (!targets.length) continue
+        const plan = planZOrder(
+          cells.map((c) => ({ id: c.id, z: c.get('z') ?? 0 })),
+          targets,
+          mode,
+          bounds
+        )
+        for (const { id, z } of plan) graph.getCell(id)?.set('z', z)
+        changed = changed || plan.length > 0
       }
+      graph.stopBatch('reorder')
+      if (!changed) return
       graphVersion.value++
       snapshotTick.value++
     },
