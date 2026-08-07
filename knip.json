@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "project": ["src/**/*.{js,vue}"],
-  "ignoreDependencies": ["tailwindcss", "tailwindcss-primeui"]
+  "project": ["src/**/*.{js,vue}", "electron/**/*.{js,cjs}", "scripts/**/*.mjs"],
+  "ignoreDependencies": ["tailwindcss", "tailwindcss-primeui"],
+  "entry": ["electron/preload.cjs"]
 }

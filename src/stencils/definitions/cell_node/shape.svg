@@ -1,10 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20">
-  <!--
-    Сервисная «точка соединения» — анкер для начала/конца провода. 20×20
-    (2×2 клетки) ставит точку на пересечение клеток сетки. Провод
-    заканчивается в anchor.midSide (на стороне bbox'а — см. defaultAnchor
-    в CanvasPane), поэтому визуально как-будто упирается прямо в точку.
-  -->
-  <circle cx="10" cy="10" r="1" fill="#000" class="tms-range-fill" />
+  <circle cx="10" cy="10" r="1" fill="#000" class="tms-range-fill"/>
 </svg>

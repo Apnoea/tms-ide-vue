@@ -1,4 +1,5 @@
 <script setup>
+import { watch } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import Toast from 'primevue/toast'
 import ConfirmPopup from 'primevue/confirmpopup'
@@ -29,6 +30,11 @@ useEventListener(window, 'beforeunload', (e) => {
   e.preventDefault()
   e.returnValue = ''
 })
+
+// Десктоп-оболочка сама показывает подтверждение при закрытии окна, но состояние
+// «есть невыгруженное» знает только рендерер — сообщаем ей об изменениях.
+// В браузере `tmsDesktop` нет, watcher вырождается в no-op.
+watch(canvas.dirtySinceExport, (v) => window.tmsDesktop?.setUnexported?.(v), { immediate: true })
 
 // ? и F1 — открыть справку. Глобальный хоткей, игнорируем фокус в инпуте.
 // F1 нужен потому что `?` на русской раскладке = Shift+, и не сразу очевиден.

@@ -7,7 +7,15 @@
   "width": 40,
   "height": 40,
   "ports": [
-    { "name": "top", "x": 20, "y": 0 },
-    { "name": "bottom", "x": 20, "y": 40 }
+    {
+      "name": "top",
+      "x": 20,
+      "y": 0
+    },
+    {
+      "name": "bottom",
+      "x": 20,
+      "y": 40
+    }
   ]
 }

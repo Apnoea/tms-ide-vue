@@ -6,5 +6,12 @@
   "shapeFile": "shape.svg",
   "width": 20,
   "height": 20,
-  "ports": [{ "name": "center", "x": 10, "y": 10, "magnet": "passive" }]
+  "ports": [
+    {
+      "name": "center",
+      "x": 10,
+      "y": 10,
+      "magnet": "passive"
+    }
+  ]
 }

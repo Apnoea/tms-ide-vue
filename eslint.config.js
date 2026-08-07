@@ -11,7 +11,7 @@ import prettierConfig from 'eslint-config-prettier'
 export default [
   // Полностью игнорируем сторонний/сгенерированный код
   {
-    ignores: ['dist/', 'node_modules/', '*.min.js'],
+    ignores: ['dist/', 'release/', 'node_modules/', '*.min.js'],
   },
 
   js.configs.recommended,

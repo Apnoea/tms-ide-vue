@@ -1,0 +1,31 @@
+appId: dev.tms.ide
+productName: TMS IDE
+
+# Артефакты кладём ВНЕ дерева проекта: при распаковке electron внутрь рабочей
+# папки Windows отдаёт EPERM на rename — файлы держит вотчер IDE/антивирус.
+# Заодно репозиторий не засоряется 90-мегабайтными сборками.
+directories:
+  output: ../release-tms
+  buildResources: build
+
+# В пакет идёт только собранная статика и обёртка: зависимости уже вкомпилированы
+# Vite в dist, node_modules приложению не нужен.
+files:
+  - dist/**
+  - electron/**
+  - package.json
+
+# Portable: один .exe, без установщика и записи в реестр. Приложение
+# распаковывается во временную папку, поэтому рабочие данные держим не рядом с
+# распаковкой, а рядом с самим .exe — его путь даёт PORTABLE_EXECUTABLE_DIR.
+win:
+  target:
+    - portable
+  artifactName: tms-ide-${version}-win.${ext}
+
+# AppImage: тоже один файл — chmod +x и запуск, без установки в систему.
+linux:
+  target:
+    - AppImage
+  category: Development
+  artifactName: tms-ide-${version}-linux.${ext}
