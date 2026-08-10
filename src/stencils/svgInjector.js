@@ -88,7 +88,7 @@ export function injectStencilSvg(cellView, stencil) {
   } else if (stencil.id === 'cell_text') {
     for (const el of buildTextContent(cellView)) target.appendChild(el)
   } else if (stencil.id === 'cell_value') {
-    for (const el of buildValueContent(cellView, stencil.valuePresets)) target.appendChild(el)
+    for (const el of buildValueContent(cellView)) target.appendChild(el)
   } else {
     const tms = cellView.model.get('tms') || {}
     const cellId = cellView.model.id

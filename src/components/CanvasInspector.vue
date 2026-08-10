@@ -23,7 +23,7 @@ import { useProjectStore } from '../stores/useProjectStore'
 import { getStencilById, hasBoolSlot } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
 import { TEXT_FONT_SIZE } from '../stencils/textCell'
-import { resolveValueDisplay } from '../stencils/valueCell'
+import { VALUE_DECIMALS_DEFAULT } from '../stencils/valueCell'
 import { nplural } from '../utils/plural'
 import { normalizeBoolSource } from '../utils/boolSource'
 import { FONT_FAMILIES, normalizeFont } from '../utils/textMetrics'
@@ -181,6 +181,7 @@ const details = computed(() => {
       valueTag: tms.valueTag ?? '',
       // Явно выбранная пара «подпись + единица» (перебивает пресет по суффиксу).
       valueLabel: tms.valueLabel ?? '',
+      decimals: Number.isFinite(tms.decimals) ? tms.decimals : null,
       valueUnit: tms.valueUnit ?? '',
       // id outer-карточки в animations.json/SVG (тот же, что эмитит exporter).
       exportId: previewOuterKey(tms.stencilId, cell.id, tms.valueTag),
@@ -430,38 +431,34 @@ function openValueTagPicker() {
   })
 }
 
-// Пресеты величин объявлены в stencil.json cell_value (`valuePresets`) — единый
-// источник и для автоподстановки по суффиксу тега, и для выбора в инспекторе.
-const valuePresets = computed(() => {
-  if (!details.value?.isValue) return []
-  return getStencilById(details.value.stencilId)?.valuePresets || []
-})
-
-const valueDisplay = computed(() => {
-  if (!details.value?.isValue) return null
-  const d = details.value
-  return resolveValueDisplay(d.valueTag, d, valuePresets.value)
-})
-
-// Пресет, соответствующий текущей паре (явной или подставленной по суффиксу) —
-// им подсвечивается выбранная строка Select'а.
-const valuePreset = computed(() => {
-  const cur = valueDisplay.value
-  if (!cur?.label) return null
-  return (
-    valuePresets.value.find((p) => p.label === cur.label && (p.unit || '') === cur.unit) ?? null
-  )
-})
-
-/** Выбор пары в инспекторе: пишем ЯВНО в tms — она перебивает пресет по суффиксу. */
-function onPickValuePreset(preset) {
-  if (!preset) return
+/** Подпись и единица cell_value — свободный ввод, без справочника величин. */
+function applyValueText(key, raw) {
   withSelectedCell(
     ({ cell, tms, d }) => {
       if (!d.isValue) return false
-      const next = { ...tms, valueLabel: preset.label }
-      if (preset.unit) next.valueUnit = preset.unit
-      else delete next.valueUnit
+      const value = (raw ?? '').trim()
+      const next = { ...tms }
+      if (value) next[key] = value
+      else delete next[key]
+      if (next[key] === tms[key]) return false
+      cell.set('tms', next)
+    },
+    { reinject: true }
+  )
+}
+
+/**
+ * Точность значения. Пустое поле = «как в пресете величины», поэтому не пишем 0,
+ * а удаляем ключ — иначе «сбросить к пресету» стало бы невозможно.
+ */
+function applyValueDecimals(v) {
+  withSelectedCell(
+    ({ cell, tms, d }) => {
+      if (!d.isValue) return false
+      const next = { ...tms }
+      if (Number.isFinite(v)) next.decimals = v
+      else delete next.decimals
+      if (next.decimals === tms.decimals) return false
       cell.set('tms', next)
     },
     { reinject: true }
@@ -1011,35 +1008,53 @@ const {
                 :can-pick="!!project.tags.length"
                 @pick="openValueTagPicker"
               />
-              <!-- Величина = пара «подпись + единица» из пресетов стенсила. По
-                   суффиксу тега подставляется сама (`.UA` → «Ua · В»); выбор её
-                   перебивает — имена тегов не всегда следуют конвенции. -->
-              <div v-if="valuePresets.length" class="mt-2">
-                <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
-                  Величина
+              <!-- Подпись и единица — свободный ввод: имена тегов в проектах не
+                   следуют единой конвенции, угадывать величину по суффиксу нечем. -->
+              <div class="mt-2 grid grid-cols-2 gap-2">
+                <div>
+                  <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
+                    Подпись
+                  </div>
+                  <InputText
+                    :model-value="details.valueLabel"
+                    size="small"
+                    class="w-full"
+                    placeholder="Ua"
+                    @update:model-value="(v) => applyValueText('valueLabel', v)"
+                  />
                 </div>
-                <Select
-                  :model-value="valuePreset"
-                  :options="valuePresets"
-                  option-label="label"
-                  placeholder="Выберите величину"
+                <div>
+                  <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
+                    Единица
+                  </div>
+                  <InputText
+                    :model-value="details.valueUnit"
+                    size="small"
+                    class="w-full"
+                    placeholder="В"
+                    @update:model-value="(v) => applyValueText('valueUnit', v)"
+                  />
+                </div>
+              </div>
+              <!-- Точность значения: уезжает в output.decimals карточки, формат
+                   считает рантайм. Пусто = взять из пресета величины/дефолт. -->
+              <div class="mt-2 flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Знаков после запятой
+                </span>
+                <InputNumber
+                  :model-value="details.decimals"
+                  :min="0"
+                  :max="6"
+                  :step="1"
+                  show-buttons
+                  button-layout="horizontal"
                   size="small"
-                  class="w-full"
-                  @update:model-value="onPickValuePreset"
-                >
-                  <template #value="{ value }">
-                    <span v-if="value" class="text-xs">
-                      {{ value.label }}
-                      <span v-if="value.unit" class="text-surface-500">· {{ value.unit }}</span>
-                    </span>
-                  </template>
-                  <template #option="{ option }">
-                    <span class="text-xs">
-                      {{ option.label }}
-                      <span v-if="option.unit" class="text-surface-500">· {{ option.unit }}</span>
-                    </span>
-                  </template>
-                </Select>
+                  input-class="w-12! text-center"
+                  class="ml-auto"
+                  :placeholder="String(VALUE_DECIMALS_DEFAULT)"
+                  @update:model-value="applyValueDecimals"
+                />
               </div>
             </div>
 

@@ -44,8 +44,8 @@ const {
 const selectedShape = computed(() => shapes.value.find((s) => s.id === selectedId.value) || null)
 const multiCount = computed(() => selectedIds.value.length)
 
-// Применимость по типу примитива: у линии нет заливки, у круга — скругления,
-// подпись всегда статична (ни заливки, ни скругления, ни видимости). Цвет есть у
+// Применимость по типу примитива: у линии нет заливки, у круга — скругления, у
+// подписи ни того ни другого (но видимость по состоянию у неё есть). Цвет есть у
 // всех — у подписи это цвет глифов (поле `stroke`, см. ShapePrimitive).
 const FILLABLE = (s) => s.type !== 'line' && s.type !== 'text'
 const ROUNDABLE = (s) => s.type !== 'circle' && s.type !== 'text'
@@ -55,8 +55,9 @@ const NOT_TEXT = (s) => s.type !== 'text'
 const hasFill = computed(() => selectedFor(FILLABLE).length > 0)
 const hasStrokeWidth = computed(() => selectedFor(NOT_TEXT).length > 0)
 
-// Подпись правится содержимым/размером/жирностью; обводки, заливки, скругления и
-// видимости по состоянию у неё нет — текст всегда статичен (см. utils/stencilSvg).
+// Подпись правится содержимым/размером/жирностью/шрифтом; обводки, заливки и
+// скругления у неё нет, а видимость по состоянию — есть (прячется через
+// animation-hidden наравне с остальными фигурами).
 const isTextShape = computed(() => selectedShape.value?.type === 'text')
 const textSize = computed(() => selectedShape.value?.fontSize ?? TEXT_SHAPE_SIZE)
 function setText(v) {
@@ -177,12 +178,15 @@ const shapeStateOptions = computed(() => {
 })
 // Видимость — тоже на всё выделение; при расхождении селект пуст (placeholder «—»),
 // выбор применяется ко всем. Дискретная операция → снимок истории сразу.
-const hasShapeState = computed(() => meta.stateful && selectedFor(NOT_TEXT).length > 0)
+// Подпись здесь участвует: `animation-hidden` — это display:none на группе
+// состояния, он работает и для <text>. Из перекраски (stateColors) текст
+// по-прежнему исключён — см. `:not(text)` в constants/animation.
+const hasShapeState = computed(() => meta.stateful && selectedFor().length > 0)
 const shapeState = computed({
-  get: () => commonValue((s) => s.state || 'always', NOT_TEXT) ?? null,
+  get: () => commonValue((s) => s.state || 'always') ?? null,
   set: (v) => {
     if (!v) return
-    applyToSelected({ state: v }, NOT_TEXT)
+    applyToSelected({ state: v })
     commit()
   },
 })

@@ -55,10 +55,11 @@ export const CELL_META_FIELDS = [
   // 'left' — дефолт (отсутствие = left), в meta не пишем.
   { key: 'align', keep: (v) => v !== undefined && v !== 'left' },
   { key: 'valueTag', keep: (v) => v !== undefined },
-  // Выбранная пара «подпись + единица» cell_value. Пустые не пишем: отсутствие =
-  // «взять пресет стенсила по суффиксу тега» (см. resolveValueDisplay).
+  // Подпись и единица cell_value — вписывает автор. Пустые не пишем.
   { key: 'valueLabel', keep: Boolean },
   { key: 'valueUnit', keep: Boolean },
+  // Знаков после запятой у cell_value. Пустое = дефолт (VALUE_DECIMALS_DEFAULT).
+  { key: 'decimals', keep: (v) => Number.isFinite(v) },
   { key: 'locked', keep: Boolean, flag: true },
   { key: 'flipH', keep: Boolean, flag: true },
   { key: 'flipV', keep: Boolean, flag: true },

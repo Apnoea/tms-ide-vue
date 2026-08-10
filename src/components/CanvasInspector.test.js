@@ -133,4 +133,19 @@ describe('CanvasInspector', () => {
     expect(b.get('tms').navigation).toBeUndefined()
     expect(a.get('tms').navigation).toBeUndefined()
   })
+  it('cell_value: ввод подписи и единицы пишется в tms (без справочника величин)', async () => {
+    const cell = makeCell({ stencilId: 'cell_value' })
+    cell.set('tms', { stencilId: 'cell_value', valueTag: 'T1.UA' })
+    graph.addCell(cell)
+    canvas.selectOnly('cell', cell.id)
+    setup()
+    await wrapper.vm.$nextTick()
+
+    const inputs = wrapper.findAll('input[type="text"]')
+    await inputs.find((i) => i.attributes('placeholder') === 'Ua').setValue('Ua')
+    await inputs.find((i) => i.attributes('placeholder') === 'В').setValue('В')
+    await wrapper.vm.$nextTick()
+
+    expect(cell.get('tms')).toMatchObject({ valueLabel: 'Ua', valueUnit: 'В' })
+  })
 })

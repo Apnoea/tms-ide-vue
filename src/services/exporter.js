@@ -3,7 +3,11 @@ import { instantiate } from '../stencils/parser'
 import { flipTransform } from '../stencils/svgInjector'
 import { buildBusExportSvg } from '../stencils/busCell'
 import { buildTextExportSvg } from '../stencils/textCell'
-import { buildValueExportSvg, resolveValueDisplay } from '../stencils/valueCell'
+import {
+  buildValueExportSvg,
+  resolveValueDisplay,
+  resolveValueDecimals,
+} from '../stencils/valueCell'
 import { LINK_Z } from '../stencils/linkDefaults'
 import {
   CLASS_OFF,
@@ -170,19 +174,22 @@ export function exportProject(graph, paper = null) {
         font: tms.fontFamily,
       })
     } else if (tms.stencilId === 'cell_value') {
-      cellSvg = buildValueExportSvg(
-        animId,
-        size.width,
-        size.height,
-        resolveValueDisplay(tms.valueTag, tms, stencil.valuePresets)
-      )
+      cellSvg = buildValueExportSvg(animId, size.width, size.height, resolveValueDisplay(tms))
       if (tms.valueTag) {
         // text-id = animation-{animId}; animId дедуплицирован выше → ключ уникален
         // даже при двух cell_value с одним valueTag. Конвенция WebScada-рантайма:
         // пустой output.text = «взять значение из binding.tag» (того же тега).
         animations[valueTextKey(animId)] = {
           animation: 'text',
-          bindings: [{ tag: tms.valueTag, output: { text: {}, decimals: 2 } }],
+          bindings: [
+            {
+              tag: tms.valueTag,
+              output: {
+                text: {},
+                decimals: resolveValueDecimals(tms),
+              },
+            },
+          ],
           detailTags: [{ tag: tms.valueTag }],
         }
       }
@@ -230,6 +237,12 @@ export function exportProject(graph, paper = null) {
       // группировка переживала экспорт/импорт.
       groupId: tms.groupId,
       valueTag: tms.valueTag,
+      // Явно выбранная величина и точность cell_value. Без них round-trip терял
+      // выбор автора: пара «подпись + единица» откатывалась к пресету по суффиксу
+      // тега, а точность — к дефолтной.
+      valueLabel: tms.valueLabel,
+      valueUnit: tms.valueUnit,
+      decimals: tms.decimals,
       // Геометрический трансформ — для round-trip. angle применяется в SVG
       // как rotate вокруг центра ячейки на outer-`<g>`.
       angle: cell.angle ? cell.angle() : 0,

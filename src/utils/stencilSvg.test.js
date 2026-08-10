@@ -92,6 +92,18 @@ describe('serializeSvg', () => {
     )
   })
 
+  it('равные радиусы дают <circle>, разные — <ellipse>', () => {
+    // Круг — частный случай эллипса, но тег прежний: уже выгруженные shape.svg и
+    // рукописные символы не должны переписываться при пересохранении.
+    const box = { width: 20, height: 20 }
+    expect(serializeSvg([{ type: 'circle', cx: 10, cy: 10, rx: 8, ry: 8 }], box)).toContain(
+      '<circle cx="10" cy="10" r="8"'
+    )
+    expect(serializeSvg([{ type: 'circle', cx: 10, cy: 10, rx: 9, ry: 4 }], box)).toContain(
+      '<ellipse cx="10" cy="10" rx="9" ry="4"'
+    )
+  })
+
   it('polyline — points через пробел', () => {
     const svg = serializeSvg(
       [
@@ -272,6 +284,23 @@ describe('внутренняя анимация (state)', () => {
   it('serializeSvg игнорирует state, когда stateful выключен (одна группа, без суффикса)', () => {
     const svg = serializeSvg(shapes, { width: 20, height: 40 })
     expect(svg).not.toContain('data-anim-suffix')
+  })
+
+  it('подпись со state идёт в группу состояния и читается обратно', () => {
+    // Видимость (`animation-hidden` = display:none на группе) работает и для
+    // <text> — в отличие от перекраски, где текст исключён селектором.
+    const withText = [
+      { type: 'text', x: 10, y: 20, text: 'ВКЛ', state: 'true' },
+      { type: 'text', x: 10, y: 30, text: 'ОТКЛ', state: 'false' },
+    ]
+    const svg = serializeSvg(withText, meta)
+    expect(svg).toMatch(/<g data-anim-suffix="\.true">\s*<text[^>]*>ВКЛ</)
+    expect(svg).toMatch(/<g data-anim-suffix="\.false">\s*<text[^>]*>ОТКЛ</)
+    const back = parseStencilSvg(svg)
+    expect(back.map((s) => [s.type, s.state])).toEqual([
+      ['text', 'true'],
+      ['text', 'false'],
+    ])
   })
 
   it('пустые true/false группы не эмитятся', () => {
@@ -592,6 +621,15 @@ describe('shapeBounds', () => {
     ).toEqual({ x: 4, y: 2, w: 16, h: 10 })
   })
 
+  it('эллипс — габарит по разным полуосям', () => {
+    expect(shapeBounds({ type: 'circle', cx: 20, cy: 20, rx: 10, ry: 4 })).toEqual({
+      x: 10,
+      y: 16,
+      w: 20,
+      h: 8,
+    })
+  })
+
   it('подпись — по замеренному габариту (не нулевой)', () => {
     const b = shapeBounds({ type: 'text', x: 10, y: 10, text: 'Wh', fontSize: 10 })
     expect(b.w).toBeGreaterThan(0)
@@ -609,7 +647,16 @@ describe('parseStencilSvg (инверсия serializeSvg)', () => {
     const shapes = [
       { type: 'rect', x: 0, y: 0, w: 20, h: 20, stroke: '#000', strokeWidth: 2, fill: 'none' },
       { type: 'line', x1: 5, y1: 10, x2: 15, y2: 10, stroke: '#000', strokeWidth: 2 },
-      { type: 'circle', cx: 10, cy: 10, r: 8, stroke: '#000', strokeWidth: 2, fill: 'none' },
+      {
+        type: 'circle',
+        cx: 10,
+        cy: 10,
+        rx: 8,
+        ry: 8,
+        stroke: '#000',
+        strokeWidth: 2,
+        fill: 'none',
+      },
       {
         type: 'polyline',
         points: [
@@ -685,6 +732,35 @@ describe('parseStencilSvg (инверсия serializeSvg)', () => {
       bold: true,
     })
     expect(again.find((s) => s.type === 'rect')).toMatchObject({ x: 5, y: 6, w: 30, h: 28 })
+  })
+
+  it('<ellipse> читается как circle с разными радиусами, <circle> — с равными', () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">' +
+      '<ellipse cx="10" cy="10" rx="9" ry="4" fill="none" stroke="#000" stroke-width="2"/>' +
+      '<circle cx="30" cy="10" r="6" fill="none" stroke="#000" stroke-width="2"/></svg>'
+    expect(parseStencilSvg(svg)).toEqual([
+      {
+        type: 'circle',
+        cx: 10,
+        cy: 10,
+        rx: 9,
+        ry: 4,
+        fill: 'none',
+        stroke: '#000',
+        strokeWidth: 2,
+      },
+      {
+        type: 'circle',
+        cx: 30,
+        cy: 10,
+        rx: 6,
+        ry: 6,
+        fill: 'none',
+        stroke: '#000',
+        strokeWidth: 2,
+      },
+    ])
   })
 
   it('разбирает <text> в подпись (цвет из fill, bold по font-weight)', () => {

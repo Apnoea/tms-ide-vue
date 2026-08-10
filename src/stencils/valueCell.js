@@ -5,22 +5,24 @@ import { valueTextKey } from '../constants/ids'
 import { SVG_NS, escapeXml, escapeAttr, svgEl } from '../utils/xml'
 import { SVG_FONT } from '../utils/textMetrics'
 
-function suffixOfTag(tag) {
-  const dotIdx = (tag || '').indexOf('.')
-  return dotIdx >= 0 ? tag.slice(dotIdx) : ''
+/**
+ * Подпись и единица карточки — только то, что вписал автор (`tms.valueLabel` /
+ * `valueUnit`). Ни справочника величин, ни угадывания по суффиксу тега: имена
+ * тегов в проектах конвенции не следуют, а подсказка мимо смысла хуже пустоты.
+ */
+export function resolveValueDisplay(tms = null) {
+  return { label: tms?.valueLabel || '', unit: tms?.valueUnit || '' }
 }
 
 /**
- * Подпись и единица карточки: выбранная пара (`tms.valueLabel`/`valueUnit`) →
- * пресет стенсила по суффиксу тега → пусто. Выбор перебивает пресет, потому что
- * имена тегов не во всех проектах следуют конвенции; подпись не выдумываем —
- * суффикс в её роли («WHATEVER») и «?» читались как сбой приложения.
+ * Знаков после запятой — уезжает в `output.decimals` карточки, формат считает
+ * рантайм (FormatEngine.toFixed). Дефолт пишем ВСЕГДА: без поля рантайм берёт
+ * свои 4 знака, и уже нарисованные схемы сменили бы вид.
  */
-export function resolveValueDisplay(tag, tms = null, presets = []) {
-  if (tms?.valueLabel) return { label: tms.valueLabel, unit: tms.valueUnit || '' }
-  const suffix = suffixOfTag(tag)
-  const preset = suffix ? presets.find((p) => p.suffix === suffix) : null
-  return { label: preset?.label || '', unit: preset?.unit || '' }
+export const VALUE_DECIMALS_DEFAULT = 2
+
+export function resolveValueDecimals(tms = null) {
+  return Number.isFinite(tms?.decimals) ? tms.decimals : VALUE_DECIMALS_DEFAULT
 }
 
 // Сетка карточки (100×20): [0..3] полоска, дальше фон, label с x=8, общая baseline
@@ -60,9 +62,9 @@ export function buildValueExportSvg(animId, width = 100, height = 20, display = 
  * Контент на холсте: полоска + фон + label/value/unit. Value показывает «--» —
  * реальное придёт в рантайме через text-анимацию.
  */
-export function buildValueContent(cellView, presets = []) {
+export function buildValueContent(cellView) {
   const tms = cellView.model.get('tms') || {}
-  const { label, unit } = resolveValueDisplay(tms.valueTag, tms, presets)
+  const { label, unit } = resolveValueDisplay(tms)
   const { width, height } = cellView.model.size()
   // Общая baseline «по полу»; PAD взят с запасом под descender'ы (φ в cosφ).
   const by = height - VALUE_BASELINE_PAD

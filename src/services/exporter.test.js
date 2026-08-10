@@ -135,6 +135,47 @@ describe('exportProject', () => {
     expect(card.bindings[0].tag).toBe('PS031VV001.IA')
   })
 
+  it('cell_value: точность из tms.decimals, иначе дефолт (формат считает рантайм)', () => {
+    const card = (extra) => {
+      const graph = mockGraph([
+        mockCell({ id: 'v1', stencilId: 'cell_value', valueTag: 'T1.VAL', ...extra }),
+      ])
+      return exportProject(graph).animations.animations['animation-T1.VAL']
+    }
+    expect(card({}).bindings[0].output.decimals).toBe(2)
+    expect(card({ decimals: 0 }).bindings[0].output.decimals).toBe(0)
+    expect(card({ decimals: 4 }).bindings[0].output.decimals).toBe(4)
+  })
+
+  it('cell_value: выбранная величина переживает round-trip', () => {
+    // Без явной пары подпись/единица восстанавливались бы из пресета по суффиксу
+    // тега — то есть выбор автора молча откатывался бы.
+    const graph = mockGraph([
+      mockCell({
+        id: 'v1',
+        stencilId: 'cell_value',
+        valueTag: 'T1.RAW',
+        valueLabel: 'Уровень',
+        valueUnit: 'м',
+      }),
+    ])
+    const parsed = parseSvgProject(exportProject(graph).svgText)
+    expect(parsed.cells.find((c) => c.id === 'v1').tms).toMatchObject({
+      valueLabel: 'Уровень',
+      valueUnit: 'м',
+    })
+  })
+
+  it('cell_value: точность переживает round-trip, пустая в meta не пишется', () => {
+    const graph = mockGraph([
+      mockCell({ id: 'v1', stencilId: 'cell_value', valueTag: 'T1.VAL', decimals: 3 }),
+      mockCell({ id: 'v2', stencilId: 'cell_value', valueTag: 'T2.VAL' }),
+    ])
+    const parsed = parseSvgProject(exportProject(graph).svgText)
+    expect(parsed.cells.find((c) => c.id === 'v1').tms.decimals).toBe(3)
+    expect(parsed.cells.find((c) => c.id === 'v2').tms.decimals).toBeUndefined()
+  })
+
   it('rangeSource на ячейке → карточка outer + merge в стенсильные', () => {
     const graph = mockGraph([
       mockCell({

@@ -10,7 +10,13 @@
  * `[data-se-move]`, а z-порядок фигур = порядок экспорта.
  */
 import { computed } from 'vue'
-import { ROUND_RX, TEXT_SHAPE_ANCHOR, TEXT_SHAPE_SIZE, textShapeBox } from '../utils/stencilSvg'
+import {
+  ROUND_RX,
+  TEXT_SHAPE_ANCHOR,
+  TEXT_SHAPE_SIZE,
+  radii,
+  textShapeBox,
+} from '../utils/stencilSvg'
 import { normalizeFont } from '../utils/textMetrics'
 
 const props = defineProps({
@@ -41,7 +47,11 @@ const geom = computed(() => {
     return { tag: 'line', attrs: { x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 } }
   }
   if (s.type === 'circle') {
-    return { tag: 'circle', attrs: { cx: s.cx, cy: s.cy, r: s.r } }
+    // Круг и эллипс — один тип модели; тег выбираем по радиусам, как в экспорте.
+    const { rx, ry } = radii(s)
+    return rx === ry
+      ? { tag: 'circle', attrs: { cx: s.cx, cy: s.cy, r: rx } }
+      : { tag: 'ellipse', attrs: { cx: s.cx, cy: s.cy, rx, ry } }
   }
   if (s.type === 'text') {
     return {

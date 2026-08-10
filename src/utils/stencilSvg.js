@@ -10,8 +10,8 @@
  * группируются по state в <g data-anim-suffix=".<ключ>">, оттуда же строится
  * animationTemplate (ключи булевы или произвольные, см. meta.stateMode).
  *
- * `text` — статичная подпись: в анимациях не участвует, CSS перекраски исключает
- * `<text>` селектором `*:not(text)`.
+ * `text` участвует в видимости по состоянию (группа `data-anim-suffix`), но не в
+ * перекраске: CSS исключает `<text>` селектором `*:not(text)`.
  */
 
 import { ATTR_SUFFIX, STENCIL_ID_RE } from '../constants/ids'
@@ -50,6 +50,17 @@ function fillClassAttr(shape, markFill) {
 
 // Радиус скругления углов прямоугольника (в user-единицах) при shape.rounded.
 export const ROUND_RX = 2
+
+/**
+ * Радиусы «круга»: модель хранит rx/ry (круг = равные), но из рукописного SVG и
+ * старых shape.svg приходит одиночный `r` — приводим к одной форме здесь, чтобы
+ * остальной код не проверял оба поля.
+ */
+export function radii(shape) {
+  const rx = shape.rx ?? shape.r ?? 0
+  const ry = shape.ry ?? shape.r ?? rx
+  return { rx, ry }
+}
 
 // Подпись: размер по умолчанию и якорь. Anchor фиксирован `middle` — подпись
 // почти всегда центрируется по фигуре. Шрифт — из whitelist'а utils/textMetrics,
@@ -97,11 +108,17 @@ function serializeShape(shape, markFill) {
         `<line x1="${num(shape.x1)}" y1="${num(shape.y1)}" ` +
         `x2="${num(shape.x2)}" y2="${num(shape.y2)}" ${strokeAttrs(shape)}${roundingAttrs(shape)}/>`
       )
-    case 'circle':
+    case 'circle': {
+      // Круг — частный случай эллипса (rx === ry), и тогда пишем прежний <circle>:
+      // рукописные символы и уже выгруженные shape.svg не переписываются.
+      const { rx, ry } = radii(shape)
+      const geom = rx === ry ? `r="${num(rx)}"` : `rx="${num(rx)}" ry="${num(ry)}"`
+      const tag = rx === ry ? 'circle' : 'ellipse'
       return (
-        `<circle${fillClassAttr(shape, markFill)} cx="${num(shape.cx)}" cy="${num(shape.cy)}" r="${num(shape.r)}" ` +
+        `<${tag}${fillClassAttr(shape, markFill)} cx="${num(shape.cx)}" cy="${num(shape.cy)}" ${geom} ` +
         `${fillAttr(shape)} ${strokeAttrs(shape)}${roundingAttrs(shape)}/>`
       )
+    }
     case 'polyline': {
       const pts = (shape.points || []).map(([x, y]) => `${num(x)},${num(y)}`).join(' ')
       // Замкнутая ломаная — это <polygon> (сам соединяет конец с началом).
@@ -142,7 +159,10 @@ export function shapeBounds(s) {
   if (!s) return null
   if (s.type === 'rect') return { x: s.x, y: s.y, w: s.w, h: s.h }
   if (s.type === 'text') return textShapeBox(s)
-  if (s.type === 'circle') return { x: s.cx - s.r, y: s.cy - s.r, w: s.r * 2, h: s.r * 2 }
+  if (s.type === 'circle') {
+    const { rx, ry } = radii(s)
+    return { x: s.cx - rx, y: s.cy - ry, w: rx * 2, h: ry * 2 }
+  }
   if (s.type === 'line') {
     return {
       x: Math.min(s.x1, s.x2),
@@ -298,7 +318,26 @@ function elementToShape(el) {
     case 'line':
       return { type: 'line', x1: n('x1'), y1: n('y1'), x2: n('x2'), y2: n('y2'), ...readStroke(el) }
     case 'circle':
-      return { type: 'circle', cx: n('cx'), cy: n('cy'), r: n('r'), fill, ...readStroke(el) }
+      // Единый тип для круга и эллипса: круг = равные радиусы.
+      return {
+        type: 'circle',
+        cx: n('cx'),
+        cy: n('cy'),
+        rx: n('r'),
+        ry: n('r'),
+        fill,
+        ...readStroke(el),
+      }
+    case 'ellipse':
+      return {
+        type: 'circle',
+        cx: n('cx'),
+        cy: n('cy'),
+        rx: n('rx'),
+        ry: n('ry'),
+        fill,
+        ...readStroke(el),
+      }
     case 'polyline':
     case 'polygon': {
       const points = (el.getAttribute('points') || '')

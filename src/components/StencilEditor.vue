@@ -25,6 +25,7 @@ import { snapToGrid } from '../utils/grid'
 import {
   stencilDraftIssues,
   isFillableShape,
+  radii,
   shapeBounds,
   TEXT_SHAPE_SIZE,
 } from '../utils/stencilSvg'
@@ -82,7 +83,7 @@ const {
 const DRAW_TOOLS = [
   { key: 'line', icon: 'pi pi-minus', tip: 'Линия' },
   { key: 'rect', icon: 'pi pi-stop', tip: 'Прямоугольник' },
-  { key: 'circle', icon: 'pi pi-circle', tip: 'Окружность' },
+  { key: 'circle', icon: 'pi pi-circle', tip: 'Эллипс (Shift — ровный круг)' },
   {
     key: 'polyline',
     icon: 'pi pi-chart-line',
@@ -120,10 +121,12 @@ const renderShapes = computed(() => {
     return st === 'always' || st === key
   })
   // Превью цвета состояния: тонируем обводку видимых фигур; заливку — только у
-  // фигур с авторским fill (как на экспорте: tms-state-fill). Совпадает с рантаймом.
+  // заливаемых (как на экспорте: tms-state-fill). Подпись не тонируем — в CSS
+  // экспорта текст исключён селектором, иначе превью врало бы про рантайм.
   const { stroke, fill } = normalizeStateColor(meta.stateColors?.[key])
   if (!stroke && !fill) return visible
   return visible.map((s) => {
+    if (s.type === 'text') return s
     const next = { ...s }
     if (stroke) next.stroke = stroke
     if (fill && isFillableShape(s)) next.fill = fill
@@ -331,6 +334,16 @@ const rulerTicksY = computed(() => rulerTicks(meta.height, originY.value, scale.
 watch([pxW, pxH, stageW, stageH], updateRuler, { flush: 'post' })
 
 // ─── Рисование жестами (rect/line/circle — drag; polyline — клики) ───
+// Зажат ли Shift: у эллипса он держит равные полуоси (ровный круг) и при
+// рисовании, и при ресайзе ручкой — в interact-колбэке самого события нет.
+const shiftHeld = ref(false)
+useEventListener(document, 'keydown', (e) => {
+  if (e.key === 'Shift') shiftHeld.value = true
+})
+useEventListener(document, 'keyup', (e) => {
+  if (e.key === 'Shift') shiftHeld.value = false
+})
+
 const drawing = ref(null) // { type, sx, sy, cx, cy } — тянущаяся фигура
 const polyPoints = ref([]) // накопленные вершины ломаной
 const polyCursor = ref(null) // «резинка» до курсора
@@ -406,9 +419,11 @@ function commitDrawing() {
     if (d.sx === d.cx && d.sy === d.cy) return
     addShape({ type: 'line', x1: d.sx, y1: d.sy, x2: d.cx, y2: d.cy })
   } else if (d.type === 'circle') {
-    const r = snapToGrid(Math.hypot(d.cx - d.sx, d.cy - d.sy), SHAPE_GRID)
-    if (r < SHAPE_GRID) return
-    addShape({ type: 'circle', cx: d.sx, cy: d.sy, r })
+    // Радиусы = полуоси габарита от центра (курсор идёт по границе), с Shift —
+    // равные: так один инструмент даёт и эллипс, и ровный круг.
+    const { rx, ry } = draftRadii(d)
+    if (rx < SHAPE_GRID || ry < SHAPE_GRID) return
+    addShape({ type: 'circle', cx: d.sx, cy: d.sy, rx, ry })
   }
 }
 
@@ -434,10 +449,19 @@ const draftRect = computed(() => {
     h: Math.abs(d.cy - d.sy),
   }
 })
-const draftCircleR = computed(() => {
+/** Полуоси тянущегося эллипса от центра; Shift — равные (ровный круг). */
+function draftRadii(d) {
+  const rx = snapToGrid(Math.abs(d.cx - d.sx), SHAPE_GRID)
+  const ry = snapToGrid(Math.abs(d.cy - d.sy), SHAPE_GRID)
+  if (!shiftHeld.value) return { rx, ry }
+  const r = Math.max(rx, ry)
+  return { rx: r, ry: r }
+}
+const draftEllipse = computed(() => {
   const d = drawing.value
-  if (d?.type !== 'circle') return 0
-  return Math.hypot(d.cx - d.sx, d.cy - d.sy)
+  if (d?.type !== 'circle') return null
+  const { rx, ry } = draftRadii(d)
+  return rx > 0 && ry > 0 ? { cx: d.sx, cy: d.sy, rx, ry } : null
 })
 const polyPreview = computed(() => {
   if (!polyPoints.value.length) return ''
@@ -517,7 +541,14 @@ const handles = computed(() => {
       { h: 'se', x: s.x + s.w, y: s.y + s.h },
     ]
   }
-  if (s.type === 'circle') return [{ h: 'r', x: s.cx + s.r, y: s.cy }]
+  if (s.type === 'circle') {
+    // Две ручки: правая тянет rx, нижняя ry (с Shift — обе, см. onHandleMove).
+    const { rx, ry } = radii(s)
+    return [
+      { h: 'rx', x: s.cx + rx, y: s.cy },
+      { h: 'ry', x: s.cx, y: s.cy + ry },
+    ]
+  }
   if (s.type === 'line') {
     return [
       { h: 'v0', x: s.x1, y: s.y1 },
@@ -565,8 +596,14 @@ function reshape(snap, hKey, cur) {
       h: Math.max(SHAPE_GRID, Math.abs(fixed.y - p.y)),
     })
   } else if (snap.type === 'circle') {
-    const r = Math.max(SHAPE_GRID, snapToGrid(Math.hypot(p.x - snap.cx, p.y - snap.cy), SHAPE_GRID))
-    updateShape(snap.id, { r })
+    const along = hKey === 'rx' ? Math.abs(p.x - snap.cx) : Math.abs(p.y - snap.cy)
+    const value = Math.max(SHAPE_GRID, snapToGrid(along, SHAPE_GRID))
+    // Shift — держим круг: тянем обе полуоси разом.
+    const both = shiftHeld.value
+    updateShape(
+      snap.id,
+      both ? { rx: value, ry: value } : hKey === 'rx' ? { rx: value } : { ry: value }
+    )
   } else if (snap.type === 'line') {
     updateShape(snap.id, hKey === 'v0' ? { x1: p.x, y1: p.y } : { x2: p.x, y2: p.y })
   } else if (snap.type === 'polyline') {
@@ -1027,11 +1064,12 @@ onBeforeUnmount(() => {
               stroke-dasharray="3 2"
               vector-effect="non-scaling-stroke"
             />
-            <circle
-              v-if="drawing?.type === 'circle' && draftCircleR > 0"
-              :cx="drawing.sx"
-              :cy="drawing.sy"
-              :r="draftCircleR"
+            <ellipse
+              v-if="draftEllipse"
+              :cx="draftEllipse.cx"
+              :cy="draftEllipse.cy"
+              :rx="draftEllipse.rx"
+              :ry="draftEllipse.ry"
               fill="none"
               :style="{ stroke: SEL_STROKE }"
               stroke-width="1"
