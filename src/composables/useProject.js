@@ -73,13 +73,31 @@ export function useProject({
   // Загрузить graphJson в живой холст + сброс undo под новую форму. Общий хвост
   // selectForm / createForm / deleteForm (когда меняется активная форма).
   function loadActiveIntoCanvas(graph, paper, json) {
+    let synced = { changed: 0, detached: [] }
     withRestoreGuard(restoringHistory, () => {
       graph.fromJSON(json || { cells: [] })
-      reinjectAllStencils(graph, paper)
+      // sync: символ могли править, пока форма была закрыта — её порты лежат в
+      // graphJson. initHistory ниже берёт уже сверенный граф за базу.
+      synced = reinjectAllStencils(graph, paper, { sync: true }) || synced
       canvas.bumpVersion()
     })
     initHistory()
     canvas.clearSelection()
+    reportDetached(synced)
+  }
+
+  /**
+   * Отцепленные при сверке концы — потеря соединения, о ней говорим прямо (порт
+   * удалили из символа, пока форма была закрыта). Сами провода на месте, поэтому
+   * это warn, а не error; молчать нельзя — иначе схема тихо разошлась бы со
+   * связями. Про обновление портов/габарита не сообщаем: это норма.
+   */
+  function reportDetached({ detached }) {
+    if (!detached.length) return
+    notify.warn(
+      'Символ изменился',
+      `Отцеплено ${nplural(detached.length, 'провод', 'провода', 'проводов')}: порт удалён — перецепите`
+    )
   }
 
   // Флаг «идёт экспорт проекта» — на время прогона форм через живой paper
@@ -355,7 +373,7 @@ export function useProject({
       const activeJson = workspace.getFormGraph(workspace.activeFormId) || { cells: [] }
       withRestoreGuard(restoringHistory, () => {
         graph.fromJSON(activeJson)
-        reinjectAllStencils(graph, paper)
+        reinjectAllStencils(graph, paper, { sync: true })
         canvas.bumpVersion()
       })
       initHistory()
@@ -420,10 +438,17 @@ export function useProject({
       for (const id of [...workspace.formIds]) {
         const json = workspace.getFormGraph(id) || { cells: [] }
         graphs.push(json)
+        let synced = { changed: 0, detached: [] }
         withRestoreGuard(restoringHistory, () => {
           graph.fromJSON(json)
-          reinjectAllStencils(graph, paper)
+          // sync: в .zip уходит форма, сверенная с реестром — иначе закрытая форма
+          // выгружалась бы с портами прежней версии символа.
+          synced = reinjectAllStencils(graph, paper, { sync: true }) || synced
         })
+        // Отцепленный конец меняет схему связей — в сводку предупреждений экспорта.
+        if (synced.detached.length) {
+          exportWarnings.push(`${id}: отцеплено проводов (порт удалён): ${synced.detached.length}`)
+        }
         await nextTick() // дать paper отрисовать линии (exporter читает их DOM-путь)
         const result = exportProject(graph, paper)
         formsOut.push({ id, viewSvg: result.svgText, animationsJson: result.animationsJson })

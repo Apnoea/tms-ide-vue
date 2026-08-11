@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { exportProject } from './exporter'
 import { parseSvgProject } from './projectLoader'
 import { LINK_Z } from '../stencils/linkDefaults'
+import { CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 
 // Мок-граф: минимальный интерфейс JointJS-graph'а, который дёргает exporter.
 // Не зависит от реального dia.Graph — тесты быстрые и не требуют jsdom-setup'а
@@ -603,6 +604,31 @@ describe('exportProject', () => {
     expect(cell?.tms.valueTag).toBe('A&B<C"D')
   })
 
+  it('cell_value: пробел в теге не даёт невалидный id, тег подписки сохраняется', () => {
+    // id по стандарту без пробелов, а рантайм ищет text-узел через getElementById:
+    // с пробелом карточка навсегда осталась бы с прочерком. В id пробел заменяем,
+    // в binding.tag тег идёт как есть — подписка на реальный сигнал не меняется.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const graph = mockGraph([
+      mockCell({ id: 'c1', stencilId: 'cell_value', valueTag: 'ПС 1.НАПРЯЖЕНИЕ A', w: 100, h: 18 }),
+    ])
+    const { svgText, animations, warnings } = exportProject(graph)
+    const key = 'animation-ПС_1.НАПРЯЖЕНИЕ_A'
+    // Ключ карточки и id узла в SVG совпадают — иначе рантайм не найдёт элемент.
+    expect(animations.animations).toHaveProperty(key)
+    expect(svgText).toContain(`id="${key}"`)
+    expect(svgText).not.toContain('id="animation-ПС 1')
+    expect(animations.animations[key].bindings[0].tag).toBe('ПС 1.НАПРЯЖЕНИЕ A')
+    // Молча не «чиним»: чаще это опечатка в tag-list'е, и тогда данные не придут
+    // по самой подписке.
+    expect(warnings.some((w) => w.includes('ПС 1.НАПРЯЖЕНИЕ A'))).toBe(true)
+    // Round-trip тега — по data-tms-meta, там он исходный.
+    expect(parseSvgProject(svgText).cells.find((c) => c.id === 'c1').tms.valueTag).toBe(
+      'ПС 1.НАПРЯЖЕНИЕ A'
+    )
+    warnSpy.mockRestore()
+  })
+
   it('warnings: два cell_value с одинаковым valueTag → дубль попадает в result.warnings', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const graph = mockGraph([
@@ -862,5 +888,96 @@ describe('exportProject', () => {
     // Тихий сдвиг в центр — тоже в warnings.
     expect(result.warnings.some((w) => w.includes('ghost'))).toBe(true)
     warn.mockRestore()
+  })
+
+  // Образец на КАЖДОЕ tms-поле ячейки, заведомо не дефолтный (иначе `keep` его
+  // отсечёт). Ключа нет → тест падает: новое поле в CELL_META_FIELDS обязано
+  // получить образец и проехать round-trip, иначе оно теряется молча (exporter
+  // перечисляет поля в cellExports ВРУЧНУЮ — там и живёт риск забыть).
+  const CELL_SAMPLES = {
+    slots: { onoff: 'PS031VK001.ONOFF' },
+    text: 'Подпись',
+    fontSize: 18,
+    bold: true,
+    color: '#ff8800',
+    fontFamily: 'monospace',
+    align: 'right',
+    valueTag: 'PS031.VALUE',
+    valueLabel: 'Напряжение',
+    valueUnit: 'кВ',
+    decimals: 3,
+    locked: true,
+    flipH: true,
+    flipV: true,
+    groupId: 'grp-ab12cd34',
+    rangeSource: { tag: 'PS031.U', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
+    boolSource: { groups: [['BR1.ONOFF']] },
+    navigation: 'view_other',
+  }
+
+  it('инвариант: каждое поле CELL_META_FIELDS переживает экспорт → разбор', () => {
+    expect(CELL_META_FIELDS.filter((f) => !(f.key in CELL_SAMPLES)).map((f) => f.key)).toEqual([])
+    const graph = mockGraph([mockCell({ id: 'c1', stencilId: 'cell_qw', ...CELL_SAMPLES })])
+    const cell = parseSvgProject(exportProject(graph).svgText).cells.find(
+      (c) => c.type === 'tms.Stencil'
+    )
+    for (const f of CELL_META_FIELDS) {
+      // flag-поле пишется как `true`, значение не переносится.
+      expect(cell.tms[f.key], `поле ${f.key} не доехало`).toEqual(
+        f.flag ? true : CELL_SAMPLES[f.key]
+      )
+    }
+  })
+
+  const LINK_SAMPLES = {
+    rangeSource: { tag: 'PS031.U', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
+    boolSource: { groups: [['BR1.ONOFF']] },
+    strokeWidth: 4,
+    strokeColor: '#ff0000',
+  }
+
+  it('инвариант: каждое поле LINK_META_FIELDS переживает экспорт → разбор', () => {
+    expect(LINK_META_FIELDS.filter((f) => !(f.key in LINK_SAMPLES)).map((f) => f.key)).toEqual([])
+    const graph = mockGraph(
+      [
+        mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 }),
+        mockCell({ id: 'c2', stencilId: 'cell_qw', x: 100, y: 100, w: 20, h: 20 }),
+      ],
+      [
+        mockLink({
+          id: 'l1',
+          source: { id: 'c1', port: 'right' },
+          target: { id: 'c2', port: 'left' },
+          tms: { ...LINK_SAMPLES },
+        }),
+      ]
+    )
+    const link = parseSvgProject(exportProject(graph).svgText).cells.find(
+      (c) => c.type === 'standard.Link'
+    )
+    for (const f of LINK_META_FIELDS) {
+      expect(link.tms[f.key], `поле ${f.key} не доехало`).toEqual(LINK_SAMPLES[f.key])
+    }
+  })
+
+  it('враждебные значения meta нормализуются на ЗАПИСИ (не только на чтении)', () => {
+    // Мусор попадает в модель и из чужого архива, и через правку графа в IDB —
+    // экспорт обязан отдать уже вычищенное, иначе рантайм получит `toFixed(500)`.
+    const graph = mockGraph([
+      mockCell({
+        id: 'c1',
+        stencilId: 'cell_value',
+        valueTag: 'PS031.VALUE',
+        decimals: 500,
+        fontSize: 'huge',
+        align: 'sideways',
+      }),
+    ])
+    const cell = parseSvgProject(exportProject(graph).svgText).cells.find(
+      (c) => c.type === 'tms.Stencil'
+    )
+    expect(cell.tms.decimals).toBe(20)
+    expect(cell.tms.fontSize).toBeUndefined()
+    expect(cell.tms.align).toBeUndefined()
   })
 })

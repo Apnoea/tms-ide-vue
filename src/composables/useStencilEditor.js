@@ -21,6 +21,7 @@ import {
   cropToContent,
   parseStencilSvg,
   translateShape,
+  portSeqFrom,
 } from '../utils/stencilSvg'
 import { normalizeStateColor } from '../constants/animation'
 
@@ -79,6 +80,12 @@ export function createStencilEditor() {
     // состояние меняет только видимость. Обесточивание (серый) остаётся на холсте
     // и бьёт этот цвет (см. CSS-приоритет в exporter).
     stateColors: {},
+    // Сколько имён портов уже выдано. Имя порта — ВЕЧНЫЙ ключ: по нему провод
+    // держится за порт, и оно уезжает в `data-tms-meta` экспорта. Поэтому имена
+    // не переиспользуются: удалил последний порт и добавил новый — он получит
+    // следующее имя, а не освободившееся. Иначе провод, оставшийся на прежнем
+    // имени в другой форме, сел бы на новый порт в другом месте символа.
+    portSeq: 0,
   })
   const shapes = ref([])
   const ports = ref([])
@@ -435,7 +442,8 @@ export function createStencilEditor() {
   function addPort(x, y) {
     const { x: px, y: py } = portOnEdge(x, y)
     if (ports.value.some((p) => p.x === px && p.y === py)) return null
-    const port = { id: nextId(), name: `p${ports.value.length + 1}`, x: px, y: py }
+    meta.portSeq += 1
+    const port = { id: nextId(), name: `p${meta.portSeq}`, x: px, y: py }
     ports.value = [...ports.value, port]
     commit()
     return port
@@ -478,6 +486,9 @@ export function createStencilEditor() {
     // Присваиваем внутренние id — без них не работают выделение/ручки/удаление.
     shapes.value = parseStencilSvg(def.svgText).map((s) => ({ id: nextId(), ...s }))
     ports.value = (def.ports || []).map((p) => ({ id: nextId(), name: p.name, x: p.x, y: p.y }))
+    // У символов, сохранённых до появления счётчика, поля нет — стартуем от
+    // наибольшего выданного имени, чтобы не отдать занятое.
+    meta.portSeq = Math.max(def.portSeq || 0, portSeqFrom(def.ports))
     selectedIds.value = []
     tool.value = 'select'
     previewState.value = 'all' // превью прошлого черновика ссылалось на чужие состояния
@@ -502,6 +513,7 @@ export function createStencilEditor() {
     meta.stateSlot = boolSlot()
     meta.states = []
     meta.stateColors = {}
+    meta.portSeq = 0
     previewState.value = 'all'
     shapes.value = []
     ports.value = []

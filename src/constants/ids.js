@@ -11,6 +11,29 @@
 import { LEGACY_RANGE_KEY, LEGACY_BOOL_KEY } from '../services/legacyFormat'
 import { SVG_FONT, normalizeFont } from '../utils/textMetrics'
 
+/**
+ * Санитайзеры значений meta. `normalize` в дескрипторе применяется на ОБОИХ концах
+ * round-trip'а, поэтому мусор из чужого архива не попадает ни в модель, ни в
+ * экспорт: `fontSize: "huge"` ломал замер габарита, `decimals: 500` — валил
+ * `toFixed` в рантайме (допустимо 0..100), нечисловой порог уезжал в карточку.
+ */
+const clampNumber = (min, max, fallback) => (v) => {
+  const n = typeof v === 'number' ? v : Number.parseFloat(v)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, n))
+}
+const oneOf = (values, fallback) => (v) => (values.includes(v) ? v : fallback)
+/** Границы диапазонов приводим к числам; нечисловая граница = «порога нет». */
+const normalizeRangeSource = (v) => {
+  if (!v || typeof v !== 'object') return v
+  if (!Array.isArray(v.ranges)) return v
+  const bound = (x) => {
+    const n = typeof x === 'number' ? x : Number.parseFloat(x)
+    return Number.isFinite(n) ? n : undefined
+  }
+  return { ...v, ranges: v.ranges.map((r) => ({ ...r, min: bound(r?.min), max: bound(r?.max) })) }
+}
+
 // Без export: наружу торчат только key-билдеры ниже.
 const ANIM_PREFIX = 'animation-'
 const WIRE_PREFIX = 'animation-wire-'
@@ -32,6 +55,17 @@ export const ATTR_SUFFIX = 'data-anim-suffix'
 export const STENCIL_ID_RE = /^[a-z0-9_]+$/
 
 /**
+ * Тег в роли id: whitespace → `_`. Нужно только cell_value — у него id узла равен
+ * тегу (рантайм-конвенция, поиск через `getElementById`), а id по стандарту не
+ * может содержать пробелов: с пробелом узел не находится и карточка навсегда с
+ * прочерком. Тег внутри `bindings[].tag` остаётся ИСХОДНЫМ — подписка идёт на
+ * реальный сигнал, переименовывается только адрес узла в DOM.
+ */
+export function idSafeTag(tag) {
+  return String(tag).replace(/\s+/g, '_')
+}
+
+/**
  * tms-поля ЯЧЕЙКИ для round-trip через `data-tms-meta` — единый список для записи
  * (exporter) и чтения (projectLoader): забыть одну сторону = тихая потеря поля.
  *
@@ -46,25 +80,34 @@ export const STENCIL_ID_RE = /^[a-z0-9_]+$/
 export const CELL_META_FIELDS = [
   { key: 'slots', keep: Boolean, clone: true },
   { key: 'text', keep: (v) => v !== undefined },
-  { key: 'fontSize', keep: (v) => v !== undefined },
+  { key: 'fontSize', keep: (v) => v !== undefined, normalize: clampNumber(1, 400, undefined) },
   { key: 'bold', keep: (v) => v !== undefined },
   { key: 'color', keep: (v) => v !== undefined },
   // Шрифт cell_text. `normalize` гоняет значение через whitelist на обоих концах
   // round-trip'а. Дефолт (SVG_FONT) не пишем — отсутствие = он же.
   { key: 'fontFamily', keep: (v) => v !== undefined && v !== SVG_FONT, normalize: normalizeFont },
   // 'left' — дефолт (отсутствие = left), в meta не пишем.
-  { key: 'align', keep: (v) => v !== undefined && v !== 'left' },
+  {
+    key: 'align',
+    keep: (v) => v !== undefined && v !== 'left',
+    normalize: oneOf(['left', 'center', 'right'], undefined),
+  },
   { key: 'valueTag', keep: (v) => v !== undefined },
   // Подпись и единица cell_value — вписывает автор. Пустые не пишем.
   { key: 'valueLabel', keep: Boolean },
   { key: 'valueUnit', keep: Boolean },
   // Знаков после запятой у cell_value. Пустое = дефолт (VALUE_DECIMALS_DEFAULT).
-  { key: 'decimals', keep: (v) => Number.isFinite(v) },
+  { key: 'decimals', keep: (v) => Number.isFinite(v), normalize: clampNumber(0, 20, undefined) },
   { key: 'locked', keep: Boolean, flag: true },
   { key: 'flipH', keep: Boolean, flag: true },
   { key: 'flipV', keep: Boolean, flag: true },
   { key: 'groupId', keep: Boolean },
-  { key: 'rangeSource', keep: Boolean, legacyKey: LEGACY_RANGE_KEY },
+  {
+    key: 'rangeSource',
+    keep: Boolean,
+    legacyKey: LEGACY_RANGE_KEY,
+    normalize: normalizeRangeSource,
+  },
   { key: 'boolSource', keep: Boolean, legacyKey: LEGACY_BOOL_KEY },
   { key: 'navigation', keep: Boolean },
 ]
@@ -78,7 +121,12 @@ export const CELL_META_FIELDS = [
 export const LINK_META_FIELDS = [
   { key: 'rangeSource', keep: Boolean, legacyKey: LEGACY_RANGE_KEY },
   { key: 'boolSource', keep: Boolean, legacyKey: LEGACY_BOOL_KEY },
-  { key: 'strokeWidth', keep: Boolean, attr: 'strokeWidth' },
+  {
+    key: 'strokeWidth',
+    keep: Boolean,
+    attr: 'strokeWidth',
+    normalize: clampNumber(0.5, 40, undefined),
+  },
   { key: 'strokeColor', keep: Boolean, attr: 'stroke' },
 ]
 

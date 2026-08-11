@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { withSetup, makeMockCanvas } from './test-utils'
 import { dia, shapes } from '@joint/core'
 import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'
+import { LINK_Z } from '../stencils/linkDefaults'
 
 const mockToast = { add: vi.fn() }
 vi.mock('primevue/usetoast', () => ({ useToast: () => mockToast }))
@@ -163,6 +164,31 @@ describe('useClipboard', () => {
 
     const newLink = graph.getLinks().find((l) => l.id !== link.id)
     expect(newLink.get('vertices')).toEqual([{ x: 70, y: 50 }])
+  })
+
+  it('paste: место bridge-провода в полосе z сохраняется', () => {
+    // Провод поднимают ради мостика над соседом (jumpover рисует его тому, кто в
+    // коллекции позже). Копия обязана огибать так же, иначе «поднял и продублировал»
+    // молча теряет выбор автора.
+    const a = makeCell({ x: 0 })
+    const b = makeCell({ x: 100 })
+    const link = new shapes.standard.Link({
+      source: { id: a.id, port: 'p1' },
+      target: { id: b.id, port: 'p1' },
+    })
+    graph.addCells([a, b, link])
+    link.set('z', LINK_Z + 5)
+    mockCanvas.selection.value = [
+      { kind: 'cell', id: a.id },
+      { kind: 'cell', id: b.id },
+    ]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+
+    const newLink = graph.getLinks().find((l) => l.id !== link.id)
+    expect(newLink.get('z')).toBe(LINK_Z + 5)
   })
 
   it('paste: rotated cell сохраняет angle', () => {

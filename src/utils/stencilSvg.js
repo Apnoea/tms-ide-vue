@@ -301,43 +301,44 @@ function isRounded(el) {
   )
 }
 
+/**
+ * Разбор одного элемента. Возвращает null, если у фигуры нет ОБЯЗАТЕЛЬНЫХ размеров:
+ * чужой `<rect x="0" y="0"/>` иначе дал бы `w: NaN`, и при пересохранении символа в
+ * файл уехало бы `width="NaN"` — символ ломается молча. Координаты необязательны
+ * (по SVG их дефолт — 0), поэтому у них fallback, а не отбраковка.
+ */
 function elementToShape(el) {
-  const n = (a) => Number.parseFloat(el.getAttribute(a))
+  const n = (a, fallback = 0) => {
+    const v = Number.parseFloat(el.getAttribute(a))
+    return Number.isFinite(v) ? v : fallback
+  }
+  // Размер, без которого фигуры не существует: NaN/отсутствие → null.
+  const size = (a) => {
+    const v = Number.parseFloat(el.getAttribute(a))
+    return Number.isFinite(v) && v > 0 ? v : null
+  }
   const fill = el.getAttribute('fill') || 'none'
   switch (el.tagName.toLowerCase()) {
-    case 'rect':
-      return {
-        type: 'rect',
-        x: n('x'),
-        y: n('y'),
-        w: n('width'),
-        h: n('height'),
-        fill,
-        ...readStroke(el),
-      }
+    case 'rect': {
+      const w = size('width')
+      const h = size('height')
+      if (w === null || h === null) return null
+      return { type: 'rect', x: n('x'), y: n('y'), w, h, fill, ...readStroke(el) }
+    }
     case 'line':
       return { type: 'line', x1: n('x1'), y1: n('y1'), x2: n('x2'), y2: n('y2'), ...readStroke(el) }
-    case 'circle':
+    case 'circle': {
       // Единый тип для круга и эллипса: круг = равные радиусы.
-      return {
-        type: 'circle',
-        cx: n('cx'),
-        cy: n('cy'),
-        rx: n('r'),
-        ry: n('r'),
-        fill,
-        ...readStroke(el),
-      }
-    case 'ellipse':
-      return {
-        type: 'circle',
-        cx: n('cx'),
-        cy: n('cy'),
-        rx: n('rx'),
-        ry: n('ry'),
-        fill,
-        ...readStroke(el),
-      }
+      const r = size('r')
+      if (r === null) return null
+      return { type: 'circle', cx: n('cx'), cy: n('cy'), rx: r, ry: r, fill, ...readStroke(el) }
+    }
+    case 'ellipse': {
+      const rx = size('rx')
+      const ry = size('ry')
+      if (rx === null || ry === null) return null
+      return { type: 'circle', cx: n('cx'), cy: n('cy'), rx, ry, fill, ...readStroke(el) }
+    }
     case 'polyline':
     case 'polygon': {
       const points = (el.getAttribute('points') || '')
@@ -357,7 +358,7 @@ function elementToShape(el) {
         x: n('x'),
         y: n('y'),
         text: (el.textContent || '').trim(),
-        fontSize: n('font-size') || TEXT_SHAPE_SIZE,
+        fontSize: size('font-size') ?? TEXT_SHAPE_SIZE,
         // Чужой shape.svg мог принести любой шрифт — берём только из whitelist,
         // иначе замер (canvas) считал бы одним, а панель рисовала другим.
         fontFamily: normalizeFont(el.getAttribute('font-family')),
@@ -449,6 +450,20 @@ function stateCard(idSuffix, tag, hideOn) {
 }
 
 /**
+ * Наибольший номер в именах портов вида `pN`. Fallback для символов, сохранённых
+ * до появления `portSeq`: продолжаем нумерацию от максимума, а не от количества
+ * (порты могли удаляться, и `p{count+1}` совпал бы с живым портом).
+ */
+export function portSeqFrom(ports) {
+  let max = 0
+  for (const p of ports || []) {
+    const n = Number.parseInt(String(p?.name || '').replace(/^p/, ''), 10)
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  return max
+}
+
+/**
  * Модель → объект stencil.json. ports включаем только непустыми — стенсил без
  * портов валиден (декор). Анимация состояния (при `stateful`) — по режиму:
  * булев (slot onoff + карточки `.true`/`.false`) либо «по значению» (slot value +
@@ -471,6 +486,11 @@ export function buildStencilJson(meta, ports, shapes = []) {
   if (meta.quality) json.quality = true
   if (ports?.length) {
     json.ports = ports.map((p) => ({ name: p.name, x: p.x, y: p.y }))
+    // Счётчик выданных имён — часть данных символа: без него следующая правка
+    // выдала бы имя удалённого порта, и провод в другой форме сел бы на новый
+    // порт. Берём максимум из счётчика и фактических имён — модель могла прийти
+    // из символа, сохранённого до появления поля.
+    json.portSeq = Math.max(meta.portSeq || 0, portSeqFrom(ports))
   }
   if (meta.stateful) {
     if (meta.stateMode === 'value') buildValueState(json, meta, shapes)

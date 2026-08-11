@@ -283,6 +283,40 @@ describe('useStencilEditor', () => {
     expect(ed.ports.value).toHaveLength(1)
   })
 
+  it('имена портов не переиспользуются после удаления', () => {
+    // Имя — вечный ключ: по нему провод держится за порт и оно уезжает в
+    // data-tms-meta экспорта. Выдай его повторно — провод в другой форме сядет на
+    // новый порт в другом месте символа.
+    const ed = createStencilEditor()
+    ed.addPort(0, 0)
+    ed.addPort(10, 0)
+    const p3 = ed.addPort(20, 0)
+    ed.removePort(p3.id) // удалён ПОСЛЕДНИЙ — max по именам дал бы снова p3
+    expect(ed.addPort(30, 0).name).toBe('p4')
+    // Дырка в середине тоже не переиспользуется.
+    ed.removePort(ed.ports.value.find((p) => p.name === 'p2').id)
+    expect(ed.addPort(40, 10).name).toBe('p5')
+    expect(ed.output().json.portSeq).toBe(5)
+  })
+
+  it('правка символа без portSeq продолжает нумерацию от максимума имён', () => {
+    // Символы, сохранённые до появления счётчика: поля нет, но занятые имена есть.
+    const ed = createStencilEditor()
+    ed.loadStencil({
+      id: 'cell_x',
+      label: 'X',
+      category: 'C',
+      width: 40,
+      height: 40,
+      ports: [
+        { name: 'p1', x: 0, y: 0 },
+        { name: 'p7', x: 40, y: 0 },
+      ],
+      svgText: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><g/></svg>',
+    })
+    expect(ed.addPort(10, 0).name).toBe('p8')
+  })
+
   it('movePort снапит к сетке и держит порт на границе', () => {
     const ed = createStencilEditor() // 40×40
     const p = ed.addPort(0, 0)

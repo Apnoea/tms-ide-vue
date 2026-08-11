@@ -103,7 +103,10 @@ export function useAutosave({ restoringHistory }) {
     const activeJson = workspace.getFormGraph(workspace.activeFormId) || { cells: [] }
     return withRestoreGuard(restoringHistory, () => {
       graph.fromJSON(activeJson)
-      reinjectAllStencils(graph, paper)
+      // sync: порты/габарит экземпляров сверяем с реестром (символ мог быть правлен
+      // в прошлой сессии, а форма хранит порты той версии). Оверрайды символов
+      // подняты выше, поэтому реестр здесь уже актуален.
+      reinjectAllStencils(graph, paper, { sync: true })
       // fromJSON делает silent reset — 'add'/'remove' не летят, бампаем явно.
       canvas.bumpVersion()
       return graph.getElements().length

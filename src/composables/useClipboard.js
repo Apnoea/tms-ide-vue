@@ -2,7 +2,7 @@ import { shallowRef } from 'vue'
 import { shapes } from '@joint/core'
 import { getStencilById } from '../stencils/registry'
 import { materializeStencil } from '../stencils/svgInjector'
-import { LINK_DEFAULTS, linkStyleAttrs } from '../stencils/linkDefaults'
+import { LINK_DEFAULTS, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkDefaults'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
 import { useCanvas, genGroupId } from './useCanvas'
@@ -76,6 +76,10 @@ export function useClipboard({ scheduleSnapshot }) {
         targetCellId: tgt.id,
         // Ручные изломы — иначе выправленный маршрут спрямился бы на paste'е.
         vertices: (link.get('vertices') || []).map((v) => ({ x: v.x, y: v.y })),
+        // Место в полосе проводов. В отличие от ячеек (там копия ложится сверху)
+        // z переносим абсолютным: полоса фиксирована, а «кто кого огибает» —
+        // осознанный выбор автора, и копия обязана огибать так же.
+        z: link.get('z'),
         tms: link.get('tms') ? JSON.parse(JSON.stringify(link.get('tms'))) : null,
       })
     }
@@ -161,6 +165,9 @@ export function useClipboard({ scheduleSnapshot }) {
           ? { vertices: linkSnap.vertices.map((v) => ({ x: v.x + offset, y: v.y + offset })) }
           : {}),
         ...(linkSnap.tms ? { tms: linkSnap.tms } : {}),
+        // Порядок в полосе (см. снимок): add-хендлер холста пропускает значение
+        // из полосы как есть, всё прочее уводит на дно.
+        z: normalizeLinkZ(linkSnap.z),
         // Стиль линии (толщина/цвет) живёт в tms — дублируем в attrs.line, иначе
         // копия рисуется дефолтной (см. linkStyleAttrs).
         ...(linkStyleAttrs(linkSnap.tms) ? { attrs: linkStyleAttrs(linkSnap.tms) } : {}),

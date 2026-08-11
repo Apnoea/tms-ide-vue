@@ -6,6 +6,7 @@ import {
   cropToContent,
   parseStencilSvg,
   shapeBounds,
+  TEXT_SHAPE_SIZE,
 } from './stencilSvg'
 
 describe('serializeSvg', () => {
@@ -859,6 +860,31 @@ describe('скругление (rounded)', () => {
     const svg = serializeSvg([shape], { width: 10, height: 10 })
     expect(svg).toContain('stroke-linecap="round"')
     expect(parseStencilSvg(svg)).toEqual([shape])
+  })
+
+  it('фигура без обязательных размеров отбраковывается при разборе', () => {
+    // shape.svg приходит из чужого .zip и рукописных символов: `<rect>` без
+    // width дал бы `w: NaN`, и на сохранении символа в файл уехало бы
+    // `width="NaN"` — символ ломается молча. Координаты по SVG-дефолту 0,
+    // поэтому у них fallback, а не отбраковка.
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+      <rect x="0" y="0" height="10" fill="none" stroke="#000" stroke-width="2"/>
+      <circle cx="5" cy="5" fill="none" stroke="#000" stroke-width="2"/>
+      <ellipse cx="5" cy="5" rx="4" fill="none" stroke="#000" stroke-width="2"/>
+      <line y1="0" x2="10" y2="0" stroke="#000" stroke-width="2"/>
+    </svg>`
+    const parsed = parseStencilSvg(svg)
+    // Осталась только линия — с x1 по дефолту 0.
+    expect(parsed).toEqual([
+      { type: 'line', x1: 0, y1: 0, x2: 10, y2: 0, stroke: '#000', strokeWidth: 2 },
+    ])
+  })
+
+  it('нечисловой font-size подписи откатывается к дефолту', () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+      <text x="10" y="10" font-size="huge" text-anchor="middle" fill="#000">ВКЛ</text>
+    </svg>`
+    expect(parseStencilSvg(svg)[0].fontSize).toBe(TEXT_SHAPE_SIZE)
   })
 
   it('без rounded — атрибутов скругления нет', () => {

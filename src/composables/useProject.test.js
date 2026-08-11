@@ -8,7 +8,10 @@ import { dia } from '@joint/core'
 import { tmsNamespace } from '../stencils/tmsStencil'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 
-vi.mock('../stencils/svgInjector', () => ({ reinjectAllStencils: vi.fn() }))
+// Отчёт сверки портов возвращаем как настоящая функция — вызывающий читает detached.
+vi.mock('../stencils/svgInjector', () => ({
+  reinjectAllStencils: vi.fn(() => ({ changed: 0, detached: [] })),
+}))
 // registerStencil возвращает успех: false = id стенсила вне маски (реальный
 // реестр отклоняет такие), поэтому по умолчанию true.
 vi.mock('../stencils/registry', () => ({

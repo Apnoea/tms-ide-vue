@@ -33,7 +33,8 @@ import { confirmDanger } from '../utils/confirmDanger'
 import { range, rangeFromTo, gridLineColor, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
 import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
-import { reinjectAllStencils } from '../stencils/svgInjector'
+import { syncStencilInstances } from '../stencils/svgInjector'
+import { nplural } from '../utils/plural'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
 import { upsertStencilOverride } from '../services/stencilOverrides'
 import { useStencilEditor, SHAPE_GRID, PORT_GRID } from '../composables/useStencilEditor'
@@ -228,28 +229,29 @@ async function save() {
   }
 
   if (editing) {
-    reinjectAllStencils(canvas.graphRef.value, canvas.paperRef.value)
+    // Экземпляры на холсте подтягивают новую версию символа целиком: рисунок,
+    // порты, габарит. Одной операцией → один шаг undo (Ctrl+Z откатывает правку у
+    // всех сразу). Закрытые формы сверяются при открытии (reinjectAllStencils
+    // с `sync`) — их порты лежат в сохранённом graphJson.
+    const { changed, detached } = syncStencilInstances(
+      canvas.graphRef.value,
+      canvas.paperRef.value,
+      getStencilById(json.id),
+      prev
+    )
     canvas.bumpVersion()
-    // Размер/порты у уже расставленных экземпляров не пересоздаются (они baked в
-    // graphJson формы) — предупреждаем КОНКРЕТНО, что разошлось. Размер мог
-    // измениться и без правки полей: `output()` обрезает холст до bbox контента.
-    const sizeChanged = prev && (prev.width !== json.width || prev.height !== json.height)
-    const portsChanged =
-      prev && JSON.stringify(prev.ports || []) !== JSON.stringify(json.ports || [])
-    if (sizeChanged || portsChanged) {
-      const what = [
-        sizeChanged ? `размер ${prev.width}×${prev.height} → ${json.width}×${json.height}` : null,
-        portsChanged ? 'порты' : null,
-      ]
-        .filter(Boolean)
-        .join(', ')
-      notify.warn(
-        'Символ обновлён',
-        `Изменилось: ${what}. У расставленных экземпляров прежняя геометрия — переставьте при необходимости`
-      )
-    } else {
-      notify.success('Символ обновлён', json.id)
+    if (changed || detached.length) canvas.requestSnapshot()
+    // Отцепленные концы выделяем — иначе искать их по схеме глазами.
+    if (detached.length) canvas.setSelection(detached.map((id) => ({ kind: 'link', id })))
+    const what = []
+    if (changed) what.push(`обновлено ${nplural(changed, 'символ', 'символа', 'символов')}`)
+    if (detached.length) {
+      what.push(`отцеплено ${nplural(detached.length, 'провод', 'провода', 'проводов')}`)
     }
+    // Отцепленный провод — потеря соединения, это warn, а не success.
+    const detail = what.length ? what.join(', ') : json.id
+    if (detached.length) notify.warn('Символ обновлён', `${detail} — порт удалён, перецепите`)
+    else notify.success('Символ обновлён', detail)
   } else if (ok) {
     notify.success('Символ создан', json.id)
   } else {

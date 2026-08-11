@@ -260,6 +260,11 @@ export function useSimulation() {
     clearInterval(simIntervalId)
     simIntervalId = null
     if (simulating.value) clearSimClasses()
+    // Свой <style> снимаем сами: он живёт в document.head, а не в дереве компонента,
+    // и переживал бы unmount. Правила scope'нуты `.tms-simulating`, но после HMR
+    // они собраны по УСТАРЕВШИМ stateColors — следующий старт пересоберёт, а до
+    // него в head висел бы мусор.
+    document.getElementById(SIM_CSS_ID)?.remove()
   })
 
   return { simulating, toggleSimulation, stopSimulation }

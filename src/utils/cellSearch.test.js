@@ -43,6 +43,17 @@ describe('getCellSearchStrings', () => {
     expect(getCellSearchStrings(cell)).toContain('СШ-110')
   })
 
+  it('подхватывает подпись и единицу cell_value', () => {
+    // Их вписывает автор от руки, и на схеме видно именно их — искать «Ua»
+    // логичнее, чем помнить тег.
+    const cell = makeCell({ stencilId: 'cell_value', valueLabel: 'Ua', valueUnit: 'кВ' })
+    expect(getCellSearchStrings(cell)).toEqual(expect.arrayContaining(['Ua', 'кВ']))
+    expect(cellMatchesQuery(cell, 'ua')).toBe(true)
+    // В tag-поля они не попадают: подпись не сигнал (иначе highlight по тегу
+    // подсветил бы ячейку по её же надписи).
+    expect(getCellTags(cell)).toEqual([])
+  })
+
   it('подхватывает navigation (целевая view)', () => {
     const cell = makeCell({ navigation: 'view_substation_a' })
     expect(getCellSearchStrings(cell)).toContain('view_substation_a')

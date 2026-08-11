@@ -84,6 +84,10 @@ export function parseSvgProject(svgText) {
         const raw = meta[f.key] ?? (f.legacyKey ? meta[f.legacyKey] : undefined)
         if (raw === undefined) continue
         const v = f.normalize ? f.normalize(raw) : raw
+        // normalize отдал undefined = значение не спасти (нечисловой размер шрифта,
+        // неизвестный якорь): ключ не пишем вовсе, иначе в tms поселился бы
+        // undefined и уехал в следующий экспорт как «поле есть, значения нет».
+        if (v === undefined) continue
         tms[f.key] = f.clone ? { ...v } : v
       }
 
@@ -97,10 +101,13 @@ export function parseSvgProject(svgText) {
       }
       // JointJS пишет angle в верхнее поле cell.toJSON() — там же его и читает
       // в fromJSON. Применится автоматически как transform на outer-`<g>`.
-      if (meta.angle) cellJson.angle = meta.angle
-      // z — поле верхнего уровня JointJS, как angle. Дно 0: отрицательный z из
-      // чужого архива утащил бы символ под провода.
-      if (meta.z != null) cellJson.z = Math.max(0, meta.z)
+      // Числа из чужого архива проверяем: NaN в z ломает сортировку коллекции,
+      // «1e9» в angle — бессмысленный поворот. angle приводим к 0..359, z клампим
+      // нулём снизу (отрицательный утащил бы символ под провода).
+      const angle = Number.parseFloat(meta.angle)
+      if (Number.isFinite(angle) && angle % 360 !== 0) cellJson.angle = ((angle % 360) + 360) % 360
+      const z = Number.parseFloat(meta.z)
+      if (Number.isFinite(z)) cellJson.z = Math.max(0, z)
       cells.push(cellJson)
       elementIds.add(meta.id)
     } catch (e) {

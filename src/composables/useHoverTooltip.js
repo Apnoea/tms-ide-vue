@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, onScopeDispose } from 'vue'
 import { useCanvas } from './useCanvas'
 import { getStencilById } from '../stencils/registry'
 import { projectToScreen } from '../utils/paperGeom'
@@ -65,6 +65,11 @@ export function useHoverTooltip({ suppress } = {}) {
     clearTimeout(hoverShowTimer)
     cellHoverTooltip.value = null
   }
+
+  // Таймер показа переживает размонтирование холста (mouseleave до него не
+  // приходит, если ячейку убрали из-под курсора программно): отложенный
+  // doShowCellTooltip читал бы мёртвый paper.
+  onScopeDispose(() => clearTimeout(hoverShowTimer))
 
   return { cellHoverTooltip, showCellTooltip, hideCellTooltip }
 }

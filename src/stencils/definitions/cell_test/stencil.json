@@ -4,12 +4,5 @@
   "category": "Тест",
   "shapeFile": "shape.svg",
   "width": 20,
-  "height": 20,
-  "ports": [
-    {
-      "name": "p1",
-      "x": 10,
-      "y": 0
-    }
-  ]
+  "height": 20
 }

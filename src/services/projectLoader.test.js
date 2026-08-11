@@ -218,6 +218,53 @@ describe('parseSvgProject', () => {
     expect(out.errors.length).toBeGreaterThan(0)
   })
 
+  it('чистит числовые/перечислимые поля чужой meta', () => {
+    // Архив приходит извне: `decimals: 500` валит `toFixed` в рантайме,
+    // нечисловой fontSize ломает замер габарита, неизвестный align — якорь роста.
+    const meta = {
+      id: 'c1',
+      stencilId: 'cell_value',
+      width: 60,
+      height: 20,
+      valueTag: 'PS031.VALUE',
+      decimals: 500,
+      fontSize: 'huge',
+      align: 'sideways',
+      fontFamily: 'Comic Sans MS',
+      rangeSource: { tag: 'PS031.U', ranges: [{ min: 'x', max: '5', class: 'animation-low' }] },
+    }
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      <g transform="translate(0,0)" data-tms-meta='${attr(meta)}'/>
+    </svg>`
+    const { tms } = parseSvgProject(svg).cells[0]
+    expect(tms.decimals).toBe(20)
+    expect(tms.fontSize).toBeUndefined()
+    expect(tms.align).toBeUndefined()
+    // Шрифт вне whitelist'а откатывается к дефолту, а не выбрасывается: панель
+    // WebScada всё равно нарисует им, и замер обязан совпасть с рендером.
+    expect(tms.fontFamily).toBe('sans-serif')
+    // Нечисловая граница = «порога нет», числовая строка приводится к числу.
+    expect(tms.rangeSource.ranges[0]).toEqual({ min: undefined, max: 5, class: 'animation-low' })
+  })
+
+  it('чистит angle/z ячейки (поля верхнего уровня JointJS)', () => {
+    const cellWith = (extra) => {
+      const meta = { id: 'c1', stencilId: 'cell_qw', width: 20, height: 20, ...extra }
+      return parseSvgProject(
+        `<svg xmlns="http://www.w3.org/2000/svg"><g transform="translate(0,0)" data-tms-meta='${attr(meta)}'/></svg>`
+      ).cells[0]
+    }
+    // Нечисловой z ломает сортировку коллекции JointJS, отрицательный утащил бы
+    // символ под провода (у них своя полоса).
+    expect(cellWith({ z: 'abc' }).z).toBeUndefined()
+    expect(cellWith({ z: -5 }).z).toBe(0)
+    // Угол приводим к 0..359: 725 = 5, 360 = «не повёрнут» (поле не пишем).
+    expect(cellWith({ angle: 725 }).angle).toBe(5)
+    expect(cellWith({ angle: -90 }).angle).toBe(270)
+    expect(cellWith({ angle: 360 }).angle).toBeUndefined()
+    expect(cellWith({ angle: 'boom' }).angle).toBeUndefined()
+  })
+
   it('пропускает ячейку без transform — пишет в errors', () => {
     const meta = {
       id: 'c1',

@@ -36,13 +36,16 @@ export function cellHasTag(cell, tag) {
 
 /**
  * Строки для Ctrl+F: теги + text (юзер помнит подпись на схеме, а не тег) +
- * navigation.
+ * navigation + подпись и единица cell_value (их вписывает автор от руки, и на
+ * схеме видно именно их — искать «Ua» логичнее, чем помнить тег).
  */
 export function getCellSearchStrings(cell) {
   const tms = cell.get('tms') || {}
   const strings = getCellTags(cell)
   if (tms.text) strings.push(String(tms.text))
   if (tms.navigation) strings.push(String(tms.navigation))
+  if (tms.valueLabel) strings.push(String(tms.valueLabel))
+  if (tms.valueUnit) strings.push(String(tms.valueUnit))
   return strings
 }
 

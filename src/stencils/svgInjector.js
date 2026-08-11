@@ -142,6 +142,118 @@ export function materializeStencil(graph, paper, stencil, { position, size, tms,
 }
 
 /**
+ * Точка порта в координатах холста (с учётом поворота ячейки). Нужна, чтобы
+ * отцепленный конец провода остался ровно там, где был порт: `args` в items — наши
+ * же локальные координаты, поэтому считаем по ним, а не спрашиваем paper.
+ */
+function portPoint(cell, portId) {
+  const item = (cell.get('ports')?.items || []).find((i) => i.id === portId)
+  const pos = cell.get('position')
+  const size = cell.get('size')
+  const px = pos.x + (item?.args?.x ?? size.width / 2)
+  const py = pos.y + (item?.args?.y ?? size.height / 2)
+  const angle = cell.angle ? cell.angle() : 0
+  if (!angle) return { x: px, y: py }
+  const cx = pos.x + size.width / 2
+  const cy = pos.y + size.height / 2
+  const rad = (angle * Math.PI) / 180
+  const dx = px - cx
+  const dy = py - cy
+  return {
+    x: cx + dx * Math.cos(rad) - dy * Math.sin(rad),
+    y: cy + dx * Math.sin(rad) + dy * Math.cos(rad),
+  }
+}
+
+/**
+ * Правка символа в редакторе → расставленные экземпляры на холсте. Обновляет то,
+ * что задаёт стенсил: набор и позиции портов, габарит, рисунок. Провода следуют за
+ * портом сами (ссылка по имени), поэтому «сдвинул порт» не требует ничего.
+ *
+ * Порт, которого в новой версии нет, оставил бы провод на несуществующей ссылке —
+ * такой конец ОТЦЕПЛЯЕМ в точку, где порт был: провод остаётся на схеме и виден,
+ * автор перецепит. Перевешивать на ближайший порт нельзя — это угадывание, а
+ * неверное соединение на мнемосхеме молча выглядит рабочим.
+ *
+ * Габарит задаёт определение символа — кроме тех, у кого он свой: шина (ресайз,
+ * `minWidth`) и подписи/значения (по содержимому, `static`). Когда доступна прежняя
+ * версия (правка символа), критерий точнее: размер, совпадавший с прежним, был
+ * дефолтным, а отличавшийся — выставлен пользователем и остаётся.
+ *
+ * @param {object} prev — определение ДО правки (null = сверка с реестром при загрузке формы)
+ * @returns {{changed: number, detached: string[]}} сколько экземпляров реально изменено и id отцепленных проводов
+ */
+export function syncStencilInstances(graph, paper, stencil, prev = null) {
+  const report = { changed: 0, detached: [] }
+  if (!graph || !stencil) return report
+  const cells = graph.getElements().filter((c) => c.get('tms')?.stencilId === stencil.id)
+  if (!cells.length) return report
+  const cellIds = new Set(cells.map((c) => c.id))
+  const portNames = new Set((stencil.ports || []).map((p) => p.name))
+
+  // Отцепляем ДО пересборки items — иначе позиция удалённого порта уже потеряна.
+  for (const link of graph.getLinks()) {
+    for (const end of ['source', 'target']) {
+      const ref = link.get(end)
+      if (!ref?.id || !ref.port || !cellIds.has(ref.id) || portNames.has(ref.port)) continue
+      link.set(end, portPoint(graph.getCell(ref.id), ref.port))
+      report.detached.push(link.id)
+    }
+  }
+
+  // Габарит экземпляра — свой у шины (ресайз) и подписей/значений (по содержимому).
+  const ownSize = !!stencil.minWidth || !!stencil.static
+  for (const cell of cells) {
+    const tms = cell.get('tms') || {}
+    const size = cell.get('size')
+    let { width, height } = size
+    let touched = false
+    const canResize = prev ? width === prev.width && height === prev.height : !ownSize
+    if (canResize && (width !== stencil.width || height !== stencil.height)) {
+      width = stencil.width
+      height = stencil.height
+      cell.resize(width, height)
+      touched = true
+    }
+    const items = buildPortItems(stencil, width, height, {
+      flipH: !!tms.flipH,
+      flipV: !!tms.flipV,
+    })
+    // Через port-manager, а НЕ `set('ports', {items})`: тот заменяет объект целиком
+    // и сносит `groups` из defaults TMSStencil, после чего JointJS падает на
+    // расчёте позиций портов (нет layout-колбэка группы). Тот же приём в
+    // useBusResize.syncBusPorts.
+    const wanted = new Set(items.map((i) => i.id))
+    for (const p of cell.getPorts()) {
+      if (!wanted.has(p.id)) {
+        cell.removePort(p.id)
+        touched = true
+      }
+    }
+    for (const item of items) {
+      if (!cell.hasPort(item.id)) {
+        cell.addPort(item)
+        touched = true
+        continue
+      }
+      const cur = cell.getPort(item.id)
+      if (cur.args?.x !== item.args.x) {
+        cell.portProp(item.id, 'args/x', item.args.x)
+        touched = true
+      }
+      if (cur.args?.y !== item.args.y) {
+        cell.portProp(item.id, 'args/y', item.args.y)
+        touched = true
+      }
+    }
+    const view = paper?.findViewByModel(cell)
+    if (view) injectStencilSvg(view, stencil)
+    if (touched) report.changed += 1
+  }
+  return report
+}
+
+/**
  * После `fromJSON` (restore, undo/redo, смена формы) cellView'ы пустые — JointJS не
  * знает наших стенсилов. Проходим элементы с `tms` и инъектим SVG заново; angle
  * восстанавливать не нужно, его JointJS держит на outer-`<g>`.
@@ -150,19 +262,45 @@ export function materializeStencil(graph, paper, stencil, { position, size, tms,
  * импортированных проектов z нет — линии легли бы поверх ячеек. Нормализация, а не
  * константа: порядок внутри полосы задаёт пользователь. Пишем только при
  * расхождении — иначе z дрейфит и ломает undo/redo (см. LINK_Z).
+ *
+ * `sync: true` — ЗАГРУЗКА формы (restore, смена формы, импорт, прогон при экспорте):
+ * заодно сверяем порты и габарит с реестром. Символ могли править, пока форма была
+ * закрыта, а её порты лежат в сохранённом graphJson — без сверки новый порт не
+ * появился бы до пересоздания символа руками. Для undo/redo флаг НЕ ставим: там
+ * граф обязан стать ровно снимком, иначе Ctrl+Z не откатит правку портов.
+ *
+ * @returns {{changed: number, detached: string[]}} итог сверки (нули без `sync`)
  */
-export function reinjectAllStencils(graph, paper) {
-  if (!graph || !paper) return
-  for (const cell of graph.getElements()) {
-    const tms = cell.get('tms')
-    if (!tms?.stencilId) continue
-    const stencil = getStencilById(tms.stencilId)
-    if (!stencil) continue
-    const cellView = paper.findViewByModel(cell)
-    if (cellView) injectStencilSvg(cellView, stencil)
+export function reinjectAllStencils(graph, paper, { sync = false } = {}) {
+  const report = { changed: 0, detached: [] }
+  if (!graph || !paper) return report
+  if (sync) {
+    for (const id of new Set(
+      graph
+        .getElements()
+        .map((c) => c.get('tms')?.stencilId)
+        .filter(Boolean)
+    )) {
+      const stencil = getStencilById(id)
+      if (!stencil) continue
+      // Инъекцию SVG делает она же — множество ячеек то же.
+      const r = syncStencilInstances(graph, paper, stencil)
+      report.changed += r.changed
+      report.detached.push(...r.detached)
+    }
+  } else {
+    for (const cell of graph.getElements()) {
+      const tms = cell.get('tms')
+      if (!tms?.stencilId) continue
+      const stencil = getStencilById(tms.stencilId)
+      if (!stencil) continue
+      const cellView = paper.findViewByModel(cell)
+      if (cellView) injectStencilSvg(cellView, stencil)
+    }
   }
   for (const link of graph.getLinks()) {
     const z = normalizeLinkZ(link.get('z'))
     if (link.get('z') !== z) link.set('z', z)
   }
+  return report
 }

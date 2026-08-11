@@ -19,6 +19,9 @@ export const useProjectStore = defineStore('project', () => {
   // не дублировать фильтр в компонентах.
   const booleanTags = computed(() => tags.value.filter((t) => isBooleanType(t.type)))
   const floatTags = computed(() => tags.value.filter((t) => isFloatType(t.type)))
+  // Имена Set'ом — чипы тегов проверяют «есть ли такой сигнал» на каждый рендер
+  // (см. utils/tagHealth), а tag-list бывает на тысячи строк.
+  const tagNames = computed(() => new Set(tags.value.map((t) => t.name)))
 
-  return { tags, setTags, booleanTags, floatTags }
+  return { tags, setTags, booleanTags, floatTags, tagNames }
 })

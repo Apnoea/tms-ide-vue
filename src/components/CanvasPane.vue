@@ -6,7 +6,7 @@ import ContextMenu from 'primevue/contextmenu'
 import Tag from 'primevue/tag'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
-import { LINK_Z, attachLinkTools } from '../stencils/linkDefaults'
+import { normalizeLinkZ, attachLinkTools } from '../stencils/linkDefaults'
 import { createCanvasGraph, createCanvasPaper } from '../stencils/canvasPaper'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
@@ -504,8 +504,11 @@ onMounted(async () => {
 
   // Линии — всегда за ячейками, чтобы порты не перекрывались линией в точке anchor.
   graph.on('add', (cell) => {
-    // Фиксированный LINK_Z, а не toBack(): тот даёт min-1 и уводил бы z в дрейф.
-    if (cell.isLink && cell.isLink()) cell.set('z', LINK_Z)
+    // Полоса проводов, а не `toBack()`: тот даёт min-1 и уводил бы z в дрейф.
+    // Через normalizeLinkZ, а не жёстким LINK_Z: у нарисованного мышью провода
+    // z авто-шный (вне полосы) и едет на дно, а осознанно заданный порядок
+    // (paste поднятого мостика) сохраняется — иначе копия падала бы под соседей.
+    if (cell.isLink && cell.isLink()) cell.set('z', normalizeLinkZ(cell.get('z')))
   })
 
   // Прокидываем graph/paper в composable ДО restoreProject — composable'ы

@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { dia, shapes } from '@joint/core'
-import { tmsNamespace } from './tmsStencil'
+import { TMSStencil, tmsNamespace } from './tmsStencil'
 import { LINK_Z, LINK_Z_TOP, normalizeLinkZ } from './linkDefaults'
-import { reinjectAllStencils, flipTransform, buildPortItems } from './svgInjector'
+import { getStencilById } from './registry'
+import {
+  reinjectAllStencils,
+  syncStencilInstances,
+  flipTransform,
+  buildPortItems,
+} from './svgInjector'
 
 describe('reinjectAllStencils: z проводов', () => {
   // Мок-paper: без view инъекция SVG пропускается, z-часть выполняется.
@@ -101,5 +107,201 @@ describe('buildPortItems flip', () => {
       { x: 5, y: 20 },
       { x: 35, y: 0 },
     ])
+  })
+})
+
+describe('syncStencilInstances', () => {
+  // Правка символа в редакторе → расставленные экземпляры. Без paper (view = null)
+  // инъекция SVG пропускается, модельная часть — порты/размер/провода — работает.
+  const paper = { findViewByModel: () => null }
+  const PREV = {
+    id: 'cell_x',
+    width: 40,
+    height: 20,
+    ports: [
+      { name: 'p1', x: 0, y: 10 },
+      { name: 'p2', x: 40, y: 10 },
+    ],
+  }
+
+  function graphWith(cellOpts = {}) {
+    const graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    const cell = new TMSStencil({
+      position: { x: 100, y: 100 },
+      size: { width: PREV.width, height: PREV.height },
+      tms: { stencilId: 'cell_x' },
+      ports: { items: buildPortItems(PREV, PREV.width, PREV.height) },
+      ...cellOpts,
+    })
+    graph.addCell(cell)
+    return { graph, cell }
+  }
+
+  it('сдвинутый порт: провод остаётся привязанным, позиция берётся из новой версии', () => {
+    const { graph, cell } = graphWith()
+    const link = new shapes.standard.Link({
+      source: { id: cell.id, port: 'p2' },
+      target: { x: 300, y: 100 },
+    })
+    graph.addCell(link)
+    const next = { ...PREV, ports: [PREV.ports[0], { name: 'p2', x: 40, y: 0 }] }
+
+    const report = syncStencilInstances(graph, paper, next, PREV)
+    expect(report).toEqual({ changed: 1, detached: [] })
+    // Ссылка по имени цела — провод сам поедет за портом.
+    expect(link.get('source')).toEqual({ id: cell.id, port: 'p2' })
+    expect(cell.getPortsPositions('port').p2).toMatchObject({ x: 40, y: 0 })
+  })
+
+  it('новый порт появляется у расставленных экземпляров и остаётся рабочим', () => {
+    const { graph, cell } = graphWith()
+    const next = { ...PREV, ports: [...PREV.ports, { name: 'p3', x: 20, y: 0 }] }
+    syncStencilInstances(graph, paper, next, PREV)
+    expect(cell.getPorts().map((p) => p.id)).toEqual(['p1', 'p2', 'p3'])
+    // `set('ports', {items})` заменил бы объект целиком и снёс `groups` из
+    // defaults TMSStencil: порт остался бы в items, но JointJS падал бы на
+    // расчёте позиций (нет layout-колбэка группы) — порты не рисуются.
+    expect(Object.keys(cell.get('ports').groups || {})).toEqual(['port'])
+    expect(cell.getPortsPositions('port')).toMatchObject({
+      p1: { x: 0, y: 10 },
+      p2: { x: 40, y: 10 },
+      p3: { x: 20, y: 0 },
+    })
+  })
+
+  it('удалённый порт: конец провода отцепляется в точку, где порт был', () => {
+    const { graph, cell } = graphWith()
+    const link = new shapes.standard.Link({
+      source: { id: cell.id, port: 'p2' },
+      target: { x: 300, y: 100 },
+    })
+    graph.addCell(link)
+    const next = { ...PREV, ports: [PREV.ports[0]] }
+
+    const report = syncStencilInstances(graph, paper, next, PREV)
+    expect(report.detached).toEqual([link.id])
+    // Провод не исчез и не переехал: конец стоит там, где был порт (100+40, 100+10).
+    expect(link.get('source')).toEqual({ x: 140, y: 110 })
+    expect(cell.getPorts().map((p) => p.id)).toEqual(['p1'])
+  })
+
+  it('отцепление учитывает поворот экземпляра', () => {
+    const { graph, cell } = graphWith({ angle: 90 })
+    const link = new shapes.standard.Link({
+      source: { id: cell.id, port: 'p2' },
+      target: { x: 300, y: 100 },
+    })
+    graph.addCell(link)
+    syncStencilInstances(graph, paper, { ...PREV, ports: [PREV.ports[0]] }, PREV)
+    // Центр 120,110; порт (140,110) при 90° уходит вниз от центра.
+    const pt = link.get('source')
+    expect(pt.x).toBeCloseTo(120)
+    expect(pt.y).toBeCloseTo(130)
+  })
+
+  it('габарит подтягивается у экземпляров с дефолтным размером', () => {
+    const { graph, cell } = graphWith()
+    const next = { ...PREV, height: 30, ports: [{ name: 'p1', x: 0, y: 30 }, PREV.ports[1]] }
+    syncStencilInstances(graph, paper, next, PREV)
+    expect(cell.get('size')).toEqual({ width: 40, height: 30 })
+    // Позиции портов считаются от НОВОГО габарита.
+    expect(cell.getPortsPositions('port').p1).toMatchObject({ x: 0, y: 30 })
+  })
+
+  it('ресайзнутый экземпляр габарит сохраняет (размер задан пользователем)', () => {
+    const { graph, cell } = graphWith({ size: { width: 120, height: 20 } })
+    syncStencilInstances(graph, paper, { ...PREV, height: 30 }, PREV)
+    expect(cell.get('size')).toEqual({ width: 120, height: 20 })
+  })
+
+  it('чужие символы и провода между ними не трогает', () => {
+    const graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    const other = new TMSStencil({
+      position: { x: 0, y: 0 },
+      size: { width: 20, height: 20 },
+      tms: { stencilId: 'cell_other' },
+      ports: { items: [{ id: 'p9', group: 'port', args: { x: 0, y: 10 } }] },
+    })
+    graph.addCell(other)
+    const link = new shapes.standard.Link({
+      source: { id: other.id, port: 'p9' },
+      target: { x: 50, y: 50 },
+    })
+    graph.addCell(link)
+
+    const report = syncStencilInstances(graph, paper, { ...PREV, ports: [] }, PREV)
+    expect(report).toEqual({ changed: 0, detached: [] })
+    expect(link.get('source')).toEqual({ id: other.id, port: 'p9' })
+    expect(other.getPorts().map((p) => p.id)).toEqual(['p9'])
+  })
+})
+
+describe('reinjectAllStencils({ sync: true }): сверка формы с реестром', () => {
+  // Форма хранит порты той версии символа, что была на момент сохранения. Символ
+  // могли править, пока форма была закрыта, — на её открытии порты обязаны стать
+  // такими, как в реестре, иначе новый порт не появился бы никогда. Реестр здесь
+  // настоящий (cell_qw из definitions).
+  const paper = { findViewByModel: () => null }
+
+  function formWithStaleCell(items) {
+    const graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    const cell = new TMSStencil({
+      position: { x: 100, y: 100 },
+      size: { width: 20, height: 20 },
+      tms: { stencilId: 'cell_qw' },
+      ports: { items },
+    })
+    graph.addCell(cell)
+    return { graph, cell }
+  }
+
+  it('порт, добавленный в символ после сохранения формы, появляется на открытии', () => {
+    const { graph, cell } = formWithStaleCell([{ id: 'top', group: 'port', args: { x: 10, y: 0 } }])
+    const report = reinjectAllStencils(graph, paper, { sync: true })
+    expect(report.changed).toBe(1)
+    expect(
+      cell
+        .getPorts()
+        .map((p) => p.id)
+        .sort()
+    ).toEqual(
+      getStencilById('cell_qw')
+        .ports.map((p) => p.name)
+        .sort()
+    )
+    expect(cell.getPortsPositions('port').top).toMatchObject({ x: 10, y: 0 })
+  })
+
+  it('порт, удалённый из символа, отцепляет провод в точку, где порт был', () => {
+    const { graph, cell } = formWithStaleCell([
+      { id: 'top', group: 'port', args: { x: 10, y: 0 } },
+      { id: 'gone', group: 'port', args: { x: 0, y: 5 } },
+    ])
+    const link = new shapes.standard.Link({
+      source: { id: cell.id, port: 'gone' },
+      target: { x: 300, y: 100 },
+    })
+    graph.addCell(link)
+
+    const report = reinjectAllStencils(graph, paper, { sync: true })
+    expect(report.detached).toEqual([link.id])
+    expect(link.get('source')).toEqual({ x: 100, y: 105 })
+    expect(cell.hasPort('gone')).toBe(false)
+  })
+
+  it('без sync форма остаётся как есть — undo обязан получить ровно снимок', () => {
+    const stale = [{ id: 'top', group: 'port', args: { x: 10, y: 0 } }]
+    const { graph, cell } = formWithStaleCell(stale)
+    const report = reinjectAllStencils(graph, paper)
+    expect(report).toEqual({ changed: 0, detached: [] })
+    expect(cell.getPorts().map((p) => p.id)).toEqual(['top'])
+  })
+
+  it('повторная сверка ничего не меняет (идемпотентна — не плодит шаги истории)', () => {
+    const { graph } = formWithStaleCell([{ id: 'top', group: 'port', args: { x: 10, y: 0 } }])
+    reinjectAllStencils(graph, paper, { sync: true })
+    const after = JSON.stringify(graph.toJSON())
+    expect(reinjectAllStencils(graph, paper, { sync: true })).toEqual({ changed: 0, detached: [] })
+    expect(JSON.stringify(graph.toJSON())).toBe(after)
   })
 })

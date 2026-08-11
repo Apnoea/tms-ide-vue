@@ -20,6 +20,7 @@ import {
   innerPrefix,
   wireKey,
   valueTextKey,
+  idSafeTag,
   ATTR_META,
   ATTR_STENCIL,
   CELL_META_FIELDS,
@@ -147,14 +148,23 @@ export function exportProject(graph, paper = null) {
     // обязаны быть уникальны), но по «чистому» тегу рантайм обновит только первый.
     let animId
     if (tms.stencilId === 'cell_value' && tms.valueTag) {
-      animId = tms.valueTag
+      // Пробел в теге сделал бы id невалидным (рантайм ищет узел через
+      // getElementById) — в id он заменяется, в binding.tag тег идёт как есть.
+      // Предупреждаем всё равно: чаще это опечатка в tag-list'е, и тогда данные
+      // не придут по самой подписке, а не только в DOM.
+      animId = idSafeTag(tms.valueTag)
+      if (animId !== tms.valueTag) {
+        const msg = `cell_value: пробел в теге "${tms.valueTag}" — id узла записан как "${animId}", проверь tag-list`
+        warnings.push(msg)
+        console.warn(`[Exporter] ${msg}`)
+      }
       if (usedOuterKeys.has(outerKeyFor('cell_value', animId))) {
         const msg = `cell_value: дубль valueTag="${tms.valueTag}" — рантайм обновит только первый символ`
         warnings.push(msg)
         console.warn(`[Exporter] ${msg}`)
         let n = 2
-        while (usedOuterKeys.has(outerKeyFor('cell_value', `${tms.valueTag}__${n}`))) n++
-        animId = `${tms.valueTag}__${n}`
+        while (usedOuterKeys.has(outerKeyFor('cell_value', `${animId}__${n}`))) n++
+        animId = `${animId}__${n}`
       }
     } else {
       animId = uniqueShortId(cell.id, (id) => usedOuterKeys.has(outerKeyFor(tms.stencilId, id)))

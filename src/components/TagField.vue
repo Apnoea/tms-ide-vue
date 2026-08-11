@@ -5,9 +5,12 @@
  * источник стиля и disabled-логики для RangeBlock / BooleanBlock / CanvasInspector.
  * Состояние у родителя, отсюда только эмиты.
  */
+import { computed } from 'vue'
 import Button from 'primevue/button'
+import { useProjectStore } from '../stores/useProjectStore'
+import { tagIssue, tagIssueLabel } from '../utils/tagHealth'
 
-defineProps({
+const props = defineProps({
   value: { type: String, default: '' },
   // Можно ли выбирать тег (tag-list загружен). Иначе чип задизейблен.
   canPick: { type: Boolean, default: false },
@@ -17,6 +20,12 @@ defineProps({
 })
 
 defineEmits(['pick', 'highlight', 'remove'])
+
+// Проблему тега (нет в tag-list / пробел в имени) показываем здесь, а не у каждого
+// вызывающего: чип — единственное место, где тег видно, и стор доступен напрямую.
+const project = useProjectStore()
+const issue = computed(() => tagIssue(props.value, project.tagNames))
+const issueLabel = computed(() => tagIssueLabel(issue.value))
 </script>
 
 <template>
@@ -32,6 +41,14 @@ defineEmits(['pick', 'highlight', 'remove'])
     >
       {{ value || '- не выбран -' }}
     </code>
+    <!-- Предупреждение, не ошибка: тег может быть валиден, а tag-list — устареть.
+         Иконка без кнопки — действий тут нет, только сигнал «проверь привязку». -->
+    <i
+      v-if="issue"
+      v-tooltip.bottom="issueLabel"
+      class="pi pi-exclamation-triangle text-amber-500 text-xs shrink-0"
+      :aria-label="issueLabel"
+    />
     <Button
       v-if="highlightable && value"
       v-tooltip.bottom="'Подсветить на схеме'"

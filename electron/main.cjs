@@ -29,7 +29,50 @@ function resolveAsset(requestUrl) {
   const { pathname } = new URL(requestUrl)
   const rel = decodeURIComponent(pathname).replace(/^\/+/, '') || 'index.html'
   const full = path.join(distDir, rel)
-  return full.startsWith(distDir) ? full : null
+  // Через path.relative, а не startsWith: префикс строки пустил бы соседнюю
+  // папку с тем же началом имени (`dist-old/…` начинается с `dist`). Внутри
+  // дерева relative не начинается с `..` и не абсолютен.
+  const rel2 = path.relative(distDir, full)
+  return rel2 && !rel2.startsWith('..') && !path.isAbsolute(rel2) ? full : null
+}
+
+/**
+ * CSP рендерера. Вся статика локальная, поэтому политика запретительная: внешние
+ * загрузки (скрипт с чужого домена, beacon, iframe) невозможны даже если в DOM
+ * попадёт чужая разметка. Это второй слой к sanitize символов — тот чистит вход,
+ * а CSP закрывает исход.
+ *
+ * `style-src 'unsafe-inline'` обязателен: PrimeVue вставляет темы отдельными
+ * `<style>`, симуляция инжектит свой CSS. `img-src data:`/`font-src data:` — svg
+ * и шрифты попадают в бандл как data:-URI. `connect-src 'self'` оставляет fetch
+ * только к своим ассетам (`app://ide`).
+ */
+const CSP = [
+  "default-src 'none'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join('; ')
+
+// Только эти схемы уходят в систему. `shell.openExternal` отдаёт URL ОС, и на
+// Windows `file:`/UNC-путь означает запуск локального файла — белый список тут
+// не формальность.
+const EXTERNAL_SCHEMES = new Set(['http:', 'https:', 'mailto:'])
+
+/** Открыть ссылку в системном браузере, если схема разрешена; иначе молча ничего. */
+function openExternalSafe(rawUrl) {
+  let parsed
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    return
+  }
+  if (EXTERNAL_SCHEMES.has(parsed.protocol)) shell.openExternal(parsed.href)
 }
 
 function createWindow() {
@@ -53,8 +96,23 @@ function createWindow() {
 
   // Внешние ссылки — в системный браузер, а не в окно приложения.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    openExternalSafe(url)
     return { action: 'deny' }
+  })
+
+  // Само окно уходить с `app://ide` не должно: у IDE несохранённый проект в
+  // памяти, а навигация выгружает документ без нашего гарда закрытия. Внешнюю
+  // ссылку отдаём браузеру, любую другую цель гасим.
+  win.webContents.on('will-navigate', (event, url) => {
+    let origin
+    try {
+      origin = new URL(url).origin
+    } catch {
+      origin = null
+    }
+    if (origin === APP_ORIGIN) return
+    event.preventDefault()
+    openExternalSafe(url)
   })
 
   // DevTools мимо меню: F12 нужен и в упакованной сборке — иначе разбирать
@@ -117,6 +175,13 @@ function runSmoke(win) {
   win.webContents.on('did-fail-load', (_e, code, desc) =>
     fail(`загрузка не удалась: ${desc} (${code})`)
   )
+  // Нарушение CSP — единственный симптом слишком строгой политики: страница
+  // поднимается, а часть ресурсов молча не грузится. Без этой проверки CSP
+  // осталась бы непроверяемой гипотезой до жалобы пользователя.
+  const cspViolations = []
+  win.webContents.on('console-message', (e) => {
+    if (/Content Security Policy/i.test(e.message || '')) cspViolations.push(e.message)
+  })
   win.webContents.on('did-finish-load', async () => {
     try {
       // Ждём смонтированный Vue и рабочее хранилище: ради IndexedDB весь этот
@@ -136,7 +201,8 @@ function runSmoke(win) {
       })()`)
       if (!ok.mounted) return fail('Vue не смонтирован')
       if (!ok.idb) return fail('IndexedDB недоступна')
-      console.log(`[smoke] ok — origin ${ok.origin}, IndexedDB доступна`)
+      if (cspViolations.length) return fail(`CSP блокирует ресурс: ${cspViolations[0]}`)
+      console.log(`[smoke] ok — origin ${ok.origin}, IndexedDB доступна, CSP без нарушений`)
       app.exit(0)
     } catch (e) {
       fail(String(e?.message || e))
@@ -163,10 +229,15 @@ if (!app.requestSingleInstanceLock()) {
     // undo-историю случайным Ctrl+R.
     Menu.setApplicationMenu(null)
 
-    protocol.handle('app', (request) => {
+    protocol.handle('app', async (request) => {
       const file = resolveAsset(request.url)
       if (!file) return new Response('forbidden', { status: 403 })
-      return net.fetch(`file://${file.replace(/\\/g, '/')}`)
+      const res = await net.fetch(`file://${file.replace(/\\/g, '/')}`)
+      // CSP ставим заголовком (не `<meta>`): index.html — общий с веб-сборкой, а
+      // политика нужна только десктопу, где вся статика локальная.
+      const headers = new Headers(res.headers)
+      headers.set('Content-Security-Policy', CSP)
+      return new Response(res.body, { status: res.status, headers })
     })
     createWindow()
     // macOS: клик по иконке в доке при закрытых окнах.
