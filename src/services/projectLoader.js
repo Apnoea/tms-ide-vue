@@ -6,6 +6,7 @@ import { getStencilById } from '../stencils/registry'
 import { buildPortItems } from '../stencils/svgInjector'
 import { LINK_DEFAULTS, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkDefaults'
 import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
+import { sanitizeShape } from '../stencils/shapeElement'
 
 /**
  * Парсит SVG-текст и возвращает массив JointJS-cells (включая links),
@@ -20,6 +21,55 @@ import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
  *  - stencilIds: все stencilId, встреченные в meta (включая выкинутые из-за
  *    незарегистрированного стенсила) — для подсчёта недостающих стенсилов
  */
+/**
+ * Первая и последняя точки пути провода. Нужны как ПОСЛЕДНЯЯ линия обороны: если в
+ * meta конец не привязан и координат у него нет, линию всё равно можно восстановить —
+ * `d` пишет реальную геометрию, как она была на холсте.
+ */
+function pathEndpoints(d) {
+  if (!d) return null
+  const nums = d.match(/-?\d+(\.\d+)?/g)
+  if (!nums || nums.length < 4) return null
+  const n = nums.map(Number)
+  return {
+    start: { x: n[0], y: n[1] },
+    end: { x: n[n.length - 2], y: n[n.length - 1] },
+  }
+}
+
+/**
+ * Индекс «точка холста → порт символа». Ключ округляем до пикселя: и порты, и
+ * концы проводов стоят на сетке, а после float-арифметики совпадение может уехать
+ * на сотые.
+ */
+function portKey(x, y) {
+  return `${Math.round(x)}:${Math.round(y)}`
+}
+
+function indexPorts(index, cellJson) {
+  const { x, y } = cellJson.position
+  const { width, height } = cellJson.size
+  const angle = cellJson.angle || 0
+  const rad = (angle * Math.PI) / 180
+  const cx = x + width / 2
+  const cy = y + height / 2
+  for (const item of cellJson.ports?.items || []) {
+    const px = x + (item.args?.x ?? 0)
+    const py = y + (item.args?.y ?? 0)
+    if (!angle) {
+      index.set(portKey(px, py), { id: cellJson.id, port: item.id })
+      continue
+    }
+    // Повёрнутый символ: порт живёт в локальных координатах, а на холсте он повёрнут
+    // вокруг центра ячейки вместе с ней.
+    const dx = px - cx
+    const dy = py - cy
+    const rx = cx + dx * Math.cos(rad) - dy * Math.sin(rad)
+    const ry = cy + dx * Math.sin(rad) + dy * Math.cos(rad)
+    index.set(portKey(rx, ry), { id: cellJson.id, port: item.id })
+  }
+}
+
 export function parseSvgProject(svgText) {
   if (!svgText || !svgText.trim()) {
     return { ok: false, cells: [], errors: ['Пустой SVG'], stencilIds: [] }
@@ -38,11 +88,43 @@ export function parseSvgProject(svgText) {
   const errors = []
   const stencilIds = new Set()
   const elementIds = new Set() // id успешно собранных ячеек — для отсева висячих проводов
+  const portIndex = new Map() // точка холста → { id, port }: чинит потерянные привязки
 
   // ─── Ячейки: <g> с data-tms-meta ───
   for (const g of doc.querySelectorAll(`g[${ATTR_META}]`)) {
     try {
       const meta = JSON.parse(g.getAttribute(ATTR_META))
+
+      // Фигура-разметка (`kind: 'shape'`): своя ветка — у неё нет ни стенсила, ни
+      // портов, ни анимаций, а геометрия лежит в meta и приходит из чужого архива,
+      // поэтому проходит через sanitizeShape.
+      if (meta.kind === 'shape') {
+        const tr = g.getAttribute('transform') || ''
+        const m = tr.match(/translate\s*\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)\s*\)/)
+        const shape = sanitizeShape(meta.shape)
+        if (!meta.id || !m || !shape) {
+          errors.push('Фигура без id/transform/геометрии — пропускаю')
+          continue
+        }
+        const shapeJson = {
+          type: 'tms.Shape',
+          id: meta.id,
+          position: { x: parseFloat(m[1]), y: parseFloat(m[2]) },
+          size: { width: meta.width ?? 1, height: meta.height ?? 1 },
+          tms: { shape, ...(meta.locked ? { locked: true } : {}) },
+        }
+        if (meta.groupId) shapeJson.tms.groupId = meta.groupId
+        const shapeAngle = Number.parseFloat(meta.angle)
+        if (Number.isFinite(shapeAngle) && shapeAngle % 360 !== 0) {
+          shapeJson.angle = ((shapeAngle % 360) + 360) % 360
+        }
+        const shapeZ = Number.parseFloat(meta.z)
+        if (Number.isFinite(shapeZ)) shapeJson.z = Math.max(0, shapeZ)
+        cells.push(shapeJson)
+        elementIds.add(meta.id)
+        continue
+      }
+
       if (!meta.id || !meta.stencilId) {
         errors.push('Символ без id/stencilId — пропускаю')
         continue
@@ -110,6 +192,7 @@ export function parseSvgProject(svgText) {
       if (Number.isFinite(z)) cellJson.z = Math.max(0, z)
       cells.push(cellJson)
       elementIds.add(meta.id)
+      indexPorts(portIndex, cellJson)
     } catch (e) {
       errors.push(`Парсинг символа: ${e.message}`)
     }
@@ -119,15 +202,33 @@ export function parseSvgProject(svgText) {
   for (const p of doc.querySelectorAll(`path[${ATTR_META}]`)) {
     try {
       const meta = JSON.parse(p.getAttribute(ATTR_META))
-      if (!meta.source?.id || !meta.target?.id) {
-        errors.push('Провод без source/target — пропускаю')
-        continue
+      // Конец провода — либо привязка к ячейке, либо свободная точка. Точку берём
+      // как есть; ссылку на несобранную ячейку заменяем точкой из геометрии пути, а
+      // не выбрасываем провод: линия на схеме нарисована, и терять её при импорте
+      // хуже, чем показать с отвязанным концом (архивы с `{ id: undefined }` у
+      // концов — след старой регрессии, они восстанавливаются именно так).
+      const pathEnds = pathEndpoints(p.getAttribute('d'))
+      const resolveEnd = (end, fallback, which) => {
+        if (end?.id && elementIds.has(end.id)) return end
+        const point =
+          Number.isFinite(end?.x) && Number.isFinite(end?.y) ? { x: end.x, y: end.y } : fallback
+        if (!point) return null
+        // Точка совпала с портом собранного символа — привязку возвращаем: это не
+        // угадывание, а восстановление (порт стоит ровно там, где кончается линия).
+        // Так лечатся архивы, где имя порта потеряно, а геометрия цела.
+        const hit = portIndex.get(portKey(point.x, point.y))
+        if (hit) return { ...hit }
+        if (end?.id || !Number.isFinite(end?.x)) {
+          errors.push(
+            `Провод ${meta.id}: ${which} не привязан к символу — восстановлен по геометрии`
+          )
+        }
+        return point
       }
-      // Оба конца должны ссылаться на собранную ячейку. Иначе висячий линк, и
-      // graph.fromJSON бросит «invalid source/target cell» — а форма к этому моменту
-      // уже в IDB → restoreProject падал бы на КАЖДОЙ загрузке (проект залипал).
-      if (!elementIds.has(meta.source.id) || !elementIds.has(meta.target.id)) {
-        errors.push(`Провод ${meta.id}: конец ссылается на отсутствующий символ — пропускаю`)
+      const source = resolveEnd(meta.source, pathEnds?.start, 'начало')
+      const target = resolveEnd(meta.target, pathEnds?.end, 'конец')
+      if (!source || !target) {
+        errors.push('Провод без source/target — пропускаю')
         continue
       }
 
@@ -138,8 +239,8 @@ export function parseSvgProject(svgText) {
         ...LINK_DEFAULTS,
         type: 'standard.Link',
         id: meta.id,
-        source: meta.source,
-        target: meta.target,
+        source,
+        target,
       }
       // Ручные изломы: без них gridRightAngle-роутер перерисовал бы провод по
       // дефолтному маршруту, потеряв правки пользователя.

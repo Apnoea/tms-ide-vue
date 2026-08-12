@@ -38,6 +38,7 @@ export function useHotkeys({
   duplicateSelection,
   rotateSelected,
   flipSelected,
+  cancelDraw,
   onExport,
   projectBusy = { value: false },
   notify = { success: () => {} },
@@ -83,6 +84,9 @@ export function useHotkeys({
       // (PrimeVue close-on-escape); выделение и подсветку на холсте не трогаем,
       // иначе один Esc и закрыл бы диалог, и сбросил selection.
       if (document.querySelector('.p-dialog-mask')) return
+      // Рисование первым: незаконченная ломаная / активный инструмент отменяются
+      // раньше выделения — как в редакторе символов.
+      if (cancelDraw?.()) return
       if (canvas.highlightedTag.value) canvas.clearHighlightedTag()
       if (canvas.selection.value.length) canvas.clearSelection()
       return

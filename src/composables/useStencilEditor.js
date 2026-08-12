@@ -21,6 +21,7 @@ import {
   cropToContent,
   parseStencilSvg,
   translateShape,
+  shapeBounds,
   portSeqFrom,
 } from '../utils/stencilSvg'
 import { normalizeStateColor } from '../constants/animation'
@@ -236,6 +237,42 @@ export function createStencilEditor() {
       const patch = patchOf(s)
       return patch ? { ...s, ...patch } : s
     })
+  }
+
+  /**
+   * Сдвиг выделения на dx/dy (стрелки; шаг задаёт вызывающий — как на холсте
+   * обычный и крупный с Shift). Пачка едет ОДНИМ смещением, без снапа каждой
+   * фигуры: у них своя дробная часть координат, и поштучный снап развалил бы
+   * взаимное расположение. Габарит выделения за пределы символа не выпускаем —
+   * тот же инвариант, что держит снап при drag'е; упор в край обрезает шаг, а не
+   * отменяет его целиком (иначе у края стрелки просто «не работают»).
+   * История — один шаг на нажатие, `commit` сам дедупит упор в край.
+   */
+  function nudgeShapes(dx, dy) {
+    if (!selectedIds.value.length || (!dx && !dy)) return
+    const boxes = shapes.value
+      .filter((s) => selectedSet.value.has(s.id))
+      .map(shapeBounds)
+      .filter(Boolean)
+    if (boxes.length) {
+      const lo = (get) => Math.min(...boxes.map(get))
+      const hi = (get) => Math.max(...boxes.map(get))
+      if (dx < 0)
+        dx = -Math.min(
+          -dx,
+          lo((b) => b.x)
+        )
+      else if (dx > 0) dx = Math.min(dx, meta.width - hi((b) => b.x + b.w))
+      if (dy < 0)
+        dy = -Math.min(
+          -dy,
+          lo((b) => b.y)
+        )
+      else if (dy > 0) dy = Math.min(dy, meta.height - hi((b) => b.y + b.h))
+    }
+    if (!dx && !dy) return
+    updateShapes(selectedIds.value, (s) => translateShape(s, dx, dy))
+    commit()
   }
 
   // ─── Групповая правка свойств (инспектор при мультивыделении) ───
@@ -563,6 +600,7 @@ export function createStencilEditor() {
     addShape,
     updateShape,
     updateShapes,
+    nudgeShapes,
     selectedFor,
     commonValue,
     applyToSelected,

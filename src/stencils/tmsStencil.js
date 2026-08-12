@@ -36,5 +36,17 @@ export const TMSStencil = dia.Element.define(
   }
 )
 
-/** Расширенный shapes-namespace с зашитой TMSStencil — нужен dia.Graph/Paper. */
-export const tmsNamespace = { ...shapes, tms: { Stencil: TMSStencil } }
+/**
+ * Фигура-разметка холста: ни стенсила, ни портов, ни анимаций — только геометрия в
+ * `tms.shape` (редакторский формат) и её отрисовка в ту же body-группу. Рендер и
+ * операции — в [shapeElement.js](shapeElement.js); тип объявлен здесь, рядом с
+ * namespace, иначе `fromJSON` не собрал бы фигуры при загрузке формы.
+ */
+export const TMSShape = dia.Element.define(
+  'tms.Shape',
+  { size: { width: 40, height: 40 } },
+  { markup: [{ tagName: 'g', selector: 'body' }] }
+)
+
+/** Расширенный shapes-namespace с нашими типами — нужен dia.Graph/Paper. */
+export const tmsNamespace = { ...shapes, tms: { Stencil: TMSStencil, Shape: TMSShape } }

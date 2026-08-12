@@ -305,3 +305,57 @@ describe('reinjectAllStencils({ sync: true }): сверка формы с рее
     expect(JSON.stringify(graph.toJSON())).toBe(after)
   })
 })
+
+describe('syncStencilInstances: программные порты (шина)', () => {
+  // У cell_bus портов в stencil.json НЕТ — их строит computeBusPorts по ширине
+  // экземпляра. Сверка по определению считала бы все слоты удалёнными и отцепляла
+  // ВСЕ провода шины: на загрузке формы схема разъезжалась, маршруты пересчитывались
+  // от свободных концов.
+  const paper = { findViewByModel: () => null }
+
+  function busForm() {
+    const graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    const busDef = getStencilById('cell_bus')
+    const width = 200
+    const bus = new TMSStencil({
+      position: { x: 0, y: 400 },
+      size: { width, height: busDef.height },
+      tms: { stencilId: 'cell_bus' },
+      ports: { items: buildPortItems(busDef, width, busDef.height) },
+    })
+    graph.addCell(bus)
+    const link = new shapes.standard.Link({
+      source: { id: bus.id, port: 'top_0' },
+      target: { x: 300, y: 100 },
+      vertices: [{ x: 20, y: 300 }],
+    })
+    graph.addCell(link)
+    return { graph, bus, link, busDef }
+  }
+
+  it('провода шины остаются на своих слотах, изломы целы', () => {
+    const { graph, bus, link, busDef } = busForm()
+    const before = bus.getPorts().length
+    const report = syncStencilInstances(graph, paper, busDef)
+    expect(report).toEqual({ changed: 0, detached: [] })
+    expect(link.get('source')).toEqual({ id: bus.id, port: 'top_0' })
+    expect(link.get('vertices')).toEqual([{ x: 20, y: 300 }])
+    expect(bus.getPorts()).toHaveLength(before)
+  })
+
+  it('слот за краем сжатой шины не сносится (набор портов держит useBusResize)', () => {
+    // Такой слот существует именно потому, что на нём висит линия: после сжатия
+    // clampBusLinkPorts перенёс провод, а порт остался. Сверка это не её дело.
+    const { graph, bus, busDef } = busForm()
+    bus.addPort({ id: 'top_99', group: 'port', args: { x: 1980, y: 0 } })
+    const far = new shapes.standard.Link({
+      source: { id: bus.id, port: 'top_99' },
+      target: { x: 500, y: 100 },
+    })
+    graph.addCell(far)
+
+    syncStencilInstances(graph, paper, busDef)
+    expect(bus.hasPort('top_99')).toBe(true)
+    expect(far.get('source')).toEqual({ id: bus.id, port: 'top_99' })
+  })
+})

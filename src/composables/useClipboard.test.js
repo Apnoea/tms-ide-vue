@@ -8,6 +8,7 @@ import { withSetup, makeMockCanvas } from './test-utils'
 import { dia, shapes } from '@joint/core'
 import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'
 import { LINK_Z } from '../stencils/linkDefaults'
+import { materializeShape } from '../stencils/shapeElement'
 
 const mockToast = { add: vi.fn() }
 vi.mock('primevue/usetoast', () => ({ useToast: () => mockToast }))
@@ -314,5 +315,80 @@ describe('useClipboard', () => {
     expect(mockToast.add).toHaveBeenCalledWith(
       expect.objectContaining({ severity: 'success', summary: 'Дублировано' })
     )
+  })
+
+  // У фигуры-разметки нет стенсила, поэтому прежний путь (getStencilById +
+  // materializeStencil) её пропускал: копирование проходило, а вставка давала
+  // «не удалось вставить» и ноль копий.
+  describe('фигуры-разметка', () => {
+    it('копия фигуры создаётся со сдвигом и своей геометрией', () => {
+      const shape = materializeShape(graph, paper, {
+        type: 'rect',
+        x: 20,
+        y: 20,
+        w: 40,
+        h: 20,
+        stroke: '#ff0000',
+        strokeWidth: 3,
+      })
+      mockCanvas.selection.value = [{ kind: 'cell', id: shape.id }]
+
+      const { copySelection, pasteClipboard } = setup()
+      copySelection()
+      pasteClipboard()
+
+      const copies = graph.getElements().filter((e) => e.id !== shape.id)
+      expect(copies).toHaveLength(1)
+      expect(copies[0].get('type')).toBe('tms.Shape')
+      expect(copies[0].get('tms').shape).toMatchObject({
+        type: 'rect',
+        w: 40,
+        h: 20,
+        stroke: '#ff0000',
+      })
+      // Сдвинута, а не положена поверх оригинала.
+      expect(copies[0].get('position').x).toBeGreaterThan(shape.get('position').x)
+      expect(copies[0].get('size')).toEqual({ width: 40, height: 20 })
+    })
+
+    it('замок и поворот переносятся, группа копий получает новую метку', () => {
+      const a = materializeShape(graph, paper, { type: 'rect', x: 0, y: 0, w: 20, h: 20 })
+      const b = materializeShape(graph, paper, { type: 'rect', x: 40, y: 0, w: 20, h: 20 })
+      a.set('tms', { ...a.get('tms'), locked: true, groupId: 'grp-old' })
+      b.set('tms', { ...b.get('tms'), groupId: 'grp-old' })
+      a.set('angle', 90)
+      mockCanvas.selection.value = [
+        { kind: 'cell', id: a.id },
+        { kind: 'cell', id: b.id },
+      ]
+
+      const { copySelection, pasteClipboard } = setup()
+      copySelection()
+      pasteClipboard()
+
+      const originals = new Set([a.id, b.id])
+      const copies = graph.getElements().filter((e) => !originals.has(e.id))
+      expect(copies).toHaveLength(2)
+      expect(copies.find((c) => c.angle() === 90).get('tms').locked).toBe(true)
+      expect(new Set(copies.map((c) => c.get('tms').groupId))).toEqual(new Set(['grp-new']))
+    })
+
+    it('смешанное выделение: копируются и символ, и фигура', () => {
+      const cell = makeCell()
+      graph.addCell(cell)
+      const shape = materializeShape(graph, paper, { type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 })
+      mockCanvas.selection.value = [
+        { kind: 'cell', id: cell.id },
+        { kind: 'cell', id: shape.id },
+      ]
+
+      const { copySelection, pasteClipboard } = setup()
+      copySelection()
+      pasteClipboard()
+
+      const originals = new Set([cell.id, shape.id])
+      const copies = graph.getElements().filter((e) => !originals.has(e.id))
+      expect(copies.map((c) => c.get('type')).sort()).toEqual(['tms.Shape', 'tms.Stencil'])
+    })
   })
 })

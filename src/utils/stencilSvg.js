@@ -62,23 +62,34 @@ export function radii(shape) {
   return { rx, ry }
 }
 
-// Подпись: размер по умолчанию и якорь. Anchor фиксирован `middle` — подпись
-// почти всегда центрируется по фигуре. Шрифт — из whitelist'а utils/textMetrics,
-// тем же семейством идёт замер (иначе bbox разойдётся с рендером).
+// Подпись: размер по умолчанию и якорь. `middle` — дефолт (подпись символа почти
+// всегда центрируется по фигуре), у фигур холста якорь выбирается полем `align`.
+// Шрифт — из whitelist'а utils/textMetrics, тем же семейством идёт замер (иначе bbox
+// разойдётся с рендером).
 export const TEXT_SHAPE_SIZE = 10
 export const TEXT_SHAPE_ANCHOR = 'middle'
+
+// Выравнивание подписи = ЯКОРЬ роста (как align у cell_text): точка x,y стоит на
+// месте, а текст растёт от неё. Отсутствие поля = прежний middle, поэтому символы,
+// нарисованные до появления align, выглядят как раньше.
+const TEXT_ANCHORS = { left: 'start', center: 'middle', right: 'end' }
+function textAnchorOf(shape) {
+  return TEXT_ANCHORS[shape?.align] || TEXT_SHAPE_ANCHOR
+}
 
 /**
  * Габарит подписи: ширину меряем canvas-метрикой (шрифт задаёт размер, рамки у
  * текста нет), высоту берём как fontSize с небольшим запасом на descender'ы.
- * `x`/`y` — точка привязки: baseline по y, центр по x (anchor=middle).
+ * `x`/`y` — точка привязки: baseline по y, по x — согласно якорю (см. textAnchorOf).
  */
 export function textShapeBox(shape) {
   const size = shape.fontSize ?? TEXT_SHAPE_SIZE
   const w = measureTextWidth(shape.text, size, shape.bold, -1, shape.fontFamily)
   const width = w < 0 ? (shape.text || '').length * size * 0.6 : w
+  const anchor = textAnchorOf(shape)
+  const x = anchor === 'start' ? shape.x : anchor === 'end' ? shape.x - width : shape.x - width / 2
   return {
-    x: shape.x - width / 2,
+    x,
     y: shape.y - size,
     w: width,
     h: size * 1.25,
@@ -95,7 +106,16 @@ function roundingAttrs(shape) {
   return ''
 }
 
-function serializeShape(shape, markFill) {
+/**
+ * Одна фигура → SVG-строка. Экспортируется, потому что тем же генератором рисуются
+ * фигуры-примитивы на холсте (см. stencils/shapeElement): холст, `view.svg` и
+ * редактор символов обязаны показывать одно и то же, а разойтись они могут только
+ * если рисовать их разным кодом.
+ *
+ * @param {boolean} [markFill] — метить заливаемые фигуры классом состояния (только
+ *   stateful-символы; примитивам холста не нужно — у них нет анимаций)
+ */
+export function serializeShape(shape, markFill) {
   switch (shape.type) {
     case 'rect':
       return (
@@ -130,7 +150,7 @@ function serializeShape(shape, markFill) {
       // он дал бы «жирный контур» вокруг глифов.
       const weight = shape.bold ? ' font-weight="bold"' : ''
       return (
-        `<text x="${num(shape.x)}" y="${num(shape.y)}" text-anchor="${TEXT_SHAPE_ANCHOR}" ` +
+        `<text x="${num(shape.x)}" y="${num(shape.y)}" text-anchor="${textAnchorOf(shape)}" ` +
         `font-size="${num(shape.fontSize ?? TEXT_SHAPE_SIZE)}" font-family="${normalizeFont(shape.fontFamily)}"${weight} ` +
         `fill="${shape.stroke || '#000'}">${escapeXml(shape.text || '')}</text>`
       )
@@ -138,6 +158,28 @@ function serializeShape(shape, markFill) {
     default:
       return ''
   }
+}
+
+/**
+ * Масштаб фигуры относительно НАЧАЛА КООРДИНАТ (фигуры-примитивы холста хранятся
+ * прижатыми к 0,0 — см. shapeElement.placeShape). Нужен ресайзу фигуры за ручки:
+ * тянут её габарит, а геометрия должна поехать в те же пропорции.
+ *
+ * Подпись не масштабируем: её габарит задаёт шрифт, и «растянутый» текст выглядел
+ * бы как другой размер шрифта, которого в модели нет (размер правится полем).
+ */
+export function scaleShape(s, sx, sy) {
+  if (s.type === 'rect') return { ...s, x: s.x * sx, y: s.y * sy, w: s.w * sx, h: s.h * sy }
+  if (s.type === 'circle') {
+    return { ...s, cx: s.cx * sx, cy: s.cy * sy, rx: radii(s).rx * sx, ry: radii(s).ry * sy }
+  }
+  if (s.type === 'line') {
+    return { ...s, x1: s.x1 * sx, y1: s.y1 * sy, x2: s.x2 * sx, y2: s.y2 * sy }
+  }
+  if (s.type === 'polyline') {
+    return { ...s, points: s.points.map(([x, y]) => [x * sx, y * sy]) }
+  }
+  return s
 }
 
 export function translateShape(s, dx, dy) {

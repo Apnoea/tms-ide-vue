@@ -896,3 +896,25 @@ describe('скругление (rounded)', () => {
     expect(svg).not.toContain('stroke-linecap')
   })
 })
+
+describe('выравнивание подписи (якорь роста)', () => {
+  const text = { type: 'text', x: 100, y: 50, text: 'Подпись', fontSize: 14 }
+
+  it('без align — прежний middle (символы, нарисованные раньше, не едут)', () => {
+    expect(serializeSvg([text], { width: 200, height: 100 })).toContain('text-anchor="middle"')
+    const box = shapeBounds(text)
+    // Центр остаётся на точке привязки.
+    expect(box.x + box.w / 2).toBeCloseTo(100)
+  })
+
+  it('align задаёт anchor и bbox: точка привязки на месте, текст растёт от неё', () => {
+    const left = serializeSvg([{ ...text, align: 'left' }], { width: 200, height: 100 })
+    expect(left).toContain('text-anchor="start"')
+    expect(shapeBounds({ ...text, align: 'left' }).x).toBeCloseTo(100)
+
+    const right = serializeSvg([{ ...text, align: 'right' }], { width: 200, height: 100 })
+    expect(right).toContain('text-anchor="end"')
+    const rBox = shapeBounds({ ...text, align: 'right' })
+    expect(rBox.x + rBox.w).toBeCloseTo(100)
+  })
+})

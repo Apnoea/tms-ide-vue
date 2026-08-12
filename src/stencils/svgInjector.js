@@ -7,8 +7,19 @@ import { TMSStencil } from './tmsStencil'
 import { normalizeLinkZ } from './linkDefaults'
 import { svgEl } from '../utils/xml'
 import { computeBusPorts, buildBusContent } from './busCell'
+import { reinjectAllShapes } from './shapeElement'
 import { buildTextContent } from './textCell'
 import { buildValueContent } from './valueCell'
+
+/**
+ * Порты стенсила не описаны в определении, а вычисляются по размеру экземпляра
+ * (шина: слот каждые BUS_PORT_SPACING). Сверка с реестром такие НЕ трогает: набор
+ * держит `useBusResize.syncBusPorts`, а «нет в определении» там не значит «порт
+ * удалили» — иначе на загрузке формы отцепились бы все линии шины.
+ */
+function hasComputedPorts(stencil) {
+  return stencil?.id === 'cell_bus'
+}
 
 /**
  * `ports.items` — общий билдер для палитры, paste и загрузки. Шина считает порты по
@@ -17,7 +28,7 @@ import { buildValueContent } from './valueCell'
  * без направления.
  */
 export function buildPortItems(stencil, width, height, flip = {}) {
-  if (stencil.id === 'cell_bus') return computeBusPorts(width, height)
+  if (hasComputedPorts(stencil)) return computeBusPorts(width, height)
   const { flipH = false, flipV = false } = flip
   return (stencil.ports || []).map((p) => {
     const item = {
@@ -188,62 +199,74 @@ export function syncStencilInstances(graph, paper, stencil, prev = null) {
   if (!graph || !stencil) return report
   const cells = graph.getElements().filter((c) => c.get('tms')?.stencilId === stencil.id)
   if (!cells.length) return report
-  const cellIds = new Set(cells.map((c) => c.id))
-  const portNames = new Set((stencil.ports || []).map((p) => p.name))
+  // Габарит экземпляра — свой у шины (ресайз) и подписей/значений (по содержимому).
+  const ownSize = !!stencil.minWidth || !!stencil.static
 
-  // Отцепляем ДО пересборки items — иначе позиция удалённого порта уже потеряна.
-  for (const link of graph.getLinks()) {
-    for (const end of ['source', 'target']) {
-      const ref = link.get(end)
-      if (!ref?.id || !ref.port || !cellIds.has(ref.id) || portNames.has(ref.port)) continue
-      link.set(end, portPoint(graph.getCell(ref.id), ref.port))
-      report.detached.push(link.id)
+  // Программные порты (шина) держит useBusResize — здесь только рисунок.
+  const computedPorts = hasComputedPorts(stencil)
+
+  // План по каждому экземпляру считаем ДО правок: целевой набор портов зависит от
+  // размера ЭКЗЕМПЛЯРА, а не только от определения.
+  const plans = cells.map((cell) => {
+    const tms = cell.get('tms') || {}
+    const size = cell.get('size')
+    const canResize = prev ? size.width === prev.width && size.height === prev.height : !ownSize
+    const resize = canResize && (size.width !== stencil.width || size.height !== stencil.height)
+    const width = resize ? stencil.width : size.width
+    const height = resize ? stencil.height : size.height
+    const items = computedPorts
+      ? null
+      : buildPortItems(stencil, width, height, { flipH: !!tms.flipH, flipV: !!tms.flipV })
+    return { cell, resize, width, height, items }
+  })
+
+  // Отцепляем ДО пересборки портов — иначе позиция удалённого порта уже потеряна.
+  if (!computedPorts) {
+    const wantedByCell = new Map(plans.map((p) => [p.cell.id, new Set(p.items.map((i) => i.id))]))
+    for (const link of graph.getLinks()) {
+      for (const end of ['source', 'target']) {
+        const ref = link.get(end)
+        const wanted = ref?.id ? wantedByCell.get(ref.id) : null
+        if (!wanted || !ref.port || wanted.has(ref.port)) continue
+        link.set(end, portPoint(graph.getCell(ref.id), ref.port))
+        report.detached.push(link.id)
+      }
     }
   }
 
-  // Габарит экземпляра — свой у шины (ресайз) и подписей/значений (по содержимому).
-  const ownSize = !!stencil.minWidth || !!stencil.static
-  for (const cell of cells) {
-    const tms = cell.get('tms') || {}
-    const size = cell.get('size')
-    let { width, height } = size
+  for (const { cell, resize, width, height, items } of plans) {
     let touched = false
-    const canResize = prev ? width === prev.width && height === prev.height : !ownSize
-    if (canResize && (width !== stencil.width || height !== stencil.height)) {
-      width = stencil.width
-      height = stencil.height
+    if (resize) {
       cell.resize(width, height)
       touched = true
     }
-    const items = buildPortItems(stencil, width, height, {
-      flipH: !!tms.flipH,
-      flipV: !!tms.flipV,
-    })
     // Через port-manager, а НЕ `set('ports', {items})`: тот заменяет объект целиком
     // и сносит `groups` из defaults TMSStencil, после чего JointJS падает на
     // расчёте позиций портов (нет layout-колбэка группы). Тот же приём в
     // useBusResize.syncBusPorts.
-    const wanted = new Set(items.map((i) => i.id))
-    for (const p of cell.getPorts()) {
-      if (!wanted.has(p.id)) {
-        cell.removePort(p.id)
-        touched = true
+    if (items) {
+      const wanted = new Set(items.map((i) => i.id))
+      for (const p of cell.getPorts()) {
+        if (!wanted.has(p.id)) {
+          cell.removePort(p.id)
+          touched = true
+        }
       }
-    }
-    for (const item of items) {
-      if (!cell.hasPort(item.id)) {
-        cell.addPort(item)
-        touched = true
-        continue
-      }
-      const cur = cell.getPort(item.id)
-      if (cur.args?.x !== item.args.x) {
-        cell.portProp(item.id, 'args/x', item.args.x)
-        touched = true
-      }
-      if (cur.args?.y !== item.args.y) {
-        cell.portProp(item.id, 'args/y', item.args.y)
-        touched = true
+      for (const item of items) {
+        if (!cell.hasPort(item.id)) {
+          cell.addPort(item)
+          touched = true
+          continue
+        }
+        const cur = cell.getPort(item.id)
+        if (cur.args?.x !== item.args.x) {
+          cell.portProp(item.id, 'args/x', item.args.x)
+          touched = true
+        }
+        if (cur.args?.y !== item.args.y) {
+          cell.portProp(item.id, 'args/y', item.args.y)
+          touched = true
+        }
       }
     }
     const view = paper?.findViewByModel(cell)
@@ -298,6 +321,9 @@ export function reinjectAllStencils(graph, paper, { sync = false } = {}) {
       if (cellView) injectStencilSvg(cellView, stencil)
     }
   }
+  // Фигуры-разметка (tms.Shape) после fromJSON тоже пустые — рисуем и их: это
+  // единая точка «восстановить вид формы», иначе каждый вызывающий помнил бы про два.
+  reinjectAllShapes(graph, paper)
   for (const link of graph.getLinks()) {
     const z = normalizeLinkZ(link.get('z'))
     if (link.get('z') !== z) link.set('z', z)

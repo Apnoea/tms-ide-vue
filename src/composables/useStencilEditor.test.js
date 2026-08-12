@@ -663,3 +663,49 @@ describe('useStencilEditor (синглтон)', () => {
     expect(useStencilEditor()).toBe(useStencilEditor())
   })
 })
+
+describe('nudgeShapes', () => {
+  it('двигает всё выделение одним смещением, один шаг истории', () => {
+    const ed = createStencilEditor()
+    const a = ed.addShape({ type: 'rect', x: 10, y: 10, w: 10, h: 10 })
+    const b = ed.addShape({ type: 'line', x1: 12, y1: 12, x2: 18, y2: 12 })
+    const c = ed.addShape({ type: 'rect', x: 0, y: 0, w: 5, h: 5 })
+    ed.selectMany([a.id, b.id])
+
+    ed.nudgeShapes(5, 0)
+    const byId = (id) => ed.shapes.value.find((s) => s.id === id)
+    expect(byId(a.id)).toMatchObject({ x: 15, y: 10 })
+    // Взаимное расположение не разъезжается: поштучный снап сдвинул бы линию иначе.
+    expect(byId(b.id)).toMatchObject({ x1: 17, x2: 23, y1: 12 })
+    expect(byId(c.id)).toMatchObject({ x: 0, y: 0 }) // не выделена
+    // Один Ctrl+Z откатывает сдвиг всей пачки.
+    ed.undo()
+    expect(byId(a.id)).toMatchObject({ x: 10, y: 10 })
+    expect(byId(b.id)).toMatchObject({ x1: 12, x2: 18 })
+  })
+
+  it('упор в край обрезает шаг, а не отменяет его', () => {
+    const ed = createStencilEditor() // холст 40×40
+    const s = ed.addShape({ type: 'rect', x: 33, y: 0, w: 5, h: 5 })
+    ed.select(s.id)
+
+    ed.nudgeShapes(5, 0)
+    // Правый край фигуры (38) доезжает до 40 — шаг обрезан, а не потерян.
+    expect(ed.shapes.value[0]).toMatchObject({ x: 35 })
+    ed.nudgeShapes(5, 0)
+    expect(ed.shapes.value[0]).toMatchObject({ x: 35 })
+    // Шаг «в упор» пустой — истории не пишет, поэтому Ctrl+Z возвращает к 33.
+    ed.undo()
+    expect(ed.shapes.value[0]).toMatchObject({ x: 33 })
+  })
+
+  it('без выделения и с нулевым смещением ничего не делает', () => {
+    const ed = createStencilEditor()
+    const s = ed.addShape({ type: 'rect', x: 10, y: 10, w: 10, h: 10 })
+    ed.select(null)
+    ed.nudgeShapes(5, 0)
+    ed.select(s.id)
+    ed.nudgeShapes(0, 0)
+    expect(ed.shapes.value[0]).toMatchObject({ x: 10, y: 10 })
+  })
+})

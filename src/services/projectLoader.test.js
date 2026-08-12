@@ -174,8 +174,11 @@ describe('parseSvgProject', () => {
     expect(link.target).toEqual({ id: 'cell-b', port: 'bottom' })
   })
 
-  it('отбрасывает провод с несуществующим endpoint (иначе fromJSON падает на уже сохранённой форме)', () => {
-    // Ячейка 'b' пропущена (незарегистрированный стенсил) → провод a→b висячий.
+  it('конец на несобранной ячейке становится точкой из геометрии (провод не теряем)', () => {
+    // Ячейка 'b' пропущена (незарегистрированный стенсил) → конец провода привязать
+    // некуда. Раньше линию выбрасывали целиком: ссылка на отсутствующую ячейку валит
+    // fromJSON. Теперь конец превращается в свободную точку из `d` — схема сохраняет
+    // линию, а автор видит предупреждение и перецепит её сам.
     const badCell = attr({ id: 'b', stencilId: 'cell_nonexistent', width: 10, height: 10 })
     const link = attr({ id: 'l1', source: { id: 'a' }, target: { id: 'b' } })
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
@@ -184,9 +187,56 @@ describe('parseSvgProject', () => {
       <path d="M 0,0 L 10,10" data-tms-meta='${link}'/>
     </svg>`
     const out = parseSvgProject(svg)
-    expect(out.cells.filter((c) => c.type === 'standard.Link')).toEqual([]) // висячий отброшен
+    const links = out.cells.filter((c) => c.type === 'standard.Link')
+    expect(links).toHaveLength(1)
+    expect(links[0].source).toEqual({ id: 'a' })
+    expect(links[0].target).toEqual({ x: 10, y: 10 })
     expect(out.cells.filter((c) => c.type === 'tms.Stencil').map((c) => c.id)).toEqual(['a'])
-    expect(out.errors.some((e) => /отсутствующий символ/.test(e))).toBe(true)
+    expect(out.errors.some((e) => /восстановлен по геометрии/.test(e))).toBe(true)
+  })
+
+  it('свободный конец (провод отцепили от порта) переживает round-trip как точка', () => {
+    // Именно этот случай терялся: exporter писал `{ id: undefined }`, и импорт
+    // выбрасывал провод как «без source/target» — связь исчезала молча.
+    const link = attr({ id: 'l1', source: { id: 'a' }, target: { x: 140, y: 110 } })
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      ${cellG('a')}
+      <path d="M 0,0 L 140,110" data-tms-meta='${link}'/>
+    </svg>`
+    const out = parseSvgProject(svg)
+    const links = out.cells.filter((c) => c.type === 'standard.Link')
+    expect(links).toHaveLength(1)
+    expect(links[0].target).toEqual({ x: 140, y: 110 })
+    // Точка — штатная привязка, предупреждать не о чем.
+    expect(out.errors).toEqual([])
+  })
+
+  it('потерянная привязка возвращается, если конец стоит ровно на порту символа', () => {
+    // Так лечится след регрессии: имени порта в архиве нет, но геометрия цела и
+    // конец линии совпадает с позицией слота — это восстановление, а не угадывание,
+    // поэтому и предупреждать не о чем.
+    const bus = attr({ id: 'bus', stencilId: 'cell_bus', width: 200, height: 8 })
+    const link = attr({ id: 'l1', source: {}, target: { id: 'a', port: 'top' } })
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      <g transform="translate(0,100)" data-tms-meta='${bus}'/>
+      ${cellG('a')}
+      <path d="M 20,100 L 20,200" data-tms-meta='${link}'/>
+    </svg>`
+    const out = parseSvgProject(svg)
+    const link1 = out.cells.find((c) => c.type === 'standard.Link')
+    // Слот шины top_0 стоит на (20,100) — туда и привязываемся.
+    expect(link1.source).toEqual({ id: 'bus', port: 'top_0' })
+    expect(out.errors).toEqual([])
+  })
+
+  it('без geometry и без привязки провод отбрасывается', () => {
+    const link = attr({ id: 'l1', source: {}, target: {} })
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      <path data-tms-meta='${link}'/>
+    </svg>`
+    const out = parseSvgProject(svg)
+    expect(out.cells.filter((c) => c.type === 'standard.Link')).toEqual([])
+    expect(out.errors.length).toBeGreaterThan(0)
   })
 
   it('пропускает ячейку с неизвестным стенсилом, накапливает warning', () => {

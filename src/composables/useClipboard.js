@@ -2,6 +2,8 @@ import { shallowRef } from 'vue'
 import { shapes } from '@joint/core'
 import { getStencilById } from '../stencils/registry'
 import { materializeStencil } from '../stencils/svgInjector'
+import { isShapeCell, materializeShape } from '../stencils/shapeElement'
+import { translateShape } from '../utils/stencilSvg'
 import { LINK_DEFAULTS, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkDefaults'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
@@ -46,6 +48,9 @@ export function useClipboard({ scheduleSnapshot }) {
     const size = c.get('size')
     return {
       oldId: c.id,
+      // Фигура-разметка вместо стенсила несёт свою геометрию: у неё нет ни
+      // stencilId, ни портов, поэтому и создаётся она иначе (см. pasteSnapshots).
+      isShape: isShapeCell(c),
       stencilId: tms.stencilId,
       tms: { ...tms },
       position: { x: pos.x, y: pos.y },
@@ -111,13 +116,13 @@ export function useClipboard({ scheduleSnapshot }) {
     // массива: буфер переиспользуется на каждый Ctrl+V.
     const ordered = [...snaps.cells].sort((a, b) => (a.z ?? 0) - (b.z ?? 0))
     for (const snap of ordered) {
-      const stencil = getStencilById(snap.stencilId)
-      if (!stencil) {
+      const stencil = snap.isShape ? null : getStencilById(snap.stencilId)
+      if (!snap.isShape && !stencil) {
         skipped++
         continue
       }
 
-      const tmsCopy = { ...snap.tms, stencilId: snap.stencilId }
+      const tmsCopy = { ...snap.tms, ...(snap.isShape ? {} : { stencilId: snap.stencilId }) }
       if (tmsCopy.groupId) {
         if (groupCounts[tmsCopy.groupId] >= 2) {
           if (!groupIdMap.has(tmsCopy.groupId)) groupIdMap.set(tmsCopy.groupId, genGroupId())
@@ -130,6 +135,24 @@ export function useClipboard({ scheduleSnapshot }) {
       const g = paper.options.gridSize
       const finalX = snapToGrid(snap.position.x + offset, g)
       const finalY = snapToGrid(snap.position.y + offset, g)
+
+      if (snap.isShape) {
+        // Геометрия в tms локальная (прижата к 0,0) — materializeShape ждёт
+        // абсолютную и сам пересчитает габарит с позицией.
+        const cell = materializeShape(graph, paper, translateShape(tmsCopy.shape, finalX, finalY))
+        if (!cell) {
+          skipped++
+          continue
+        }
+        // Замок и группу переносим как у символов; angle — поле верхнего уровня.
+        const carried = { ...tmsCopy }
+        delete carried.shape
+        cell.set('tms', { ...cell.get('tms'), ...carried })
+        if (snap.angle) cell.set('angle', snap.angle)
+        oldToNew.set(snap.oldId, cell.id)
+        newCellIds.push(cell.id)
+        continue
+      }
 
       // tms копируется полностью включая slots — paste должен сохранять привязки
       // тегов (две копии одного стенсила могут указывать на один и тот же объект,

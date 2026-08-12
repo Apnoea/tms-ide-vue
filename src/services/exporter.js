@@ -1,6 +1,8 @@
 import { getStencilById, getAllStencils } from '../stencils/registry'
 import { instantiate } from '../stencils/parser'
 import { flipTransform } from '../stencils/svgInjector'
+import { isShapeCell } from '../stencils/shapeElement'
+import { serializeShape } from '../utils/stencilSvg'
 import { buildBusExportSvg } from '../stencils/busCell'
 import { buildTextExportSvg } from '../stencils/textCell'
 import {
@@ -56,6 +58,18 @@ function uniqueShortId(fullId, isTaken) {
     candidate = `${candidate}-${segments[i]}`
   }
   return candidate
+}
+
+/**
+ * Конец линка для `data-tms-meta`: либо привязка к ячейке (`{ id, port }`), либо
+ * свободная точка (`{ x, y }`). Оба вида обязаны доехать до архива — иначе провод с
+ * отцепленным концом не восстановится при импорте и связь исчезнет.
+ */
+function endpointMeta(end) {
+  if (!end) return null
+  if (end.id) return { id: end.id, port: end.port }
+  if (Number.isFinite(end.x) && Number.isFinite(end.y)) return { x: end.x, y: end.y }
+  return null
 }
 
 /** Абсолютная позиция конца линка. linkPinning=false → ждём { id, port } или { id }. */
@@ -130,6 +144,33 @@ export function exportProject(graph, paper = null) {
   // ─── Ячейки (стенсилы) ───
   for (const cell of elements) {
     const tms = cell.get('tms')
+    // Фигура-разметка: без стенсила, слотов и анимаций — в SVG уезжает статичной
+    // геометрией. Кладём в общий список, чтобы document order (= порядок z) не
+    // сломался: подложка обязана остаться под символами.
+    if (isShapeCell(cell)) {
+      const shape = tms?.shape
+      if (!shape) continue
+      const pos = cell.get('position')
+      const size = cell.get('size')
+      cellExports.push({
+        kind: 'shape',
+        cellId: cell.id,
+        x: pos.x,
+        y: pos.y,
+        width: size.width,
+        height: size.height,
+        angle: cell.angle ? cell.angle() : 0,
+        z: cell.get('z'),
+        shape,
+        locked: tms.locked,
+        groupId: tms.groupId,
+      })
+      minX = Math.min(minX, pos.x)
+      minY = Math.min(minY, pos.y)
+      maxX = Math.max(maxX, pos.x + size.width)
+      maxY = Math.max(maxY, pos.y + size.height)
+      continue
+    }
     if (!tms?.stencilId) continue
 
     const stencil = getStencilById(tms.stencilId)
@@ -344,8 +385,11 @@ export function exportProject(graph, paper = null) {
       strokeColor: linkTms.strokeColor || null,
       // Endpoint-references для редактора: какие именно ячейки/порты соединены.
       // Эти данные ИЗ source/target в JointJS-модели, не из геометрии пути.
-      source: sourceRef ? { id: sourceRef.id, port: sourceRef.port } : null,
-      target: targetRef ? { id: targetRef.id, port: targetRef.port } : null,
+      // Свободный конец (провод отцепили от порта) — это точка `{x, y}`, и её надо
+      // записать именно точкой: `{ id: undefined }` импорт трактовал как «провод без
+      // source/target» и ВЫБРАСЫВАЛ линию, то есть выгрузка теряла связи молча.
+      source: endpointMeta(sourceRef),
+      target: endpointMeta(targetRef),
       // Ручные изломы — иначе round-trip перерисовал бы провод по дефолтному
       // маршруту (геометрия пути в `d` рантайму, изломы редактору).
       vertices: vertices.length ? vertices.map((v) => ({ x: v.x, y: v.y })) : null,
@@ -564,6 +608,25 @@ export function exportProject(graph, paper = null) {
   const serializer = new XMLSerializer()
   const groups = cellExports
     .map((c) => {
+      if (c.kind === 'shape') {
+        // Рисуем тем же генератором, что холст и редактор символов — иначе выгрузка
+        // разошлась бы с тем, что автор видел. id не нужен: карточек анимации у
+        // разметки нет, рантайм её не адресует. `kind` в meta — метка для разбора.
+        const meta = {
+          kind: 'shape',
+          id: c.cellId,
+          width: c.width,
+          height: c.height,
+          shape: c.shape,
+        }
+        if (c.locked) meta.locked = true
+        if (c.groupId) meta.groupId = c.groupId
+        if (c.angle) meta.angle = c.angle
+        if (c.z != null) meta.z = c.z
+        let transform = `translate(${c.x},${c.y})`
+        if (c.angle) transform += ` rotate(${c.angle} ${c.width / 2} ${c.height / 2})`
+        return `  <g transform="${transform}" ${ATTR_META}="${escapeAttr(JSON.stringify(meta))}">${serializeShape(c.shape, false)}</g>`
+      }
       const doc = new DOMParser().parseFromString(c.svgContent, 'image/svg+xml')
       const sourceRoot = doc.documentElement
       let inner = ''

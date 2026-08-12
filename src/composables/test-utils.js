@@ -44,6 +44,15 @@ export function makeMockCanvas(extra = {}) {
  */
 export function mountWithApp(Component, options = {}) {
   const { global: g = {}, ...rest } = options
+  // jsdom не реализует matchMedia, а PrimeVue Select подписывается на неё при
+  // монтировании — без заглушки любой компонент с Select падает ещё до проверок.
+  if (typeof window !== 'undefined' && !window.matchMedia) {
+    window.matchMedia = () => ({
+      matches: false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })
+  }
   return mount(Component, {
     ...rest,
     global: {

@@ -981,3 +981,122 @@ describe('exportProject', () => {
     expect(cell.tms.align).toBeUndefined()
   })
 })
+
+describe('exportProject: фигуры-разметка', () => {
+  // Фигура — ячейка без стенсила: у неё нет карточек анимации и id, в SVG уезжает
+  // статичная геометрия + data-tms-meta для round-trip'а.
+  function shapeCell({ id, shape, x = 0, y = 0, w = 40, h = 20, z, angle = 0, ...extra }) {
+    const tms = { shape, ...extra }
+    return {
+      id,
+      get(key) {
+        if (key === 'type') return 'tms.Shape'
+        if (key === 'tms') return tms
+        if (key === 'position') return { x, y }
+        if (key === 'size') return { width: w, height: h }
+        if (key === 'z') return z
+        return undefined
+      },
+      angle: () => angle,
+    }
+  }
+
+  it('фигура едет в view.svg геометрией и возвращается через round-trip', () => {
+    const shape = {
+      type: 'rect',
+      x: 0,
+      y: 0,
+      w: 40,
+      h: 20,
+      stroke: '#ff8800',
+      strokeWidth: 3,
+    }
+    const graph = mockGraph([shapeCell({ id: 's1', shape, x: 100, y: 60 })])
+    const { svgText, animations } = exportProject(graph)
+
+    expect(svgText).toContain('translate(100,60)')
+    expect(svgText).toContain('stroke="#ff8800"')
+    // Карточек у разметки нет — рантайм её не адресует.
+    expect(animations.animations).toEqual({})
+    expect(svgText).not.toContain('id="animation-')
+
+    const parsed = parseSvgProject(svgText)
+    expect(parsed.ok).toBe(true)
+    const cell = parsed.cells.find((c) => c.id === 's1')
+    expect(cell.type).toBe('tms.Shape')
+    expect(cell.position).toEqual({ x: 100, y: 60 })
+    expect(cell.size).toEqual({ width: 40, height: 20 })
+    expect(cell.tms.shape).toMatchObject(shape)
+  })
+
+  it('ломаная, поворот, замок и группа переживают round-trip', () => {
+    const shape = {
+      type: 'polyline',
+      points: [
+        [0, 0],
+        [20, 10],
+        [0, 20],
+      ],
+      closed: true,
+      stroke: '#000',
+      strokeWidth: 2,
+    }
+    const graph = mockGraph([
+      shapeCell({
+        id: 's2',
+        shape,
+        x: 10,
+        y: 10,
+        w: 20,
+        h: 20,
+        angle: 90,
+        z: 7,
+        locked: true,
+        groupId: 'grp-1',
+      }),
+    ])
+    const cell = parseSvgProject(exportProject(graph).svgText).cells.find((c) => c.id === 's2')
+    expect(cell.tms.shape.points).toEqual(shape.points)
+    expect(cell.tms.shape.closed).toBe(true)
+    expect(cell.tms.locked).toBe(true)
+    expect(cell.tms.groupId).toBe('grp-1')
+    expect(cell.angle).toBe(90)
+    expect(cell.z).toBe(7)
+  })
+
+  it('фигуры и символы сохраняют порядок наложения (подложка остаётся снизу)', () => {
+    // Порядок в SVG = порядок отрисовки. Если фигуры собирать отдельным списком,
+    // подложка окажется поверх схемы.
+    const back = shapeCell({
+      id: 'bg',
+      shape: { type: 'rect', x: 0, y: 0, w: 200, h: 100, stroke: '#000' },
+      w: 200,
+      h: 100,
+    })
+    const sym = mockCell({ id: 'c1', stencilId: 'cell_qw', x: 20, y: 20, w: 20, h: 20 })
+    const { svgText } = exportProject(mockGraph([back, sym]))
+    expect(svgText.indexOf('"kind":"shape"')).toBeLessThan(svgText.indexOf('animation-cell_qw'))
+  })
+
+  it('битая геометрия из чужого архива отбраковывается при чтении', () => {
+    const attr = (o) => JSON.stringify(o).replace(/"/g, '&quot;')
+    const bad = attr({ kind: 'shape', id: 's3', width: 40, height: 20, shape: { type: 'rect' } })
+    const ok = attr({
+      kind: 'shape',
+      id: 's4',
+      width: 10,
+      height: 10,
+      shape: { type: 'rect', x: 0, y: 0, w: 10, h: 10, strokeWidth: 'huge' },
+    })
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      <g transform="translate(0,0)" data-tms-meta='${bad}'/>
+      <g transform="translate(0,0)" data-tms-meta='${ok}'/>
+    </svg>`
+    const out = parseSvgProject(svg)
+    // Прямоугольник без размеров дал бы `width="NaN"` в выгрузке — такую фигуру не
+    // создаём; нечисловая толщина откатывается к дефолту, фигура остаётся.
+    expect(out.cells.map((c) => c.id)).toEqual(['s4'])
+    expect(out.cells[0].tms.shape.strokeWidth).toBe(2)
+    expect(out.errors.length).toBeGreaterThan(0)
+  })
+})

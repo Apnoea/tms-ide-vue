@@ -22,6 +22,7 @@ import { useNavigationField } from '../composables/useNavigationField'
 import { useProjectStore } from '../stores/useProjectStore'
 import { getStencilById, hasBoolSlot } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
+import { isShapeCell, shapeTypeLabel, applyShapePatch } from '../stencils/shapeElement'
 import { TEXT_FONT_SIZE } from '../stencils/textCell'
 import { VALUE_DECIMALS_DEFAULT } from '../stencils/valueCell'
 import { nplural } from '../utils/plural'
@@ -36,11 +37,11 @@ import BooleanBlock from './BooleanBlock.vue'
 import { ANIMATION_CLASS_OPTIONS } from '../constants/animation'
 import { previewOuterKey } from '../constants/ids'
 
-// Статичные стенсилы (флаг `static: true` в stencil.json) — без визуальной
-// реакции на animation-классы; диапазоны/булев источник на них бессмысленны, в
-// multi-select их пропускаем.
-function isStatic(stencilId) {
-  return !!getStencilById(stencilId)?.static
+// Ячейки без анимаций: статичные стенсилы (флаг `static: true` в stencil.json —
+// нет визуальной реакции на animation-классы) и фигуры-разметка (у них анимаций нет
+// вовсе). Диапазоны/булев источник на них бессмысленны, в multi-select пропускаем.
+function isStatic(tms) {
+  return !!tms?.shape || !!getStencilById(tms?.stencilId)?.static
 }
 
 const canvas = useCanvas()
@@ -157,6 +158,28 @@ const details = computed(() => {
   if (!sel || !graph) return null
   const cell = graph.getCell(sel.id)
   if (!cell) return null
+
+  if (sel.kind === 'cell' && isShapeCell(cell)) {
+    // Фигура-разметка: ни стенсила, ни портов, ни анимаций — только вид и (у
+    // подписи) содержимое. Геометрия правится жестами на холсте, не полями.
+    const shape = cell.get('tms')?.shape || {}
+    return {
+      kind: 'cell',
+      id: cell.id,
+      isShape: true,
+      shapeType: shape.type,
+      shapeLabel: shapeTypeLabel(shape),
+      locked: !!cell.get('tms')?.locked,
+      stroke: shape.stroke || '#000000',
+      strokeWidth: shape.strokeWidth ?? 2,
+      isShapeText: shape.type === 'text',
+      text: shape.text ?? '',
+      fontSize: shape.fontSize ?? TEXT_FONT_SIZE,
+      bold: !!shape.bold,
+      fontFamily: normalizeFont(shape.fontFamily),
+      shapeAlign: shape.align || 'center',
+    }
+  }
 
   if (sel.kind === 'cell') {
     const tms = cell.get('tms') || {}
@@ -306,6 +329,23 @@ const { applyText, applyFontSize, applyBold, applyColor, applyAlign, applyFontFa
   useTextCellProps({
     withSelectedCell,
   })
+
+// ─── Фигура-разметка: вид и содержимое подписи ───
+// Патч уходит в `tms.shape` через applyShapePatch — он же пересчитывает габарит
+// ячейки (у подписи он зависит от текста и шрифта). Правка идёт на ВСЁ выделение
+// фигур: инспектор одиночной ячейки и мульти-режим ведут себя одинаково.
+function patchShape(patch) {
+  const graph = canvas.graphRef.value
+  const paper = canvas.paperRef.value
+  if (!graph) return
+  const ids = canvas
+    .writableItems(canvas.selection.value.filter((s) => s.kind === 'cell'))
+    .map((s) => s.id)
+  if (!applyShapePatch(graph, paper, ids, patch)) return
+  canvas.bumpVersion()
+  canvas.requestSnapshot()
+  canvas.markDirty()
+}
 
 // ─── Провод: стиль линии (толщина/цвет) ───
 // Пишем в JointJS-attr (мгновенная отрисовка) + в tms[tmsKey] (round-trip через
@@ -544,7 +584,7 @@ function onPickMultiSwitchTag(tag) {
   let skipped = sel.length - writable.length
   for (const cell of writable) {
     const tms = cell.get('tms') || {}
-    if (isStatic(tms.stencilId)) {
+    if (isStatic(tms)) {
       skipped++
       continue
     }
@@ -614,7 +654,7 @@ function pasteBool() {
     clip,
     (tms) =>
       applyBoolClip(tms, clip, {
-        isStatic: isStatic(tms.stencilId),
+        isStatic: isStatic(tms),
         hasBoolSlot: hasBoolSlot(getStencilById(tms.stencilId)),
       }),
     (tms) => !clipHasGroups && !!tms.boolSource
@@ -625,7 +665,7 @@ function pasteBool() {
  *  свежий клон на ячейку). Статичные стенсилы пропускаем. */
 function pasteRange() {
   pasteClip(animClip.rangeClip.value, (tms) =>
-    applyRangeClip(tms, animClip.rangeClip.value, { isStatic: isStatic(tms.stencilId) })
+    applyRangeClip(tms, animClip.rangeClip.value, { isStatic: isStatic(tms) })
   )('Диапазоны вставлены')
 }
 
@@ -877,7 +917,152 @@ const {
           :class="{ 'opacity-60': details.locked }"
           class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4"
         >
-          <template v-if="details.kind === 'cell'">
+          <!-- Фигура-разметка: только вид (и содержимое подписи). Анимаций, навигации
+               и тегов у неё нет — блоки ниже не рендерим, геометрия правится на
+               холсте жестами. -->
+          <template v-if="details.isShape">
+            <div>
+              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Фигура</div>
+              <div class="font-medium text-surface-900">{{ details.shapeLabel }}</div>
+            </div>
+
+            <div class="space-y-2.5">
+              <div v-if="details.isShapeText">
+                <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
+                <InputText
+                  :model-value="details.text"
+                  size="small"
+                  class="w-full"
+                  placeholder="Введите текст"
+                  @update:model-value="(v) => patchShape({ text: v ?? '' })"
+                />
+              </div>
+
+              <div v-if="!details.isShapeText" class="flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Толщина
+                </span>
+                <InputNumber
+                  :model-value="details.strokeWidth"
+                  :min="0.5"
+                  :max="40"
+                  :step="0.5"
+                  :max-fraction-digits="1"
+                  show-buttons
+                  button-layout="horizontal"
+                  size="small"
+                  input-class="w-12! text-center"
+                  class="ml-auto"
+                  @update:model-value="(v) => v != null && patchShape({ strokeWidth: v })"
+                />
+              </div>
+
+              <div v-if="!details.isShapeText" class="flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Цвет линии
+                </span>
+                <input
+                  type="color"
+                  :value="details.stroke"
+                  class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                  @input="patchShape({ stroke: $event.target.value })"
+                />
+              </div>
+
+              <template v-if="details.isShapeText">
+                <div class="flex items-center gap-3">
+                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                    Размер, pt
+                  </span>
+                  <InputNumber
+                    :model-value="details.fontSize"
+                    :min="6"
+                    :max="72"
+                    :step="1"
+                    show-buttons
+                    button-layout="horizontal"
+                    size="small"
+                    input-class="w-12! text-center"
+                    class="ml-auto"
+                    @update:model-value="(v) => v != null && patchShape({ fontSize: v })"
+                  />
+                </div>
+
+                <div class="flex items-center gap-3">
+                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                    Шрифт
+                  </span>
+                  <Select
+                    :model-value="details.fontFamily"
+                    :options="FONT_FAMILIES"
+                    option-label="label"
+                    option-value="value"
+                    size="small"
+                    class="ml-auto w-40"
+                    @update:model-value="(v) => patchShape({ fontFamily: v })"
+                  >
+                    <template #option="{ option }">
+                      <span :style="{ fontFamily: option.value }">{{ option.label }}</span>
+                    </template>
+                  </Select>
+                </div>
+
+                <div class="flex items-center gap-3">
+                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                    Жирность
+                  </span>
+                  <SelectButton
+                    :model-value="details.bold ? 'bold' : null"
+                    :options="BOLD_OPTIONS"
+                    option-value="value"
+                    data-key="value"
+                    size="small"
+                    class="ml-auto"
+                    @update:model-value="(v) => patchShape({ bold: v === 'bold' })"
+                  >
+                    <template #option>
+                      <span class="font-bold" v-tooltip.top="'Жирный'">B</span>
+                    </template>
+                  </SelectButton>
+                </div>
+
+                <div class="flex items-center gap-3">
+                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                    Цвет
+                  </span>
+                  <input
+                    type="color"
+                    :value="details.stroke"
+                    class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                    @input="patchShape({ stroke: $event.target.value })"
+                  />
+                </div>
+
+                <!-- Выравнивание = якорь роста (как у cell_text): точка привязки
+                     стоит на месте, текст растёт от неё. -->
+                <div class="flex items-center gap-3">
+                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                    Выравнивание
+                  </span>
+                  <SelectButton
+                    :model-value="details.shapeAlign"
+                    :options="ALIGN_OPTIONS"
+                    option-value="value"
+                    data-key="value"
+                    size="small"
+                    class="ml-auto"
+                    @update:model-value="(v) => v && patchShape({ align: v })"
+                  >
+                    <template #option="{ option }">
+                      <i :class="option.icon" v-tooltip.top="option.tip" />
+                    </template>
+                  </SelectButton>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <template v-else-if="details.kind === 'cell'">
             <div>
               <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Символ</div>
               <div class="font-medium text-surface-900">
@@ -1143,7 +1328,9 @@ const {
             </div>
           </template>
 
-          <div v-if="!details.isText && !details.isValue" class="space-y-2">
+          <!-- Анимации: не у подписи/значения и не у фигуры-разметки (у последней их
+               нет вовсе — exporter не эмитит для неё карточек, привязка вела бы в никуда). -->
+          <div v-if="!details.isText && !details.isValue && !details.isShape" class="space-y-2">
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
 
             <!-- Стенсил «по значению»: привязка тега сигнала (состояния и их вид

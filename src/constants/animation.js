@@ -50,7 +50,8 @@ export function normalizeStateColor(value) {
 // подделку. Цвет — hex или CSS-имя, ничего экзотичнее нам не нужно.
 const STATE_KEY_RE = /^[A-Za-z0-9_-]+$/
 const CSS_COLOR_RE = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+)$/
-const cssColor = (v) => (CSS_COLOR_RE.test(v) ? v : '')
+/** Цвет или '' — та же маска для CSS состояний и для стиля фигур из чужого архива. */
+export const cssColor = (v) => (CSS_COLOR_RE.test(v) ? v : '')
 
 /**
  * CSS перекраса по состоянию — один источник для экспорта (scope '') и симуляции

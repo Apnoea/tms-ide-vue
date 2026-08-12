@@ -679,10 +679,23 @@ function onPortDown(e, id) {
   }
 }
 
+const ARROW_DIRS = {
+  ArrowLeft: { x: -1, y: 0 },
+  ArrowRight: { x: 1, y: 0 },
+  ArrowUp: { x: 0, y: -1 },
+  ArrowDown: { x: 0, y: 1 },
+}
+
 // Клавиши редактора: Del — удалить выделенную фигуру, Esc — отменить рисование
 // или закрыть редактор (не трогаем при фокусе в полях размера).
 function isInInput(t) {
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+}
+
+// Стрелки в фокусе Select'а (превью состояния) листают его опции — сдвиг фигур там
+// был бы вторым, невидимым эффектом одного нажатия.
+function isInListWidget(t) {
+  return !!t?.closest?.('[role="combobox"], [role="listbox"]')
 }
 useEventListener(window, 'keydown', (e) => {
   if (!ui.stencilEditorOpen) return
@@ -739,6 +752,16 @@ useEventListener(window, 'keydown', (e) => {
     }
     return
   }
+  // Стрелки — сдвиг выделения, как на холсте: шаг сетки, с Shift — впятеро крупнее
+  // (у фигур сетка 1px, у портов и размера символа — 5). В полях ввода не
+  // перехватываем: там стрелки правят значение степпера.
+  const arrow = ARROW_DIRS[e.key]
+  if (arrow && !isInInput(e.target) && !isInListWidget(e.target) && selectedIds.value.length) {
+    e.preventDefault()
+    const step = e.shiftKey ? PORT_GRID : SHAPE_GRID
+    ed.nudgeShapes(arrow.x * step, arrow.y * step)
+    return
+  }
   if (
     (e.key === 'Delete' || e.key === 'Backspace') &&
     !isInInput(e.target) &&
@@ -764,7 +787,7 @@ onBeforeUnmount(() => {
   <div class="flex flex-col bg-surface-0">
     <!-- Тулбар -->
     <div class="flex min-h-14 items-center gap-2 border-b border-surface-200 px-3">
-      <h2 class="mr-2 text-sm font-semibold uppercase tracking-wide text-surface-900">Редактор</h2>
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-surface-900">Редактор</h2>
       <!-- Инструменты рисования (тогл). Отдельной кнопки «выбор» нет: select —
            фоновый дефолт (повторный клик по активному инструменту или авто после
            добавления фигуры возвращают к нему). -->

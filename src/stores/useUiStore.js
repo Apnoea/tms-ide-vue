@@ -68,7 +68,23 @@ export const useUiStore = defineStore('ui', () => {
     projectBusy.value = value
   }
 
+  // Активный инструмент рисования фигур ('select' = обычная работа с холстом).
+  // Тогл как в редакторе символов: повторный клик по кнопке возвращает 'select'.
+  // Пока инструмент активен, ЛКМ-drag по холсту рисует, а не тянет рамку выделения.
+  const canvasTool = ref('select')
+
+  function setCanvasTool(tool) {
+    canvasTool.value = canvasTool.value === tool ? 'select' : tool
+  }
+
+  function resetCanvasTool() {
+    canvasTool.value = 'select'
+  }
+
   return {
+    canvasTool,
+    setCanvasTool,
+    resetCanvasTool,
     lastTagListPickerStartIn,
     dragging,
     helpOpen,

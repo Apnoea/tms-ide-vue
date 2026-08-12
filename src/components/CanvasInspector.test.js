@@ -37,6 +37,7 @@ import CanvasInspector from './CanvasInspector.vue'
 import TagPickerDialog from './TagPickerDialog.vue'
 import BooleanBlock from './BooleanBlock.vue'
 import { useCanvas } from '../composables/useCanvas'
+import { materializeShape } from '../stencils/shapeElement'
 import { useProjectStore } from '../stores/useProjectStore'
 
 const TAGS = [
@@ -147,5 +148,71 @@ describe('CanvasInspector', () => {
     await wrapper.vm.$nextTick()
 
     expect(cell.get('tms')).toMatchObject({ valueLabel: 'Ua', valueUnit: 'В' })
+  })
+})
+
+describe('CanvasInspector: фигура-разметка', () => {
+  let canvas
+  let graph
+  let wrapper
+
+  beforeEach(() => {
+    canvas = useCanvas()
+    graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    canvas.setCanvasRefs(graph, {
+      id: 'paper',
+      options: { gridSize: 5 },
+      findViewByModel: () => null,
+    })
+    canvas.clearSelection()
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+  })
+
+  function selectShape(shape) {
+    const cell = materializeShape(graph, canvas.paperRef.value, shape)
+    canvas.selectOnly('cell', cell.id)
+    wrapper = mountWithApp(CanvasInspector, { global: { stubs: { TagPickerDialog: true } } })
+    return cell
+  }
+
+  it('у фигуры показывает её тип и НЕ показывает блоки анимаций', async () => {
+    selectShape({ type: 'rect', x: 0, y: 0, w: 40, h: 20, stroke: '#000', strokeWidth: 2 })
+    await wrapper.vm.$nextTick()
+    const text = wrapper.text()
+    expect(text).toContain('Фигура')
+    expect(text).toContain('Прямоугольник')
+    // Анимаций у разметки нет — блоки тегов не рендерим (иначе привязка вела бы
+    // в никуда: карточек для фигур exporter не эмитит).
+    expect(wrapper.findComponent(BooleanBlock).exists()).toBe(false)
+    expect(text).not.toContain('Диапазоны значений')
+  })
+
+  it('правка цвета пишет в tms.shape выделенной фигуры', async () => {
+    const cell = selectShape({ type: 'rect', x: 0, y: 0, w: 40, h: 20 })
+    await wrapper.vm.$nextTick()
+
+    const colorInput = wrapper.find('input[type="color"]')
+    expect(colorInput.exists()).toBe(true)
+    colorInput.element.value = '#ff0000'
+    await colorInput.trigger('input')
+
+    expect(cell.get('tms').shape.stroke).toBe('#ff0000')
+  })
+
+  it('у линии нет заливки, у подписи есть текст и шрифт', async () => {
+    selectShape({ type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).not.toContain('Заливка')
+    wrapper.unmount()
+
+    selectShape({ type: 'text', x: 20, y: 20, text: 'Подпись', fontSize: 14 })
+    wrapper = mountWithApp(CanvasInspector, { global: { stubs: { TagPickerDialog: true } } })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Текст')
+    expect(wrapper.text()).toContain('Шрифт')
+    expect(wrapper.text()).not.toContain('Толщина')
   })
 })

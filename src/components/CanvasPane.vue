@@ -27,6 +27,8 @@ import { useCanvasZoom, ZOOM_STEP } from '../composables/useCanvasZoom'
 import { useCellHighlight } from '../composables/useCellHighlight'
 import { useMultiDrag } from '../composables/useMultiDrag'
 import { useLasso } from '../composables/useLasso'
+import { useCanvasDraw } from '../composables/useCanvasDraw'
+import { useShapeResize } from '../composables/useShapeResize'
 import { useContextMenu } from '../composables/useContextMenu'
 import { usePaletteDrag } from '../composables/usePaletteDrag'
 import { nplural } from '../utils/plural'
@@ -179,6 +181,7 @@ useHotkeys({
   // стрелка резолвит их лениво, на keydown (после mount), TDZ не задевает.
   rotateSelected: (deg) => rotateSelectedBy(deg),
   flipSelected: (axis) => flipSelected(axis),
+  cancelDraw: () => cancelDraw(),
   onExport: guardedExportArchive,
   projectBusy,
   notify,
@@ -277,6 +280,28 @@ const { ctxMenuRef, ctxItems, showContextMenu } = useContextMenu({
 })
 // Lasso — startLasso дёргаем из blank:pointerdown (обычный ЛКМ); move/up свои.
 const { lassoRect, startLasso } = useLasso(paperContainer, { selectCellsWithBridges })
+// Рисование фигур-разметки: свои capture-хендлеры, лассо гасим на время инструмента.
+const { drawPreview, isDrawing, cancelDraw } = useCanvasDraw(paperContainer, {
+  scheduleSnapshot,
+})
+// Ручки ресайза выделенной фигуры (overlay, как кнопки поворота) — прячем на время
+// drag'а ячейки тем же флагом.
+const { shapeHandles, onHandleDown } = useShapeResize({
+  scheduleSnapshot,
+  dragging: cellDragging,
+})
+// Иконки повторяют тулбар редактора символов — жест и результат там те же.
+const DRAW_TOOLS = [
+  { key: 'line', icon: 'pi pi-minus', tip: 'Линия' },
+  { key: 'rect', icon: 'pi pi-stop', tip: 'Прямоугольник' },
+  { key: 'circle', icon: 'pi pi-circle', tip: 'Эллипс (Shift — ровный круг)' },
+  {
+    key: 'polyline',
+    icon: 'pi pi-chart-line',
+    tip: 'Ломаная (клик по началу — замкнуть, двойной клик — завершить)',
+  },
+  { key: 'text', icon: 'pi pi-pencil', tip: 'Подпись (текст правится в инспекторе)' },
+]
 
 // ─── Pan-жесты (Figma-модель) ───────────────────────────────────────────────
 // Средняя кнопка или Space+ЛКМ панят холст; обычный ЛКМ по пустому — лассо.
@@ -371,9 +396,11 @@ onMounted(async () => {
   // ─── Клик по пустому месту ───
   paper.on('blank:pointerdown', (evt) => {
     hideCellTooltip()
-    // ЛКМ по пустому — всегда лассо. Pan (MMB / Space+ЛКМ) перехватывается
+    // ЛКМ по пустому — лассо. Pan (MMB / Space+ЛКМ) перехватывается
     // capture-mousedown'ом и сюда не доходит. Снятие выделения при клике без
-    // drag'а делает сам onLassoEnd (маленькая рамка).
+    // drag'а делает сам onLassoEnd (маленькая рамка). Активный инструмент рисования
+    // забирает жест себе (свой capture-pointerdown), рамку выделения не тянем.
+    if (isDrawing()) return
     startLasso(evt)
   })
 
@@ -733,11 +760,29 @@ function performClearCanvas(count) {
     <div
       class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center justify-between gap-2"
     >
-      <!-- Слева — заголовок + симуляция: глобальное действие над всей схемой,
-           остаётся на холсте (это взаимодействие с холстом, не проектное
-           действие для шапки). -->
+      <!-- Слева — заголовок, инструменты рисования, затем симуляция (глобальное
+           действие над всей схемой; остаётся на холсте, это взаимодействие с ним, а
+           не проектное действие для шапки). Порядок и шаг кнопок — как в тулбаре
+           редактора символов; отступ у заголовка отыгрывает более короткое слово
+           «Холст», чтобы инструменты не прижимались к нему. -->
       <div class="flex items-center gap-2">
-        <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Холст</h2>
+        <h2 class="mr-7 text-sm font-semibold text-surface-900 uppercase tracking-wide">Холст</h2>
+        <div class="flex items-center gap-1">
+          <Button
+            v-for="t in DRAW_TOOLS"
+            :key="t.key"
+            v-tooltip.bottom="t.tip"
+            :icon="t.icon"
+            :severity="ui.canvasTool === t.key ? 'primary' : 'secondary'"
+            :text="ui.canvasTool !== t.key"
+            size="small"
+            class="tms-icon-btn"
+            @click="ui.setCanvasTool(t.key)"
+          />
+        </div>
+
+        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+
         <Button
           v-tooltip.bottom="simulating ? 'Остановить симуляцию' : 'Запустить симуляцию'"
           :icon="simulating ? 'pi pi-pause-circle' : 'pi pi-play-circle'"
@@ -841,7 +886,12 @@ function performClearCanvas(count) {
       <div
         ref="paperContainer"
         class="absolute inset-0 bg-white cursor-default"
-        :class="simulating ? 'tms-simulating ring-2 ring-inset ring-emerald-400/60 ' : ''"
+        :class="[
+          simulating ? 'tms-simulating ring-2 ring-inset ring-emerald-400/60 ' : '',
+          // Активный инструмент рисования видно по курсору: иначе «выделение
+          // рамкой перестало работать» выглядит как баг.
+          ui.canvasTool !== 'select' ? 'cursor-crosshair!' : '',
+        ]"
       ></div>
 
       <!-- Оверлей на время экспорта проекта: формы по очереди грузятся в живой
@@ -932,13 +982,13 @@ function performClearCanvas(count) {
       </Transition>
 
       <!-- Inline-overlay одиночной выделенной ячейки: поворот ↺/↻ и отражение H/V
-           (скрыты у noRotate/locked — `canTransform`), удаление (скрыто у locked)
+           (гейты `canRotate`/`canFlip`: noRotate, замок, фигуры — только подпись и только поворот), удаление (скрыто у locked)
            и замок (виден всегда — им же блокировку снимают). Reactive
            HTML-overlay, а не JointJS elementTools.Remove: тот кэширует позицию и
            не следует за resize. -->
       <template v-if="overlayBtns">
         <Button
-          v-if="overlayBtns.canTransform"
+          v-if="overlayBtns.canRotate"
           v-tooltip.top="'Повернуть против часовой · Shift+R'"
           icon="pi pi-undo"
           severity="secondary"
@@ -949,7 +999,7 @@ function performClearCanvas(count) {
           @click="rotateSelectedBy(-90)"
         />
         <Button
-          v-if="overlayBtns.canTransform"
+          v-if="overlayBtns.canRotate"
           v-tooltip.top="'Повернуть по часовой · R'"
           icon="pi pi-undo -scale-x-100"
           severity="secondary"
@@ -960,7 +1010,7 @@ function performClearCanvas(count) {
           @click="rotateSelectedBy(90)"
         />
         <Button
-          v-if="overlayBtns.canTransform"
+          v-if="overlayBtns.canFlip"
           v-tooltip.top="'Отразить по горизонтали · Shift+H'"
           icon="pi pi-arrows-h"
           severity="secondary"
@@ -971,7 +1021,7 @@ function performClearCanvas(count) {
           @click="flipSelected('h')"
         />
         <Button
-          v-if="overlayBtns.canTransform"
+          v-if="overlayBtns.canFlip"
           v-tooltip.top="'Отразить по вертикали · Shift+V'"
           icon="pi pi-arrows-v"
           severity="secondary"
@@ -1054,6 +1104,44 @@ function performClearCanvas(count) {
           height: `${lassoRect.h}px`,
         }"
       ></div>
+
+      <!-- Ручки ресайза выделенной фигуры-разметки: тянут её габарит, геометрия
+           масштабируется под него. Overlay поверх холста — в DOM ячейки их держать
+           нельзя, иначе они видны у всех фигур и уедут в экспорт. -->
+      <div
+        v-for="h in shapeHandles"
+        :key="h.key"
+        class="absolute z-20 h-2 w-2 rounded-sm border border-primary-500 bg-surface-0"
+        :style="{ ...h.style, cursor: h.cursor }"
+        @pointerdown="onHandleDown($event, h.key)"
+      ></div>
+
+      <!-- Превью рисуемой фигуры (координаты в container-px, как у лассо). Рамка для
+           прямоугольника/эллипса, линия и ломаная — своими примитивами. -->
+      <svg
+        v-if="drawPreview"
+        class="absolute inset-0 pointer-events-none w-full h-full overflow-visible"
+      >
+        <rect
+          v-if="drawPreview.type === 'rect'"
+          :x="drawPreview.x"
+          :y="drawPreview.y"
+          :width="drawPreview.w"
+          :height="drawPreview.h"
+          fill="none"
+          stroke="currentColor"
+          stroke-dasharray="4 3"
+          class="text-primary-500"
+        />
+        <polyline
+          v-else
+          :points="drawPreview.points.map((p) => p.join(',')).join(' ')"
+          fill="none"
+          stroke="currentColor"
+          stroke-dasharray="4 3"
+          class="text-primary-500"
+        />
+      </svg>
 
       <!-- Empty canvas hint — показываем когда нет ячеек и не идёт drag.
  Двухшаговый чек-лист: tag-list → стенсил. Первый шаг отмечается ✓

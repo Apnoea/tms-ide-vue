@@ -1,20 +1,37 @@
 import { computed } from 'vue'
 import { useCanvas } from './useCanvas'
 import { getStencilById } from '../stencils/registry'
+import { isShapeCell } from '../stencils/shapeElement'
 import { injectStencilSvg, buildPortItems } from '../stencils/svgInjector'
 import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
 
 /**
  * HTML-overlay одиночной выделенной ячейки: rotate/delete/lock по углам visual-AABB
  * и flip на серединах сторон. Не JointJS elementTools — те кэшируют bbox при
- * addTools и не следуют за resize. rotate/flip скрыты у noRotate (`canCellTransform`).
+ * addTools и не следуют за resize. Что доступно — решают `canCellRotate` (noRotate,
+ * замок, из фигур только подпись) и `canCellFlip` (только символы).
  */
 export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging }) {
   const canvas = useCanvas()
 
-  function canCellTransform(cell) {
-    // Заблокированную (`tms.locked`) не вращаем; noRotate-стенсилы — тоже.
-    return cell && !cell.get('tms')?.locked && !getStencilById(cell.get('tms')?.stencilId)?.noRotate
+  /**
+   * Поворот. Заблокированную (`tms.locked`) не вращаем, noRotate-стенсилы — тоже.
+   * Из фигур-разметки поворачивается только ПОДПИСЬ: у остальных ручки ресайза тянут
+   * габарит в экранных осях, и поворот пришлось бы в них учитывать, а у подписи
+   * ручек нет (её габарит задаёт шрифт).
+   */
+  function canCellRotate(cell) {
+    if (!cell || cell.get('tms')?.locked) return false
+    if (isShapeCell(cell)) return cell.get('tms')?.shape?.type === 'text'
+    return !getStencilById(cell.get('tms')?.stencilId)?.noRotate
+  }
+
+  /**
+   * Отражение — только символы: оно зеркалит их SVG и позиции портов, а у фигуры ни
+   * того, ни другого нет (кнопка была бы мёртвой).
+   */
+  function canCellFlip(cell) {
+    return canCellRotate(cell) && !isShapeCell(cell)
   }
 
   const overlayBtns = computed(() => {
@@ -44,7 +61,8 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
     const GAP = 24
     return {
       id: cell.id,
-      canTransform: canCellTransform(cell),
+      canRotate: canCellRotate(cell),
+      canFlip: canCellFlip(cell),
       locked: !!cell.get('tms')?.locked,
       rotateCcw: { left: `${left - GAP - HALF}px`, top: `${top - GAP - HALF}px` },
       rotateCw: { left: `${right + GAP - HALF}px`, top: `${top - GAP - HALF}px` },
@@ -53,7 +71,7 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
       // блокировку при read-only остальных).
       lock: { left: `${left - GAP - HALF}px`, top: `${bottom + GAP - HALF}px` },
       // Flip — на серединах сторон: горизонтальный (лево↔право) сверху по центру,
-      // вертикальный (верх↔низ) слева по центру. Видны при canTransform (как rotate).
+      // вертикальный (верх↔низ) слева по центру.
       flipH: { left: `${(left + right) / 2 - HALF}px`, top: `${top - GAP - HALF}px` },
       flipV: { left: `${left - GAP - HALF}px`, top: `${(top + bottom) / 2 - HALF}px` },
     }
@@ -66,7 +84,7 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
     let changed = false
     for (const item of sel) {
       const cell = graph.getCell(item.id)
-      if (!canCellTransform(cell)) continue
+      if (!canCellRotate(cell)) continue
       cell.rotate(delta)
       changed = true
     }
@@ -86,7 +104,7 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
     let changed = false
     for (const item of sel) {
       const cell = graph.getCell(item.id)
-      if (!canCellTransform(cell)) continue
+      if (!canCellFlip(cell)) continue
       const stencil = getStencilById(cell.get('tms')?.stencilId)
       if (!stencil) continue
       const tms = cell.get('tms') || {}
