@@ -4,8 +4,8 @@ import { withRestoreGuard } from '../utils/restoreGuard'
 import { toPlain } from '../utils/plain'
 import { idbGet, idbTryGet, idbSet, idbDel, idbKeys } from '../utils/idb'
 import { loadStencilOverrides } from '../services/stencilOverrides'
-import { migrateGraphJson } from '../services/legacyFormat'
 import { parseTagList } from '../services/parsers'
+import { migrateGraphJson } from '../services/legacyFormat'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useCanvas } from './useCanvas'
@@ -81,10 +81,9 @@ export function useAutosave({ restoringHistory }) {
           canvas.setSaveError(true)
           return -1
         }
-        const stored = read.value || { cells: [] }
-        // Старый формат переписываем сразу: экспорт пишет новый ключ, и до первой
-        // правки привязки ушли бы из архива.
-        const { json: graphJson, changed } = migrateGraphJson(stored)
+        // Прошлый формат переписываем сразу: иначе он дожил бы до первой правки, а
+        // экспорт уже пишет новый вид — форма и архив разъехались бы.
+        const { json: graphJson, changed } = migrateGraphJson(read.value || { cells: [] })
         if (changed) await idbSet(formKey(id), graphJson)
         forms.push({ id, graphJson })
       }

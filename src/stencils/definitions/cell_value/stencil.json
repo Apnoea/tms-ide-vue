@@ -5,10 +5,12 @@
   "category": "Разметка и значения",
   "static": true,
   "noRotate": true,
+  "resizeX": true,
   "defaults": {
     "valueTag": ""
   },
   "shapeFile": "shape.svg",
+  "minWidth": 80,
   "width": 100,
   "height": 20
 }

@@ -153,6 +153,49 @@ export function materializeStencil(graph, paper, stencil, { position, size, tms,
 }
 
 /**
+ * Минимальная ширина растяжимого символа; `null` — ширину этого символа не тянут.
+ *
+ * Растяжимость объявляет сам символ (`resizeX` в stencil.json), а не код по id: у
+ * `cell_value` содержимое уже разложено ОТ ширины (подпись слева, значение и единица
+ * прижаты к правому краю), поэтому ему достаточно нового `size`. Замок ячейки
+ * запрещает ресайз здесь же — жест идёт мимо `paper.interactive`.
+ *
+ * Функция одна на «можно ли» и «насколько узко»: проверку не забыть, а минимум
+ * (`minWidth`) не разойдётся между ручками и полем инспектора.
+ */
+export function widthResizeMin(cell) {
+  const tms = cell?.get?.('tms')
+  if (!tms?.stencilId || tms.locked) return null
+  const stencil = getStencilById(tms.stencilId)
+  if (!stencil?.resizeX) return null
+  return stencil.minWidth ?? stencil.width ?? 10
+}
+
+/**
+ * Новая ширина растяжимому символу: клампит по `minWidth`, пишет размер и
+ * перерисовывает содержимое (оно раскладывается от ширины, иначе значение осталось
+ * бы висеть по прежнему краю). `anchorRight` держит на месте ПРАВЫЙ край — левая
+ * ручка тянет символ влево, и origin обязан уехать вместе с ней.
+ *
+ * @returns {boolean} менялось ли что-то (false = вызывающему нечего писать в историю)
+ */
+export function resizeStencilWidth(cell, paper, width, { anchorRight = false } = {}) {
+  const min = widthResizeMin(cell)
+  if (min == null) return false
+  const next = Math.max(min, Math.round(width))
+  const size = cell.get('size')
+  const pos = cell.get('position')
+  const x = anchorRight ? pos.x + size.width - next : pos.x
+  if (next === size.width && x === pos.x) return false
+  cell.resize(next, size.height)
+  if (x !== pos.x) cell.position(x, pos.y)
+  const stencil = getStencilById(cell.get('tms').stencilId)
+  const view = paper?.findViewByModel?.(cell)
+  if (view && stencil) injectStencilSvg(view, stencil)
+  return true
+}
+
+/**
  * Точка порта в координатах холста (с учётом поворота ячейки). Нужна, чтобы
  * отцепленный конец провода остался ровно там, где был порт: `args` в items — наши
  * же локальные координаты, поэтому считаем по ним, а не спрашиваем paper.

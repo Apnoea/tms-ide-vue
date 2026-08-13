@@ -2,8 +2,28 @@ import { dia, shapes, anchors, connectionPoints, routers } from '@joint/core'
 import { tmsNamespace } from './tmsStencil'
 import { LINK_DEFAULTS, gridRightAngleRouter } from './linkDefaults'
 
-const GRID_COLOR = '#e2e8f0' // slate-200
-const BACKGROUND_COLOR = '#f8fafc' // slate-50
+const GRID_COLOR_ON_LIGHT = '#e2e8f0' // slate-200
+const GRID_COLOR_ON_DARK = '#334155' // slate-700
+/** Фон холста по умолчанию (slate-50). Настройка окружения — см. `ui.canvasBg`. */
+export const CANVAS_BG_DEFAULT = '#f8fafc'
+
+/**
+ * Цвет точек сетки под цвет фона: slate-200 на тёмном фоне не видно, а второй
+ * настройки «цвет сетки» не хочется — считаем яркость и берём один из двух вариантов.
+ *
+ * Разбираем только hex (пикер даёт именно его). CSS-имя или мусор из localStorage
+ * яркостью не измерить — тогда светлый вариант, как было до настройки.
+ */
+export function gridColorFor(bg) {
+  const hex = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(String(bg || ''))?.[1]
+  if (!hex) return GRID_COLOR_ON_LIGHT
+  const full = hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255)
+  // Relative luminance (sRGB-коэффициенты, без гамма-коррекции — для выбора из двух
+  // вариантов её точности хватает).
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+  return lum < 0.5 ? GRID_COLOR_ON_DARK : GRID_COLOR_ON_LIGHT
+}
 
 /**
  * Уже есть такой же провод между этой парой портов? (в любом направлении)
@@ -49,7 +69,7 @@ export function createCanvasGraph() {
  * @param {(id: string) => boolean} opts.isSelected — выделен ли элемент (для
  *        interactive: концы тащим только у выделенного провода)
  */
-export function createCanvasPaper({ el, graph, isSelected }) {
+export function createCanvasPaper({ el, graph, isSelected, background = CANVAS_BG_DEFAULT }) {
   return new dia.Paper({
     el,
     model: graph,
@@ -62,11 +82,12 @@ export function createCanvasPaper({ el, graph, isSelected }) {
     routerNamespace: { ...routers, gridRightAngle: gridRightAngleRouter },
     drawGrid: {
       name: 'dot',
-      color: GRID_COLOR,
+      color: gridColorFor(background),
       thickness: 1,
     },
-    // CSS с !important в style.css переопределяет inline-стиль JointJS.
-    background: { color: BACKGROUND_COLOR },
+    // Единственный источник цвета фона — эта опция (JointJS ставит её инлайном);
+    // правила в style.css его НЕ перебивают, иначе выбор пользователя не применился бы.
+    background: { color: background },
     cellViewNamespace: tmsNamespace,
     // У провода тащим только концы и только у выделенного: маршрут строит роутер,
     // а конец держат на валидном порту validateConnection + linkPinning:false.

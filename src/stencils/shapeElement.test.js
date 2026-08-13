@@ -11,7 +11,8 @@ import {
   applyShapePatch,
   resizeShapeCell,
   isShapeResizable,
-  moveLineEnd,
+  moveShapePoint,
+  sanitizeShape,
 } from './shapeElement'
 
 const paper = { findViewByModel: () => null }
@@ -224,11 +225,11 @@ describe('resizeShapeCell', () => {
   })
 })
 
-describe('moveLineEnd', () => {
+describe('moveShapePoint', () => {
   it('переносит конец линии и пересчитывает габарит', () => {
     const graph = graphOf()
     const line = materializeShape(graph, paper, { type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 })
-    expect(moveLineEnd(line, paper, 'p2', { x: 40, y: 30 })).toBe(true)
+    expect(moveShapePoint(line, paper, 'p2', { x: 40, y: 30 })).toBe(true)
     // Второй конец уехал вниз: линия стала наклонной, bbox — 40×30.
     expect(line.get('size')).toEqual({ width: 40, height: 30 })
     expect(line.get('tms').shape).toMatchObject({ x1: 0, y1: 0, x2: 40, y2: 30 })
@@ -243,14 +244,70 @@ describe('moveLineEnd', () => {
       x2: 140,
       y2: 100,
     })
-    moveLineEnd(line, paper, 'p1', { x: 80, y: 60 })
+    moveShapePoint(line, paper, 'p1', { x: 80, y: 60 })
     expect(line.get('position')).toEqual({ x: 80, y: 60 })
     expect(line.get('size')).toEqual({ width: 60, height: 40 })
   })
 
-  it('не-линию не трогает', () => {
+  it('вершина ломаной двигается по индексу, замыкание сохраняется', () => {
+    const graph = graphOf()
+    const poly = materializeShape(graph, paper, {
+      type: 'polyline',
+      points: [
+        [0, 0],
+        [20, 0],
+        [20, 20],
+      ],
+      closed: true,
+    })
+    expect(moveShapePoint(poly, paper, 'v1', { x: 40, y: 0 })).toBe(true)
+    expect(poly.get('tms').shape.points).toEqual([
+      [0, 0],
+      [40, 0],
+      [20, 20],
+    ])
+    expect(poly.get('tms').shape.closed).toBe(true)
+    expect(poly.get('size')).toEqual({ width: 40, height: 20 })
+    // Вершины за пределами набора игнорируем — ручки строятся по нему же.
+    expect(moveShapePoint(poly, paper, 'v9', { x: 0, y: 0 })).toBe(false)
+  })
+
+  it('прямоугольник точками не правится (у него габаритные ручки)', () => {
     const graph = graphOf()
     const rect = materializeShape(graph, paper, { type: 'rect', x: 0, y: 0, w: 10, h: 10 })
-    expect(moveLineEnd(rect, paper, 'p1', { x: 50, y: 50 })).toBe(false)
+    expect(moveShapePoint(rect, paper, 'p1', { x: 50, y: 50 })).toBe(false)
+  })
+})
+
+describe('sanitizeShape: заливка', () => {
+  // Заливка вернулась в разметку, но только у замкнутых типов: у линии заливать
+  // нечего, а у подписи цвет живёт в `stroke` — `fill` там означал бы другое.
+  it('замкнутые типы принимают заливку, линия и подпись — нет', () => {
+    expect(sanitizeShape({ type: 'rect', w: 10, h: 10, fill: '#ff0000' }).fill).toBe('#ff0000')
+    expect(sanitizeShape({ type: 'circle', rx: 5, ry: 5, fill: '#00ff00' }).fill).toBe('#00ff00')
+    expect(
+      sanitizeShape({
+        type: 'polyline',
+        points: [
+          [0, 0],
+          [5, 5],
+        ],
+        fill: '#0000ff',
+      }).fill
+    ).toBe('#0000ff')
+    expect(sanitizeShape({ type: 'line', x2: 10, fill: '#ff0000' }).fill).toBeUndefined()
+    expect(sanitizeShape({ type: 'text', text: 'A', fill: '#ff0000' }).fill).toBeUndefined()
+  })
+
+  it('без заливки в данных — `none`, а не пустое значение', () => {
+    // Пустая строка в атрибуте залила бы фигуру чёрным (SVG-дефолт fill).
+    expect(sanitizeShape({ type: 'rect', w: 10, h: 10 }).fill).toBe('none')
+    expect(sanitizeShape({ type: 'rect', w: 10, h: 10, fill: '' }).fill).toBe('none')
+  })
+
+  it('мусор из архива заливкой не становится', () => {
+    for (const bad of ['url(#x)', 'rgb(0,0,0)', '"; fill: red', 42]) {
+      expect(sanitizeShape({ type: 'rect', w: 10, h: 10, fill: bad }).fill).toBe('none')
+    }
   })
 })

@@ -2,9 +2,7 @@ import { ref, computed } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { useCanvas } from './useCanvas'
 import { useUiStore } from '../stores/useUiStore'
-import { useProjectStore } from '../stores/useProjectStore'
 import { getStencilById } from '../stencils/registry'
-import { isFloatType } from '../services/parsers'
 import { materializeStencil } from '../stencils/svgInjector'
 import { textCellSize } from '../stencils/textCell'
 import { snapToGrid } from '../utils/grid'
@@ -16,16 +14,12 @@ import { snapToGrid } from '../utils/grid'
  * на время drag'а, превью снапится к сетке (или к проводу в режиме врезки), а на
  * pointerup ячейка создаётся в точке дропа.
  *
- * cell_value при загруженном tag-list'е сначала спрашивает тег через picker
- * (valueTagPickerOpen) — иначе ячейка отрендерилась бы с пустым label'ом.
- *
  * @param {import('vue').Ref<HTMLElement|null>} paperContainer
  * @param {{ splicePreview, findLinkAtPoint, spliceCellIntoLink, updateSplicePreview, clearSplicePreview }} wireSplice
  */
 export function usePaletteDrag(paperContainer, wireSplice) {
   const canvas = useCanvas()
   const ui = useUiStore()
-  const project = useProjectStore()
   const {
     splicePreview,
     findLinkAtPoint,
@@ -98,11 +92,10 @@ export function usePaletteDrag(paperContainer, wireSplice) {
   })
 
   /**
-   * Создаёт ячейку из стенсила в точке (paper-координаты центра). extraTms —
-   * доп. поля tms (напр. { valueTag } для cell_value). Слоты при drop'е из
-   * палитры пусты — юзер заполнит в инспекторе (нет привязки = нет анимации).
+   * Создаёт ячейку из стенсила в точке (paper-координаты центра). Слоты и теги при
+   * drop'е из палитры пусты — юзер заполнит в инспекторе (нет привязки = нет анимации).
    */
-  function createStencilAt(stencilId, x, y, extraTms = null) {
+  function createStencilAt(stencilId, x, y) {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
     if (!graph || !paper) return
@@ -121,7 +114,6 @@ export function usePaletteDrag(paperContainer, wireSplice) {
     // Стенсильные дефолты (`defaults` в stencil.json). structuredClone — иначе
     // вложенные объекты зашарили бы ссылку из реестра между ячейками.
     if (stencil.defaults) Object.assign(tms, structuredClone(stencil.defaults))
-    if (extraTms) Object.assign(tms, extraTms)
 
     // cell_text — размер под фактический текст, иначе широкая пустая bbox.
     let cellWidth = stencil.width
@@ -138,18 +130,11 @@ export function usePaletteDrag(paperContainer, wireSplice) {
   }
 
   /**
-   * Размещает стенсил в точке. cell_value при загруженном tag-list'е сначала
-   * открывает picker. Стенсил с ≥2 портами, брошенный на провод, врезается в
-   * него (split); иначе просто создаётся.
+   * Размещает стенсил в точке. Стенсил с ≥2 портами, брошенный на провод, врезается
+   * в него (split); иначе просто создаётся. Тег никто по пути не спрашивает —
+   * привязка живёт в инспекторе, одинаково для всех символов.
    */
   function placeStencil(stencilId, point) {
-    // cell_value показывает аналог → picker только при наличии float-тегов; нет
-    // таких → создаём без picker'а (тег назначат позже в инспекторе).
-    if (stencilId === 'cell_value' && project.tags.some((t) => isFloatType(t.type))) {
-      pendingValueDrop.value = { stencilId, x: point.x, y: point.y }
-      valueTagPickerOpen.value = true
-      return
-    }
     const stencil = getStencilById(stencilId)
     if ((stencil?.ports?.length || 0) >= 2) {
       const link = findLinkAtPoint(point)
@@ -207,33 +192,11 @@ export function usePaletteDrag(paperContainer, wireSplice) {
     ui.stopDragging()
   }
 
-  // ─── Tag picker для cell_value (выбор отображаемого полного тега) ───
-  const valueTagPickerOpen = ref(false)
-  const pendingValueDrop = ref(null) // { stencilId, x, y }
-
-  function onValueTagPickerSelect(tag) {
-    const p = pendingValueDrop.value
-    if (!p) return
-    createStencilAt(p.stencilId, p.x, p.y, { valueTag: tag })
-    pendingValueDrop.value = null
-  }
-
-  function onValueTagPickerCancel() {
-    pendingValueDrop.value = null
-  }
-
   // ui.dragging → document на время drag'а; useEventListener сам цепляет/снимает.
   const dragListenerTarget = computed(() => (ui.dragging ? document : null))
   useEventListener(dragListenerTarget, 'pointermove', onDragPointerMove)
   useEventListener(dragListenerTarget, 'pointerup', onDragPointerUp)
   useEventListener(window, 'blur', onDragCancel)
 
-  return {
-    previewVisible,
-    previewStyle,
-    draggingStencilSvg,
-    valueTagPickerOpen,
-    onValueTagPickerSelect,
-    onValueTagPickerCancel,
-  }
+  return { previewVisible, previewStyle, draggingStencilSvg }
 }

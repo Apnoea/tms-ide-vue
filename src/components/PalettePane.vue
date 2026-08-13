@@ -79,7 +79,9 @@ const stencilsByCategory = computed(() => {
   const map = new Map()
   for (const cat of allCategories.value) map.set(cat, [])
   for (const stencil of getAllStencils()) {
-    if (!matchesSearch(stencil)) continue
+    // `hidden` — символ остался в реестре только чтобы открывать прошлые формы
+    // (подпись теперь рисуется инструментом разметки), в палитре его не показываем.
+    if (stencil.hidden || !matchesSearch(stencil)) continue
     map.get(stencil.category)?.push(stencil)
   }
   for (const list of map.values()) {

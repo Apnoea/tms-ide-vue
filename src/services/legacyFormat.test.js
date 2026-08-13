@@ -1,80 +1,108 @@
-// Чтение старого формата: проект/символ, сохранённые до переименований доменных
-// имён, должны открываться без потерь и переезжать на новые. Регрессия дорогая:
-// молча теряются привязки анимаций всей схемы.
 import { describe, it, expect } from 'vitest'
-import { migrateTms, migrateGraphJson, migrateStencilSvg } from './legacyFormat'
+import { textCellToShape, migrateGraphJson } from './legacyFormat'
+import { TEXT_PADDING_X } from '../stencils/textCell'
 
-const SRC = { tag: 'PS.UA', ranges: [{ min: 0, max: 5, class: 'animation-low' }] }
-const BOOL = { groups: [['BR1.ONOFF', 'BR2.ONOFF'], ['BR3.ONOFF']] }
+// Подпись из прошлого формата (символ cell_text) должна стать фигурой-разметкой,
+// не потеряв ни вида, ни места, ни свойств ячейки.
 
-describe('migrateTms', () => {
-  it('переносит старый ключ в rangeSource и убирает legacy-поле', () => {
-    const out = migrateTms({ stencilId: 'cell_bus', voltageSource: SRC })
-    expect(out).toEqual({ stencilId: 'cell_bus', rangeSource: SRC })
-    expect('voltageSource' in out).toBe(false)
+function textCell(tms = {}, rest = {}) {
+  return {
+    type: 'tms.Stencil',
+    id: 't1',
+    position: { x: 100, y: 50 },
+    size: { width: 60, height: 20 },
+    tms: { stencilId: 'cell_text', text: 'Секция', ...tms },
+    ...rest,
+  }
+}
+
+describe('textCellToShape', () => {
+  it('чужие ячейки не трогает', () => {
+    expect(textCellToShape({ tms: { stencilId: 'cell_qw' } })).toBeNull()
+    expect(textCellToShape({ tms: { shape: { type: 'text' } } })).toBeNull()
+    expect(textCellToShape(null)).toBeNull()
   })
 
-  it('без старого ключа не трогает объект (null = копия не нужна)', () => {
-    expect(migrateTms({ stencilId: 'cell_qw', rangeSource: SRC })).toBeNull()
-    expect(migrateTms({})).toBeNull()
-    expect(migrateTms(null)).toBeNull()
+  it('вид подписи переезжает в геометрию фигуры', () => {
+    const out = textCellToShape(
+      textCell({ text: 'QF-101', fontSize: 20, bold: true, color: '#ff0000', fontFamily: 'serif' })
+    )
+    expect(out.type).toBe('tms.Shape')
+    expect(out.id).toBe('t1')
+    expect(out.tms.shape).toMatchObject({
+      type: 'text',
+      text: 'QF-101',
+      fontSize: 20,
+      bold: true,
+      stroke: '#ff0000',
+      fontFamily: 'serif',
+      align: 'left',
+    })
   })
 
-  it('оба ключа: новый приоритетнее, старый отбрасывается', () => {
-    const out = migrateTms({ rangeSource: SRC, voltageSource: { tag: 'OLD', ranges: [] } })
-    expect(out).toEqual({ rangeSource: SRC })
+  it('подпись остаётся на своём месте: baseline ниже центра ячейки', () => {
+    // Ячейка 50..70 по вертикали, у cell_text текст центрирован по ней; у фигуры
+    // точка привязки — baseline, поэтому она ниже центра (~0.3em).
+    const out = textCellToShape(textCell({ fontSize: 14 }))
+    expect(out.position.y + out.tms.shape.y).toBeCloseTo(50 + 10 + 14 * 0.3, 5)
+    // Левый край + отступ — там же, где текст рисовался у символа.
+    expect(out.position.x + out.tms.shape.x).toBeCloseTo(100 + TEXT_PADDING_X, 5)
   })
 
-  it('switchSources → boolSource', () => {
-    const out = migrateTms({ stencilId: 'cell_qw', switchSources: BOOL })
-    expect(out).toEqual({ stencilId: 'cell_qw', boolSource: BOOL })
-    expect('switchSources' in out).toBe(false)
+  it('якорь роста сохраняется даже без замера ширины', () => {
+    // Замер идёт через canvas, в jsdom он недоступен — align обязан доехать всё равно,
+    // иначе подпись после первой правки поехала бы в другую сторону.
+    for (const align of ['left', 'center', 'right']) {
+      expect(textCellToShape(textCell({ align })).tms.shape.align).toBe(align)
+    }
+    // Мусорный якорь — как у cell_text, дефолт.
+    expect(textCellToShape(textCell({ align: 'justify' })).tms.shape.align).toBe('left')
   })
 
-  it('оба legacy-ключа сразу переезжают за один проход', () => {
-    const out = migrateTms({ voltageSource: SRC, switchSources: BOOL })
-    expect(out).toEqual({ rangeSource: SRC, boolSource: BOOL })
+  it('свойства ячейки (замок, группа, угол, слой) переносятся', () => {
+    const out = textCellToShape(textCell({ locked: true, groupId: 'grp-1' }, { angle: 90, z: 7 }))
+    expect(out.tms).toMatchObject({ locked: true, groupId: 'grp-1' })
+    expect(out.angle).toBe(90)
+    expect(out.z).toBe(7)
+    // Символьных полей у фигуры нет — иначе она осталась бы наполовину стенсилом.
+    expect(out.tms.stencilId).toBeUndefined()
+  })
+
+  it('дефолты не пишутся: ни семейства шрифта, ни жирности', () => {
+    const shape = textCellToShape(textCell()).tms.shape
+    expect(shape.fontFamily).toBeUndefined()
+    expect(shape.bold).toBeUndefined()
   })
 })
 
 describe('migrateGraphJson', () => {
-  it('мигрирует ячейки и провода формы, отдаёт changed', () => {
-    const { json, changed } = migrateGraphJson({
+  it('переписывает только подписи и сообщает об этом флагом', () => {
+    const json = {
       cells: [
-        { id: 'a', tms: { stencilId: 'cell_bus', voltageSource: SRC } },
-        { id: 'l', type: 'standard.Link', tms: { voltageSource: SRC } },
+        textCell(),
+        { type: 'tms.Stencil', id: 'c1', tms: { stencilId: 'cell_qw' } },
+        { type: 'standard.Link', id: 'l1' },
       ],
-    })
+    }
+    const { json: next, changed } = migrateGraphJson(json)
     expect(changed).toBe(true)
-    expect(json.cells[0].tms).toEqual({ stencilId: 'cell_bus', rangeSource: SRC })
-    expect(json.cells[1].tms).toEqual({ rangeSource: SRC })
+    expect(next.cells[0].type).toBe('tms.Shape')
+    expect(next.cells[1]).toBe(json.cells[1])
+    expect(next.cells[2]).toBe(json.cells[2])
   })
 
-  it('нечего мигрировать → тот же объект и changed=false (в IDB не пишем)', () => {
-    const src = { cells: [{ id: 'a', tms: { stencilId: 'cell_qw' } }] }
-    const { json, changed } = migrateGraphJson(src)
-    expect(changed).toBe(false)
-    expect(json).toBe(src)
+  it('идемпотентна: второй проход ничего не меняет и не просит перезаписи', () => {
+    const first = migrateGraphJson({ cells: [textCell()] })
+    const second = migrateGraphJson(first.json)
+    expect(second.changed).toBe(false)
+    // changed:false отдаёт тот же объект — вызывающий по нему решает, писать ли в IDB.
+    expect(second.json).toBe(first.json)
   })
 
-  it('битый json не роняет миграцию', () => {
-    expect(migrateGraphJson(null).changed).toBe(false)
-    expect(migrateGraphJson({}).changed).toBe(false)
-  })
-})
-
-describe('migrateStencilSvg', () => {
-  it('заменяет все вхождения старого класса заливки', () => {
-    const { svg, changed } = migrateStencilSvg(
-      '<svg><rect class="tms-voltage-fill"/><circle class="tms-voltage-fill"/></svg>'
-    )
-    expect(changed).toBe(true)
-    expect(svg).toBe('<svg><rect class="tms-range-fill"/><circle class="tms-range-fill"/></svg>')
-  })
-
-  it('без старого класса возвращает строку как есть', () => {
-    const src = '<svg><rect class="tms-range-fill"/></svg>'
-    expect(migrateStencilSvg(src)).toEqual({ svg: src, changed: false })
-    expect(migrateStencilSvg(undefined).changed).toBe(false)
+  it('форма без подписей и мусор на входе возвращаются как есть', () => {
+    const json = { cells: [{ type: 'standard.Link', id: 'l1' }] }
+    expect(migrateGraphJson(json)).toEqual({ json, changed: false })
+    expect(migrateGraphJson(null)).toEqual({ json: null, changed: false })
+    expect(migrateGraphJson({})).toEqual({ json: {}, changed: false })
   })
 })

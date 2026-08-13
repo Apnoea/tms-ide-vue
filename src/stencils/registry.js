@@ -65,8 +65,10 @@ export function validateStencilJson(path, json, svgText) {
     'quality',
     'static',
     'noRotate',
+    'resizeX',
     'defaults',
     'locked',
+    'hidden',
   ])
   for (const key of Object.keys(json)) {
     if (!known.has(key)) {
@@ -214,7 +216,10 @@ export function hasBoolSlot(stencil) {
 
 export function getCategories() {
   const cats = new Set()
-  for (const stencil of registry.values()) cats.add(stencil.category)
+  for (const stencil of registry.values()) {
+    if (stencil.hidden) continue
+    cats.add(stencil.category)
+  }
   const pinned = PINNED_FIRST_CATEGORIES.filter((c) => cats.has(c))
   const rest = Array.from(cats)
     .filter((c) => !PINNED_FIRST_CATEGORIES.includes(c))

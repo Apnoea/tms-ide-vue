@@ -7,6 +7,7 @@ import { buildPortItems } from '../stencils/svgInjector'
 import { LINK_DEFAULTS, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkDefaults'
 import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 import { sanitizeShape } from '../stencils/shapeElement'
+import { textCellToShape } from './legacyFormat'
 
 /**
  * Парсит SVG-текст и возвращает массив JointJS-cells (включая links),
@@ -159,11 +160,9 @@ export function parseSvgProject(svgText) {
 
       // Собираем tms-payload по тому же дескриптору, что пишет exporter
       // (CELL_META_FIELDS) — единый список, не плодим undefined.
-      // legacyKey — прежнее имя поля в старых архивах (см. services/legacyFormat):
-      // читаем как fallback и записываем уже под новым именем.
       const tms = { stencilId: meta.stencilId }
       for (const f of CELL_META_FIELDS) {
-        const raw = meta[f.key] ?? (f.legacyKey ? meta[f.legacyKey] : undefined)
+        const raw = meta[f.key]
         if (raw === undefined) continue
         const v = f.normalize ? f.normalize(raw) : raw
         // normalize отдал undefined = значение не спасти (нечисловой размер шрифта,
@@ -190,9 +189,12 @@ export function parseSvgProject(svgText) {
       if (Number.isFinite(angle) && angle % 360 !== 0) cellJson.angle = ((angle % 360) + 360) % 360
       const z = Number.parseFloat(meta.z)
       if (Number.isFinite(z)) cellJson.z = Math.max(0, z)
-      cells.push(cellJson)
+      // Подпись из прошлого формата (символ cell_text) сразу становится фигурой —
+      // тем же конвертером, что чинит формы в IDB (см. services/legacyFormat).
+      const migrated = textCellToShape(cellJson)
+      cells.push(migrated || cellJson)
       elementIds.add(meta.id)
-      indexPorts(portIndex, cellJson)
+      if (!migrated) indexPorts(portIndex, cellJson)
     } catch (e) {
       errors.push(`Парсинг символа: ${e.message}`)
     }
@@ -250,7 +252,7 @@ export function parseSvgProject(svgText) {
       if (meta.z != null) link.z = normalizeLinkZ(meta.z)
       // tms-поля провода по тому же дескриптору, что пишет exporter (LINK_META_FIELDS).
       for (const f of LINK_META_FIELDS) {
-        const v = meta[f.key] ?? (f.legacyKey ? meta[f.legacyKey] : undefined)
+        const v = meta[f.key]
         if (v === undefined) continue
         link.tms = link.tms || {}
         link.tms[f.key] = v

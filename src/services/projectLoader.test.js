@@ -50,7 +50,7 @@ describe('parseSvgProject', () => {
     expect(cell.tms.slots).toEqual({ onoff: 'PS031VK001.ONOFF' })
   })
 
-  it('подтягивает tms-поля cell_text (text, fontSize, bold, align)', () => {
+  it('cell_text превращается в фигуру-подпись (прошлый формат)', () => {
     const meta = {
       id: 'c1',
       stencilId: 'cell_text',
@@ -64,12 +64,15 @@ describe('parseSvgProject', () => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
       <g transform="translate(0,0)" data-tms-meta='${JSON.stringify(meta).replace(/"/g, '&quot;')}'/>
     </svg>`
-    const out = parseSvgProject(svg)
-    const cell = out.cells[0]
-    expect(cell.tms.text).toBe('Hello')
-    expect(cell.tms.fontSize).toBe(20)
-    expect(cell.tms.bold).toBe(true)
-    expect(cell.tms.align).toBe('center')
+    const cell = parseSvgProject(svg).cells[0]
+    expect(cell.type).toBe('tms.Shape')
+    expect(cell.tms.shape).toMatchObject({
+      type: 'text',
+      text: 'Hello',
+      fontSize: 20,
+      bold: true,
+      align: 'center',
+    })
   })
 
   it('round-trip angle/navigation/boolSource/rangeSource на ячейке', () => {
@@ -98,41 +101,6 @@ describe('parseSvgProject', () => {
       tag: 'V.U',
       ranges: [{ min: 0, max: 5, class: 'animation-low' }],
     })
-  })
-
-  it('архив со старыми ключами читается в rangeSource/boolSource (ячейка + провод)', () => {
-    // Проекты, выгруженные до переименований: legacyKey в META_FIELDS — единственное
-    // место, где старые имена ещё живут (см. services/legacyFormat).
-    const src = { tag: 'V.U', ranges: [{ min: 0, max: 5, class: 'animation-low' }] }
-    const bool = { groups: [['A.ONOFF']] }
-    const cell = {
-      id: 'a',
-      stencilId: 'cell_qw',
-      width: 20,
-      height: 20,
-      voltageSource: src,
-      switchSources: bool,
-    }
-    const link = {
-      id: 'link-old',
-      source: { id: 'a', port: 'right' },
-      target: { id: 'b', port: 'left' },
-      voltageSource: src,
-      switchSources: bool,
-    }
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
-      <g transform="translate(0,0)" data-tms-meta='${attr(cell)}'/>
-      ${cellG('b')}
-      <path data-tms-meta='${attr(link)}'/>
-    </svg>`
-    const out = parseSvgProject(svg)
-    expect(out.cells[0].tms.rangeSource).toEqual(src)
-    expect(out.cells[0].tms.boolSource).toEqual(bool)
-    expect(out.cells[0].tms.voltageSource).toBeUndefined()
-    expect(out.cells[0].tms.switchSources).toBeUndefined()
-    const parsedLink = out.cells.find((c) => c.id === 'link-old')
-    expect(parsedLink.tms.rangeSource).toEqual(src)
-    expect(parsedLink.tms.boolSource).toEqual(bool)
   })
 
   it('round-trip vertices/boolSource на проводе', () => {

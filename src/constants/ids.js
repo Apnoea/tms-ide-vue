@@ -8,7 +8,6 @@
 //    (text-узел) — рантайм адресует text-карточку по id, равному тегу
 //  • провод:          animation-wire-<shortId>
 
-import { LEGACY_RANGE_KEY, LEGACY_BOOL_KEY } from '../services/legacyFormat'
 import { SVG_FONT, normalizeFont } from '../utils/textMetrics'
 
 /**
@@ -72,8 +71,6 @@ export function idSafeTag(tag) {
  *  • keep(v)   — писать ли в meta (отсекает дефолты)
  *  • flag      — писать `true` вместо значения
  *  • clone     — при чтении копировать объект (не шарить с meta)
- *  • legacyKey — прежнее имя поля в архивах: читаем как fallback, пишем только
- *                новое (см. services/legacyFormat — слой снимается целиком)
  *
  * `angle`/`z` не здесь: это поля верхнего уровня JointJS, а не tms.
  */
@@ -102,13 +99,8 @@ export const CELL_META_FIELDS = [
   { key: 'flipH', keep: Boolean, flag: true },
   { key: 'flipV', keep: Boolean, flag: true },
   { key: 'groupId', keep: Boolean },
-  {
-    key: 'rangeSource',
-    keep: Boolean,
-    legacyKey: LEGACY_RANGE_KEY,
-    normalize: normalizeRangeSource,
-  },
-  { key: 'boolSource', keep: Boolean, legacyKey: LEGACY_BOOL_KEY },
+  { key: 'rangeSource', keep: Boolean, normalize: normalizeRangeSource },
+  { key: 'boolSource', keep: Boolean },
   { key: 'navigation', keep: Boolean },
 ]
 
@@ -119,8 +111,8 @@ export const CELL_META_FIELDS = [
  * — поле верхнего уровня линка.
  */
 export const LINK_META_FIELDS = [
-  { key: 'rangeSource', keep: Boolean, legacyKey: LEGACY_RANGE_KEY },
-  { key: 'boolSource', keep: Boolean, legacyKey: LEGACY_BOOL_KEY },
+  { key: 'rangeSource', keep: Boolean },
+  { key: 'boolSource', keep: Boolean },
   {
     key: 'strokeWidth',
     keep: Boolean,

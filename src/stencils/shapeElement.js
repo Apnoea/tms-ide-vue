@@ -23,6 +23,21 @@ import { svgEl } from '../utils/xml'
 /** Якорь роста подписи (как align у cell_text). Отсутствие = центр. */
 const TEXT_ALIGNS = ['left', 'center', 'right']
 
+/**
+ * Подряд идущие совпадающие вершины ломаной — мусор: у них общая ручка, тянется одна,
+ * и фигура на глазах «раздваивается». Появляются они на завершающем двойном клике
+ * (это два pointerdown в одной точке) и в архивах, записанных до дедупа.
+ */
+export function dedupeAdjacent(points) {
+  const out = []
+  for (const [x, y] of points || []) {
+    const prev = out[out.length - 1]
+    if (prev && prev[0] === x && prev[1] === y) continue
+    out.push([x, y])
+  }
+  return out
+}
+
 /** Отличает фигуру от ячейки-символа: у символа в `tms` есть `stencilId`. */
 export function isShapeCell(cell) {
   return cell?.get?.('type') === 'tms.Shape'
@@ -119,19 +134,21 @@ export function sanitizeShape(raw) {
     const n = num(v, NaN)
     return Number.isFinite(n) && n > 0 ? n : null
   }
-  // Разметка контурная: ни заливки, ни скругления в модели нет — поля из чужого
-  // архива не подхватываем, иначе они жили бы без способа их изменить.
   const style = {
     stroke: cssColor(raw.stroke) || '#000',
     strokeWidth: Math.min(40, Math.max(0.5, num(raw.strokeWidth, 2))),
   }
+  // Заливка — только у замкнутых (линии заливать нечего, у подписи цвет лежит в
+  // `stroke`). Скругления в модели по-прежнему нет: поле из чужого архива не
+  // подхватываем, иначе оно жило бы без способа его изменить.
+  const fill = { ...style, fill: cssColor(raw.fill) || 'none' }
 
   switch (raw.type) {
     case 'rect': {
       const w = size(raw.w)
       const h = size(raw.h)
       if (w === null || h === null) return null
-      return { type: 'rect', x: num(raw.x), y: num(raw.y), w, h, ...style }
+      return { type: 'rect', x: num(raw.x), y: num(raw.y), w, h, ...fill }
     }
     case 'circle': {
       const rx = size(raw.rx ?? raw.r)
@@ -143,7 +160,7 @@ export function sanitizeShape(raw) {
         cy: num(raw.cy),
         rx,
         ry,
-        ...style,
+        ...fill,
       }
     }
     case 'line':
@@ -156,16 +173,18 @@ export function sanitizeShape(raw) {
         ...style,
       }
     case 'polyline': {
-      const points = (Array.isArray(raw.points) ? raw.points : [])
-        .filter((p) => Array.isArray(p) && p.length >= 2)
-        .map(([x, y]) => [num(x), num(y)])
+      const points = dedupeAdjacent(
+        (Array.isArray(raw.points) ? raw.points : [])
+          .filter((p) => Array.isArray(p) && p.length >= 2)
+          .map(([x, y]) => [num(x), num(y)])
+      )
       // Одна точка — не фигура: ни нарисовать, ни выделить.
       if (points.length < 2) return null
       return {
         type: 'polyline',
         points,
         ...(raw.closed ? { closed: true } : {}),
-        ...style,
+        ...fill,
       }
     }
     case 'text': {
@@ -236,18 +255,30 @@ export function applyShapePatch(graph, paper, cellIds, patch) {
 }
 
 /**
- * Перенос конца линии (`p1`/`p2`) в точку холста. У линии тянут именно концы, а не
- * габарит: рамка вокруг наклонной прямой ничего не значит, а её направление задаётся
- * ровно двумя точками.
+ * Перенос ОДНОЙ точки геометрии в точку холста: концы линии (`p1`/`p2`) и вершины
+ * ломаной (`v0`, `v1`, …). У этих типов тянут точки, а не габарит — рамка вокруг
+ * наклонной прямой или ломаной ничего не задаёт, форму держат сами вершины (так же
+ * они правятся в редакторе символов).
  */
-export function moveLineEnd(cell, paper, which, point) {
+export function moveShapePoint(cell, paper, key, point) {
   const shape = cell.get('tms')?.shape
-  if (!isShapeCell(cell) || shape?.type !== 'line') return false
+  if (!isShapeCell(cell) || !shape) return false
   const pos = cell.get('position')
-  // Считаем в координатах холста: концы приходят из курсора, а геометрия локальная.
+  // Считаем в координатах холста: точка приходит из курсора, а геометрия локальная.
   const abs = translateShape(shape, pos.x, pos.y)
-  const moved =
-    which === 'p1' ? { ...abs, x1: point.x, y1: point.y } : { ...abs, x2: point.x, y2: point.y }
+  let moved = null
+  if (shape.type === 'line' && (key === 'p1' || key === 'p2')) {
+    moved =
+      key === 'p1' ? { ...abs, x1: point.x, y1: point.y } : { ...abs, x2: point.x, y2: point.y }
+  } else if (shape.type === 'polyline' && key.startsWith('v')) {
+    const i = Number(key.slice(1))
+    if (!Number.isInteger(i) || !abs.points?.[i]) return false
+    moved = {
+      ...abs,
+      points: abs.points.map((p, idx) => (idx === i ? [point.x, point.y] : p)),
+    }
+  }
+  if (!moved) return false
   const placed = placeShape(moved)
   if (!placed) return false
   cell.set('tms', { ...cell.get('tms'), shape: placed.shape })

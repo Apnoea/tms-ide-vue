@@ -3,7 +3,7 @@ import { useEventListener } from '@vueuse/core'
 import { useCanvas } from './useCanvas'
 import { useUiStore } from '../stores/useUiStore'
 import { snapToGrid } from '../utils/grid'
-import { materializeShape } from '../stencils/shapeElement'
+import { materializeShape, dedupeAdjacent } from '../stencils/shapeElement'
 import { TEXT_FONT_SIZE } from '../stencils/textCell'
 
 /**
@@ -24,7 +24,7 @@ import { TEXT_FONT_SIZE } from '../stencils/textCell'
 const DRAW_DEFAULTS = { stroke: '#000', strokeWidth: 2 }
 // Порог «клик, а не протяжка» — в ЭКРАННЫХ px, как у лассо: на любом зуме одинаково.
 const DRAG_THRESHOLD = 3
-// Клик рядом со стартовой вершиной замыкает ломаную в полигон.
+// Клик рядом с вершиной: по стартовой — замкнуть в полигон, по последней — закончить.
 const CLOSE_THRESHOLD = 10
 
 export function useCanvasDraw(paperContainer, { scheduleSnapshot }) {
@@ -72,7 +72,7 @@ export function useCanvasDraw(paperContainer, { scheduleSnapshot }) {
   }
 
   function finishPolyline(closed) {
-    const pts = polyPoints.value
+    const pts = dedupeAdjacent(polyPoints.value)
     polyPoints.value = []
     polyCursor = null
     drawPreview.value = null
@@ -101,13 +101,23 @@ export function useCanvasDraw(paperContainer, { scheduleSnapshot }) {
       const pts = polyPoints.value
       if (pts.length >= 2) {
         const scale = canvas.paperRef.value.scale().sx || 1
-        const [fx, fy] = pts[0]
-        if (Math.hypot(p.x - fx, p.y - fy) <= CLOSE_THRESHOLD / scale) {
+        const near = (pt) => Math.hypot(p.x - pt[0], p.y - pt[1]) <= CLOSE_THRESHOLD / scale
+        // Клик по началу замыкает в полигон, по последней вершине — заканчивает
+        // открытую ломаную: иначе попытка «поправить последнюю точку» ставила новую
+        // вершину и тянула резинку дальше.
+        if (near(pts[0])) {
           finishPolyline(true)
           return
         }
+        if (near(pts[pts.length - 1])) {
+          finishPolyline(false)
+          return
+        }
       }
-      polyPoints.value = [...pts, [p.x, p.y]]
+      // Повтор предыдущей вершины не добавляем: завершающий двойной клик — это два
+      // pointerdown в одной точке, и дубль дал бы две ручки на одном месте.
+      const last = pts[pts.length - 1]
+      if (!last || last[0] !== p.x || last[1] !== p.y) polyPoints.value = [...pts, [p.x, p.y]]
       updatePolyPreview()
       return
     }

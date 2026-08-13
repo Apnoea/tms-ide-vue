@@ -3,7 +3,6 @@
 // shape.svg}, taglist.csv, hierarchy.json. Экспорт → скачивание Blob, импорт →
 // выбор .zip (FSA-picker) → распаковка в структуру для оркестрации (useProject).
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
-import { migrateStencilSvg } from './legacyFormat'
 
 /**
  * Собирает ZIP проекта из экспортного бандла (см. useProject.buildAndDeliverBundle).
@@ -111,10 +110,7 @@ export async function readProjectZipFile(file) {
     } catch {
       continue // битый stencil.json — пропускаем
     }
-    // Символ из старого архива может нести прежний класс заливки — мигрируем на
-    // входе, дальше он идёт в реестр и в оверрайды уже в новом виде.
-    const { svg: shapeSvg } = migrateStencilSvg(text(`library/${id}/shape.svg`) ?? '')
-    stencils.push({ id, stencilJson, shapeSvg })
+    stencils.push({ id, stencilJson, shapeSvg: text(`library/${id}/shape.svg`) ?? '' })
   }
 
   const tagsText = text('taglist.csv') ?? text('taglist.txt')

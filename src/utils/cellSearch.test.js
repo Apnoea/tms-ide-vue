@@ -54,6 +54,16 @@ describe('getCellSearchStrings', () => {
     expect(getCellTags(cell)).toEqual([])
   })
 
+  it('подхватывает текст подписи-разметки (фигура)', () => {
+    // На схеме это такая же надпись, как cell_text: ищущий не знает и не должен
+    // знать, символ перед ним или фигура.
+    const cell = makeCell({ shape: { type: 'text', x: 0, y: 0, text: 'ГПП-3 ЗРУ 6кВ' } })
+    expect(getCellSearchStrings(cell)).toContain('ГПП-3 ЗРУ 6кВ')
+    expect(cellMatchesQuery(cell, 'зру')).toBe(true)
+    // Тегов у разметки нет — в tag-поля её текст не попадает.
+    expect(getCellTags(cell)).toEqual([])
+  })
+
   it('подхватывает navigation (целевая view)', () => {
     const cell = makeCell({ navigation: 'view_substation_a' })
     expect(getCellSearchStrings(cell)).toContain('view_substation_a')

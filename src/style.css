@@ -27,12 +27,6 @@ body,
   height: 100% !important;
 }
 
-/* JointJS ставит цвет фона paper-background inline — переопределяем !important
-   чтобы вписаться в общий стиль. */
-.joint-paper-background {
-  background-color: #f8fafc !important;
-}
-
 /* Подсветка выделенной ячейки/провода в Inspector'е — в primary-цвете темы
    (Aura override → cyan-500). Прозрачный drop-shadow в базовом состоянии нужен
    для плавного fade-in/out — иначе CSS не умеет переходить filter: none ↔ drop-shadow. */
@@ -54,7 +48,7 @@ body,
 }
 
 /* Подсветка элементов с любым tag-полем равным highlightedTag (slots,
-   rangeSource.tag, switchSources.tags, valueTag — см. cellHasTag).
+   rangeSource.tag, boolSource, valueTag — см. cellHasTag).
    Триггерится кнопкой «Подсветить на схеме» в инспекторе. Оттенок —
    фиолетовый (violet-500 #8b5cf6), НАМЕРЕННО отличный от cyan-primary'а
    выделения (.tms-selected): иначе «выделено» и «подсвечено по тегу» сливались

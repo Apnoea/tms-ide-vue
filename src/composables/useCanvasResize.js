@@ -3,22 +3,30 @@ import { useEventListener } from '@vueuse/core'
 import { useCanvas } from './useCanvas'
 import { snapToGrid } from '../utils/grid'
 import { projectToScreen } from '../utils/paperGeom'
-import { isShapeResizable, resizeShapeCell, moveLineEnd } from '../stencils/shapeElement'
+import { isShapeResizable, resizeShapeCell, moveShapePoint } from '../stencils/shapeElement'
+import { widthResizeMin, resizeStencilWidth } from '../stencils/svgInjector'
 
 /**
- * Ресайз фигуры-разметки за ручки. HTML-overlay, а не хэндлы внутри ячейки (как у
- * шины): ручки нужны только выделенной фигуре, а рисовать их в её же DOM значило бы
- * показывать всем и тащить в экспорт.
+ * Ресайз за ручки на холсте: фигуры-разметки и символов с растяжимой шириной.
+ * HTML-overlay, а не хэндлы внутри ячейки (как у шины): ручки нужны только
+ * выделенному, а рисовать их в его же DOM значило бы показывать всем и тащить в
+ * экспорт.
  *
- * Тянем ГАБАРИТ, геометрия масштабируется под него (shapeElement.resizeShapeCell).
- * Противоположный край стоит на месте, снап — к сетке холста, минимум — один её шаг:
- * фигура нулевого размера неотличима от исчезнувшей.
+ * Прямоугольник и эллипс тянут за ГАБАРИТ — геометрия масштабируется под него
+ * (`resizeShapeCell`), противоположный край стоит на месте, минимум — шаг сетки
+ * (фигура нулевого размера неотличима от исчезнувшей). Линия и ломаная правятся ПО
+ * ТОЧКАМ (`moveShapePoint`): ручка на каждой вершине, как в редакторе символов.
+ * Символ с `resizeX` (карточка значения) получает ДВЕ ручки по бокам: высоту ему
+ * задаёт содержимое (baseline и кегли фиксированы), тянуть её нечем.
  *
- * Повёрнутая фигура ручек не получает: `angle` живёт на outer-группе, и тянуть
- * габарит в экранных осях означало бы решать, что делать с поворотом — сначала
- * снимите поворот.
+ * Повёрнутое ручек не получает: `angle` живёт на outer-группе, и тянуть габарит в
+ * экранных осях означало бы решать, что делать с поворотом — сначала снимите поворот.
  */
 
+const WIDTH_HANDLES = [
+  { key: 'w', fx: 0, fy: 0.5, cursor: 'ew-resize' },
+  { key: 'e', fx: 1, fy: 0.5, cursor: 'ew-resize' },
+]
 const HANDLES = [
   { key: 'nw', fx: 0, fy: 0, cursor: 'nwse-resize' },
   { key: 'n', fx: 0.5, fy: 0, cursor: 'ns-resize' },
@@ -31,14 +39,14 @@ const HANDLES = [
 ]
 const HALF = 4 // половина ручки (8×8) — позиции считаем по её центру
 
-export function useShapeResize({ scheduleSnapshot, dragging }) {
+export function useCanvasResize({ scheduleSnapshot, dragging }) {
   const canvas = useCanvas()
   let drag = null
   // Пока тянем — позиции ручек считаем от «живого» габарита, а не от снимка.
   const resizeTick = ref(0)
 
-  /** Ручки выделенной фигуры в экранных координатах (null — показывать нечего). */
-  const shapeHandles = computed(() => {
+  /** Ручки выделенного в экранных координатах (null — показывать нечего). */
+  const resizeHandles = computed(() => {
     canvas.graphVersion.value
     canvas.paperViewTick.value
     resizeTick.value
@@ -49,17 +57,27 @@ export function useShapeResize({ scheduleSnapshot, dragging }) {
     const paper = canvas.paperRef.value
     if (!graph || !paper) return null
     const cell = graph.getCell(sel[0].id)
-    if (!isShapeResizable(cell) || (cell.angle && cell.angle() % 360 !== 0)) return null
+    if (!cell || (cell.angle && cell.angle() % 360 !== 0)) return null
+    const shapeMode = isShapeResizable(cell)
+    // Символ тянут только по ширине — у него своя пара ручек (см. WIDTH_HANDLES).
+    const widthOnly = !shapeMode && widthResizeMin(cell) != null
+    if (!shapeMode && !widthOnly) return null
     const pos = cell.get('position')
     const size = cell.get('size')
     const shape = cell.get('tms')?.shape
-    // У линии тянут концы, а не габарит: рамка вокруг наклонной прямой ничего не
-    // задаёт, а направление держат ровно две точки.
-    if (shape?.type === 'line') {
-      return [
-        { key: 'p1', x: shape.x1, y: shape.y1 },
-        { key: 'p2', x: shape.x2, y: shape.y2 },
-      ].map((e) => {
+    // Линию и ломаную правят ПО ТОЧКАМ (как в редакторе символов): рамка вокруг
+    // наклонной прямой или ломаной ничего не задаёт, форму держат сами вершины.
+    const points =
+      shape?.type === 'line'
+        ? [
+            { key: 'p1', x: shape.x1, y: shape.y1 },
+            { key: 'p2', x: shape.x2, y: shape.y2 },
+          ]
+        : shape?.type === 'polyline'
+          ? shape.points.map(([x, y], i) => ({ key: `v${i}`, x, y }))
+          : null
+    if (points) {
+      return points.map((e) => {
         const p = projectToScreen(paper, pos.x + e.x, pos.y + e.y)
         return {
           key: e.key,
@@ -68,7 +86,7 @@ export function useShapeResize({ scheduleSnapshot, dragging }) {
         }
       })
     }
-    return HANDLES.map((h) => {
+    return (widthOnly ? WIDTH_HANDLES : HANDLES).map((h) => {
       const p = projectToScreen(paper, pos.x + size.width * h.fx, pos.y + size.height * h.fy)
       return {
         key: h.key,
@@ -84,7 +102,8 @@ export function useShapeResize({ scheduleSnapshot, dragging }) {
     const sel = canvas.selection.value
     if (!graph || !paper || sel.length !== 1) return
     const cell = graph.getCell(sel[0].id)
-    if (!isShapeResizable(cell)) return
+    const shapeMode = isShapeResizable(cell)
+    if (!shapeMode && widthResizeMin(cell) == null) return
     evt.preventDefault()
     evt.stopPropagation()
     const pos = cell.get('position')
@@ -92,6 +111,9 @@ export function useShapeResize({ scheduleSnapshot, dragging }) {
     drag = {
       cell,
       key,
+      // Режим фиксируем на старте: ключи ручек 'w'/'e' есть у обоих, а правят они
+      // разное — габарит фигуры против ширины символа.
+      mode: shapeMode ? 'shape' : 'width',
       start: { x: pos.x, y: pos.y, width: size.width, height: size.height },
       changed: false,
     }
@@ -102,9 +124,23 @@ export function useShapeResize({ scheduleSnapshot, dragging }) {
     const paper = canvas.paperRef.value
     const grid = paper.options.gridSize || 5
     const p = paper.clientToLocalPoint(evt.clientX, evt.clientY)
-    if (drag.key === 'p1' || drag.key === 'p2') {
+    if (drag.mode === 'width') {
+      // Левая ручка держит ПРАВЫЙ край: он остаётся на месте всё время жеста,
+      // поэтому считаем от исходного габарита, а не от текущего (тот уже уехал).
+      const s = drag.start
+      const anchorRight = drag.key === 'w'
+      const edge = snapToGrid(p.x, grid)
+      const width = anchorRight ? s.x + s.width - edge : edge - s.x
+      if (resizeStencilWidth(drag.cell, paper, width, { anchorRight })) {
+        drag.changed = true
+        resizeTick.value++
+      }
+      return
+    }
+    // Ручка точки (конец линии / вершина ломаной) — двигаем её, не габарит.
+    if (drag.key === 'p1' || drag.key === 'p2' || drag.key.startsWith('v')) {
       const point = { x: snapToGrid(p.x, grid), y: snapToGrid(p.y, grid) }
-      if (moveLineEnd(drag.cell, paper, drag.key, point)) {
+      if (moveShapePoint(drag.cell, paper, drag.key, point)) {
         drag.changed = true
         resizeTick.value++
       }
@@ -149,5 +185,5 @@ export function useShapeResize({ scheduleSnapshot, dragging }) {
   useEventListener(document, 'pointermove', onMove)
   useEventListener(document, 'pointerup', onUp)
 
-  return { shapeHandles, onHandleDown }
+  return { resizeHandles, onHandleDown }
 }

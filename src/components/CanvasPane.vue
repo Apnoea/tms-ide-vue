@@ -7,7 +7,7 @@ import Tag from 'primevue/tag'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
 import { normalizeLinkZ, attachLinkTools } from '../stencils/linkDefaults'
-import { createCanvasGraph, createCanvasPaper } from '../stencils/canvasPaper'
+import { createCanvasGraph, createCanvasPaper, gridColorFor } from '../stencils/canvasPaper'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from '../composables/useCanvas'
@@ -28,7 +28,7 @@ import { useCellHighlight } from '../composables/useCellHighlight'
 import { useMultiDrag } from '../composables/useMultiDrag'
 import { useLasso } from '../composables/useLasso'
 import { useCanvasDraw } from '../composables/useCanvasDraw'
-import { useShapeResize } from '../composables/useShapeResize'
+import { useCanvasResize } from '../composables/useCanvasResize'
 import { useContextMenu } from '../composables/useContextMenu'
 import { usePaletteDrag } from '../composables/usePaletteDrag'
 import { nplural } from '../utils/plural'
@@ -36,7 +36,7 @@ import { withRestoreGuard } from '../utils/restoreGuard'
 import { confirmDanger } from '../utils/confirmDanger'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
-import TagPickerDialog from './TagPickerDialog.vue'
+import { TEXT_ICON, POLYLINE_ICON } from '../constants/icons'
 import SearchBar from './SearchBar.vue'
 
 const project = useProjectStore()
@@ -128,17 +128,13 @@ const { textEditing, textEditValue, textEditorRef, startTextEdit, commitTextEdit
 const { copySelection, pasteClipboard, duplicateSelection, hasClipboard } = useClipboard({
   scheduleSnapshot,
 })
-// Drag стенсила из палитры (превью + создание ячейки + врезка в провод + picker
-// для cell_value) — целиком в usePaletteDrag. wireSplice (useWireSplice) нужен
-// только ему, прокидываем напрямую. Цепляет свои document-листенеры сам.
-const {
-  previewVisible,
-  previewStyle,
-  draggingStencilSvg,
-  valueTagPickerOpen,
-  onValueTagPickerSelect,
-  onValueTagPickerCancel,
-} = usePaletteDrag(paperContainer, useWireSplice())
+// Drag стенсила из палитры (превью + создание ячейки + врезка в провод) — целиком в
+// usePaletteDrag. wireSplice (useWireSplice) нужен только ему, прокидываем напрямую.
+// Цепляет свои document-листенеры сам.
+const { previewVisible, previewStyle, draggingStencilSvg } = usePaletteDrag(
+  paperContainer,
+  useWireSplice()
+)
 
 // Проектная оркестрация (переключение формы / импорт+экспорт .zip). Возвращает
 // уже обёрнутые в общий busy-флаг функции (взаимное исключение) + оверлей-флаг.
@@ -284,9 +280,9 @@ const { lassoRect, startLasso } = useLasso(paperContainer, { selectCellsWithBrid
 const { drawPreview, isDrawing, cancelDraw } = useCanvasDraw(paperContainer, {
   scheduleSnapshot,
 })
-// Ручки ресайза выделенной фигуры (overlay, как кнопки поворота) — прячем на время
-// drag'а ячейки тем же флагом.
-const { shapeHandles, onHandleDown } = useShapeResize({
+// Ручки ресайза выделенного (фигура целиком, символ — по ширине; overlay, как
+// кнопки поворота) — прячем на время drag'а ячейки тем же флагом.
+const { resizeHandles, onHandleDown } = useCanvasResize({
   scheduleSnapshot,
   dragging: cellDragging,
 })
@@ -297,10 +293,10 @@ const DRAW_TOOLS = [
   { key: 'circle', icon: 'pi pi-circle', tip: 'Эллипс (Shift — ровный круг)' },
   {
     key: 'polyline',
-    icon: 'pi pi-chart-line',
-    tip: 'Ломаная (клик по началу — замкнуть, двойной клик — завершить)',
+    glyph: POLYLINE_ICON,
+    tip: 'Ломаная (клик по началу — замкнуть, по последней точке или двойной клик — завершить)',
   },
-  { key: 'text', icon: 'pi pi-pencil', tip: 'Подпись (текст правится в инспекторе)' },
+  { key: 'text', glyph: TEXT_ICON, tip: 'Подпись (текст правится в инспекторе)' },
 ]
 
 // ─── Pan-жесты (Figma-модель) ───────────────────────────────────────────────
@@ -391,6 +387,7 @@ onMounted(async () => {
     el: paperContainer.value,
     graph,
     isSelected: (id) => canvas.isSelected(id),
+    background: ui.canvasBg,
   })
 
   // ─── Клик по пустому месту ───
@@ -667,6 +664,17 @@ watch(
   // setSelection/toggle/clear), ref-сравнения достаточно.
 )
 
+// Фон холста (настройка окружения, `ui.canvasBg`): цвет и точки сетки перерисовываем
+// вместе — иначе на тёмном фоне сетка исчезает.
+watch(
+  () => ui.canvasBg,
+  (color) => {
+    if (!paper) return
+    paper.drawBackground({ color })
+    paper.setGrid({ name: 'dot', color: gridColorFor(color), thickness: 1 })
+  }
+)
+
 // ─── Внешние запросы snapshot'а (Inspector после правки слотов и т.п.) ───
 // Эти watches должны жить на уровне script setup — внутри async onMounted после
 // await они теряют component effectScope и не автоочищаются на unmount.
@@ -766,7 +774,7 @@ function performClearCanvas(count) {
            редактора символов; отступ у заголовка отыгрывает более короткое слово
            «Холст», чтобы инструменты не прижимались к нему. -->
       <div class="flex items-center gap-2">
-        <h2 class="mr-7 text-sm font-semibold text-surface-900 uppercase tracking-wide">Холст</h2>
+        <h2 class="mr-6 text-sm font-semibold text-surface-900 uppercase tracking-wide">Холст</h2>
         <div class="flex items-center gap-1">
           <Button
             v-for="t in DRAW_TOOLS"
@@ -778,7 +786,22 @@ function performClearCanvas(count) {
             size="small"
             class="tms-icon-btn"
             @click="ui.setCanvasTool(t.key)"
-          />
+          >
+            <template v-if="t.glyph" #icon>
+              <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
+                <path
+                  v-for="(el, i) in t.glyph"
+                  :key="i"
+                  :d="el.d"
+                  :fill="el.mode === 'fill' ? 'currentColor' : 'none'"
+                  :stroke="el.mode === 'stroke' ? 'currentColor' : 'none'"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </template>
+          </Button>
         </div>
 
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
@@ -1109,7 +1132,7 @@ function performClearCanvas(count) {
            масштабируется под него. Overlay поверх холста — в DOM ячейки их держать
            нельзя, иначе они видны у всех фигур и уедут в экспорт. -->
       <div
-        v-for="h in shapeHandles"
+        v-for="h in resizeHandles"
         :key="h.key"
         class="absolute z-20 h-2 w-2 rounded-sm border border-primary-500 bg-surface-0"
         :style="{ ...h.style, cursor: h.cursor }"
@@ -1176,14 +1199,6 @@ function performClearCanvas(count) {
         </div>
       </div>
     </div>
-
-    <TagPickerDialog
-      v-model:visible="valueTagPickerOpen"
-      :tags="project.floatTags"
-      header="Выберите тег для отображения значения"
-      @select="onValueTagPickerSelect"
-      @cancel="onValueTagPickerCancel"
-    />
 
     <ContextMenu ref="ctxMenuRef" :model="ctxItems" />
   </section>

@@ -8,6 +8,8 @@ import {
   syncStencilInstances,
   flipTransform,
   buildPortItems,
+  widthResizeMin,
+  resizeStencilWidth,
 } from './svgInjector'
 
 describe('reinjectAllStencils: z проводов', () => {
@@ -357,5 +359,75 @@ describe('syncStencilInstances: программные порты (шина)', (
     syncStencilInstances(graph, paper, busDef)
     expect(bus.hasPort('top_99')).toBe(true)
     expect(far.get('source')).toEqual({ id: bus.id, port: 'top_99' })
+  })
+})
+
+describe('ресайз ширины символа (resizeX)', () => {
+  // Без paper (view = null) перерисовка содержимого пропускается — модельная часть
+  // (размер, позиция, кламп) работает и проверяется здесь.
+  const paper = { findViewByModel: () => null }
+
+  function valueCell(extraTms = {}) {
+    const graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    const cell = new TMSStencil({
+      position: { x: 100, y: 50 },
+      size: { width: 100, height: 20 },
+      tms: { stencilId: 'cell_value', ...extraTms },
+    })
+    graph.addCell(cell)
+    return cell
+  }
+
+  it('растяжимость объявляет символ, а не код: у cell_value она есть, у cell_qw нет', () => {
+    expect(widthResizeMin(valueCell())).toBe(getStencilById('cell_value').minWidth)
+    const qw = new TMSStencil({ size: { width: 20, height: 20 }, tms: { stencilId: 'cell_qw' } })
+    expect(widthResizeMin(qw)).toBeNull()
+  })
+
+  it('замок запрещает ресайз: ручек нет и правка не проходит', () => {
+    const cell = valueCell({ locked: true })
+    expect(widthResizeMin(cell)).toBeNull()
+    // Жест идёт мимо paper.interactive, поэтому отказ обязан быть и в самой правке.
+    expect(resizeStencilWidth(cell, paper, 200)).toBe(false)
+    expect(cell.get('size').width).toBe(100)
+  })
+
+  it('ширина пишется, высота и левый край не трогаются', () => {
+    const cell = valueCell()
+    expect(resizeStencilWidth(cell, paper, 160)).toBe(true)
+    expect(cell.get('size')).toMatchObject({ width: 160, height: 20 })
+    expect(cell.get('position')).toMatchObject({ x: 100, y: 50 })
+  })
+
+  it('anchorRight держит правый край на месте (левая ручка тянет символ влево)', () => {
+    const cell = valueCell()
+    resizeStencilWidth(cell, paper, 140, { anchorRight: true })
+    const pos = cell.get('position')
+    expect(pos.x + cell.get('size').width).toBe(200)
+    expect(pos.x).toBe(60)
+  })
+
+  it('минимум из stencil.json: уже него не сжать, правый край всё равно на месте', () => {
+    const cell = valueCell()
+    const min = getStencilById('cell_value').minWidth
+    resizeStencilWidth(cell, paper, 5, { anchorRight: true })
+    expect(cell.get('size').width).toBe(min)
+    // Кламп не должен ломать привязку края: иначе карточка при сжатии «прыгала» бы.
+    expect(cell.get('position').x + min).toBe(200)
+  })
+
+  it('та же ширина = no-op: вызывающему нечего писать в историю', () => {
+    const cell = valueCell()
+    expect(resizeStencilWidth(cell, paper, 100)).toBe(false)
+  })
+
+  it('сверка с реестром выставленную ширину не сбрасывает', () => {
+    // static/minWidth = «габарит свой»: иначе загрузка формы возвращала бы карточке
+    // ширину из stencil.json и правка молча терялась.
+    const cell = valueCell()
+    const graph = cell.graph
+    resizeStencilWidth(cell, paper, 180)
+    syncStencilInstances(graph, paper, getStencilById('cell_value'))
+    expect(cell.get('size').width).toBe(180)
   })
 })

@@ -7,6 +7,7 @@ import AutoComplete from 'primevue/autocomplete'
 import Select from 'primevue/select'
 import SelectButton from 'primevue/selectbutton'
 import ToggleSwitch from 'primevue/toggleswitch'
+import Checkbox from 'primevue/checkbox'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import {
@@ -20,8 +21,10 @@ import { useValueRanges } from '../composables/useValueRanges'
 import { useTextCellProps, ALIGN_OPTIONS, BOLD_OPTIONS } from '../composables/useTextCellProps'
 import { useNavigationField } from '../composables/useNavigationField'
 import { useProjectStore } from '../stores/useProjectStore'
+import { useUiStore } from '../stores/useUiStore'
 import { getStencilById, hasBoolSlot } from '../stencils/registry'
-import { injectStencilSvg } from '../stencils/svgInjector'
+import { injectStencilSvg, widthResizeMin, resizeStencilWidth } from '../stencils/svgInjector'
+import { CANVAS_BG_DEFAULT } from '../stencils/canvasPaper'
 import { isShapeCell, shapeTypeLabel, applyShapePatch } from '../stencils/shapeElement'
 import { TEXT_FONT_SIZE } from '../stencils/textCell'
 import { VALUE_DECIMALS_DEFAULT } from '../stencils/valueCell'
@@ -45,6 +48,7 @@ function isStatic(tms) {
 }
 
 const canvas = useCanvas()
+const ui = useUiStore()
 const animClip = useAnimationClipboard()
 // Выравнивание + распределение выделенных ячеек (секция «Выравнивание» в мульти-режиме).
 const { canAlign, canDistribute, alignCells, distributeCells } = useAlign()
@@ -172,6 +176,9 @@ const details = computed(() => {
       locked: !!cell.get('tms')?.locked,
       stroke: shape.stroke || '#000000',
       strokeWidth: shape.strokeWidth ?? 2,
+      // Заливать нечего у линии и подписи (у неё цвет живёт в stroke).
+      isShapeFillable: shape.type !== 'line' && shape.type !== 'text',
+      fill: shape.fill && shape.fill !== 'none' ? shape.fill : '',
       isShapeText: shape.type === 'text',
       text: shape.text ?? '',
       fontSize: shape.fontSize ?? TEXT_FONT_SIZE,
@@ -201,6 +208,11 @@ const details = computed(() => {
       fontFamily: normalizeFont(tms.fontFamily),
       color: tms.color || '',
       isValue: tms.stencilId === 'cell_value',
+      // Растяжимость и минимум читаем из определения, а не через widthResizeMin: тот
+      // учитывает замок, а поле у залоченной ячейки должно быть видно (блок inert).
+      canResizeX: !!stencil?.resizeX,
+      width: cell.get('size').width,
+      widthMin: stencil?.minWidth ?? stencil?.width ?? 10,
       valueTag: tms.valueTag ?? '',
       // Явно выбранная пара «подпись + единица» (перебивает пресет по суффиксу).
       valueLabel: tms.valueLabel ?? '',
@@ -347,6 +359,11 @@ function patchShape(patch) {
   canvas.markDirty()
 }
 
+/** Тумблер заливки фигуры: включаем последним цветом (или белым), выключаем в `none`. */
+function toggleShapeFill(on) {
+  patchShape({ fill: on ? details.value?.fill || '#ffffff' : 'none' })
+}
+
 // ─── Провод: стиль линии (толщина/цвет) ───
 // Пишем в JointJS-attr (мгновенная отрисовка) + в tms[tmsKey] (round-trip через
 // data-tms-meta + автосейв). Дефолт в tms не держим — meta пишет только
@@ -436,6 +453,44 @@ const multiGroup = computed(() => {
   return { show: true, ungroup: sameGroup }
 })
 
+/**
+ * Растяжимые символы в выделении: поле «Ширина» — единственный способ выровнять
+ * несколько карточек по одной ширине (жестом это делается по одной). Залоченные в
+ * пачку не входят (`widthResizeMin` их отбраковывает), общее значение `null` =
+ * ширины расходятся, поле показывает placeholder.
+ */
+const multiWidth = computed(() => {
+  canvas.graphVersion.value
+  const graph = canvas.graphRef.value
+  if (!graph) return { show: false }
+  const cells = canvas.selection.value
+    .filter((s) => s.kind === 'cell')
+    .map((s) => graph.getCell(s.id))
+    .filter((c) => c && widthResizeMin(c) != null)
+  if (!cells.length) return { show: false }
+  const first = cells[0].get('size').width
+  const same = cells.every((c) => c.get('size').width === first)
+  return {
+    show: true,
+    count: cells.length,
+    value: same ? first : null,
+    min: Math.max(...cells.map((c) => widthResizeMin(c))),
+    cells,
+  }
+})
+
+function applyMultiWidth(v) {
+  if (!Number.isFinite(v)) return
+  const paper = canvas.paperRef.value
+  let changed = 0
+  for (const cell of multiWidth.value.cells || []) {
+    if (resizeStencilWidth(cell, paper, v)) changed++
+  }
+  if (!changed) return
+  canvas.bumpVersion()
+  canvas.requestSnapshot()
+}
+
 function applyGroupToggle() {
   if (multiGroup.value.ungroup) {
     const n = canvas.ungroupCells(canvas.selection.value)
@@ -485,6 +540,16 @@ function applyValueText(key, raw) {
     },
     { reinject: true }
   )
+}
+
+/**
+ * Ширина растяжимого символа (карточка значения). Содержимое раскладывается от
+ * ширины, поэтому перерисовку берёт на себя `resizeStencilWidth` — reinject не нужен.
+ * Пустое поле игнорируем: «ширины нет» у символа не бывает.
+ */
+function applyStencilWidth(v) {
+  if (!Number.isFinite(v)) return
+  withSelectedCell(({ cell }) => resizeStencilWidth(cell, canvas.paperRef.value, v))
 }
 
 /**
@@ -815,6 +880,28 @@ const {
             </div>
           </div>
 
+          <!-- Одна ширина всем растяжимым символам выделения (карточки значений):
+               жестом это делается по одной, а на панели значений их обычно ряд.
+               Пусто = ширины разные. -->
+          <div v-if="multiWidth.show" class="flex items-center gap-3">
+            <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+              Ширина ({{ multiWidth.count }})
+            </span>
+            <InputNumber
+              :model-value="multiWidth.value"
+              :min="multiWidth.min"
+              :max="2000"
+              :step="5"
+              show-buttons
+              button-layout="horizontal"
+              size="small"
+              input-class="w-12! text-center"
+              class="ml-auto"
+              placeholder="—"
+              @update:model-value="applyMultiWidth"
+            />
+          </div>
+
           <!-- Multi-select: те же блоки, что в single, как «применить ко всем»
                (общего состояния у выделения нет → списки пустые/шаблон, выбор тега
                и порогов раздаётся на всё выделение). Булев — BooleanBlock без групп:
@@ -868,8 +955,8 @@ const {
             </p>
           </div>
 
-          <!-- Холостой инспектор не простаивает: сводка активной формы + базовые
-               хоткеи сразу под подсказкой; свободное место уходит вниз. -->
+          <!-- Холостой инспектор не простаивает: сводка активной формы + настройки
+               холста сразу под подсказкой. -->
           <div class="space-y-4 border-t border-surface-200 pt-4 text-[11px]">
             <div>
               <div class="mb-2 uppercase tracking-wider text-surface-500">Сводка формы</div>
@@ -888,22 +975,33 @@ const {
                 </div>
               </div>
             </div>
+            <!-- Фон холста — настройка окружения (localStorage), не свойство проекта:
+                 в `.zip` не уезжает и на `view.svg` не влияет. Место здесь, потому что
+                 к конкретному элементу она не относится, а тулбар холста плотный.
+                 Сброс обязателен: тёмным фоном легко потерять и схему, и дорогу назад. -->
             <div>
-              <div class="mb-2 uppercase tracking-wider text-surface-500">Подсказки</div>
-              <ul class="flex flex-col gap-2 text-surface-500">
-                <li class="flex items-center gap-2">
-                  <i class="pi pi-arrows-alt text-[10px]! text-surface-400" />
-                  Перетащи символ из палитры на холст
-                </li>
-                <li class="flex items-center gap-2">
-                  <kbd class="rounded bg-surface-100 px-1 py-0.5 font-mono text-[10px]">Ctrl+F</kbd>
-                  поиск по тегам
-                </li>
-                <li class="flex items-center gap-2">
-                  <kbd class="rounded bg-surface-100 px-1 py-0.5 font-mono text-[10px]">?</kbd>
-                  справка по хоткеям
-                </li>
-              </ul>
+              <div class="mb-2 uppercase tracking-wider text-surface-500">Холст</div>
+              <div class="flex items-center gap-3">
+                <span class="text-surface-600 shrink-0">Фон</span>
+                <button
+                  v-if="ui.canvasBg !== CANVAS_BG_DEFAULT"
+                  type="button"
+                  v-tooltip.bottom="'Вернуть цвет по умолчанию'"
+                  class="ml-auto text-surface-500 underline decoration-dotted hover:text-surface-700"
+                  @click="ui.resetCanvasBg()"
+                >
+                  сбросить
+                </button>
+                <input
+                  type="color"
+                  :value="ui.canvasBg"
+                  :class="[
+                    'h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5',
+                    ui.canvasBg === CANVAS_BG_DEFAULT ? 'ml-auto' : '',
+                  ]"
+                  @input="ui.setCanvasBg($event.target.value)"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -940,6 +1038,18 @@ const {
 
               <div v-if="!details.isShapeText" class="flex items-center gap-3">
                 <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Цвет линии
+                </span>
+                <input
+                  type="color"
+                  :value="details.stroke"
+                  class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                  @input="patchShape({ stroke: $event.target.value })"
+                />
+              </div>
+
+              <div v-if="!details.isShapeText" class="flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
                   Толщина
                 </span>
                 <InputNumber
@@ -957,15 +1067,26 @@ const {
                 />
               </div>
 
-              <div v-if="!details.isShapeText" class="flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Цвет линии
-                </span>
+              <!-- Заливка — как в редакторе символов: галка «есть/нет» + свотч при
+                   включённой (`<input type="color">` состояния «нет цвета» не имеет).
+                   Выключение пишет `none`, а не удаляет поле: отсутствие и `none` для
+                   отрисовки одно и то же, но патч мержится, а не заменяет фигуру. -->
+              <div v-if="details.isShapeFillable" class="flex min-h-8 items-center gap-3">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    :model-value="!!details.fill"
+                    binary
+                    input-id="shape-fill"
+                    @update:model-value="toggleShapeFill"
+                  />
+                  <span class="text-[11px] uppercase tracking-wider text-surface-500">Заливка</span>
+                </label>
                 <input
+                  v-if="details.fill"
                   type="color"
-                  :value="details.stroke"
+                  :value="details.fill"
                   class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                  @input="patchShape({ stroke: $event.target.value })"
+                  @input="patchShape({ fill: $event.target.value })"
                 />
               </div>
 
@@ -1220,6 +1341,27 @@ const {
                     @update:model-value="(v) => applyValueText('valueUnit', v)"
                   />
                 </div>
+              </div>
+              <!-- Ширина карточки: содержимое раскладывается от неё (подпись слева,
+                   значение и единица у правого края), поэтому тянуть можно только по
+                   горизонтали — высоту задают кегли и baseline. Тот же результат
+                   даёт пара ручек на холсте. -->
+              <div v-if="details.canResizeX" class="mt-2 flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Ширина
+                </span>
+                <InputNumber
+                  :model-value="details.width"
+                  :min="details.widthMin"
+                  :max="2000"
+                  :step="5"
+                  show-buttons
+                  button-layout="horizontal"
+                  size="small"
+                  input-class="w-12! text-center"
+                  class="ml-auto"
+                  @update:model-value="applyStencilWidth"
+                />
               </div>
               <!-- Точность значения: уезжает в output.decimals карточки, формат
                    считает рантайм. Пусто = взять из пресета величины/дефолт. -->

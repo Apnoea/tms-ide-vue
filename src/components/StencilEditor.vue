@@ -32,6 +32,7 @@ import {
 import { confirmDanger } from '../utils/confirmDanger'
 import { range, rangeFromTo, gridLineColor, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
+import { TEXT_ICON, POLYLINE_ICON } from '../constants/icons'
 import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
 import { syncStencilInstances } from '../stencils/svgInjector'
 import { nplural } from '../utils/plural'
@@ -87,12 +88,12 @@ const DRAW_TOOLS = [
   { key: 'circle', icon: 'pi pi-circle', tip: 'Эллипс (Shift — ровный круг)' },
   {
     key: 'polyline',
-    icon: 'pi pi-chart-line',
-    tip: 'Ломаная (клик по началу — замкнуть, двойной клик — завершить)',
+    glyph: POLYLINE_ICON,
+    tip: 'Ломаная (клик по началу — замкнуть, по последней точке или двойной клик — завершить)',
   },
   {
     key: 'text',
-    icon: 'pi pi-pencil',
+    glyph: TEXT_ICON,
     tip: 'Подпись (клик — поставить, текст правится в инспекторе)',
   },
   { key: 'port', icon: 'pi pi-map-marker', tip: 'Порт (клик по порту — удалить)' },
@@ -371,12 +372,14 @@ function onSurfaceDown(e) {
   if (tool.value === 'polyline') {
     const u = snappedShape(e)
     const pts = polyPoints.value
-    // Клик рядом со стартовой вершиной (при ≥2 точках) — замыкаем в polygon:
-    // дубль стартовой точки не добавляем, помечаем closed. Порог ~10 экранных px.
+    // Клик рядом с вершиной (при ≥2 точках): по стартовой — замыкаем в polygon (дубль
+    // стартовой точки не добавляем, помечаем closed), по последней — заканчиваем
+    // открытую ломаную, иначе правка последней точки ставила бы новую вершину.
+    // Порог ~10 экранных px.
     if (pts.length >= 2) {
-      const [fx, fy] = pts[0]
-      if (Math.hypot(u.x - fx, u.y - fy) <= 10 / scale.value) {
-        addShape({ type: 'polyline', points: [...pts], closed: true })
+      const near = (pt) => Math.hypot(u.x - pt[0], u.y - pt[1]) <= 10 / scale.value
+      if (near(pts[0]) || near(pts[pts.length - 1])) {
+        addShape({ type: 'polyline', points: [...pts], closed: near(pts[0]) })
         polyPoints.value = []
         polyCursor.value = null
         return
@@ -802,7 +805,22 @@ onBeforeUnmount(() => {
           size="small"
           class="tms-icon-btn"
           @click="pickTool(t.key)"
-        />
+        >
+          <template v-if="t.glyph" #icon>
+            <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
+              <path
+                v-for="(el, i) in t.glyph"
+                :key="i"
+                :d="el.d"
+                :fill="el.mode === 'fill' ? 'currentColor' : 'none'"
+                :stroke="el.mode === 'stroke' ? 'currentColor' : 'none'"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </template>
+        </Button>
       </div>
 
       <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>

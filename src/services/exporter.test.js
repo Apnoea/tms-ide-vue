@@ -167,6 +167,16 @@ describe('exportProject', () => {
     })
   })
 
+  it('cell_value: растянутая ширина переживает round-trip', () => {
+    // Ширину карточки задаёт автор (ручки/поле), и содержимое раскладывается от неё —
+    // без round-trip'а после импорта она вернулась бы к 100 из stencil.json.
+    const graph = mockGraph([
+      mockCell({ id: 'v1', stencilId: 'cell_value', valueTag: 'T1.VAL', w: 180, h: 20 }),
+    ])
+    const parsed = parseSvgProject(exportProject(graph).svgText)
+    expect(parsed.cells.find((c) => c.id === 'v1').size).toMatchObject({ width: 180, height: 20 })
+  })
+
   it('cell_value: точность переживает round-trip, пустая в meta не пишется', () => {
     const graph = mockGraph([
       mockCell({ id: 'v1', stencilId: 'cell_value', valueTag: 'T1.VAL', decimals: 3 }),
@@ -393,7 +403,9 @@ describe('exportProject', () => {
     expect(cell.tms.navigation).toBe('view_substation_a')
   })
 
-  it('cell_text: цвет/шрифт/align (color/fontSize/bold/align) переживают round-trip через data-tms-meta', () => {
+  it('cell_text из архива читается фигурой-подписью, вид сохраняется', () => {
+    // Подпись перестала быть символом: на входе она конвертируется в разметку
+    // (см. services/legacyFormat), поэтому round-trip отдаёт `tms.Shape`.
     const graph = mockGraph([
       mockCell({
         id: 't1',
@@ -405,18 +417,21 @@ describe('exportProject', () => {
         align: 'right',
       }),
     ])
-    const exported = exportProject(graph)
-    const parsed = parseSvgProject(exported.svgText)
+    const parsed = parseSvgProject(exportProject(graph).svgText)
     expect(parsed.ok).toBe(true)
     const cell = parsed.cells.find((c) => c.id === 't1')
-    expect(cell.tms.color).toBe('#ff0000')
-    expect(cell.tms.text).toBe('Секция')
-    expect(cell.tms.fontSize).toBe(20)
-    expect(cell.tms.bold).toBe(true)
-    expect(cell.tms.align).toBe('right')
+    expect(cell.type).toBe('tms.Shape')
+    expect(cell.tms.shape).toMatchObject({
+      type: 'text',
+      text: 'Секция',
+      fontSize: 20,
+      bold: true,
+      stroke: '#ff0000',
+      align: 'right',
+    })
   })
 
-  it('cell_text: шрифт переживает round-trip, дефолтный в meta не пишется', () => {
+  it('cell_text: шрифт доезжает до SVG и переживает конвертацию в фигуру', () => {
     const graph = mockGraph([
       mockCell({ id: 't1', stencilId: 'cell_text', text: 'QF-101', fontFamily: 'monospace' }),
       mockCell({ id: 't2', stencilId: 'cell_text', text: 'Секция', fontFamily: 'sans-serif' }),
@@ -424,9 +439,9 @@ describe('exportProject', () => {
     const exported = exportProject(graph)
     expect(exported.svgText).toContain('font-family="monospace"')
     const parsed = parseSvgProject(exported.svgText)
-    expect(parsed.cells.find((c) => c.id === 't1').tms.fontFamily).toBe('monospace')
-    // Дефолт = отсутствие поля: meta не обрастает шумом на каждой подписи.
-    expect(parsed.cells.find((c) => c.id === 't2').tms.fontFamily).toBeUndefined()
+    expect(parsed.cells.find((c) => c.id === 't1').tms.shape.fontFamily).toBe('monospace')
+    // Дефолт не пишется ни в meta подписи, ни в геометрию фигуры.
+    expect(parsed.cells.find((c) => c.id === 't2').tms.shape.fontFamily).toBeUndefined()
   })
 
   it('cell_text: чужое семейство из архива не доезжает до SVG — только whitelist', () => {
@@ -1027,6 +1042,14 @@ describe('exportProject: фигуры-разметка', () => {
     expect(cell.position).toEqual({ x: 100, y: 60 })
     expect(cell.size).toEqual({ width: 40, height: 20 })
     expect(cell.tms.shape).toMatchObject(shape)
+  })
+
+  it('заливка фигуры доезжает до SVG и переживает round-trip', () => {
+    const shape = { type: 'rect', x: 0, y: 0, w: 40, h: 20, stroke: '#000', fill: '#ffcc00' }
+    const parsed = parseSvgProject(
+      exportProject(mockGraph([shapeCell({ id: 's1', shape })])).svgText
+    )
+    expect(parsed.cells.find((c) => c.id === 's1').tms.shape.fill).toBe('#ffcc00')
   })
 
   it('ломаная, поворот, замок и группа переживают round-trip', () => {
