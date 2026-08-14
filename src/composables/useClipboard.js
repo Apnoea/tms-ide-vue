@@ -5,6 +5,7 @@ import { materializeStencil } from '../stencils/svgInjector'
 import { isShapeCell, materializeShape } from '../stencils/shapeElement'
 import { translateShape } from '../utils/stencilSvg'
 import { LINK_DEFAULTS, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkDefaults'
+import { isBackgroundZ } from '../utils/zOrder'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
 import { useCanvas, genGroupId } from './useCanvas'
@@ -149,6 +150,9 @@ export function useClipboard({ scheduleSnapshot }) {
         delete carried.shape
         cell.set('tms', { ...cell.get('tms'), ...carried })
         if (snap.angle) cell.set('angle', snap.angle)
+        // Копия ложится сверху (см. snapshotCell.z), но подложку сохраняем: иначе
+        // вставленная плашка окажется поверх проводов, а не под ними.
+        if (isBackgroundZ(snap.z)) cell.set('z', snap.z)
         oldToNew.set(snap.oldId, cell.id)
         newCellIds.push(cell.id)
         continue

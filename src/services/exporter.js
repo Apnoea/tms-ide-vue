@@ -10,7 +10,9 @@ import {
   resolveValueDisplay,
   resolveValueDecimals,
 } from '../stencils/valueCell'
+import { buildNodeExportSvg } from '../stencils/nodeCell'
 import { LINK_Z } from '../stencils/linkDefaults'
+import { isBackgroundZ } from '../utils/zOrder'
 import {
   CLASS_OFF,
   CLASS_HIDDEN,
@@ -208,6 +210,13 @@ export function exportProject(graph, paper = null) {
         animId = `${animId}__${n}`
       }
     } else {
+      // Карточка значения без тега уедет в архив прочерком и никогда не обновится:
+      // рантайму нечего подписывать. Молчать нельзя — на схеме она выглядит рабочей.
+      if (tms.stencilId === 'cell_value') {
+        const msg = 'cell_value: тег не выбран — карточка останется прочерком в рантайме'
+        warnings.push(msg)
+        console.warn(`[Exporter] ${msg}`)
+      }
       animId = uniqueShortId(cell.id, (id) => usedOuterKeys.has(outerKeyFor(tms.stencilId, id)))
     }
     usedOuterKeys.add(outerKeyFor(tms.stencilId, animId))
@@ -216,7 +225,7 @@ export function exportProject(graph, paper = null) {
     // и без редактор-only декораций; остальные — svgText шаблона + bindings.
     let cellSvg
     if (tms.stencilId === 'cell_bus') {
-      cellSvg = buildBusExportSvg(size.width, size.height)
+      cellSvg = buildBusExportSvg(size.width, size.height, tms.color)
     } else if (tms.stencilId === 'cell_text') {
       cellSvg = buildTextExportSvg(tms.text ?? '', size.height, {
         fontSize: tms.fontSize,
@@ -224,6 +233,8 @@ export function exportProject(graph, paper = null) {
         color: tms.color,
         font: tms.fontFamily,
       })
+    } else if (tms.stencilId === 'cell_node') {
+      cellSvg = buildNodeExportSvg(size.width, size.height, tms)
     } else if (tms.stencilId === 'cell_value') {
       cellSvg = buildValueExportSvg(animId, size.width, size.height, resolveValueDisplay(tms))
       if (tms.valueTag) {
@@ -294,6 +305,8 @@ export function exportProject(graph, paper = null) {
       valueLabel: tms.valueLabel,
       valueUnit: tms.valueUnit,
       decimals: tms.decimals,
+      // Диаметр точки соединения (cell_node) — вид, заданный автором.
+      dotSize: tms.dotSize,
       // Геометрический трансформ — для round-trip. angle применяется в SVG
       // как rotate вокруг центра ячейки на outer-`<g>`.
       angle: cell.angle ? cell.angle() : 0,
@@ -606,63 +619,70 @@ export function exportProject(graph, paper = null) {
     .join('\n')
 
   const serializer = new XMLSerializer()
-  const groups = cellExports
-    .map((c) => {
-      if (c.kind === 'shape') {
-        // Рисуем тем же генератором, что холст и редактор символов — иначе выгрузка
-        // разошлась бы с тем, что автор видел. id не нужен: карточек анимации у
-        // разметки нет, рантайм её не адресует. `kind` в meta — метка для разбора.
+  const renderCells = (list) =>
+    list
+      .map((c) => {
+        if (c.kind === 'shape') {
+          // Рисуем тем же генератором, что холст и редактор символов — иначе выгрузка
+          // разошлась бы с тем, что автор видел. id не нужен: карточек анимации у
+          // разметки нет, рантайм её не адресует. `kind` в meta — метка для разбора.
+          const meta = {
+            kind: 'shape',
+            id: c.cellId,
+            width: c.width,
+            height: c.height,
+            shape: c.shape,
+          }
+          if (c.locked) meta.locked = true
+          if (c.groupId) meta.groupId = c.groupId
+          if (c.angle) meta.angle = c.angle
+          if (c.z != null) meta.z = c.z
+          let transform = `translate(${c.x},${c.y})`
+          if (c.angle) transform += ` rotate(${c.angle} ${c.width / 2} ${c.height / 2})`
+          return `  <g transform="${transform}" ${ATTR_META}="${escapeAttr(JSON.stringify(meta))}">${serializeShape(c.shape, false)}</g>`
+        }
+        const doc = new DOMParser().parseFromString(c.svgContent, 'image/svg+xml')
+        const sourceRoot = doc.documentElement
+        let inner = ''
+        for (const child of Array.from(sourceRoot.children)) {
+          inner += serializer.serializeToString(child)
+        }
+        // Flip: контент оборачиваем во внутреннюю flip-группу (позиция/поворот — на
+        // outer, отражение внутри, как в редакторе). Порты в экспорт не идут.
+        const flip = flipTransform(c.width, c.height, c.flipH, c.flipV)
+        if (flip) inner = `<g transform="${flip}">${inner}</g>`
         const meta = {
-          kind: 'shape',
           id: c.cellId,
+          stencilId: c.stencilId,
           width: c.width,
           height: c.height,
-          shape: c.shape,
         }
-        if (c.locked) meta.locked = true
-        if (c.groupId) meta.groupId = c.groupId
+        // tms-поля — по единому дескриптору (см. CELL_META_FIELDS), чтобы запись и
+        // чтение (projectLoader) не разъезжались. angle — отдельно (в JointJS-поле).
+        for (const f of CELL_META_FIELDS) {
+          const v = f.normalize ? f.normalize(c[f.key]) : c[f.key]
+          if (f.keep(v)) meta[f.key] = f.flag ? true : v
+        }
         if (c.angle) meta.angle = c.angle
         if (c.z != null) meta.z = c.z
+        const metaAttr = escapeAttr(JSON.stringify(meta))
+        // translate(x,y) ставит ячейку на холст; rotate (если есть) вращает
+        // вокруг центра ячейки в её локальных координатах.
         let transform = `translate(${c.x},${c.y})`
         if (c.angle) transform += ` rotate(${c.angle} ${c.width / 2} ${c.height / 2})`
-        return `  <g transform="${transform}" ${ATTR_META}="${escapeAttr(JSON.stringify(meta))}">${serializeShape(c.shape, false)}</g>`
-      }
-      const doc = new DOMParser().parseFromString(c.svgContent, 'image/svg+xml')
-      const sourceRoot = doc.documentElement
-      let inner = ''
-      for (const child of Array.from(sourceRoot.children)) {
-        inner += serializer.serializeToString(child)
-      }
-      // Flip: контент оборачиваем во внутреннюю flip-группу (позиция/поворот — на
-      // outer, отражение внутри, как в редакторе). Порты в экспорт не идут.
-      const flip = flipTransform(c.width, c.height, c.flipH, c.flipV)
-      if (flip) inner = `<g transform="${flip}">${inner}</g>`
-      const meta = {
-        id: c.cellId,
-        stencilId: c.stencilId,
-        width: c.width,
-        height: c.height,
-      }
-      // tms-поля — по единому дескриптору (см. CELL_META_FIELDS), чтобы запись и
-      // чтение (projectLoader) не разъезжались. angle — отдельно (в JointJS-поле).
-      for (const f of CELL_META_FIELDS) {
-        const v = f.normalize ? f.normalize(c[f.key]) : c[f.key]
-        if (f.keep(v)) meta[f.key] = f.flag ? true : v
-      }
-      if (c.angle) meta.angle = c.angle
-      if (c.z != null) meta.z = c.z
-      const metaAttr = escapeAttr(JSON.stringify(meta))
-      // translate(x,y) ставит ячейку на холст; rotate (если есть) вращает
-      // вокруг центра ячейки в её локальных координатах.
-      let transform = `translate(${c.x},${c.y})`
-      if (c.angle) transform += ` rotate(${c.angle} ${c.width / 2} ${c.height / 2})`
-      // escapeAttr на outer-id: для cell_value c.animId = valueTag, который
-      // может содержать ", &, < и т.п. — без эскейпа SVG становится невалидным.
-      // stencilId по инварианту реестра уже в маске [a-z0-9_], escapeAttr на нём —
-      // страховка от нового пути регистрации в обход registry.isValidStencilId.
-      return `  <g id="${escapeAttr(outerKeyFor(c.stencilId, c.animId))}" transform="${transform}" ${ATTR_STENCIL}="${escapeAttr(c.stencilId)}" ${ATTR_META}="${metaAttr}">${inner}</g>`
-    })
-    .join('\n')
+        // escapeAttr на outer-id: для cell_value c.animId = valueTag, который
+        // может содержать ", &, < и т.п. — без эскейпа SVG становится невалидным.
+        // stencilId по инварианту реестра уже в маске [a-z0-9_], escapeAttr на нём —
+        // страховка от нового пути регистрации в обход registry.isValidStencilId.
+        return `  <g id="${escapeAttr(outerKeyFor(c.stencilId, c.animId))}" transform="${transform}" ${ATTR_STENCIL}="${escapeAttr(c.stencilId)}" ${ATTR_META}="${metaAttr}">${inner}</g>`
+      })
+      .join('\n')
+
+  // Порядок в файле = порядок наложения: подложка (разметка ниже проводов, см.
+  // utils/zOrder) идёт ПЕРЕД линиями, остальные ячейки — после. Иначе залитая
+  // плашка, уведённая под провода в IDE, в view.svg снова оказалась бы поверх них.
+  const background = renderCells(cellExports.filter((c) => isBackgroundZ(c.z)))
+  const groups = renderCells(cellExports.filter((c) => !isBackgroundZ(c.z)))
 
   // Инлайн-стили — рантайм только навешивает классы, CSS должен быть в SVG.
   // Descendant-селектор `* { stroke }` нужен из-за inline presentation-атрибутов
@@ -700,6 +720,7 @@ ${getAllStencils()
   const svgText = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="${SVG_NS}" viewBox="${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}" width="${viewBoxW}" height="${viewBoxH}">
 ${inlineStyles}
+${background}
 ${lines}
 ${groups}
 </svg>

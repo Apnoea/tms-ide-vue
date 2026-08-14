@@ -202,6 +202,31 @@ describe('CanvasInspector: фигура-разметка', () => {
     expect(cell.get('tms').shape.stroke).toBe('#ff0000')
   })
 
+  it('пустое поле текста удаляет подпись, но только по коммиту', async () => {
+    // Подпись без текста невидима (габарит схлопывается) и отбрасывается на
+    // загрузке — поэтому пустое поле её удаляет. На каждый символ удалять нельзя:
+    // стирание «под новый текст» сносило бы фигуру на первом же пустом состоянии.
+    const cell = selectShape({ type: 'text', x: 20, y: 20, text: 'Подпись', fontSize: 14 })
+    await wrapper.vm.$nextTick()
+    const input = wrapper.findAll('input[type="text"]')[0]
+    input.element.value = ''
+    await input.trigger('input')
+    expect(graph.getCell(cell.id)).toBeTruthy()
+    await input.trigger('blur')
+    expect(graph.getCell(cell.id)).toBeFalsy()
+  })
+
+  it('непустой текст пишется в фигуру живьём', async () => {
+    const cell = selectShape({ type: 'text', x: 20, y: 20, text: 'Подпись', fontSize: 14 })
+    await wrapper.vm.$nextTick()
+    const input = wrapper.findAll('input[type="text"]')[0]
+    input.element.value = 'Секция'
+    await input.trigger('input')
+    expect(cell.get('tms').shape.text).toBe('Секция')
+    await input.trigger('blur')
+    expect(graph.getCell(cell.id)).toBeTruthy()
+  })
+
   it('у линии нет заливки, у подписи есть текст и шрифт', async () => {
     selectShape({ type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 })
     await wrapper.vm.$nextTick()

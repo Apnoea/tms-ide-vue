@@ -7,6 +7,7 @@ import { buildPortItems } from '../stencils/svgInjector'
 import { LINK_DEFAULTS, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkDefaults'
 import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 import { sanitizeShape } from '../stencils/shapeElement'
+import { isBackgroundZ, BACKGROUND_Z_BOUNDS } from '../utils/zOrder'
 import { textCellToShape } from './legacyFormat'
 
 /**
@@ -120,7 +121,13 @@ export function parseSvgProject(svgText) {
           shapeJson.angle = ((shapeAngle % 360) + 360) % 360
         }
         const shapeZ = Number.parseFloat(meta.z)
-        if (Number.isFinite(shapeZ)) shapeJson.z = Math.max(0, shapeZ)
+        // Разметка живёт и в подложке (ниже проводов), поэтому дно у неё своё —
+        // кламп нулём поднял бы залитую плашку поверх проводов после импорта.
+        if (Number.isFinite(shapeZ)) {
+          shapeJson.z = isBackgroundZ(shapeZ)
+            ? Math.max(BACKGROUND_Z_BOUNDS.min, shapeZ)
+            : Math.max(0, shapeZ)
+        }
         cells.push(shapeJson)
         elementIds.add(meta.id)
         continue

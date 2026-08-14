@@ -3,11 +3,17 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useEventListener, useResizeObserver } from '@vueuse/core'
 import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
+import Popover from 'primevue/popover'
 import Tag from 'primevue/tag'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
 import { normalizeLinkZ, attachLinkTools } from '../stencils/linkDefaults'
-import { createCanvasGraph, createCanvasPaper, gridColorFor } from '../stencils/canvasPaper'
+import {
+  createCanvasGraph,
+  createCanvasPaper,
+  gridColorFor,
+  CANVAS_BG_DEFAULT,
+} from '../stencils/canvasPaper'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from '../composables/useCanvas'
@@ -69,6 +75,8 @@ const bus = useBusResize({ scheduleSnapshot })
 // Объявляем до listeners-блока: useEventListener читает paperContainer как
 // зависимость, а у `const`-ref'а нет hoisting'а (TDZ).
 const paperContainer = ref(null)
+// Popover пикера фона (кнопка рядом с зумом — «вид холста», не свойство схемы).
+const bgPopover = ref(null)
 let paper = null
 let graph = null
 
@@ -294,7 +302,7 @@ const DRAW_TOOLS = [
   {
     key: 'polyline',
     glyph: POLYLINE_ICON,
-    tip: 'Ломаная (клик по началу — замкнуть, по последней точке или двойной клик — завершить)',
+    tip: 'Ломаная (клик по началу замыкает, двойной клик завершает)',
   },
   { key: 'text', glyph: TEXT_ICON, tip: 'Подпись (текст правится в инспекторе)' },
 ]
@@ -842,8 +850,39 @@ function performClearCanvas(count) {
 
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
 
-        <!-- Поиск (Ctrl+F) — рядом с зумом: оба про навигацию по холсту. Кнопка
-             делает фичу видимой, а не только клавиатурной (та же панель SearchBar). -->
+        <!-- Фон холста — про то, КАК смотрим на схему (как зум), а не про её содержимое.
+             Popover, чтобы пикер не занимал место в тулбаре постоянно. -->
+        <Button
+          v-tooltip.bottom="'Фон холста'"
+          icon="pi pi-palette"
+          severity="secondary"
+          text
+          size="small"
+          class="tms-icon-btn"
+          @click="bgPopover?.toggle($event)"
+        />
+        <Popover ref="bgPopover">
+          <div class="flex items-center gap-3 text-[11px]">
+            <span class="uppercase tracking-wider text-surface-500">Фон холста</span>
+            <input
+              type="color"
+              :value="ui.canvasBg"
+              class="h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+              @input="ui.setCanvasBg($event.target.value)"
+            />
+            <button
+              v-if="ui.canvasBg !== CANVAS_BG_DEFAULT"
+              type="button"
+              class="text-surface-500 underline decoration-dotted hover:text-surface-700"
+              @click="ui.resetCanvasBg()"
+            >
+              сбросить
+            </button>
+          </div>
+        </Popover>
+
+        <!-- Поиск (Ctrl+F) — в той же группе, что фон и зум: всё про просмотр схемы.
+             Кнопка делает фичу видимой, а не только клавиатурной (панель SearchBar). -->
         <Button
           v-tooltip.bottom="'Найти на схеме по тегу / тексту · Ctrl+F'"
           icon="pi pi-search"
@@ -853,6 +892,9 @@ function performClearCanvas(count) {
           class="tms-icon-btn"
           @click="toggleSearch"
         />
+
+        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+
         <div class="flex items-center">
           <Button
             v-tooltip.bottom="'Уменьшить'"

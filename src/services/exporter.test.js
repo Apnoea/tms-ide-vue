@@ -167,6 +167,62 @@ describe('exportProject', () => {
     })
   })
 
+  it('cell_node: цвет и диаметр точки переживают round-trip', () => {
+    const graph = mockGraph([
+      mockCell({ id: 'n1', stencilId: 'cell_node', w: 20, h: 20, color: '#ff8800', dotSize: 8 }),
+    ])
+    const exported = exportProject(graph)
+    expect(exported.svgText).toContain('r="4"')
+    const cell = parseSvgProject(exported.svgText).cells.find((c) => c.id === 'n1')
+    expect(cell.tms).toMatchObject({ color: '#ff8800', dotSize: 8 })
+    // Габарит ячейки от диаметра не зависит — на нём держатся hit-area и порт.
+    expect(cell.size).toMatchObject({ width: 20, height: 20 })
+  })
+
+  it('cell_bus: цвет тела переживает round-trip, дефолт в meta не пишется', () => {
+    const graph = mockGraph([
+      mockCell({ id: 'b1', stencilId: 'cell_bus', w: 100, h: 10, color: '#ff8800' }),
+      mockCell({ id: 'b2', stencilId: 'cell_bus', w: 100, h: 10 }),
+    ])
+    const exported = exportProject(graph)
+    expect(exported.svgText).toContain('fill="#ff8800"')
+    const parsed = parseSvgProject(exported.svgText)
+    expect(parsed.cells.find((c) => c.id === 'b1').tms.color).toBe('#ff8800')
+    expect(parsed.cells.find((c) => c.id === 'b2').tms.color).toBeUndefined()
+  })
+
+  it('cell_bus: толщина переживает round-trip, нижние порты встают по ней', () => {
+    const graph = mockGraph([mockCell({ id: 'b1', stencilId: 'cell_bus', w: 80, h: 20 })])
+    const cell = parseSvgProject(exportProject(graph).svgText).cells[0]
+    expect(cell.size).toMatchObject({ width: 80, height: 20 })
+    const bot = cell.ports.items.find((i) => i.id === 'bot_0')
+    expect(bot.args.y).toBe(20)
+  })
+
+  it('чужой цвет из архива не доезжает до атрибута fill', () => {
+    // `color` уходит в fill экспортного SVG, а архив чужой: `url(...)` или обрывок
+    // правила там означал бы подмену отрисовки.
+    const graph = mockGraph([
+      mockCell({ id: 'b1', stencilId: 'cell_bus', w: 100, h: 10, color: 'url(#evil)' }),
+    ])
+    const exported = exportProject(graph)
+    expect(exported.svgText).not.toContain('url(#evil)')
+    expect(parseSvgProject(exported.svgText).cells[0].tms.color).toBeUndefined()
+  })
+
+  it('cell_value без тега: предупреждение экспорта (карточка останется прочерком)', () => {
+    // На схеме такая карточка выглядит рабочей, а в рантайме её нечем обновлять —
+    // молча выпускать её в архив нельзя.
+    const graph = mockGraph([mockCell({ id: 'v1', stencilId: 'cell_value', w: 100, h: 20 })])
+    const { warnings } = exportProject(graph)
+    expect(warnings.some((w) => w.includes('тег не выбран'))).toBe(true)
+    // С тегом предупреждения нет.
+    const ok = exportProject(
+      mockGraph([mockCell({ id: 'v2', stencilId: 'cell_value', valueTag: 'T1.VAL' })])
+    )
+    expect(ok.warnings.some((w) => w.includes('тег не выбран'))).toBe(false)
+  })
+
   it('cell_value: растянутая ширина переживает round-trip', () => {
     // Ширину карточки задаёт автор (ручки/поле), и содержимое раскладывается от неё —
     // без round-trip'а после импорта она вернулась бы к 100 из stencil.json.
@@ -921,6 +977,7 @@ describe('exportProject', () => {
     valueLabel: 'Напряжение',
     valueUnit: 'кВ',
     decimals: 3,
+    dotSize: 6,
     locked: true,
     flipH: true,
     flipV: true,
@@ -1085,6 +1142,32 @@ describe('exportProject: фигуры-разметка', () => {
     expect(cell.tms.groupId).toBe('grp-1')
     expect(cell.angle).toBe(90)
     expect(cell.z).toBe(7)
+  })
+
+  it('подложка (z ниже проводов) пишется ПЕРЕД линиями', () => {
+    // Иначе залитая плашка, уведённая под провода в IDE, в view.svg снова окажется
+    // поверх них — порядок в файле и есть порядок наложения.
+    const shape = { type: 'rect', x: 0, y: 0, w: 40, h: 20, stroke: '#000', fill: '#eee' }
+    const a = mockCell({ id: 'a', stencilId: 'cell_qw', w: 20, h: 20 })
+    const b = mockCell({ id: 'b', stencilId: 'cell_qw', x: 100, w: 20, h: 20 })
+    const graph = mockGraph(
+      [a, b, shapeCell({ id: 's1', shape, z: -2000 })],
+      [mockLink({ id: 'l1', source: { id: 'a' }, target: { id: 'b' }, z: -1000 })]
+    )
+    const svg = exportProject(graph).svgText
+    // Ищем по заливке фигуры: в meta кавычки заэскейплены, искать по kind неудобно.
+    const bgAt = svg.indexOf('#eee')
+    const lineAt = svg.indexOf('<path id=')
+    expect(bgAt).toBeGreaterThan(-1)
+    expect(lineAt).toBeGreaterThan(-1)
+    expect(bgAt).toBeLessThan(lineAt)
+  })
+
+  it('подложка переживает round-trip и не всплывает к нулю', () => {
+    const shape = { type: 'rect', x: 0, y: 0, w: 40, h: 20, stroke: '#000', fill: '#eee' }
+    const graph = mockGraph([shapeCell({ id: 's1', shape, z: -1950 })])
+    const cell = parseSvgProject(exportProject(graph).svgText).cells[0]
+    expect(cell.z).toBe(-1950)
   })
 
   it('фигуры и символы сохраняют порядок наложения (подложка остаётся снизу)', () => {

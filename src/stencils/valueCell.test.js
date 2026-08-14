@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { resolveValueDisplay, resolveValueDecimals, VALUE_DECIMALS_DEFAULT } from './valueCell'
+import {
+  resolveValueDisplay,
+  resolveValueDecimals,
+  VALUE_DECIMALS_DEFAULT,
+  buildValueContent,
+  buildValueExportSvg,
+} from './valueCell'
 
 // Справочника величин больше нет: подпись и единицу автор вписывает сам. Угадывание
 // по суффиксу тега убрано — имена тегов в проектах единой конвенции не следуют.
@@ -33,5 +39,23 @@ describe('resolveValueDecimals', () => {
     expect(resolveValueDecimals({})).toBe(VALUE_DECIMALS_DEFAULT)
     expect(resolveValueDecimals(null)).toBe(VALUE_DECIMALS_DEFAULT)
     expect(resolveValueDecimals()).toBe(VALUE_DECIMALS_DEFAULT)
+  })
+})
+
+describe('карточка без тега помечается на холсте', () => {
+  /** cellView-мок: buildValueContent читает только модель. */
+  function viewOf(tms) {
+    return { model: { get: () => tms, size: () => ({ width: 100, height: 20 }) } }
+  }
+
+  it('без valueTag добавляется рамка-предупреждение, с тегом — нет', () => {
+    const marks = (tms) =>
+      buildValueContent(viewOf(tms)).filter((el) => el.getAttribute('class') === 'tms-value-empty')
+    expect(marks({}).length).toBe(1)
+    expect(marks({ valueTag: 'T1.VAL' }).length).toBe(0)
+  })
+
+  it('в экспортный SVG пометка не уходит — это подсказка автору, не часть схемы', () => {
+    expect(buildValueExportSvg('T1.VAL', 100, 20, {})).not.toContain('tms-value-empty')
   })
 })

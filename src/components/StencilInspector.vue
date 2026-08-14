@@ -6,7 +6,7 @@
  * фигура (свойства выделенного элемента + его видимость по состоянию).
  * Стейт — синглтон useStencilEditor (тот же инстанс, что рисуется в центре).
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
@@ -26,6 +26,7 @@ const {
   selectedId,
   selectedIds,
   updateShape,
+  removeShapes,
   selectedFor,
   commonValue,
   applyToSelected,
@@ -60,9 +61,36 @@ const hasStrokeWidth = computed(() => selectedFor(NOT_TEXT).length > 0)
 // animation-hidden наравне с остальными фигурами).
 const isTextShape = computed(() => selectedShape.value?.type === 'text')
 const textSize = computed(() => selectedShape.value?.fontSize ?? TEXT_SHAPE_SIZE)
+
+// Текст подписи: непустое пишем живьём, пустое держим только в поле и по коммиту
+// удаляем фигуру — подпись без текста не видно на холсте символа, а в shape.svg она
+// уехала бы пустым `<text>`. Как на холсте (см. CanvasInspector).
+const textDraft = ref(null)
+const textValue = computed(() => textDraft.value ?? selectedShape.value?.text ?? '')
+
 function setText(v) {
-  if (selectedShape.value) updateShape(selectedShape.value.id, { text: v ?? '' })
+  const next = v ?? ''
+  textDraft.value = next
+  if (next && selectedShape.value) updateShape(selectedShape.value.id, { text: next })
 }
+
+function commitText() {
+  const draft = textDraft.value
+  textDraft.value = null
+  if (draft === null) return
+  if (draft) {
+    commit()
+    return
+  }
+  const id = selectedShape.value?.id
+  if (id) removeShapes([id])
+}
+
+// Черновик не должен переезжать на другую фигуру при смене выделения.
+watch(
+  () => selectedShape.value?.id,
+  () => (textDraft.value = null)
+)
 function setTextSize(v) {
   if (selectedShape.value && v != null) updateShape(selectedShape.value.id, { fontSize: v })
 }
@@ -499,12 +527,16 @@ function clearStateColor(key, which) {
           <template v-if="isTextShape">
             <div>
               <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
+              <!-- Пустое поле = удалить подпись (по коммиту, не на каждый символ:
+                   иначе стирание текста «под новый» сносило бы фигуру). -->
               <InputText
-                :model-value="selectedShape.text"
+                :model-value="textValue"
                 size="small"
                 class="w-full"
+                placeholder="Пустое поле удалит подпись"
                 @update:model-value="setText"
-                @change="commit"
+                @blur="commitText"
+                @keyup.enter="commitText"
               />
             </div>
             <label class="flex items-center justify-between">

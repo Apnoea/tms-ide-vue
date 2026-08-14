@@ -2,8 +2,15 @@ import { shallowRef, ref, computed } from 'vue'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cellMatchesQuery } from '../utils/cellSearch'
 import { planWireBridge } from '../utils/wireSplice'
-import { planZOrder, ELEMENT_Z_BOUNDS } from '../utils/zOrder'
+import {
+  planZOrder,
+  ELEMENT_Z_BOUNDS,
+  BACKGROUND_Z_BOUNDS,
+  BACKGROUND_Z_TOP,
+  isBackgroundZ,
+} from '../utils/zOrder'
 import { LINK_Z_BOUNDS } from '../stencils/linkDefaults'
+import { isShapeCell } from '../stencils/shapeElement'
 
 // Уникальный id логической группы ячеек (`tms.groupId`). Короткий, но глобально
 // уникальный — round-trip'ится в data-tms-meta.
@@ -509,10 +516,15 @@ export function useCanvas() {
       return count
     },
     /**
-     * Порядок наложения (z): 'front' / 'back' / 'forward' / 'backward'. Символы и
-     * провода — разные слои со своими полосами, поэтому команда не может перемешать
-     * их между собой; каждая перенумеровывает свой слой целиком (utils/zOrder).
-     * У проводов порядок виден на пересечении: мостик рисует тот, кто выше.
+     * Порядок наложения (z): 'front' / 'back' / 'forward' / 'backward'. Слои со своими
+     * полосами (символы, провода, подложка), поэтому команда не перемешивает их между
+     * собой; каждая перенумеровывает свой слой целиком (utils/zOrder). У проводов
+     * порядок виден на пересечении: мостик рисует тот, кто выше.
+     *
+     * РАЗМЕТКА — исключение: фигура может уйти в подложку, ниже проводов (залитая
+     * плашка иначе закрывает их). Отдельной команды для этого нет — те же четыре
+     * водят фигуру между слоями по краям: «на задний план» кладёт в подложку сразу,
+     * «ниже» — когда фигура уже на дне слоя символов, и симметрично наверх.
      *
      * Одним батчем: `jumpover` пересчитывает пути по `batch:stop`, без него мостик
      * залипает на прежнем проводе до следующего чужого обновления.
@@ -521,19 +533,59 @@ export function useCanvas() {
       const graph = graphRef.value
       if (!graph) return
       const ids = new Set((items || []).map((i) => i.id))
+      const zOf = (c) => c.get('z') ?? 0
+      const byZ = (a, b) => zOf(a) - zOf(b)
+      const elements = graph.getElements()
+
+      graph.startBatch('reorder')
+
+      // Переход между подложкой и слоем символов. Значения промежуточные — слои
+      // перенумеровываются ниже; важен только порядок, в который фигура встаёт.
+      const crossed = new Set()
+      const down = mode === 'back' || mode === 'backward'
+      const up = mode === 'front' || mode === 'forward'
+      if (down || up) {
+        const bg = elements.filter((c) => isBackgroundZ(zOf(c))).sort(byZ)
+        const front = elements.filter((c) => !isBackgroundZ(zOf(c))).sort(byZ)
+        const topZ = front.length ? zOf(front[front.length - 1]) : 0
+        for (const cell of elements) {
+          if (!ids.has(cell.id) || !isShapeCell(cell)) continue
+          const inBg = isBackgroundZ(zOf(cell))
+          if (down && !inBg && (mode === 'back' || front[0]?.id === cell.id)) {
+            // 'back' — сразу на дно подложки, шаг «ниже» — на её верх.
+            cell.set('z', mode === 'back' ? BACKGROUND_Z_BOUNDS.min - 1 : BACKGROUND_Z_TOP)
+            crossed.add(cell.id)
+          } else if (up && inBg && (mode === 'front' || bg[bg.length - 1]?.id === cell.id)) {
+            // 'front' — на самый верх, шаг «выше» — на дно слоя символов.
+            cell.set('z', mode === 'front' ? topZ + 1 : ELEMENT_Z_BOUNDS.min - 0.5)
+            crossed.add(cell.id)
+          }
+        }
+      }
+
+      // Слои считаем ПОСЛЕ переходов: фигура уже в новом.
       const layers = [
-        { cells: graph.getElements(), bounds: ELEMENT_Z_BOUNDS },
+        {
+          cells: elements.filter((c) => isBackgroundZ(zOf(c))).sort(byZ),
+          bounds: BACKGROUND_Z_BOUNDS,
+        },
+        {
+          cells: elements.filter((c) => !isBackgroundZ(zOf(c))).sort(byZ),
+          bounds: ELEMENT_Z_BOUNDS,
+        },
         { cells: graph.getLinks(), bounds: LINK_Z_BOUNDS },
       ]
-      let changed = false
-      graph.startBatch('reorder')
+      let changed = crossed.size > 0
       for (const { cells, bounds } of layers) {
         const targets = cells.filter((c) => ids.has(c.id)).map((c) => c.id)
         if (!targets.length) continue
+        // Перешедшую фигуру двигать вторым шагом нельзя — она уже в крайнем
+        // положении нового слоя, поэтому слой только перенумеровываем.
+        const layerMode = targets.some((id) => crossed.has(id)) ? 'keep' : mode
         const plan = planZOrder(
-          cells.map((c) => ({ id: c.id, z: c.get('z') ?? 0 })),
+          cells.map((c) => ({ id: c.id, z: zOf(c) })),
           targets,
-          mode,
+          layerMode,
           bounds
         )
         for (const { id, z } of plan) graph.getCell(id)?.set('z', z)

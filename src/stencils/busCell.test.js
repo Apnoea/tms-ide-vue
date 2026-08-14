@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import { busPortX, desiredBusPortCount, computeBusPorts, busPortIndex } from './busCell'
+import { dia } from '@joint/core'
+import { TMSStencil, tmsNamespace } from './tmsStencil'
+import {
+  busPortX,
+  desiredBusPortCount,
+  computeBusPorts,
+  busPortIndex,
+  buildBusExportSvg,
+  BUS_COLOR_DEFAULT,
+  setBusThickness,
+  BUS_THICKNESS_MAX,
+} from './busCell'
 
 describe('bus port math', () => {
   it('busPortX returns step * (index + 1)', () => {
@@ -36,5 +47,73 @@ describe('busPortIndex', () => {
     // минус до того, как clampBusLinkPorts прижмёт его к нулю.
     expect(busPortIndex('top_-2')).toBe(-2)
     expect(busPortIndex('port')).toBeNaN()
+  })
+})
+
+describe('цвет шины', () => {
+  // Цвет тела — БАЗОВЫЙ: класс tms-range-fill остаётся, и привязанные диапазоны
+  // заливают тело поверх него в рантайме.
+  it('свой цвет уезжает в fill, без него — дефолт', () => {
+    expect(buildBusExportSvg(100, 10, '#ff8800')).toContain('fill="#ff8800"')
+    expect(buildBusExportSvg(100, 10)).toContain(`fill="${BUS_COLOR_DEFAULT}"`)
+    expect(buildBusExportSvg(100, 10, '#ff8800')).toContain('class="tms-range-fill"')
+  })
+})
+
+describe('setBusThickness', () => {
+  const paper = { findViewByModel: () => null }
+  const MIN = 8 // дефолтная высота cell_bus
+
+  function busOf(height = MIN, width = 80) {
+    const graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    const cell = new TMSStencil({
+      position: { x: 0, y: 0 },
+      size: { width, height },
+      tms: { stencilId: 'cell_bus' },
+      ports: { items: computeBusPorts(width, height) },
+    })
+    graph.addCell(cell)
+    return cell
+  }
+
+  const portY = (cell, id) => cell.getPort(id).args.y
+
+  it('нижний ряд портов уезжает на новую толщину, верхний остаётся на нуле', () => {
+    // Провода привязаны по id и следуют за портом — иначе нижние концы отстали бы
+    // от тела шины.
+    const cell = busOf()
+    expect(setBusThickness(cell, paper, 20, MIN)).toBe(true)
+    expect(cell.get('size').height).toBe(20)
+    expect(portY(cell, 'bot_0')).toBe(20)
+    expect(portY(cell, 'top_0')).toBe(0)
+  })
+
+  it('количество портов не меняется — оно зависит только от ширины', () => {
+    const cell = busOf()
+    const before = cell.getPorts().length
+    setBusThickness(cell, paper, 30, MIN)
+    expect(cell.getPorts().length).toBe(before)
+  })
+
+  it('тоньше дефолта не делаем, толще предела — тоже', () => {
+    const cell = busOf(20)
+    setBusThickness(cell, paper, 1, MIN)
+    expect(cell.get('size').height).toBe(MIN)
+    setBusThickness(cell, paper, 1000, MIN)
+    expect(cell.get('size').height).toBe(BUS_THICKNESS_MAX)
+  })
+
+  it('дробное округляется: порты по y дробными быть не должны', () => {
+    const cell = busOf()
+    setBusThickness(cell, paper, 12.4, MIN)
+    expect(cell.get('size').height).toBe(12)
+    expect(portY(cell, 'bot_0')).toBe(12)
+  })
+
+  it('та же толщина и мусор = no-op', () => {
+    const cell = busOf(20)
+    expect(setBusThickness(cell, paper, 20, MIN)).toBe(false)
+    expect(setBusThickness(cell, paper, NaN, MIN)).toBe(false)
+    expect(cell.get('size').height).toBe(20)
   })
 })

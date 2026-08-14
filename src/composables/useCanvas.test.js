@@ -2,7 +2,8 @@
 // операции пишут в модель программно, поэтому единая точка фильтра — writableItems.
 import { describe, it, expect, beforeEach } from 'vitest'
 import { dia, shapes } from '@joint/core'
-import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'
+import { TMSStencil, TMSShape, tmsNamespace } from '../stencils/tmsStencil'
+import { isBackgroundZ } from '../utils/zOrder'
 import { useCanvas } from './useCanvas'
 
 function cell({ locked = false, groupId } = {}) {
@@ -10,6 +11,14 @@ function cell({ locked = false, groupId } = {}) {
   if (locked) tms.locked = true
   if (groupId) tms.groupId = groupId
   return new TMSStencil({ position: { x: 0, y: 0 }, size: { width: 20, height: 20 }, tms })
+}
+
+function shapeCell() {
+  return new TMSShape({
+    position: { x: 0, y: 0 },
+    size: { width: 20, height: 20 },
+    tms: { shape: { type: 'rect', x: 0, y: 0, w: 20, h: 20, stroke: '#000', fill: '#eee' } },
+  })
 }
 
 describe('useCanvas: замок в массовых операциях', () => {
@@ -115,5 +124,87 @@ describe('useCanvas: reorderCells', () => {
     const tick = canvas.snapshotTick.value
     canvas.reorderCells([{ kind: 'cell', id: b.id }], 'front')
     expect(canvas.snapshotTick.value).toBe(tick)
+  })
+})
+
+// Разметка может уйти НИЖЕ проводов: залитая плашка иначе закрывает их. Отдельной
+// команды нет — те же четыре водят фигуру между слоями по краям.
+describe('useCanvas: подложка под проводами', () => {
+  let canvas
+  let graph
+
+  beforeEach(() => {
+    canvas = useCanvas()
+    graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    canvas.setCanvasRefs(graph, { id: 'paper' })
+  })
+
+  function scene() {
+    const a = cell()
+    const b = cell()
+    const w = new shapes.standard.Link({ source: { id: a.id }, target: { id: b.id }, z: -1000 })
+    const shape = shapeCell()
+    graph.addCells([a, b, w, shape])
+    return { a, b, w, shape }
+  }
+
+  it('«на задний план» уводит фигуру под провода', () => {
+    const { w, shape } = scene()
+    canvas.reorderCells([{ kind: 'cell', id: shape.id }], 'back')
+    expect(isBackgroundZ(shape.get('z'))).toBe(true)
+    expect(shape.get('z')).toBeLessThan(w.get('z'))
+  })
+
+  it('«на передний план» возвращает её наверх, поверх символов', () => {
+    const { a, shape } = scene()
+    canvas.reorderCells([{ kind: 'cell', id: shape.id }], 'back')
+    canvas.reorderCells([{ kind: 'cell', id: shape.id }], 'front')
+    expect(isBackgroundZ(shape.get('z'))).toBe(false)
+    expect(shape.get('z')).toBeGreaterThan(a.get('z'))
+  })
+
+  it('шаг «ниже» уводит в подложку только с дна слоя символов', () => {
+    const { a, b, shape } = scene()
+    // Сверху: символы ниже фигуры — первый шаг двигает её внутри слоя.
+    canvas.reorderCells([{ kind: 'cell', id: shape.id }], 'backward')
+    expect(isBackgroundZ(shape.get('z'))).toBe(false)
+    expect(shape.get('z')).toBeLessThan(Math.max(a.get('z'), b.get('z')))
+    // Опускаем до дна и ещё на шаг — теперь под провода.
+    for (let i = 0; i < 3; i++) canvas.reorderCells([{ kind: 'cell', id: shape.id }], 'backward')
+    expect(isBackgroundZ(shape.get('z'))).toBe(true)
+  })
+
+  it('шаг «выше» из подложки возвращает на дно слоя символов, не наверх', () => {
+    const { a, b, shape } = scene()
+    canvas.reorderCells([{ kind: 'cell', id: shape.id }], 'back')
+    canvas.reorderCells([{ kind: 'cell', id: shape.id }], 'forward')
+    expect(isBackgroundZ(shape.get('z'))).toBe(false)
+    expect(shape.get('z')).toBeLessThan(Math.min(a.get('z'), b.get('z')))
+  })
+
+  it('символ в подложку не уходит: у оборудования дно — ноль', () => {
+    const { a } = scene()
+    for (let i = 0; i < 3; i++) canvas.reorderCells([{ kind: 'cell', id: a.id }], 'back')
+    expect(a.get('z')).toBeGreaterThanOrEqual(0)
+  })
+
+  it('перенумерация слоя символов не вытягивает подложку наверх', () => {
+    const { a, b, shape } = scene()
+    canvas.reorderCells([{ kind: 'cell', id: shape.id }], 'back')
+    const bg = shape.get('z')
+    canvas.reorderCells([{ kind: 'cell', id: a.id }], 'front')
+    canvas.reorderCells([{ kind: 'cell', id: b.id }], 'back')
+    expect(shape.get('z')).toBe(bg)
+    expect(isBackgroundZ(shape.get('z'))).toBe(true)
+  })
+
+  it('перенос между слоями — один батч и один шаг истории', () => {
+    const { shape } = scene()
+    let stops = 0
+    graph.on('batch:stop', () => stops++)
+    const tick = canvas.snapshotTick.value
+    canvas.reorderCells([{ kind: 'cell', id: shape.id }], 'back')
+    expect(stops).toBe(1)
+    expect(canvas.snapshotTick.value).toBe(tick + 1)
   })
 })

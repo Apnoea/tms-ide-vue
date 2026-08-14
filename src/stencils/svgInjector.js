@@ -1,6 +1,6 @@
 // Мост «модель JointJS → DOM cellView»: порты, отражение, инъекция SVG стенсила
-// и переинъекция после fromJSON. Разметку программных стенсилов (bus/text/value)
-// строят busCell/textCell/valueCell — здесь только выбор нужного билдера.
+// и переинъекция после fromJSON. Разметку программных стенсилов (bus/text/value/node)
+// строят busCell/textCell/valueCell/nodeCell — здесь только выбор нужного билдера.
 import { instantiate } from './parser'
 import { getStencilById } from './registry'
 import { TMSStencil } from './tmsStencil'
@@ -10,6 +10,7 @@ import { computeBusPorts, buildBusContent } from './busCell'
 import { reinjectAllShapes } from './shapeElement'
 import { buildTextContent } from './textCell'
 import { buildValueContent } from './valueCell'
+import { buildNodeContent } from './nodeCell'
 
 /**
  * Порты стенсила не описаны в определении, а вычисляются по размеру экземпляра
@@ -93,13 +94,15 @@ export function injectStencilSvg(cellView, stencil) {
     })
   )
 
-  // bus/text/value — программные: размер и содержимое динамические.
+  // bus/text/value/node — программные: размер и содержимое задаёт tms, не shape.svg.
   if (stencil.id === 'cell_bus') {
     for (const el of buildBusContent(cellView)) target.appendChild(el)
   } else if (stencil.id === 'cell_text') {
     for (const el of buildTextContent(cellView)) target.appendChild(el)
   } else if (stencil.id === 'cell_value') {
     for (const el of buildValueContent(cellView)) target.appendChild(el)
+  } else if (stencil.id === 'cell_node') {
+    for (const el of buildNodeContent(cellView)) target.appendChild(el)
   } else {
     const tms = cellView.model.get('tms') || {}
     const cellId = cellView.model.id

@@ -1,11 +1,28 @@
 // Шина (cell_bus) — единственный стенсил с изменяемой шириной: порты и разметка
 // считаются от текущего размера, а не берутся из stencil.json. Геометрия портов
 // нужна и ресайзу (useBusResize), и созданию ячейки, и round-trip'у.
-import { RANGE_FILL_CLASS } from '../constants/animation'
+import { RANGE_FILL_CLASS, cssColor } from '../constants/animation'
 import { SVG_NS, svgEl } from '../utils/xml'
 
 /** Ширина resize-хэндлов (только редактор — в экспорт не идут). */
 const BUS_HANDLE_WIDTH = 6
+
+/**
+ * Цвет тела шины по умолчанию. Автор может задать свой (`tms.color`) — это БАЗОВЫЙ
+ * цвет: привязанные диапазоны/обесточивание заливают тело поверх него
+ * (`tms-range-fill` + `!important` в CSS), поэтому в рантайме свой цвет виден, пока
+ * ни один animation-класс не активен.
+ */
+export const BUS_COLOR_DEFAULT = '#000000'
+
+/**
+ * Цвет тела к отрисовке. Чистим ЗДЕСЬ, а не у вызывающих: значение уходит в атрибут
+ * `fill` (и в экспортный SVG), а в модель оно могло попасть из чужого архива или
+ * старого автосейва — `url(#…)` там подменил бы отрисовку целиком.
+ */
+function busColor(value) {
+  return cssColor(value) || BUS_COLOR_DEFAULT
+}
 
 /** Шаг портов: ресайз снапит ширину к нему, один шаг = один слот порта. */
 export const BUS_PORT_SPACING = 20
@@ -38,15 +55,41 @@ export function computeBusPorts(width, height) {
   return items
 }
 
+/** Предел толщины: шина шире этого перестаёт читаться как линия связи. */
+export const BUS_THICKNESS_MAX = 40
+
+/**
+ * Толщина шины — это ВЫСОТА ячейки: тело рисуется по ней, а нижний ряд портов на ней
+ * же и стоит, поэтому порты сдвигаем следом (провода едут за ними сами). Количество
+ * портов зависит только от ширины, так что набор не пересобираем — двигаем `args/y`.
+ *
+ * Минимум — дефолтная высота из определения символа: она и есть «тонкая шина», ниже
+ * тело сливается с проводами. Значение округляем до целого: дробная высота увела бы
+ * нижние порты на дробные координаты.
+ *
+ * @returns {boolean} менялось ли что-то (false = вызывающему нечего писать в историю)
+ */
+export function setBusThickness(cell, paper, value, min) {
+  const size = cell.get('size')
+  const next = Math.min(BUS_THICKNESS_MAX, Math.max(min, Math.round(value)))
+  if (!Number.isFinite(next) || next === size.height) return false
+  cell.resize(size.width, next)
+  for (const port of cell.getPorts()) {
+    if (port.id.startsWith('bot_')) cell.portProp(port.id, 'args/y', next)
+  }
+  return true
+}
+
 /** Экспортный SVG: только тело, без resize-хэндлов (они редактор-only). */
-export function buildBusExportSvg(width, height) {
+export function buildBusExportSvg(width, height, color) {
   // RANGE_FILL_CLASS — opt-in заливки цветом диапазона (см. buildRangeCssRules).
-  return `<svg xmlns="${SVG_NS}"><rect class="${RANGE_FILL_CLASS}" x="0" y="0" width="${width}" height="${height}" fill="#000"/></svg>`
+  return `<svg xmlns="${SVG_NS}"><rect class="${RANGE_FILL_CLASS}" x="0" y="0" width="${width}" height="${height}" fill="${busColor(color)}"/></svg>`
 }
 
 /** Контент на холсте: тело по текущему размеру + resize-хэндлы по краям. */
 export function buildBusContent(cellView) {
   const { width, height } = cellView.model.size()
+  const color = busColor(cellView.model.get('tms')?.color)
   const hw = BUS_HANDLE_WIDTH
   const overhang = 2 // насколько хэндл выпирает по Y за тело шины
 
@@ -58,7 +101,7 @@ export function buildBusContent(cellView) {
       y: 0,
       width: Math.max(0, width - hw * 2),
       height,
-      fill: '#000',
+      fill: color,
     }),
   ]
 

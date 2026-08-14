@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
@@ -21,13 +21,13 @@ import { useValueRanges } from '../composables/useValueRanges'
 import { useTextCellProps, ALIGN_OPTIONS, BOLD_OPTIONS } from '../composables/useTextCellProps'
 import { useNavigationField } from '../composables/useNavigationField'
 import { useProjectStore } from '../stores/useProjectStore'
-import { useUiStore } from '../stores/useUiStore'
 import { getStencilById, hasBoolSlot } from '../stencils/registry'
-import { injectStencilSvg, widthResizeMin, resizeStencilWidth } from '../stencils/svgInjector'
-import { CANVAS_BG_DEFAULT } from '../stencils/canvasPaper'
+import { injectStencilSvg } from '../stencils/svgInjector'
 import { isShapeCell, shapeTypeLabel, applyShapePatch } from '../stencils/shapeElement'
 import { TEXT_FONT_SIZE } from '../stencils/textCell'
 import { VALUE_DECIMALS_DEFAULT } from '../stencils/valueCell'
+import { BUS_COLOR_DEFAULT, BUS_THICKNESS_MAX, setBusThickness } from '../stencils/busCell'
+import { NODE_SIZE_DEFAULT, NODE_SIZE_MAX } from '../stencils/nodeCell'
 import { nplural } from '../utils/plural'
 import { normalizeBoolSource } from '../utils/boolSource'
 import { FONT_FAMILIES, normalizeFont } from '../utils/textMetrics'
@@ -48,7 +48,6 @@ function isStatic(tms) {
 }
 
 const canvas = useCanvas()
-const ui = useUiStore()
 const animClip = useAnimationClipboard()
 // Выравнивание + распределение выделенных ячеек (секция «Выравнивание» в мульти-режиме).
 const { canAlign, canDistribute, alignCells, distributeCells } = useAlign()
@@ -207,12 +206,17 @@ const details = computed(() => {
       align: tms.align || 'left',
       fontFamily: normalizeFont(tms.fontFamily),
       color: tms.color || '',
+      isBus: tms.stencilId === 'cell_bus',
+      isNode: tms.stencilId === 'cell_node',
+      // Толщина: у шины это высота ячейки, у точки — диаметр в tms (габарит ячейки
+      // держит hit-area и порт, менять его нельзя).
+      thickness:
+        tms.stencilId === 'cell_node'
+          ? (tms.dotSize ?? NODE_SIZE_DEFAULT)
+          : cell.get('size').height,
+      thicknessMin: tms.stencilId === 'cell_node' ? NODE_SIZE_DEFAULT : (stencil?.height ?? 1),
+      thicknessMax: tms.stencilId === 'cell_node' ? NODE_SIZE_MAX : BUS_THICKNESS_MAX,
       isValue: tms.stencilId === 'cell_value',
-      // Растяжимость и минимум читаем из определения, а не через widthResizeMin: тот
-      // учитывает замок, а поле у залоченной ячейки должно быть видно (блок inert).
-      canResizeX: !!stencil?.resizeX,
-      width: cell.get('size').width,
-      widthMin: stencil?.minWidth ?? stencil?.width ?? 10,
       valueTag: tms.valueTag ?? '',
       // Явно выбранная пара «подпись + единица» (перебивает пресет по суффиксу).
       valueLabel: tms.valueLabel ?? '',
@@ -359,6 +363,70 @@ function patchShape(patch) {
   canvas.markDirty()
 }
 
+/**
+ * Толщина тела: у шины — высота ячейки (нижние порты едут следом, см. busCell), у
+ * точки соединения — диаметр в tms.
+ */
+function applyThickness(v) {
+  if (!Number.isFinite(v)) return
+  withSelectedCell(
+    ({ cell, stencil, tms, d }) => {
+      // Точка: диаметр живёт в tms, дефолт не пишем — отсутствие поля и есть он.
+      if (d.isNode) {
+        const next = { ...tms }
+        if (v !== NODE_SIZE_DEFAULT) next.dotSize = v
+        else delete next.dotSize
+        if (next.dotSize === tms.dotSize) return false
+        cell.set('tms', next)
+        return true
+      }
+      if (!d.isBus) return false
+      return setBusThickness(cell, canvas.paperRef.value, v, stencil.height)
+    },
+    { reinject: true }
+  )
+}
+
+/** Цвет тела шины и точки соединения: дефолт в tms не пишем (отсутствие = он же). */
+function applyBodyColor(value) {
+  withSelectedCell(
+    ({ cell, tms, d }) => {
+      if (!d.isBus && !d.isNode) return false
+      const next = { ...tms }
+      if (value && value !== BUS_COLOR_DEFAULT) next.color = value
+      else delete next.color
+      if (next.color === tms.color) return false
+      cell.set('tms', next)
+    },
+    { reinject: true }
+  )
+}
+
+// Текст подписи-разметки: непустое пишем живьём (видно сразу), пустое держим только
+// в поле — фигуру без текста не найти на холсте, поэтому по коммиту она удаляется.
+const shapeTextDraft = ref(null)
+const shapeText = computed(() => shapeTextDraft.value ?? details.value?.text ?? '')
+
+function onShapeTextInput(v) {
+  const next = v ?? ''
+  shapeTextDraft.value = next
+  if (next) patchShape({ text: next })
+}
+
+// Смена выделения (клавишами, лассо) не должна тащить черновик на другую фигуру.
+watch(
+  () => details.value?.id,
+  () => (shapeTextDraft.value = null)
+)
+
+function commitShapeText() {
+  const draft = shapeTextDraft.value
+  shapeTextDraft.value = null
+  if (draft === null || draft) return
+  const id = details.value?.id
+  if (id) canvas.deleteItems([{ kind: 'cell', id }])
+}
+
 /** Тумблер заливки фигуры: включаем последним цветом (или белым), выключаем в `none`. */
 function toggleShapeFill(on) {
   patchShape({ fill: on ? details.value?.fill || '#ffffff' : 'none' })
@@ -453,44 +521,6 @@ const multiGroup = computed(() => {
   return { show: true, ungroup: sameGroup }
 })
 
-/**
- * Растяжимые символы в выделении: поле «Ширина» — единственный способ выровнять
- * несколько карточек по одной ширине (жестом это делается по одной). Залоченные в
- * пачку не входят (`widthResizeMin` их отбраковывает), общее значение `null` =
- * ширины расходятся, поле показывает placeholder.
- */
-const multiWidth = computed(() => {
-  canvas.graphVersion.value
-  const graph = canvas.graphRef.value
-  if (!graph) return { show: false }
-  const cells = canvas.selection.value
-    .filter((s) => s.kind === 'cell')
-    .map((s) => graph.getCell(s.id))
-    .filter((c) => c && widthResizeMin(c) != null)
-  if (!cells.length) return { show: false }
-  const first = cells[0].get('size').width
-  const same = cells.every((c) => c.get('size').width === first)
-  return {
-    show: true,
-    count: cells.length,
-    value: same ? first : null,
-    min: Math.max(...cells.map((c) => widthResizeMin(c))),
-    cells,
-  }
-})
-
-function applyMultiWidth(v) {
-  if (!Number.isFinite(v)) return
-  const paper = canvas.paperRef.value
-  let changed = 0
-  for (const cell of multiWidth.value.cells || []) {
-    if (resizeStencilWidth(cell, paper, v)) changed++
-  }
-  if (!changed) return
-  canvas.bumpVersion()
-  canvas.requestSnapshot()
-}
-
 function applyGroupToggle() {
   if (multiGroup.value.ungroup) {
     const n = canvas.ungroupCells(canvas.selection.value)
@@ -540,16 +570,6 @@ function applyValueText(key, raw) {
     },
     { reinject: true }
   )
-}
-
-/**
- * Ширина растяжимого символа (карточка значения). Содержимое раскладывается от
- * ширины, поэтому перерисовку берёт на себя `resizeStencilWidth` — reinject не нужен.
- * Пустое поле игнорируем: «ширины нет» у символа не бывает.
- */
-function applyStencilWidth(v) {
-  if (!Number.isFinite(v)) return
-  withSelectedCell(({ cell }) => resizeStencilWidth(cell, canvas.paperRef.value, v))
 }
 
 /**
@@ -880,28 +900,6 @@ const {
             </div>
           </div>
 
-          <!-- Одна ширина всем растяжимым символам выделения (карточки значений):
-               жестом это делается по одной, а на панели значений их обычно ряд.
-               Пусто = ширины разные. -->
-          <div v-if="multiWidth.show" class="flex items-center gap-3">
-            <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-              Ширина ({{ multiWidth.count }})
-            </span>
-            <InputNumber
-              :model-value="multiWidth.value"
-              :min="multiWidth.min"
-              :max="2000"
-              :step="5"
-              show-buttons
-              button-layout="horizontal"
-              size="small"
-              input-class="w-12! text-center"
-              class="ml-auto"
-              placeholder="—"
-              @update:model-value="applyMultiWidth"
-            />
-          </div>
-
           <!-- Multi-select: те же блоки, что в single, как «применить ко всем»
                (общего состояния у выделения нет → списки пустые/шаблон, выбор тега
                и порогов раздаётся на всё выделение). Булев — BooleanBlock без групп:
@@ -955,8 +953,8 @@ const {
             </p>
           </div>
 
-          <!-- Холостой инспектор не простаивает: сводка активной формы + настройки
-               холста сразу под подсказкой. -->
+          <!-- Холостой инспектор не простаивает: сводка активной формы сразу под
+               подсказкой. -->
           <div class="space-y-4 border-t border-surface-200 pt-4 text-[11px]">
             <div>
               <div class="mb-2 uppercase tracking-wider text-surface-500">Сводка формы</div>
@@ -973,34 +971,6 @@ const {
                   <span>Теги в tag-list</span>
                   <span class="font-mono">{{ project.tags.length }}</span>
                 </div>
-              </div>
-            </div>
-            <!-- Фон холста — настройка окружения (localStorage), не свойство проекта:
-                 в `.zip` не уезжает и на `view.svg` не влияет. Место здесь, потому что
-                 к конкретному элементу она не относится, а тулбар холста плотный.
-                 Сброс обязателен: тёмным фоном легко потерять и схему, и дорогу назад. -->
-            <div>
-              <div class="mb-2 uppercase tracking-wider text-surface-500">Холст</div>
-              <div class="flex items-center gap-3">
-                <span class="text-surface-600 shrink-0">Фон</span>
-                <button
-                  v-if="ui.canvasBg !== CANVAS_BG_DEFAULT"
-                  type="button"
-                  v-tooltip.bottom="'Вернуть цвет по умолчанию'"
-                  class="ml-auto text-surface-500 underline decoration-dotted hover:text-surface-700"
-                  @click="ui.resetCanvasBg()"
-                >
-                  сбросить
-                </button>
-                <input
-                  type="color"
-                  :value="ui.canvasBg"
-                  :class="[
-                    'h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5',
-                    ui.canvasBg === CANVAS_BG_DEFAULT ? 'ml-auto' : '',
-                  ]"
-                  @input="ui.setCanvasBg($event.target.value)"
-                />
               </div>
             </div>
           </div>
@@ -1027,18 +997,22 @@ const {
             <div class="space-y-2.5">
               <div v-if="details.isShapeText">
                 <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
+                <!-- Пустое поле = удалить подпись (по коммиту, не на каждый символ:
+                     иначе стирание текста «под новый» сносило бы фигуру). -->
                 <InputText
-                  :model-value="details.text"
+                  :model-value="shapeText"
                   size="small"
                   class="w-full"
-                  placeholder="Введите текст"
-                  @update:model-value="(v) => patchShape({ text: v ?? '' })"
+                  placeholder="Пустое поле удалит подпись"
+                  @update:model-value="onShapeTextInput"
+                  @blur="commitShapeText"
+                  @keyup.enter="commitShapeText"
                 />
               </div>
 
               <div v-if="!details.isShapeText" class="flex items-center gap-3">
                 <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Цвет линии
+                  {{ details.isShapeFillable ? 'Цвет линии' : 'Цвет' }}
                 </span>
                 <input
                   type="color"
@@ -1050,7 +1024,7 @@ const {
 
               <div v-if="!details.isShapeText" class="flex items-center gap-3">
                 <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Толщина
+                  Толщина, px
                 </span>
                 <InputNumber
                   :model-value="details.strokeWidth"
@@ -1342,27 +1316,6 @@ const {
                   />
                 </div>
               </div>
-              <!-- Ширина карточки: содержимое раскладывается от неё (подпись слева,
-                   значение и единица у правого края), поэтому тянуть можно только по
-                   горизонтали — высоту задают кегли и baseline. Тот же результат
-                   даёт пара ручек на холсте. -->
-              <div v-if="details.canResizeX" class="mt-2 flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Ширина
-                </span>
-                <InputNumber
-                  :model-value="details.width"
-                  :min="details.widthMin"
-                  :max="2000"
-                  :step="5"
-                  show-buttons
-                  button-layout="horizontal"
-                  size="small"
-                  input-class="w-12! text-center"
-                  class="ml-auto"
-                  @update:model-value="applyStencilWidth"
-                />
-              </div>
               <!-- Точность значения: уезжает в output.decimals карточки, формат
                    считает рантайм. Пусто = взять из пресета величины/дефолт. -->
               <div class="mt-2 flex items-center gap-3">
@@ -1385,10 +1338,48 @@ const {
               </div>
             </div>
 
+            <!-- Вид тела шины / точки соединения одним блоком. Цвет БАЗОВЫЙ:
+                 привязанные диапазоны и обесточивание заливают его поверх, поэтому в
+                 рантайме свой цвет виден, пока ни один animation-класс не активен.
+                 Толщина: у шины = высота ячейки, у точки = диаметр; минимум — дефолт
+                 (тоньше тело сливается с проводами, точка — с их пересечением). -->
+            <div v-if="details.isBus || details.isNode" class="space-y-2.5">
+              <div class="flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Цвет
+                </span>
+                <input
+                  type="color"
+                  :value="details.color || BUS_COLOR_DEFAULT"
+                  class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                  @input="applyBodyColor($event.target.value)"
+                />
+              </div>
+
+              <div class="flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Толщина, px
+                </span>
+                <InputNumber
+                  :model-value="details.thickness"
+                  :min="details.thicknessMin"
+                  :max="details.thicknessMax"
+                  :step="1"
+                  show-buttons
+                  button-layout="horizontal"
+                  size="small"
+                  input-class="w-12! text-center"
+                  class="ml-auto"
+                  @update:model-value="applyThickness"
+                />
+              </div>
+            </div>
+
             <!-- Навигация (hyperlink на другую форму при клике в рантайме). Цель —
- id формы проекта (= view-id рантайма): можно выбрать из списка форм ИЛИ ввести
- view-id вручную (editable) — напр. для view, которой ещё нет в проекте. Свич
- справа от заголовка показывает/скрывает поле; выключение очищает значение. -->
+                 id формы проекта (= view-id рантайма): можно выбрать из списка форм ИЛИ
+                 ввести view-id вручную (editable) — напр. для view, которой ещё нет в
+                 проекте. Свич справа от заголовка показывает/скрывает поле; выключение
+                 очищает значение. -->
             <div v-if="!details.isText" class="space-y-2">
               <div class="flex items-center justify-between gap-2">
                 <div>
@@ -1427,7 +1418,7 @@ const {
           </template>
 
           <template v-else>
-            <div class="space-y-2.5">
+            <div class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4">
               <div>
                 <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
                   Элемент
@@ -1435,37 +1426,39 @@ const {
                 <div class="font-medium text-surface-900">Провод</div>
               </div>
 
-              <!-- Толщина линии — строка «подпись слева / контрол справа» (как размер
-                   текста); InputNumber со степперами, как толщина линии в редакторе. -->
-              <div class="flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Толщина, px
-                </span>
-                <InputNumber
-                  :model-value="details.strokeWidth"
-                  :min="0.5"
-                  :max="20"
-                  :step="0.5"
-                  show-buttons
-                  button-layout="horizontal"
-                  size="small"
-                  input-class="w-12! text-center"
-                  class="ml-auto"
-                  @update:model-value="applyStrokeWidth"
-                />
-              </div>
+              <div class="space-y-2.5">
+                <!-- Цвет линии — строка «подпись слева / пикер справа» (как цвет текста). -->
+                <div class="flex items-center gap-3">
+                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                    Цвет
+                  </span>
+                  <input
+                    type="color"
+                    :value="details.strokeColor"
+                    class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                    @input="applyStrokeColor($event.target.value)"
+                  />
+                </div>
 
-              <!-- Цвет линии — строка «подпись слева / пикер справа» (как цвет текста). -->
-              <div class="flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Цвет
-                </span>
-                <input
-                  type="color"
-                  :value="details.strokeColor"
-                  class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                  @input="applyStrokeColor($event.target.value)"
-                />
+                <!-- Толщина линии — строка «подпись слева / контрол справа» (как размер
+                     текста); InputNumber со степперами, как толщина линии в редакторе. -->
+                <div class="flex items-center gap-3">
+                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                    Толщина, px
+                  </span>
+                  <InputNumber
+                    :model-value="details.strokeWidth"
+                    :min="0.5"
+                    :max="20"
+                    :step="0.5"
+                    show-buttons
+                    button-layout="horizontal"
+                    size="small"
+                    input-class="w-12! text-center"
+                    class="ml-auto"
+                    @update:model-value="applyStrokeWidth"
+                  />
+                </div>
               </div>
             </div>
           </template>

@@ -37,6 +37,9 @@ const VALUE_PAD_LEFT = 8 // label-start от левого края
 const VALUE_UNIT_RIGHT_PAD = 5 // unit-end от правого края
 const VALUE_UNIT_ZONE = 32 // зарезервировано на unit + gap до value
 const VALUE_BASELINE_PAD = 5 // расстояние от пола ячейки до общей baseline
+// Незаполненная карточка (тег не выбран): в рантайме останется прочерком, поэтому
+// помечаем её на холсте. Амбер — предупреждение, как у проблемного тега в TagField.
+const VALUE_EMPTY_MARK_COLOR = '#f59e0b' // amber-500
 
 /**
  * Экспортный SVG: label + value + единица. У value-узла id = `animation-<animId>`
@@ -107,6 +110,24 @@ export function buildValueContent(cellView) {
       '--'
     ),
   ]
+
+  // Тег не выбран — рамка-предупреждение. В экспорт не идёт: в view.svg такой
+  // пометки быть не должно, это подсказка автору схемы.
+  if (!tms.valueTag) {
+    out.push(
+      svgEl('rect', {
+        class: 'tms-value-empty',
+        x: 0.5,
+        y: 0.5,
+        width: Math.max(0, width - 1),
+        height: Math.max(0, height - 1),
+        fill: 'none',
+        stroke: VALUE_EMPTY_MARK_COLOR,
+        'stroke-width': 1,
+        'stroke-dasharray': '3 2',
+      })
+    )
+  }
 
   if (unit) {
     out.push(

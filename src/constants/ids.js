@@ -9,6 +9,7 @@
 //  • провод:          animation-wire-<shortId>
 
 import { SVG_FONT, normalizeFont } from '../utils/textMetrics'
+import { cssColor } from './animation'
 
 /**
  * Санитайзеры значений meta. `normalize` в дескрипторе применяется на ОБОИХ концах
@@ -79,7 +80,11 @@ export const CELL_META_FIELDS = [
   { key: 'text', keep: (v) => v !== undefined },
   { key: 'fontSize', keep: (v) => v !== undefined, normalize: clampNumber(1, 400, undefined) },
   { key: 'bold', keep: (v) => v !== undefined },
-  { key: 'color', keep: (v) => v !== undefined },
+  // Цвет подписи и тела шины. Уезжает в атрибут `fill` экспортного SVG, а архив
+  // чужой — мусор отбрасываем целиком (поля нет = дефолтный цвет).
+  { key: 'color', keep: (v) => v !== undefined, normalize: (v) => cssColor(v) || undefined },
+  // Диаметр точки соединения. Дефолт не пишем — отсутствие поля и есть он.
+  { key: 'dotSize', keep: (v) => v !== undefined, normalize: clampNumber(2, 20, undefined) },
   // Шрифт cell_text. `normalize` гоняет значение через whitelist на обоих концах
   // round-trip'а. Дефолт (SVG_FONT) не пишем — отсутствие = он же.
   { key: 'fontFamily', keep: (v) => v !== undefined && v !== SVG_FONT, normalize: normalizeFont },

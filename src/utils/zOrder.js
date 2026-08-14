@@ -4,15 +4,34 @@
  * команда на границе полосы честно ничего не делает.
  *
  * Полосы разведены, чтобы порядок внутри слоя не перемешал слои: символы —
- * `[0, ∞)`, провода — `[LINK_Z, LINK_Z_TOP]` (см. linkDefaults).
+ * `[0, ∞)`, провода — `[LINK_Z, LINK_Z_TOP]` (см. linkDefaults), подложка — ниже
+ * проводов (туда уходит только разметка, см. BACKGROUND_Z_BOUNDS).
  */
 
 /** Полоса символов: дно 0 — ниже провода, у них своя полоса в минусах. */
 export const ELEMENT_Z_BOUNDS = { min: 0, max: Infinity }
 
+/**
+ * Полоса подложки: фигура-разметка может уйти НИЖЕ проводов (плашка/зона под
+ * схемой) — символы и провода туда не попадают.
+ */
+export const BACKGROUND_Z_BOUNDS = { min: -2000, max: -1900 }
+
+/**
+ * Порог «это подложка» — с зазором до дна полосы проводов (`LINK_Z` = -1000):
+ * перенос между слоями ставит промежуточные значения (`min - 1`, сам порог), и они
+ * обязаны читаться как подложка до перенумерации.
+ */
+export const BACKGROUND_Z_TOP = -1100
+
+export const isBackgroundZ = (z) => Number.isFinite(z) && z <= BACKGROUND_Z_TOP
+
 /** Новый порядок id: выделенные двигаются как целое, их взаимный порядок цел. */
 function reorderIds(ids, targetIds, mode) {
   const set = new Set(targetIds)
+  // 'keep' — только перенумерация слоя в текущем порядке: нужна, когда фигуру уже
+  // переставили между слоями и двигать её вторым шагом нельзя.
+  if (mode === 'keep') return [...ids]
   if (mode === 'front') return [...ids.filter((i) => !set.has(i)), ...ids.filter((i) => set.has(i))]
   if (mode === 'back') return [...ids.filter((i) => set.has(i)), ...ids.filter((i) => !set.has(i))]
   const out = [...ids]
