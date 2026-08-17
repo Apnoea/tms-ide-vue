@@ -22,6 +22,7 @@
     "desktop:build:linux": "vite build && electron-builder --linux --publish never",
     "desktop:preview": "vite build && node scripts/run-electron.mjs",
     "desktop:smoke": "vite build && node scripts/run-electron.mjs --smoke",
+    "release": "node scripts/release.mjs",
     "icon:build": "node scripts/run-electron.mjs --main scripts/icon-render.cjs"
   },
   "dependencies": {

@@ -124,6 +124,9 @@ export function useClipboard({ scheduleSnapshot }) {
       }
 
       const tmsCopy = { ...snap.tms, ...(snap.isShape ? {} : { stencilId: snap.stencilId }) }
+      // Закрепление на шине копия не наследует: она встаёт со сдвигом, то есть уже не
+      // на шине, а ездила бы за ней (см. useBusSnap). Нужно — перетащат на шину сами.
+      delete tmsCopy.busId
       if (tmsCopy.groupId) {
         if (groupCounts[tmsCopy.groupId] >= 2) {
           if (!groupIdMap.has(tmsCopy.groupId)) groupIdMap.set(tmsCopy.groupId, genGroupId())

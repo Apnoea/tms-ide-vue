@@ -16,6 +16,7 @@ export function useContextMenu({
   pasteClipboard,
   copySelection,
   duplicateSelection,
+  detachFromBus = () => false,
   notify = { success: () => {} },
 }) {
   const canvas = useCanvas()
@@ -62,6 +63,24 @@ export function useContextMenu({
       // доступен и в мультивыделении, и на группе. Overlay-кнопка остаётся
       // одиночной: она позиционируется по AABB одной ячейки.
       const lockItem = lockMenuItem(t, locked, selCellCount)
+      // «Снять с шины» — только на закреплённом символе: жест обратный присоединению
+      // (см. useBusSnap.detachFromBus), сам символ остаётся на месте.
+      const busItem = cell.get('tms')?.busId
+        ? {
+            label: 'Снять с шины',
+            icon: 'pi pi-arrow-down-left',
+            command: () =>
+              runOnTarget(t, () => {
+                let n = 0
+                for (const item of canvas.selection.value) {
+                  if (item.kind !== 'cell') continue
+                  const c = canvas.graphRef.value?.getCell(item.id)
+                  if (c && detachFromBus(c)) n += 1
+                }
+                if (n) notify.success('Снято с шины', nplural(n, 'символ', 'символа', 'символов'))
+              }),
+          }
+        : null
       const items = [
         {
           label: 'Дублировать',
@@ -70,7 +89,7 @@ export function useContextMenu({
         },
         { label: 'Скопировать', icon: 'pi pi-clone', command: () => runOnTarget(t, copySelection) },
       ]
-      const mid = [orderMenuItem(t), groupItem, lockItem].filter(Boolean)
+      const mid = [orderMenuItem(t), groupItem, busItem, lockItem].filter(Boolean)
       if (mid.length) items.push({ separator: true }, ...mid)
       items.push({ separator: true }, deleteItem(t))
       return items

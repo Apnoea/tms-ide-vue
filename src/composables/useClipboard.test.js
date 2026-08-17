@@ -303,6 +303,23 @@ describe('useClipboard', () => {
     )
   })
 
+  it('paste: копия не наследует закрепление на шине', () => {
+    // Копия встаёт со сдвигом — на шине её уже нет, а busId заставлял бы её ездить
+    // за шиной (см. useBusSnap).
+    const onBus = makeCell()
+    onBus.set('tms', { ...onBus.get('tms'), busId: 'bus-1' })
+    graph.addCell(onBus)
+    mockCanvas.selection.value = [{ kind: 'cell', id: onBus.id }]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+
+    const copy = graph.getElements().find((e) => e.id !== onBus.id)
+    expect(copy.get('tms').busId).toBeUndefined()
+    expect(onBus.get('tms').busId).toBe('bus-1')
+  })
+
   it('duplicateSelection: одним вызовом snapshot + paste новых ячеек', () => {
     const a = makeCell({ x: 50 })
     graph.addCell(a)

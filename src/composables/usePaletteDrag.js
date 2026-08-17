@@ -16,8 +16,9 @@ import { snapToGrid } from '../utils/grid'
  *
  * @param {import('vue').Ref<HTMLElement|null>} paperContainer
  * @param {{ splicePreview, findLinkAtPoint, spliceCellIntoLink, updateSplicePreview, clearSplicePreview }} wireSplice
+ * @param {{ busSnapPreview, findBusAtPoint, attachToBus, updateBusSnapPreview, clearBusSnapPreview }} busSnap
  */
-export function usePaletteDrag(paperContainer, wireSplice) {
+export function usePaletteDrag(paperContainer, wireSplice, busSnap) {
   const canvas = useCanvas()
   const ui = useUiStore()
   const {
@@ -27,6 +28,8 @@ export function usePaletteDrag(paperContainer, wireSplice) {
     updateSplicePreview,
     clearSplicePreview,
   } = wireSplice
+  const { busSnapPreview, findBusAtPoint, attachToBus, updateBusSnapPreview, clearBusSnapPreview } =
+    busSnap
 
   // Координаты курсора внутри paperContainer (для позиционирования preview).
   const cursorX = ref(-1000)
@@ -51,8 +54,9 @@ export function usePaletteDrag(paperContainer, wireSplice) {
     const w = ui.dragging.width * scale
     const h = ui.dragging.height * scale
 
-    // Режим врезки: центр прилипает к точке на проводе + поворот под углом врезки.
-    const sp = splicePreview.value
+    // Врезка в провод и присоединение к шине: центр превью прилипает к точке снапа
+    // (точка на проводе / линия шины) и поворачивается под углом, с которым ляжет ячейка.
+    const sp = splicePreview.value || busSnapPreview.value
     if (sp && p) {
       const { tx, ty } = p.translate()
       const leftPx = sp.cx * scale + tx - w / 2
@@ -136,6 +140,17 @@ export function usePaletteDrag(paperContainer, wireSplice) {
    */
   function placeStencil(stencilId, point) {
     const stencil = getStencilById(stencilId)
+    // Шина проверяется первой, и спора с врезкой тут нет: шина — элемент, а
+    // findLinkAtPoint над элементами молчит. Порты не нужны — символ на шине не
+    // соединяется проводом, он на ней лежит и закрепляется (см. useBusSnap).
+    const bus = findBusAtPoint(point)
+    if (bus) {
+      const cell = createStencilAt(stencilId, point.x, point.y)
+      if (cell) {
+        attachToBus(bus, cell, point)
+        return
+      }
+    }
     if ((stencil?.ports?.length || 0) >= 2) {
       const link = findLinkAtPoint(point)
       if (link) {
@@ -158,7 +173,10 @@ export function usePaletteDrag(paperContainer, wireSplice) {
     cursorY.value = event.clientY - rect.top
     if (paper) {
       const point = paper.clientToLocalPoint(event.clientX, event.clientY)
-      updateSplicePreview(ui.dragging?.stencilId, point)
+      updateBusSnapPreview(ui.dragging?.stencilId, point)
+      // Превью должно быть одно: в зоне шины врезку не считаем.
+      if (busSnapPreview.value) clearSplicePreview()
+      else updateSplicePreview(ui.dragging?.stencilId, point)
     }
   }
 
@@ -189,6 +207,7 @@ export function usePaletteDrag(paperContainer, wireSplice) {
     cursorX.value = -1000
     cursorY.value = -1000
     clearSplicePreview()
+    clearBusSnapPreview()
     ui.stopDragging()
   }
 

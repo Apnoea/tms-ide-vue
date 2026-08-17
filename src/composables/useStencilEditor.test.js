@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { createStencilEditor, useStencilEditor, PORT_GRID } from './useStencilEditor'
 
+/**
+ * Видимость по состоянию — тем же путём, каким её ставит инспектор: выделить,
+ * применить на выделение, зафиксировать шаг истории (см. StencilInspector.shapeState).
+ */
+function setState(ed, id, state) {
+  ed.select(id)
+  ed.applyToSelected({ state })
+  ed.commit()
+}
+
 describe('useStencilEditor', () => {
   it('addShape присваивает id, дефолты обводки, выделяет и возвращает в select', () => {
     const ed = createStencilEditor()
@@ -27,7 +37,7 @@ describe('useStencilEditor', () => {
   it('removeShape снимает выделение если удалили выделенное', () => {
     const ed = createStencilEditor()
     const s = ed.addShape({ type: 'circle', cx: 5, cy: 5, r: 3 })
-    ed.removeShape(s.id)
+    ed.removeShapes([s.id])
     expect(ed.shapes.value).toHaveLength(0)
     expect(ed.selectedId.value).toBeNull()
   })
@@ -212,12 +222,12 @@ describe('useStencilEditor', () => {
 
   it('applyPositionPreset: фигуры со старых ключей возвращаются в always (не теряются в SVG)', () => {
     const ed = createStencilEditor()
-    ed.setStateMode('value')
+    ed.setAnimationMode('value')
     ed.addState()
     const oldKey = ed.meta.states[0].key
     ed.setStateColor(oldKey, '#f00')
     const shape = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
-    ed.setShapeState(shape.id, oldKey)
+    setState(ed, shape.id, oldKey)
 
     ed.applyPositionPreset() // набор состояний заменяется целиком
 
@@ -250,16 +260,16 @@ describe('useStencilEditor', () => {
     expect(ed.meta.stateColors.false).toBeUndefined()
   })
 
-  it('setStateMode сбрасывает цвета состояний (ключи режимов разные)', () => {
+  it('setAnimationMode сбрасывает цвета состояний (ключи режимов разные)', () => {
     const ed = createStencilEditor()
     ed.setStateColor('false', '#64748b')
-    ed.setStateMode('value')
+    ed.setAnimationMode('value')
     expect(ed.meta.stateColors).toEqual({})
   })
 
   it('removeState снимает цвет удалённого состояния', () => {
     const ed = createStencilEditor()
-    ed.setStateMode('value')
+    ed.setAnimationMode('value')
     ed.addState()
     const key = ed.meta.states[0].key
     ed.setStateColor(key, '#ef4444')
@@ -438,7 +448,7 @@ describe('useStencilEditor', () => {
     const ed = createStencilEditor()
     ed.setAnimationMode('boolean')
     const s = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
-    ed.setShapeState(s.id, 'true')
+    setState(ed, s.id, 'true')
     ed.setAnimationMode('value') // сбрасывает видимость фигур на always
     expect(ed.shapes.value[0].state).toBe('always')
     ed.undo()
@@ -516,13 +526,13 @@ describe('useStencilEditor', () => {
     expect(ed.output().json).toMatchObject({ noRotate: true })
   })
 
-  it('addShape по умолчанию даёт state=always; setShapeState меняет и коммитит', () => {
+  it('addShape по умолчанию даёт state=always; смена состояния меняет и коммитит', () => {
     const ed = createStencilEditor()
     const s = ed.addShape({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 })
     expect(s.state).toBe('always')
-    ed.setShapeState(s.id, 'true')
+    setState(ed, s.id, 'true')
     expect(ed.shapes.value[0].state).toBe('true')
-    ed.undo() // setShapeState коммитит → undo возвращает к always
+    ed.undo() // смена состояния коммитит → undo возвращает к always
     expect(ed.shapes.value[0].state).toBe('always')
   })
 
@@ -534,7 +544,7 @@ describe('useStencilEditor', () => {
     ed.meta.width = 20
     ed.meta.height = 20
     const s = ed.addShape({ type: 'line', x1: 10, y1: 0, x2: 10, y2: 20 })
-    ed.setShapeState(s.id, 'true')
+    setState(ed, s.id, 'true')
     expect(ed.meta.stateful).toBe(false)
     expect(ed.output().json.animationTemplate).toBeUndefined() // тумблер выключен
 
@@ -573,14 +583,14 @@ describe('useStencilEditor', () => {
     ed.meta.width = 20
     ed.meta.height = 40
     ed.meta.stateful = true
-    ed.setStateMode('value')
+    ed.setAnimationMode('value')
     expect(ed.meta.stateSlot).toEqual({ key: 'value' })
     ed.applyPositionPreset()
     expect(ed.meta.states.map((s) => s.key)).toEqual(['on', 'off', 'intermediate', 'invalid'])
     ed.updateState('on', { code: '01' })
     ed.updateState('off', { code: '10' })
     const s = ed.addShape({ type: 'line', x1: 10, y1: 0, x2: 10, y2: 20 })
-    ed.setShapeState(s.id, 'on')
+    setState(ed, s.id, 'on')
 
     const { json, svg } = ed.output()
     expect(json.slots).toEqual([{ key: 'value', type: 'Value' }])
@@ -590,23 +600,23 @@ describe('useStencilEditor', () => {
     expect(on.bindings[0].when.cases['10'].apply.addClass).toBe('animation-hidden')
   })
 
-  it('setStateMode сбрасывает видимость фигур (ключи режимов несовместимы)', () => {
+  it('setAnimationMode сбрасывает видимость фигур (ключи режимов несовместимы)', () => {
     const ed = createStencilEditor()
     const s = ed.addShape({ type: 'line', x1: 10, y1: 0, x2: 10, y2: 20 })
     ed.meta.stateful = true
-    ed.setShapeState(s.id, 'true')
-    ed.setStateMode('value')
+    setState(ed, s.id, 'true')
+    ed.setAnimationMode('value')
     expect(ed.shapes.value[0].state).toBe('always')
   })
 
   it('removeState возвращает осиротевшие фигуры в always', () => {
     const ed = createStencilEditor()
     ed.meta.stateful = true
-    ed.setStateMode('value')
+    ed.setAnimationMode('value')
     ed.addState()
     const key = ed.meta.states[0].key
     const s = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
-    ed.setShapeState(s.id, key)
+    setState(ed, s.id, key)
     ed.removeState(key)
     expect(ed.meta.states).toHaveLength(0)
     expect(ed.shapes.value[0].state).toBe('always')

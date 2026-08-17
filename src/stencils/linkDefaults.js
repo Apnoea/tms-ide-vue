@@ -6,6 +6,72 @@
 import { dia, routers, linkTools } from '@joint/core'
 import { LINK_META_FIELDS } from '../constants/ids'
 
+const { Directions } = routers.rightAngle
+
+/**
+ * Сторона подхода к порту, который лежит ВНУТРИ тела символа (слот шины стоит в
+ * середине толщины). Дефолт роутера для порта — `MAGNET_SIDE`, то есть сторона bbox,
+ * ближайшая к anchor'у: у слота в середине тонкого тела top и bottom равноудалены, и
+ * все провода заходили с одной стороны. Возвращаем сторону, с которой провод реально
+ * идёт, — тогда к шине подключаются и сверху, и снизу.
+ *
+ * Ось выбираем перпендикулярно длинной стороне тела: у шины (широкая и тонкая) вход
+ * всегда вертикальный, иначе провод входил бы с торца вдоль тела. Для тела без явной
+ * вытянутости (точка соединения) — по преобладающей дельте, как роутер поступает с
+ * концом, не привязанным к символу.
+ *
+ * null = порт на границе тела (обычный символ) → направление оставляем роутеру.
+ */
+export function insideApproachDirection(anchor, bbox, from) {
+  if (!anchor || !bbox || !from) return null
+  const inside =
+    anchor.x > bbox.x &&
+    anchor.x < bbox.x + bbox.width &&
+    anchor.y > bbox.y &&
+    anchor.y < bbox.y + bbox.height
+  if (!inside) return null
+  const dx = from.x - anchor.x
+  const dy = from.y - anchor.y
+  const vertical =
+    bbox.width > bbox.height
+      ? true
+      : bbox.height > bbox.width
+        ? false
+        : Math.abs(dy) >= Math.abs(dx)
+  if (vertical) return dy < 0 ? Directions.TOP : Directions.BOTTOM
+  return dx < 0 ? Directions.LEFT : Directions.RIGHT
+}
+
+/**
+ * `sourceDirection`/`targetDirection` для концов на портах внутри тела. «Откуда идёт
+ * провод» — ближайший ручной излом, а без изломов противоположный конец.
+ */
+export function rightAngleDirections(vertices, linkView) {
+  const out = {}
+  if (!linkView) return out
+  const list = Array.isArray(vertices) ? vertices : []
+  const ends = [
+    [
+      'sourceDirection',
+      linkView.sourceView,
+      linkView.sourceAnchor,
+      list[0] || linkView.targetAnchor,
+    ],
+    [
+      'targetDirection',
+      linkView.targetView,
+      linkView.targetAnchor,
+      list[list.length - 1] || linkView.sourceAnchor,
+    ],
+  ]
+  for (const [key, view, anchor, from] of ends) {
+    if (!view?.model?.isElement?.()) continue
+    const dir = insideApproachDirection(anchor, view.model.getBBox(), from)
+    if (dir) out[key] = dir
+  }
+  return out
+}
+
 /**
  * rightAngle со снапом маршрута к сетке: базовый ставит соединительный сегмент по
  * середине промежутка, т.е. «между клетками». Ортогональность не страдает (соседние
@@ -13,7 +79,12 @@ import { LINK_META_FIELDS } from '../constants/ids'
  */
 export function gridRightAngleRouter(vertices, args, linkView) {
   const g = linkView?.paper?.options?.gridSize || 10
-  const route = routers.rightAngle.call(this, vertices, args, linkView)
+  const route = routers.rightAngle.call(
+    this,
+    vertices,
+    { ...args, ...rightAngleDirections(vertices, linkView) },
+    linkView
+  )
   return route.map((p) => ({ x: Math.round(p.x / g) * g, y: Math.round(p.y / g) * g }))
 }
 

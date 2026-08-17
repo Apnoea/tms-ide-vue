@@ -23,7 +23,7 @@ export function useCellHighlight({ centerOnCell }) {
     }
   }
 
-  /** Навесить класс на view'ы переданных ячеек (id или модели). */
+  /** Навесить класс на view'ы переданных ячеек (id или модели). Только для watch'ей ниже. */
   function markCells(ids, cls) {
     const paper = canvas.paperRef.value
     const graph = canvas.graphRef.value
@@ -62,5 +62,5 @@ export function useCellHighlight({ centerOnCell }) {
     }
   )
 
-  return { clearCellClass, markCells }
+  return { clearCellClass }
 }

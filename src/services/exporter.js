@@ -3,7 +3,7 @@ import { instantiate } from '../stencils/parser'
 import { flipTransform } from '../stencils/svgInjector'
 import { isShapeCell } from '../stencils/shapeElement'
 import { serializeShape } from '../utils/stencilSvg'
-import { buildBusExportSvg } from '../stencils/busCell'
+import { buildBusExportSvg, collectBusMarks } from '../stencils/busCell'
 import { buildTextExportSvg } from '../stencils/textCell'
 import {
   buildValueExportSvg,
@@ -225,7 +225,13 @@ export function exportProject(graph, paper = null) {
     // и без редактор-only декораций; остальные — svgText шаблона + bindings.
     let cellSvg
     if (tms.stencilId === 'cell_bus') {
-      cellSvg = buildBusExportSvg(size.width, size.height, tms.color)
+      // Маркеры занятых слотов — тем же сборщиком, что рисует холст (см. busCell).
+      cellSvg = buildBusExportSvg(
+        size.width,
+        size.height,
+        tms.color,
+        collectBusMarks(graph, cell.id)
+      )
     } else if (tms.stencilId === 'cell_text') {
       cellSvg = buildTextExportSvg(tms.text ?? '', size.height, {
         fontSize: tms.fontSize,
@@ -298,6 +304,9 @@ export function exportProject(graph, paper = null) {
       // groupId — метка логической группы (общий id у членов). Round-trip, чтобы
       // группировка переживала экспорт/импорт.
       groupId: tms.groupId,
+      // busId — закрепление на шине (символ едет за ней). Round-trip, иначе после
+      // реимпорта символы на шине молча перестали бы за ней ездить.
+      busId: tms.busId,
       valueTag: tms.valueTag,
       // Явно выбранная величина и точность cell_value. Без них round-trip терял
       // выбор автора: пара «подпись + единица» откатывалась к пресету по суффиксу

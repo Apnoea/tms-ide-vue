@@ -104,6 +104,9 @@ export const CELL_META_FIELDS = [
   { key: 'flipH', keep: Boolean, flag: true },
   { key: 'flipV', keep: Boolean, flag: true },
   { key: 'groupId', keep: Boolean },
+  // Закрепление на шине: символ едет за ней при перемещении. Ссылку на исчезнувшую
+  // ячейку загрузчик снимает — иначе символ был бы прикреплён к пустоте.
+  { key: 'busId', keep: Boolean },
   { key: 'rangeSource', keep: Boolean, normalize: normalizeRangeSource },
   { key: 'boolSource', keep: Boolean },
   { key: 'navigation', keep: Boolean },

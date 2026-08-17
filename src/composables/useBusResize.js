@@ -2,7 +2,13 @@ import { ref, computed } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { getStencilById } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
-import { busPortX, busPortIndex, desiredBusPortCount, BUS_PORT_SPACING } from '../stencils/busCell'
+import {
+  busPortX,
+  busPortY,
+  busPortIndex,
+  desiredBusPortCount,
+  BUS_PORT_SPACING,
+} from '../stencils/busCell'
 import { snapToGrid } from '../utils/grid'
 import { useCanvas } from './useCanvas'
 
@@ -116,7 +122,7 @@ export function useBusResize({ scheduleSnapshot }) {
   /**
    * Левый резайз сдвигает origin, и канонические порты уехали бы вместе с ним,
    * потащив провода. Поэтому сдвигаем порт-РЕФЫ линков на `k` слотов
-   * (`top_4` → `top_(4+k)`): новый порт `syncBusPorts` создаст там, где старый был
+   * (`p_4` → `p_(4+k)`): новый порт `syncBusPorts` создаст там, где старый был
    * абсолютно, — провод стоит на месте. Сами порты не пересоздаём (remove/add терял
    * бы провода). Выход за диапазон правит `clampBusLinkPorts`.
    */
@@ -183,25 +189,22 @@ export function useBusResize({ scheduleSnapshot }) {
    */
   function syncBusPorts(cell, width, height) {
     const desired = desiredBusPortCount(width)
+    const targetY = busPortY(height)
 
     for (let i = 0; i < desired; i++) {
-      if (!cell.hasPort(`top_${i}`)) {
-        cell.addPort({ id: `top_${i}`, group: 'port', args: { x: busPortX(i), y: 0 } })
-      }
-      if (!cell.hasPort(`bot_${i}`)) {
-        cell.addPort({ id: `bot_${i}`, group: 'port', args: { x: busPortX(i), y: height } })
+      if (!cell.hasPort(`p_${i}`)) {
+        cell.addPort({ id: `p_${i}`, group: 'port', args: { x: busPortX(i), y: targetY } })
       }
     }
 
     const linked = getLinkedBusPortIds(cell)
     for (const p of cell.getPorts()) {
-      const idx = Number(p.id.slice(p.id.indexOf('_') + 1))
+      const idx = busPortIndex(p.id)
       if (idx >= desired && !linked.has(p.id)) {
         cell.removePort(p.id)
         continue
       }
       const targetX = busPortX(idx)
-      const targetY = p.id.startsWith('bot_') ? height : 0
       if (p.args?.x !== targetX) cell.portProp(p.id, 'args/x', targetX)
       if (p.args?.y !== targetY) cell.portProp(p.id, 'args/y', targetY)
     }

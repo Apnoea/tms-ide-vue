@@ -4,6 +4,10 @@ import { useUiStore } from '../stores/useUiStore'
 
 const ui = useUiStore()
 
+// Подставляет Vite (`define`). Версия — CalVer, дата — момент сборки статики.
+const appVersion = __APP_VERSION__
+const buildDate = __BUILD_DATE__
+
 // Клавиши И жесты: { keys: [...], desc }; keysAlt — альтернативный аккорд, через «/».
 // Возможности без хоткея (врезка в провод, ресайз шины, перенос анимаций) в UI
 // обнаруживаются только случайно, поэтому живут здесь наравне с клавишами; `keys`
@@ -243,6 +247,11 @@ const sections = [
           </li>
         </ul>
       </div>
+    </div>
+    <!-- Вне скролла — версия нужна при разборе проблемы на чужой машине, и
+         искать её прокруткой в конец списка клавиш никто не станет. -->
+    <div class="mt-4 pt-3 border-t border-surface-200 text-[11px] text-surface-500">
+      TMS IDE {{ appVersion }} · сборка {{ buildDate }}
     </div>
   </Dialog>
 </template>

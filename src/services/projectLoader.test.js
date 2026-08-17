@@ -188,13 +188,29 @@ describe('parseSvgProject', () => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
       <g transform="translate(0,100)" data-tms-meta='${bus}'/>
       ${cellG('a')}
-      <path d="M 20,100 L 20,200" data-tms-meta='${link}'/>
+      <path d="M 20,104 L 20,200" data-tms-meta='${link}'/>
     </svg>`
     const out = parseSvgProject(svg)
     const link1 = out.cells.find((c) => c.type === 'standard.Link')
-    // Слот шины top_0 стоит на (20,100) — туда и привязываемся.
-    expect(link1.source).toEqual({ id: 'bus', port: 'top_0' })
+    // Слот шины p_0 стоит на (20,104) — середина толщины 8 — туда и привязываемся.
+    expect(link1.source).toEqual({ id: 'bus', port: 'p_0' })
     expect(out.errors).toEqual([])
+  })
+
+  it('закрепление на шине переживает импорт, ссылка в пустоту снимается', () => {
+    // busId ведёт «символ едет за шиной» (см. useBusSnap). Шина могла в архив не
+    // попасть — тогда закрепление держало бы символ за несуществующей ячейкой.
+    const bus = attr({ id: 'bus', stencilId: 'cell_bus', width: 80, height: 8 })
+    const onBus = attr({ id: 'a', stencilId: 'cell_qw', width: 20, height: 20, busId: 'bus' })
+    const orphan = attr({ id: 'b', stencilId: 'cell_qw', width: 20, height: 20, busId: 'ghost' })
+    const out = parseSvgProject(`<svg xmlns="http://www.w3.org/2000/svg">
+      <g transform="translate(0,100)" data-tms-meta='${bus}'/>
+      <g transform="translate(0,100)" data-tms-meta='${onBus}'/>
+      <g transform="translate(0,300)" data-tms-meta='${orphan}'/>
+    </svg>`)
+    expect(out.cells.find((c) => c.id === 'a').tms.busId).toBe('bus')
+    expect(out.cells.find((c) => c.id === 'b').tms.busId).toBeUndefined()
+    expect(out.errors.some((e) => e.includes('ghost'))).toBe(true)
   })
 
   it('без geometry и без привязки провод отбрасывается', () => {

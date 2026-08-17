@@ -8,6 +8,8 @@ import Tag from 'primevue/tag'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
 import { normalizeLinkZ, attachLinkTools } from '../stencils/linkDefaults'
+import { getStencilById } from '../stencils/registry'
+import { injectStencilSvg } from '../stencils/svgInjector'
 import {
   createCanvasGraph,
   createCanvasPaper,
@@ -24,6 +26,7 @@ import { useSimulation } from '../composables/useSimulation'
 import { useTextEdit } from '../composables/useTextEdit'
 import { useClipboard } from '../composables/useClipboard'
 import { useWireSplice } from '../composables/useWireSplice'
+import { useBusSnap } from '../composables/useBusSnap'
 import { useProject } from '../composables/useProject'
 import { useHotkeys } from '../composables/useHotkeys'
 import { useSelectionOverlay } from '../composables/useSelectionOverlay'
@@ -136,12 +139,17 @@ const { textEditing, textEditValue, textEditorRef, startTextEdit, commitTextEdit
 const { copySelection, pasteClipboard, duplicateSelection, hasClipboard } = useClipboard({
   scheduleSnapshot,
 })
-// Drag стенсила из палитры (превью + создание ячейки + врезка в провод) — целиком в
-// usePaletteDrag. wireSplice (useWireSplice) нужен только ему, прокидываем напрямую.
-// Цепляет свои document-листенеры сам.
+// Символ на шине: ложится на неё центром и едет за ней (см. useBusSnap). Нужен и
+// палитре (drop), и здесь — жестам с уже стоящими ячейками.
+const busSnap = useBusSnap()
+const { syncBusAttachment, detachFromBus, followBus, releaseBus } = busSnap
+// Drag стенсила из палитры (превью + создание ячейки + врезка в провод + присоединение
+// к шине) — целиком в usePaletteDrag. wireSplice/busSnap нужны только ему, прокидываем
+// напрямую. Цепляет свои document-листенеры сам.
 const { previewVisible, previewStyle, draggingStencilSvg } = usePaletteDrag(
   paperContainer,
-  useWireSplice()
+  useWireSplice(),
+  busSnap
 )
 
 // Проектная оркестрация (переключение формы / импорт+экспорт .zip). Возвращает
@@ -280,6 +288,7 @@ const { ctxMenuRef, ctxItems, showContextMenu } = useContextMenu({
   pasteClipboard,
   copySelection,
   duplicateSelection,
+  detachFromBus,
   notify,
 })
 // Lasso — startLasso дёргаем из blank:pointerdown (обычный ЛКМ); move/up свои.
@@ -459,6 +468,35 @@ onMounted(async () => {
   graph.on('change:position', onPositionChange)
   paper.on('element:pointerup', endMultiDrag)
 
+  // Закрепление на шине: сдвинули шину — закреплённые символы едут за ней. Выделенных
+  // пропускаем: их уже сдвинул multi-drag, иначе уехали бы на двойную дельту.
+  // `busFollow` гасит реентри (наш же set('position') на закреплённом).
+  graph.on('change:position', (cell, newPos, opt) => {
+    if (opt?.busFollow || cell.get('tms')?.stencilId !== 'cell_bus') return
+    const prev = cell.previous('position')
+    if (!prev) return
+    const skip = new Set(canvas.selection.value.filter((i) => i.kind === 'cell').map((i) => i.id))
+    followBus(cell, newPos.x - prev.x, newPos.y - prev.y, skip)
+  })
+
+  // Толщина двигает линию шины (её середину) — закреплённые сидят на ней центром,
+  // поэтому едут на половину прироста, иначе съехали бы с шины.
+  graph.on('change:size', (cell, newSize, opt) => {
+    if (opt?.busFollow || cell.get('tms')?.stencilId !== 'cell_bus') return
+    const prev = cell.previous('size')
+    if (!prev) return
+    const dy = Math.round(newSize.height / 2) - Math.round(prev.height / 2)
+    if (dy) followBus(cell, 0, dy)
+  })
+
+  // Шину удалили — снимаем закрепление: иначе символы остались бы привязаны к пустоте.
+  graph.on('remove', (cell) => {
+    if (cell.get?.('tms')?.stencilId === 'cell_bus') releaseBus(cell)
+  })
+
+  // Отпустили символ: лёг на шину — закрепляем, увели с неё — закрепление снимаем.
+  paper.on('element:pointerup', (view) => syncBusAttachment(view.model))
+
   // Double-click по cell_text — открыть inline-редактор поверх ячейки.
   paper.on('element:pointerdblclick', (elementView) => {
     const tms = elementView.model.get('tms') || {}
@@ -543,6 +581,27 @@ onMounted(async () => {
     if (cell.isLink && cell.isLink()) cell.set('z', normalizeLinkZ(cell.get('z')))
   })
 
+  // Маркер «здесь подключён провод» рисует контент шины (слот стоит в середине
+  // толщины, конец провода уходит под тело). Занятость слотов живёт в графе, а не в
+  // модели ячейки — специально: portProp/attrs попали бы в graphJson и дрейфили бы
+  // между снимками undo. Значит перерисовку шины дёргаем на изменениях связей.
+  const refreshBusMarks = (cell) => {
+    if (!cell?.isLink?.()) return
+    const ids = new Set()
+    for (const end of ['source', 'target']) {
+      ids.add(cell.get(end)?.id)
+      ids.add(cell.previous?.(end)?.id)
+    }
+    for (const id of ids) {
+      const bus = id ? graph.getCell(id) : null
+      if (bus?.get('tms')?.stencilId !== 'cell_bus') continue
+      const view = paper.findViewByModel(bus)
+      const stencil = getStencilById('cell_bus')
+      if (view && stencil) injectStencilSvg(view, stencil)
+    }
+  }
+  graph.on('add remove change:source change:target', refreshBusMarks)
+
   // Прокидываем graph/paper в composable ДО restoreProject — composable'ы
   // useAutosave / useUndoRedo читают их через canvas.graphRef.value.
   canvas.setCanvasRefs(graph, paper)
@@ -620,8 +679,17 @@ onMounted(async () => {
     )
   }
 
-  // Сообщаем о восстановлении уже после монтирования (toast service готов)
-  if (restored > 0) {
+  // Сообщаем о восстановлении уже после монтирования (toast service готов).
+  //
+  // Только на ПЕРВОМ монтировании за загрузку страницы: в dev ни один наш `.js` не
+  // объявляет `import.meta.hot.accept`, поэтому правка любого из них поднимает
+  // hot-update до этого компонента, и он перемонтируется — тост с центрированием
+  // повторялись бы на каждое сохранение файла. `hot.data` Vite переносит из старой
+  // версии модуля в новую, так что флаг переживает hot-update; в проде `hot` нет и
+  // условие всегда истинно.
+  const firstMount = !import.meta.hot?.data.restoreShown
+  if (import.meta.hot) import.meta.hot.data.restoreShown = true
+  if (restored > 0 && firstMount) {
     notify.info(
       'Автосейв восстановлен',
       `${nplural(restored, 'символ', 'символа', 'символов')} с прошлой сессии`

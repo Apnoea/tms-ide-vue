@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { textCellToShape, migrateGraphJson } from './legacyFormat'
+import { textCellToShape, migrateGraphJson, legacyBusPortId } from './legacyFormat'
 import { TEXT_PADDING_X } from '../stencils/textCell'
 
 // Подпись из прошлого формата (символ cell_text) должна стать фигурой-разметкой,
@@ -104,5 +104,76 @@ describe('migrateGraphJson', () => {
     expect(migrateGraphJson(json)).toEqual({ json, changed: false })
     expect(migrateGraphJson(null)).toEqual({ json: null, changed: false })
     expect(migrateGraphJson({})).toEqual({ json: {}, changed: false })
+  })
+})
+
+describe('порты шины: два ряда → один', () => {
+  const busJson = (ports) => ({
+    type: 'tms.Stencil',
+    id: 'bus',
+    position: { x: 0, y: 0 },
+    size: { width: 80, height: 20 },
+    tms: { stencilId: 'cell_bus' },
+    ports: { items: ports },
+  })
+  const legacyPorts = [
+    { id: 'top_0', group: 'port', args: { x: 20, y: 0 } },
+    { id: 'bot_0', group: 'port', args: { x: 20, y: 20 } },
+  ]
+
+  it('legacyBusPortId переводит оба ряда в один слот', () => {
+    expect(legacyBusPortId('top_3')).toBe('p_3')
+    expect(legacyBusPortId('bot_3')).toBe('p_3')
+    // Не та схема — трогать нельзя: у символа из редактора порт зовётся как угодно.
+    expect(legacyBusPortId('p_3')).toBeNull()
+    expect(legacyBusPortId('top')).toBeNull()
+    expect(legacyBusPortId(undefined)).toBeNull()
+  })
+
+  it('порты шины пересобираются: fromJSON берёт их из json как есть', () => {
+    const { json: next, changed } = migrateGraphJson({ cells: [busJson(legacyPorts)] })
+    expect(changed).toBe(true)
+    // 80/20-1 = 3 слота, все в середине толщины 20.
+    expect(next.cells[0].ports.items.map((p) => p.id)).toEqual(['p_0', 'p_1', 'p_2'])
+    expect(next.cells[0].ports.items[0].args).toEqual({ x: 20, y: 10 })
+  })
+
+  it('порт-рефы линков переводятся — но только у шин', () => {
+    const { json: next } = migrateGraphJson({
+      cells: [
+        { type: 'standard.Link', id: 'l1', source: { id: 'bus', port: 'bot_1' }, target: {} },
+        { type: 'standard.Link', id: 'l2', source: { id: 'sym', port: 'top_1' }, target: {} },
+        busJson(legacyPorts),
+        { type: 'tms.Stencil', id: 'sym', tms: { stencilId: 'cell_qw' } },
+      ],
+    })
+    // Линк идёт в списке ДО своей шины — id шин собираются отдельным проходом.
+    expect(next.cells[0].source).toEqual({ id: 'bus', port: 'p_1' })
+    // Символ из редактора с портом «top_1» — не наша схема, оставляем как есть.
+    expect(next.cells[1].source).toEqual({ id: 'sym', port: 'top_1' })
+  })
+
+  it('оба ряда одного слота сливаются в один порт', () => {
+    const { json: next } = migrateGraphJson({
+      cells: [
+        busJson(legacyPorts),
+        { type: 'standard.Link', id: 'l1', source: { id: 'bus', port: 'top_0' }, target: {} },
+        { type: 'standard.Link', id: 'l2', source: { id: 'bus', port: 'bot_0' }, target: {} },
+      ],
+    })
+    expect(next.cells[1].source.port).toBe('p_0')
+    expect(next.cells[2].source.port).toBe('p_0')
+  })
+
+  it('идемпотентна: новая схема второй раз не мигрирует', () => {
+    const first = migrateGraphJson({
+      cells: [
+        busJson(legacyPorts),
+        { type: 'standard.Link', id: 'l1', source: { id: 'bus', port: 'bot_2' }, target: {} },
+      ],
+    })
+    const second = migrateGraphJson(first.json)
+    expect(second.changed).toBe(false)
+    expect(second.json).toBe(first.json)
   })
 })

@@ -8,7 +8,7 @@ import { LINK_DEFAULTS, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkD
 import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 import { sanitizeShape } from '../stencils/shapeElement'
 import { isBackgroundZ, BACKGROUND_Z_BOUNDS } from '../utils/zOrder'
-import { textCellToShape } from './legacyFormat'
+import { textCellToShape, legacyBusPortId } from './legacyFormat'
 
 /**
  * Парсит SVG-текст и возвращает массив JointJS-cells (включая links),
@@ -90,6 +90,7 @@ export function parseSvgProject(svgText) {
   const errors = []
   const stencilIds = new Set()
   const elementIds = new Set() // id успешно собранных ячеек — для отсева висячих проводов
+  const busIds = new Set() // id шин: только у них порт-рефы линков переводим на новую схему
   const portIndex = new Map() // точка холста → { id, port }: чинит потерянные привязки
 
   // ─── Ячейки: <g> с data-tms-meta ───
@@ -201,6 +202,7 @@ export function parseSvgProject(svgText) {
       const migrated = textCellToShape(cellJson)
       cells.push(migrated || cellJson)
       elementIds.add(meta.id)
+      if (meta.stencilId === 'cell_bus') busIds.add(meta.id)
       if (!migrated) indexPorts(portIndex, cellJson)
     } catch (e) {
       errors.push(`Парсинг символа: ${e.message}`)
@@ -218,7 +220,13 @@ export function parseSvgProject(svgText) {
       // концов — след старой регрессии, они восстанавливаются именно так).
       const pathEnds = pathEndpoints(p.getAttribute('d'))
       const resolveEnd = (end, fallback, which) => {
-        if (end?.id && elementIds.has(end.id)) return end
+        if (end?.id && elementIds.has(end.id)) {
+          // Порт шины прошлой схемы: у собранной ячейки порты уже новые
+          // (buildPortItems), и без перевода конец повис бы на несуществующем
+          // `top_i` — экспорт увёл бы его в центр шины с предупреждением.
+          const port = busIds.has(end.id) ? legacyBusPortId(end.port) : null
+          return port ? { ...end, port } : end
+        }
         const point =
           Number.isFinite(end?.x) && Number.isFinite(end?.y) ? { x: end.x, y: end.y } : fallback
         if (!point) return null
@@ -271,6 +279,17 @@ export function parseSvgProject(svgText) {
     } catch (e) {
       errors.push(`Парсинг провода: ${e.message}`)
     }
+  }
+
+  // Закрепление на шине переживает экспорт полем `busId`, но шина могла в архив не
+  // попасть (не зарегистрирован стенсил, битый transform). Ссылку в пустоту снимаем:
+  // иначе символ считался бы прикреплённым и не ездил бы ни за чем.
+  for (const cell of cells) {
+    const busId = cell.tms?.busId
+    if (!busId) continue
+    if (busIds.has(busId)) continue
+    delete cell.tms.busId
+    errors.push(`Символ ${cell.id}: шина ${busId} не найдена — закрепление снято`)
   }
 
   // ok = SVG распарсился (см. docstring). Пустой cells — валидная пустая форма.

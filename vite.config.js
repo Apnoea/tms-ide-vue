@@ -1,5 +1,5 @@
 /// <reference types="vitest/config" />
-import { promises as fs } from 'node:fs'
+import { promises as fs, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -89,8 +89,22 @@ function stencilWritePlugin() {
   }
 }
 
+// Версия и дата сборки в UI (справка F1). Portable exe без установщика: если
+// пользователь напишет «не работает», спросить его о версии больше негде.
+// Дата — локальная, а не UTC: `toISOString` у вечерней сборки показал бы завтра.
+const pkgVersion = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf8')
+).version
+const now = new Date()
+const pad = (n) => String(n).padStart(2, '0')
+const buildDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+
 export default defineConfig({
   base: './',
+  define: {
+    __APP_VERSION__: JSON.stringify(pkgVersion),
+    __BUILD_DATE__: JSON.stringify(buildDate),
+  },
   plugins: [vue(), tailwindcss(), stencilWritePlugin()],
   server: {
     port: 5174,

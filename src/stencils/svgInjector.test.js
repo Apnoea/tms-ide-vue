@@ -327,7 +327,7 @@ describe('syncStencilInstances: программные порты (шина)', (
     })
     graph.addCell(bus)
     const link = new shapes.standard.Link({
-      source: { id: bus.id, port: 'top_0' },
+      source: { id: bus.id, port: 'p_0' },
       target: { x: 300, y: 100 },
       vertices: [{ x: 20, y: 300 }],
     })
@@ -340,7 +340,7 @@ describe('syncStencilInstances: программные порты (шина)', (
     const before = bus.getPorts().length
     const report = syncStencilInstances(graph, paper, busDef)
     expect(report).toEqual({ changed: 0, detached: [] })
-    expect(link.get('source')).toEqual({ id: bus.id, port: 'top_0' })
+    expect(link.get('source')).toEqual({ id: bus.id, port: 'p_0' })
     expect(link.get('vertices')).toEqual([{ x: 20, y: 300 }])
     expect(bus.getPorts()).toHaveLength(before)
   })
@@ -349,16 +349,16 @@ describe('syncStencilInstances: программные порты (шина)', (
     // Такой слот существует именно потому, что на нём висит линия: после сжатия
     // clampBusLinkPorts перенёс провод, а порт остался. Сверка это не её дело.
     const { graph, bus, busDef } = busForm()
-    bus.addPort({ id: 'top_99', group: 'port', args: { x: 1980, y: 0 } })
+    bus.addPort({ id: 'p_99', group: 'port', args: { x: 1980, y: 0 } })
     const far = new shapes.standard.Link({
-      source: { id: bus.id, port: 'top_99' },
+      source: { id: bus.id, port: 'p_99' },
       target: { x: 500, y: 100 },
     })
     graph.addCell(far)
 
     syncStencilInstances(graph, paper, busDef)
-    expect(bus.hasPort('top_99')).toBe(true)
-    expect(far.get('source')).toEqual({ id: bus.id, port: 'top_99' })
+    expect(bus.hasPort('p_99')).toBe(true)
+    expect(far.get('source')).toEqual({ id: bus.id, port: 'p_99' })
   })
 })
 

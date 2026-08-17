@@ -26,6 +26,10 @@ export default [
       globals: {
         ...globals.browser,
         ...globals.node,
+        // Подставляются Vite (`define` в vite.config) — в рантайме это литералы,
+        // но для линтера без объявления они no-undef.
+        __APP_VERSION__: 'readonly',
+        __BUILD_DATE__: 'readonly',
       },
     },
     rules: {

@@ -308,10 +308,6 @@ export function createStencilEditor() {
     updateShapes(ids, () => patch)
   }
 
-  function removeShape(id) {
-    removeShapes([id])
-  }
-
   /** Удалить выделенное — один снимок истории на всю пачку. */
   function removeShapes(ids) {
     const set = new Set(ids)
@@ -352,14 +348,6 @@ export function createStencilEditor() {
     return added
   }
 
-  // Состояние видимости фигуры (внутренняя анимация): always | <ключ состояния>.
-  // Булев режим: always | true | false. Режим значения: always | key из meta.states.
-  // Дискретная операция → коммитим сразу (в отличие от updateShape в жесте).
-  function setShapeState(id, state) {
-    shapes.value = shapes.value.map((s) => (s.id === id ? { ...s, state } : s))
-    commit()
-  }
-
   // ─── Режим «по значению»: список состояний {key, label, code} ───
   // Смена режима переустанавливает слот и сбрасывает видимость фигур на `always`:
   // ключи состояний в булевом (true/false) и value-режиме разные, оставлять
@@ -374,10 +362,6 @@ export function createStencilEditor() {
       s.state && s.state !== 'always' ? { ...s, state: 'always' } : s
     )
     return true
-  }
-
-  function setStateMode(mode) {
-    if (applyStateMode(mode)) commit()
   }
 
   /**
@@ -604,12 +588,9 @@ export function createStencilEditor() {
     selectedFor,
     commonValue,
     applyToSelected,
-    removeShape,
     removeShapes,
     copyShapes,
     pasteShapes,
-    setShapeState,
-    setStateMode,
     setAnimationMode,
     addState,
     updateState,

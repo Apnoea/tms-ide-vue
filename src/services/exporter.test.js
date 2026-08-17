@@ -2,13 +2,14 @@ import { describe, it, expect, vi } from 'vitest'
 import { exportProject } from './exporter'
 import { parseSvgProject } from './projectLoader'
 import { LINK_Z } from '../stencils/linkDefaults'
+import { computeBusPorts } from '../stencils/busCell'
 import { CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 
 // Мок-граф: минимальный интерфейс JointJS-graph'а, который дёргает exporter.
 // Не зависит от реального dia.Graph — тесты быстрые и не требуют jsdom-setup'а
 // JointJS-внутренностей.
 
-function mockCell({ id, stencilId, x = 0, y = 0, w = 40, h = 40, z, ...extra }) {
+function mockCell({ id, stencilId, x = 0, y = 0, w = 40, h = 40, z, ports, ...extra }) {
   const tms = { stencilId, ...extra }
   return {
     id,
@@ -17,6 +18,7 @@ function mockCell({ id, stencilId, x = 0, y = 0, w = 40, h = 40, z, ...extra }) 
       if (key === 'position') return { x, y }
       if (key === 'size') return { width: w, height: h }
       if (key === 'z') return z
+      if (key === 'ports') return ports
       return undefined
     },
   }
@@ -191,12 +193,41 @@ describe('exportProject', () => {
     expect(parsed.cells.find((c) => c.id === 'b2').tms.color).toBeUndefined()
   })
 
-  it('cell_bus: толщина переживает round-trip, нижние порты встают по ней', () => {
+  it('cell_bus: толщина переживает round-trip, порты встают в её середину', () => {
     const graph = mockGraph([mockCell({ id: 'b1', stencilId: 'cell_bus', w: 80, h: 20 })])
     const cell = parseSvgProject(exportProject(graph).svgText).cells[0]
     expect(cell.size).toMatchObject({ width: 80, height: 20 })
-    const bot = cell.ports.items.find((i) => i.id === 'bot_0')
-    expect(bot.args.y).toBe(20)
+    expect(cell.ports.items.find((i) => i.id === 'p_0').args.y).toBe(10)
+  })
+
+  it('cell_bus: маркер соединения только на занятых слотах', () => {
+    // Порты в view.svg не идут, а слот стоит в середине толщины — конец провода
+    // уходит под тело шины, и без точки соединение читалось бы как «мимо».
+    const bus = mockCell({
+      id: 'b1',
+      stencilId: 'cell_bus',
+      y: 100,
+      w: 80,
+      h: 20,
+      ports: { items: computeBusPorts(80, 20) },
+    })
+    const graph = mockGraph(
+      [bus, mockCell({ id: 'g1', stencilId: 'cell_node', y: 300, w: 20, h: 20 })],
+      [
+        mockLink({
+          id: 'L1',
+          source: { id: 'b1', port: 'p_1' },
+          target: { id: 'g1' },
+          tms: { strokeColor: '#ff8800', strokeWidth: 4 },
+        }),
+      ]
+    )
+    const svg = exportProject(graph).svgText
+    // Слот p_1 → x=40, середина толщины 20 → cy=10; обводка цветом провода.
+    expect(svg).toMatch(/cx="40" cy="10" r="5" fill="#ffffff" stroke="#ff8800"/)
+    // Свободные слоты (p_0 → x=20, p_2 → x=60) точку не получают.
+    expect(svg).not.toMatch(/cx="20" cy="10"/)
+    expect(svg).not.toMatch(/cx="60" cy="10"/)
   })
 
   it('чужой цвет из архива не доезжает до атрибута fill', () => {
@@ -982,6 +1013,7 @@ describe('exportProject', () => {
     flipH: true,
     flipV: true,
     groupId: 'grp-ab12cd34',
+    busId: 'bus-1',
     rangeSource: { tag: 'PS031.U', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
     boolSource: { groups: [['BR1.ONOFF']] },
     navigation: 'view_other',
@@ -989,10 +1021,12 @@ describe('exportProject', () => {
 
   it('инвариант: каждое поле CELL_META_FIELDS переживает экспорт → разбор', () => {
     expect(CELL_META_FIELDS.filter((f) => !(f.key in CELL_SAMPLES)).map((f) => f.key)).toEqual([])
-    const graph = mockGraph([mockCell({ id: 'c1', stencilId: 'cell_qw', ...CELL_SAMPLES })])
-    const cell = parseSvgProject(exportProject(graph).svgText).cells.find(
-      (c) => c.type === 'tms.Stencil'
-    )
+    // Шина в графе обязательна: загрузчик снимает busId, если её в архиве нет.
+    const graph = mockGraph([
+      mockCell({ id: 'bus-1', stencilId: 'cell_bus', w: 80, h: 8 }),
+      mockCell({ id: 'c1', stencilId: 'cell_qw', ...CELL_SAMPLES }),
+    ])
+    const cell = parseSvgProject(exportProject(graph).svgText).cells.find((c) => c.id === 'c1')
     for (const f of CELL_META_FIELDS) {
       // flag-поле пишется как `true`, значение не переносится.
       expect(cell.tms[f.key], `поле ${f.key} не доехало`).toEqual(

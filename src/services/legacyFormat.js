@@ -2,11 +2,13 @@
 // форма сразу перезаписывается в IDB, при импорте конвертация идёт на входе — проект
 // переезжает сам, слой потом удаляется целиком вместе с вызовами.
 //
-// Сейчас в слое одна миграция: символ-подпись `cell_text` → фигура-разметка
-// (`tms.Shape`). Подпись перестала быть оборудованием: у неё нет ни портов, ни
-// анимаций, поэтому её место — среди фигур, а не в палитре символов.
+// В слое две миграции:
+//  • символ-подпись `cell_text` → фигура-разметка (`tms.Shape`): подпись перестала быть
+//    оборудованием — у неё нет ни портов, ни анимаций, её место среди фигур;
+//  • порты шины `top_i`/`bot_i` → единственный ряд `p_i` в середине толщины.
 import { TEXT_FONT_SIZE, TEXT_PADDING_X } from '../stencils/textCell'
 import { placeShape } from '../stencils/shapeElement'
+import { computeBusPorts } from '../stencils/busCell'
 import { measureTextWidth } from '../utils/textMetrics'
 
 /**
@@ -75,6 +77,58 @@ export function textCellToShape(cell) {
   return next
 }
 
+const BUS_PORT_LEGACY_RE = /^(?:top|bot)_(\d+)$/
+
+/**
+ * Порт шины прошлой схемы (два ряда по краям) → единственный `p_i`; null, если id не
+ * из той схемы. Оба ряда сходятся в один порт: слот всегда был одной точкой цепи, а
+ * `top_i` и `bot_i` — лишь двумя способами в неё войти.
+ *
+ * Проверять, что цель именно шина, обязан вызывающий: у символа из редактора порт
+ * может называться как угодно, в том числе `top_1`.
+ */
+export function legacyBusPortId(portId) {
+  const m = BUS_PORT_LEGACY_RE.exec(String(portId ?? ''))
+  return m ? `p_${m[1]}` : null
+}
+
+/** Шина ли эта ячейка graphJson (для сбора id перед миграцией порт-рефов). */
+function isBusCellJson(cell) {
+  return cell?.tms?.stencilId === 'cell_bus'
+}
+
+/**
+ * Линк-json: концы, привязанные к портам шины прошлой схемы, → новые id. null, если
+ * менять нечего (вызывающий оставляет объект как есть, без копии).
+ */
+function relinkBusPorts(cell, busIds) {
+  if (cell?.type && cell.type !== 'standard.Link') return null
+  let next = null
+  for (const end of ['source', 'target']) {
+    const ref = cell?.[end]
+    if (!ref?.id || !busIds.has(ref.id)) continue
+    const port = legacyBusPortId(ref.port)
+    if (!port) continue
+    next = next || { ...cell }
+    next[end] = { ...ref, port }
+  }
+  return next
+}
+
+/**
+ * Шина прошлой схемы: пересобрать `ports.items`. Обязательно — `fromJSON` берёт порты
+ * из сохранённого json как есть, а sync с реестром для шины набор не трогает
+ * (см. hasComputedPorts): без пересборки на холсте остались бы два ряда по краям.
+ */
+function rebuildBusPorts(cell) {
+  const items = cell?.ports?.items
+  if (!Array.isArray(items) || !items.some((p) => BUS_PORT_LEGACY_RE.test(String(p?.id)))) {
+    return null
+  }
+  const { width = 0, height = 0 } = cell.size || {}
+  return { ...cell, ports: { ...cell.ports, items: computeBusPorts(width, height) } }
+}
+
 /**
  * graphJson формы (из IndexedDB) → `{ json, changed }`. `changed: false` отдаёт
  * исходный объект без копирования — вызывающий по этому флагу решает, нужна ли
@@ -84,11 +138,19 @@ export function migrateGraphJson(json) {
   const cells = json?.cells
   if (!Array.isArray(cells)) return { json, changed: false }
   let changed = false
+  // id шин собираем ДО обхода: порт-рефы линков переписываем только для них, а линк
+  // в списке может стоять раньше своей шины.
+  const busIds = new Set(cells.filter(isBusCellJson).map((c) => c.id))
   const next = cells.map((c) => {
     const shapeCell = textCellToShape(c)
-    if (!shapeCell) return c
+    if (shapeCell) {
+      changed = true
+      return shapeCell
+    }
+    const migrated = isBusCellJson(c) ? rebuildBusPorts(c) : relinkBusPorts(c, busIds)
+    if (!migrated) return c
     changed = true
-    return shapeCell
+    return migrated
   })
   return changed ? { json: { ...json, cells: next }, changed: true } : { json, changed: false }
 }
