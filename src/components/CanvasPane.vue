@@ -689,15 +689,18 @@ onMounted(async () => {
   // условие всегда истинно.
   const firstMount = !import.meta.hot?.data.restoreShown
   if (import.meta.hot) import.meta.hot.data.restoreShown = true
-  if (restored > 0 && firstMount) {
-    notify.info(
-      'Автосейв восстановлен',
-      `${nplural(restored, 'символ', 'символа', 'символов')} с прошлой сессии`
-    )
-    // Центрируем viewport на bbox восстановленного контента — иначе ячейки,
-    // нарисованные в прошлой сессии где-нибудь в (500, 800), окажутся за
-    // пределами видимой области (paper стартует с translate(0,0)).
+  if (restored > 0) {
+    // Тост — только на первом монтировании (см. выше). Вписывание в область
+    // видимости — на КАЖДОМ: paper всегда стартует с translate(0,0), и форма,
+    // нарисованная где-нибудь в (500, 800), иначе оказывается за кадром — холст
+    // выглядит пустым, будто содержимое уехало в левый верхний угол.
     // nextTick — чтобы paperContainer успел получить итоговые clientWidth/Height.
+    if (firstMount) {
+      notify.info(
+        'Автосейв восстановлен',
+        `${nplural(restored, 'символ', 'символа', 'символов')} с прошлой сессии`
+      )
+    }
     await nextTick()
     fitToContent()
   }

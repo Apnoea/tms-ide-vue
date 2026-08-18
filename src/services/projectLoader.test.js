@@ -97,9 +97,11 @@ describe('parseSvgProject', () => {
     expect(cell.tms.locked).toBe(true)
     expect(cell.tms.groupId).toBe('grp-xyz')
     expect(cell.tms.boolSource).toEqual({ groups: [['A.ONOFF'], ['B.ONOFF']] })
+    // Строка приходит с прежним class-именем палитры и читается как цвет: в модели
+    // остаётся одно поле, класс перекраса генерируется из него при экспорте.
     expect(cell.tms.rangeSource).toEqual({
       tag: 'V.U',
-      ranges: [{ min: 0, max: 5, class: 'animation-low' }],
+      ranges: [{ min: 0, max: 5, color: '#10b981' }],
     })
   })
 
@@ -278,7 +280,7 @@ describe('parseSvgProject', () => {
     // WebScada всё равно нарисует им, и замер обязан совпасть с рендером.
     expect(tms.fontFamily).toBe('sans-serif')
     // Нечисловая граница = «порога нет», числовая строка приводится к числу.
-    expect(tms.rangeSource.ranges[0]).toEqual({ min: undefined, max: 5, class: 'animation-low' })
+    expect(tms.rangeSource.ranges[0]).toEqual({ min: undefined, max: 5, color: '#10b981' })
   })
 
   it('чистит angle/z ячейки (поля верхнего уровня JointJS)', () => {

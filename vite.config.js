@@ -14,6 +14,9 @@ import tailwindcss from '@tailwindcss/vite'
 // id — slug [a-z0-9_], путь жёстко ограничен definitions/ (анти-traversal).
 const STENCIL_ID_RE = /^[a-z0-9_]+$/
 
+/** Текст файла с ровно одним завершающим переводом строки (канон для git-файлов). */
+const withEol = (text) => `${String(text ?? '').replace(/\s*$/, '')}\n`
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let data = ''
@@ -53,7 +56,11 @@ function stencilWritePlugin() {
               JSON.stringify(item.stencilJson ?? {}, null, 2) + '\n',
               'utf8'
             )
-            await fs.writeFile(path.join(dir, 'shape.svg'), String(item.shapeSvg ?? ''), 'utf8')
+            // Завершающий перевод строки добавляем ЗДЕСЬ, а не у отправителя: файл
+            // пишут два пути — сохранение из редактора (serializeSvg, перевод есть) и
+            // импорт .zip (разметка из реестра прошла XMLSerializer, перевода нет).
+            // Без нормализации файл в git «дышал» последней строкой туда-сюда.
+            await fs.writeFile(path.join(dir, 'shape.svg'), withEol(item.shapeSvg), 'utf8')
             written.push(item.id)
           }
           res.setHeader('content-type', 'application/json')

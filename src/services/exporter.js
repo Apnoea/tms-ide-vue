@@ -16,6 +16,7 @@ import { isBackgroundZ } from '../utils/zOrder'
 import {
   CLASS_OFF,
   CLASS_HIDDEN,
+  rangeRowColor,
   buildRangeCssRules,
   buildStateColorCssRules,
 } from '../constants/animation'
@@ -479,6 +480,19 @@ export function exportProject(graph, paper = null) {
     }
   }
 
+  // ─── Проверка источника значения ───
+  // Строка без порогов в карточку не попадает, хотя в инспекторе выглядит рабочей
+  // настройкой — молчать нельзя.
+  for (const t of bindingTargets) {
+    const vs = t.src.rangeSource
+    if (!vs?.tag || !vs.ranges?.length) continue
+    const empty = vs.ranges.filter((r) => !Number.isFinite(r.min) && !Number.isFinite(r.max)).length
+    if (!empty) continue
+    const msg = `${t.src.stencilId || 'провод'}: у тега "${vs.tag}" ${empty} стр. без порогов — в анимацию не попадут`
+    warnings.push(msg)
+    console.warn(`[Exporter] ${msg}`)
+  }
+
   // ─── State-color: перекрас всего символа по состоянию (stateColors стенсила) ───
   // Слой на outer (assignOrMerge уживается с диапазонами/булевым/quality); на потомков
   // цвет каскадит через CSS. Работает и для needsMulti-целей (мержится в их multi).
@@ -698,7 +712,13 @@ export function exportProject(graph, paper = null) {
   // внутри ячеек. animation-off объявлен ПОСЛЕ правил диапазонов — перебивает по каскаду.
   // цвет по диапазонам (stroke + opt-in fill) + animation-off серым поверх.
   // Чистый SVG: без scope и без live-DOM исключений (см. buildRangeCssRules).
-  const rangeCss = buildRangeCssRules()
+  // Правила — по цветам, реально выбранным в этой форме: состав задаёт схема, поэтому
+  // собираем со всех источников (ячейки + провода), включая прежние class-имена.
+  const rangeCss = buildRangeCssRules(
+    [...cellExports, ...linkExports].flatMap((s) =>
+      (s.rangeSource?.ranges || []).map((r) => rangeRowColor(r))
+    )
+  )
     .map((r) => `    ${r}`)
     .join('\n')
   // State-color: перекрас символа по состоянию. Тот же генератор, что в симуляции.

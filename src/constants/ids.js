@@ -9,7 +9,7 @@
 //  • провод:          animation-wire-<shortId>
 
 import { SVG_FONT, normalizeFont } from '../utils/textMetrics'
-import { cssColor } from './animation'
+import { cssColor, rangeRowColor } from './animation'
 
 /**
  * Санитайзеры значений meta. `normalize` в дескрипторе применяется на ОБОИХ концах
@@ -23,7 +23,10 @@ const clampNumber = (min, max, fallback) => (v) => {
   return Math.min(max, Math.max(min, n))
 }
 const oneOf = (values, fallback) => (v) => (values.includes(v) ? v : fallback)
-/** Границы диапазонов приводим к числам; нечисловая граница = «порога нет». */
+/**
+ * Границы диапазонов и точные значения приводим к числам; нечисловое = «порога нет»
+ * (строка из чужого архива уехала бы в карточку как есть и сломала сравнение).
+ */
 const normalizeRangeSource = (v) => {
   if (!v || typeof v !== 'object') return v
   if (!Array.isArray(v.ranges)) return v
@@ -31,7 +34,21 @@ const normalizeRangeSource = (v) => {
     const n = typeof x === 'number' ? x : Number.parseFloat(x)
     return Number.isFinite(n) ? n : undefined
   }
-  return { ...v, ranges: v.ranges.map((r) => ({ ...r, min: bound(r?.min), max: bound(r?.max) })) }
+  return {
+    ...v,
+    ranges: v.ranges.map((r) => {
+      const out = { ...r }
+      // Цвет строки: своё значение либо прежний class-имя (архив до пикера цвета) —
+      // class после конверсии не держим, чтобы в модели было одно поле.
+      const color = rangeRowColor(out)
+      delete out.class
+      if (color) out.color = color
+      else delete out.color
+      out.min = bound(out.min)
+      out.max = bound(out.max)
+      return out
+    }),
+  }
 }
 
 // Без export: наружу торчат только key-билдеры ниже.
@@ -119,7 +136,7 @@ export const CELL_META_FIELDS = [
  * — поле верхнего уровня линка.
  */
 export const LINK_META_FIELDS = [
-  { key: 'rangeSource', keep: Boolean },
+  { key: 'rangeSource', keep: Boolean, normalize: normalizeRangeSource },
   { key: 'boolSource', keep: Boolean },
   {
     key: 'strokeWidth',

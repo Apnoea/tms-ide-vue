@@ -2,14 +2,14 @@ import { describe, it, expect } from 'vitest'
 import { editRanges } from './useValueRanges'
 
 const RANGES = [
-  { min: 0, max: 3.99, class: 'animation-low' },
-  { min: 4, max: 10, class: 'animation-high' },
+  { min: 0, max: 3.99, color: '#10b981' },
+  { min: 4, max: 10, color: '#ef4444' },
 ]
 
 describe('editRanges', () => {
   it('пишет число в нужный порог, остальные не трогает', () => {
     const out = editRanges(RANGES, 1, 'min', '5')
-    expect(out[1]).toEqual({ min: 5, max: 10, class: 'animation-high' })
+    expect(out[1]).toEqual({ min: 5, max: 10, color: '#ef4444' })
     expect(out[0]).toEqual(RANGES[0])
     expect(out).not.toBe(RANGES) // новый массив, без мутации исходного
   })
@@ -23,7 +23,13 @@ describe('editRanges', () => {
     expect(editRanges(RANGES, 0, 'min', '')).toBeNull()
   })
 
-  it('class меняется как строка, без числового парсинга', () => {
-    expect(editRanges(RANGES, 0, 'class', 'animation-mid')[0].class).toBe('animation-mid')
+  it('цвет пишется строкой, без числового парсинга', () => {
+    expect(editRanges(RANGES, 0, 'color', '#f59e0b')[0].color).toBe('#f59e0b')
+  })
+
+  it('точное значение правится тем же путём, что и порог', () => {
+    const rows = [{ value: 1, color: '#10b981' }]
+    expect(editRanges(rows, 0, 'value', '2')[0]).toEqual({ value: 2, color: '#10b981' })
+    expect(editRanges(rows, 0, 'value', '')).toBeNull()
   })
 })

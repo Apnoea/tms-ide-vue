@@ -205,3 +205,28 @@ describe('unregisterStencil', () => {
     expect(registryVersion.value).toBe(before)
   })
 })
+
+describe('декл-флаги через registerStencil', () => {
+  it('noRotate доезжает до реестра и виден потребителям', () => {
+    // Путь «правка символа в редакторе»: buildStencilJson → registerStencil.
+    // Флаг читают гейты холста (canCellRotate в useSelectionOverlay, rotateSelectedBy),
+    // поэтому его потеря означала бы, что запрет поворота молча не работает.
+    const id = 'cell_norotate_probe'
+    expect(
+      registerStencil(
+        {
+          id,
+          label: 'Проба',
+          category: 'Тест',
+          width: 20,
+          height: 20,
+          shapeFile: 'shape.svg',
+          noRotate: true,
+        },
+        '<svg xmlns="http://www.w3.org/2000/svg"><g></g></svg>'
+      )
+    ).toBe(true)
+    expect(getStencilById(id).noRotate).toBe(true)
+    unregisterStencil(id)
+  })
+})

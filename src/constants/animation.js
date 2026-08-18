@@ -1,14 +1,35 @@
-// Цвета анимации напряжения — общие для свотчей в инспекторе и CSS в view.svg:
-// разойдутся — превью в IDE начнёт врать о рантайме. Палитра Tailwind 500
-// (emerald/amber/red); зелёный намеренно не primary темы (cyan), чтобы
-// UI-акценты не путались с состоянием схемы.
-export const ANIMATION_CLASS_COLORS = {
+// Прежние фиксированные классы диапазонов. Цвет строки теперь задаёт автор пикером,
+// но старые проекты (и стенсилы из чужих архивов) несут эти class-имена — читаем их
+// как цвета. Палитра Tailwind 500 (emerald/amber/red); зелёный намеренно не primary
+// темы (cyan), чтобы UI-акценты не путались с состоянием схемы.
+const ANIMATION_CLASS_COLORS = {
   'animation-low': '#10b981',
   'animation-mid': '#f59e0b',
   'animation-high': '#ef4444',
 }
 
-export const ANIMATION_CLASS_OPTIONS = Object.keys(ANIMATION_CLASS_COLORS)
+/** Быстрые свотчи пикера: те же три цвета, что были фиксированной палитрой. */
+export const RANGE_COLOR_PRESETS = Object.values(ANIMATION_CLASS_COLORS)
+
+/**
+ * Класс перекраса по цвету строки диапазона. Ключ — сам цвет, поэтому правило одно на
+ * цвет и переиспользуется всеми элементами, где он выбран (в отличие от класса на
+ * элемент — тот раздувал бы `<style>` пропорционально схеме).
+ *
+ * `#` и прочее вне [a-z0-9] выкидываем: значение уезжает в CSS-селектор.
+ */
+export const RANGE_COLOR_PREFIX = 'animation-c-'
+export function rangeColorClass(color) {
+  const safe = String(color || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+  return safe ? `${RANGE_COLOR_PREFIX}${safe}` : ''
+}
+
+/** Цвет строки: своё значение либо прежний class-имя из старого проекта. */
+export function rangeRowColor(row) {
+  return cssColor(row?.color) || ANIMATION_CLASS_COLORS[row?.class] || ''
+}
 
 // «Выключено»: slate-500, тот же уровень насыщенности, что у палитры диапазонов.
 // Красит контуры серым поверх цветов диапазонов — правило объявляется ПОСЛЕ них (каскад).
@@ -93,7 +114,7 @@ export function buildStateColorCssRules(stencils, { scope = '', strokeExtra = ''
  * @param {string} [opts.strokeExtra] — доп. `:not(...)` для живого DOM
  *        (joint-wrapper / hit-area), которых в экспортном SVG нет
  */
-export function buildRangeCssRules({ scope = '', strokeExtra = '' } = {}) {
+export function buildRangeCssRules(colors = [], { scope = '', strokeExtra = '' } = {}) {
   const rules = []
   const paint = (cls, hex) => {
     rules.push(
@@ -101,7 +122,13 @@ export function buildRangeCssRules({ scope = '', strokeExtra = '' } = {}) {
       `${scope}.${cls} .${RANGE_FILL_CLASS}, ${scope}.${cls}.${RANGE_FILL_CLASS} { fill: ${hex} !important; }`
     )
   }
-  for (const [cls, hex] of Object.entries(ANIMATION_CLASS_COLORS)) paint(cls, hex)
+  // Правило на КАЖДЫЙ использованный цвет (дубли схлопываем): состав задаёт схема, а не
+  // фиксированная палитра. Цвет чистим — он уезжает в CSS-значение внутри CDATA.
+  for (const raw of new Set(colors)) {
+    const hex = cssColor(raw)
+    const cls = rangeColorClass(hex)
+    if (hex && cls) paint(cls, hex)
+  }
   paint(CLASS_OFF, ANIMATION_OFF_COLOR)
   return rules
 }

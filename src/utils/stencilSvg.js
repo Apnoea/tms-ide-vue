@@ -307,7 +307,10 @@ export function serializeSvg(shapes, meta) {
       all.filter((s) => !s.state || s.state === 'always' || !known.has(s.state)),
       markFill
     )
-    groups = base ? `  <g>\n${base}\n  </g>\n` : '  <g></g>\n'
+    // Пустую базовую группу не пишем: у символа, где ВСЕ фигуры привязаны к состояниям
+    // (cell_alr виден только при `true`), она появлялась мусорной строкой при каждом
+    // пересохранении. Разбору она не нужна — collectShapes обходит дерево рекурсивно.
+    groups = base ? `  <g>\n${base}\n  </g>\n` : ''
     for (const key of stateKeys(meta)) {
       const body = groupBody(
         all.filter((s) => s.state === key),
@@ -317,10 +320,17 @@ export function serializeSvg(shapes, meta) {
     }
   } else {
     const body = groupBody(all, markFill)
-    groups = body ? `  <g>\n${body}\n  </g>\n` : '  <g></g>\n'
+    groups = body ? `  <g>\n${body}\n  </g>\n` : ''
   }
+  // Без XML-декларации: `definitions/<id>/shape.svg` — файл под git, и его пишут ДВА
+  // пути (сохранение из редактора и запись при импорте .zip). Второй берёт разметку из
+  // реестра, где она прошла sanitizeSvgMarkup — а тот сериализует только
+  // `documentElement`, то есть декларацию теряет. С декларацией файл «дышал» в гите:
+  // сохранил из редактора — строка появилась, импортировал проект — исчезла.
+  // Читателям она не нужна: glob тянет файл как текст, дальше DOMParser с типом
+  // image/svg+xml, а UTF-8 — дефолт XML. В экспортном `view.svg` декларация остаётся:
+  // он отдаётся рантайму отдельным документом и в git не попадает.
   return (
-    '<?xml version="1.0" encoding="UTF-8"?>\n' +
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">\n` +
     groups +
     '</svg>\n'
@@ -532,7 +542,12 @@ export function buildStencilJson(meta, ports, shapes = []) {
     // выдала бы имя удалённого порта, и провод в другой форме сел бы на новый
     // порт. Берём максимум из счётчика и фактических имён — модель могла прийти
     // из символа, сохранённого до появления поля.
-    json.portSeq = Math.max(meta.portSeq || 0, portSeqFrom(ports))
+    //
+    // Ноль не пишем: у символов с рукописными именами портов (`top`/`bottom`)
+    // счётчик пустой, и поле-ноль появлялось в json при каждом пересохранении —
+    // шум в диффе. Отсутствие поля читается как 0 (см. loadStencil).
+    const seq = Math.max(meta.portSeq || 0, portSeqFrom(ports))
+    if (seq) json.portSeq = seq
   }
   if (meta.stateful) {
     if (meta.stateMode === 'value') buildValueState(json, meta, shapes)

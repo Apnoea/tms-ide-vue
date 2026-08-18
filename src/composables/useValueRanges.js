@@ -4,6 +4,7 @@ import { useNotify } from './useNotify'
 import { useProjectStore } from '../stores/useProjectStore'
 import { getStencilById } from '../stencils/registry'
 import { toPlain } from '../utils/plain'
+import { RANGE_COLOR_PRESETS, rangeRowColor } from '../constants/animation'
 
 // Дефолтные диапазоны; клонируем каждый диапазон на использование —
 // чтобы ячейки не делили один и тот же массив.
@@ -13,21 +14,36 @@ import { toPlain } from '../utils/plain'
 // и mid одновременно — итоговый цвет зависел бы от порядка CSS-правил, а не
 // от данных. Та же логика что для quality `[0, 191]` (max=191, не 192).
 const RANGE_DEFAULTS = [
-  { min: 0, max: 3.99, class: 'animation-low' },
-  { min: 4, max: 6.99, class: 'animation-mid' },
-  { min: 7, max: 10, class: 'animation-high' },
+  { min: 0, max: 3.99, color: RANGE_COLOR_PRESETS[0] },
+  { min: 4, max: 6.99, color: RANGE_COLOR_PRESETS[1] },
+  { min: 7, max: 10, color: RANGE_COLOR_PRESETS[2] },
 ]
 
+/** Дефолтные строки нового источника — клон, чтобы ячейки не делили массив. */
+function defaultRows() {
+  return RANGE_DEFAULTS.map((r) => ({ ...r }))
+}
+
 /**
- * Правка одного порога: возвращает новый массив ranges либо null, если ввод
- * невалиден. min/max — числа; нечисловой ввод (пустая строка, буквы) дал бы NaN,
- * который молча сломал бы диапазон при экспорте → правку игнорируем. Русская
+ * Новая строка источника: цвет — первый пресет, не занятый другими строками (чтобы
+ * добавленная строка сразу отличалась), пороги/значение пустые — их вписывает автор.
+ */
+function newRow(vs) {
+  const used = new Set((vs?.ranges || []).map((r) => rangeRowColor(r)))
+  const color = RANGE_COLOR_PRESETS.find((c) => !used.has(c)) || RANGE_COLOR_PRESETS[0]
+  return { color }
+}
+
+/**
+ * Правка одной строки: возвращает новый массив ranges либо null, если ввод
+ * невалиден. min/max/value — числа; нечисловой ввод (пустая строка, буквы) дал бы NaN,
+ * который молча сломал бы сравнение при экспорте → правку игнорируем. Русская
  * десятичная запятая («3,99») — самый частый «съеденный» ввод у инженеров с ru-
  * раскладкой: нормализуем в точку до Number(), иначе тоже NaN → тихий откат.
  */
 export function editRanges(ranges, idx, field, value) {
   let parsed = value
-  if (field !== 'class') {
+  if (field !== 'color') {
     const raw = String(value).trim().replace(',', '.')
     // Пустую строку отсекаем ДО Number(): `Number('')` даёт 0, и очистка поля
     // молча записывала бы порог 0 вместо «правку игнорируем».
@@ -39,8 +55,8 @@ export function editRanges(ranges, idx, field, value) {
 }
 
 /**
- * Блок «Диапазоны значений» инспектора (`tms.rangeSource`: тег + пороги → класс
- * по диапазону) в двух режимах:
+ * Блок «Диапазоны значений» инспектора (`tms.rangeSource`: тег + строки «пороги → цвет»)
+ * в двух видах:
  *  • одиночный — правки идут прямо в выделенный элемент;
  *  • мульти — локальный ШАБЛОН `multiRange` (у выделения нет общего источника),
  *    любая правка раздаётся на всё выделение; сбрасывается при смене состава.
@@ -81,7 +97,7 @@ export function useValueRanges({ details, mutateSelectedTms, openPicker }) {
     if (details.value?.rangeSource) {
       patchRangeSource({ tag })
     } else {
-      patchRangeSource({ tag, ranges: RANGE_DEFAULTS.map((r) => ({ ...r })) })
+      patchRangeSource({ tag, ranges: defaultRows() })
     }
   }
 
@@ -90,6 +106,19 @@ export function useValueRanges({ details, mutateSelectedTms, openPicker }) {
     if (!vs?.ranges) return
     const ranges = editRanges(vs.ranges, idx, field, value)
     if (ranges) patchRangeSource({ ranges })
+  }
+
+  function addRange() {
+    const vs = details.value?.rangeSource
+    if (!vs) return
+    patchRangeSource({ ranges: [...(vs.ranges || []), newRow(vs)] })
+  }
+
+  /** Удаление строки. Последнюю не запрещаем: источник без строк — «цвета нет». */
+  function removeRange(idx) {
+    const vs = details.value?.rangeSource
+    if (!vs?.ranges) return
+    patchRangeSource({ ranges: vs.ranges.filter((_, i) => i !== idx) })
   }
 
   function removeRangeSource() {
@@ -152,10 +181,21 @@ export function useValueRanges({ details, mutateSelectedTms, openPicker }) {
   function onPickMultiRangeTag(tag) {
     if (!tag) return
     const prev = multiRange.value
-    multiRange.value = {
-      tag,
-      ranges: prev?.ranges ?? RANGE_DEFAULTS.map((r) => ({ ...r })),
-    }
+    multiRange.value = { tag, ranges: prev?.ranges ?? defaultRows() }
+    applyMultiRange()
+  }
+
+  function addMultiRange() {
+    const vs = multiRange.value
+    if (!vs) return
+    multiRange.value = { ...vs, ranges: [...(vs.ranges || []), newRow(vs)] }
+    applyMultiRange()
+  }
+
+  function removeMultiRangeRow(idx) {
+    const vs = multiRange.value
+    if (!vs?.ranges) return
+    multiRange.value = { ...vs, ranges: vs.ranges.filter((_, i) => i !== idx) }
     applyMultiRange()
   }
 
@@ -191,8 +231,12 @@ export function useValueRanges({ details, mutateSelectedTms, openPicker }) {
     updateRange,
     removeRangeSource,
     toggleRangeHighlight,
+    addRange,
+    removeRange,
     // мульти-режим
     multiRange,
+    addMultiRange,
+    removeMultiRangeRow,
     openMultiRangePicker,
     updateMultiRange,
     removeMultiRange,

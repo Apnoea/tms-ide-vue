@@ -283,8 +283,8 @@ describe('exportProject', () => {
         rangeSource: {
           tag: 'PS031.UA',
           ranges: [
-            { min: 0, max: 5, class: 'animation-low' },
-            { min: 5, max: 10, class: 'animation-high' },
+            { min: 0, max: 5, color: '#10b981' },
+            { min: 5, max: 10, color: '#ef4444' },
           ],
         },
       }),
@@ -295,6 +295,53 @@ describe('exportProject', () => {
     // range-биндинг МЕРЖИТСЯ в стенсильную .true
     const vkBindings = anims['animation-cell_qw-c1.true'].bindings
     expect(vkBindings.some((b) => b.tag === 'PS031.UA')).toBe(true)
+  })
+
+  it('одинаковые границы = точное значение (сравнение inclusive по обоим концам)', () => {
+    // Так настраивается целочисленный тег: режим 2 → своя строка со своим цветом.
+    const graph = mockGraph([
+      mockCell({
+        id: 'c1',
+        stencilId: 'cell_bus',
+        w: 80,
+        h: 8,
+        rangeSource: {
+          tag: 'PS031.MODE',
+          ranges: [
+            { min: 2, max: 2, color: '#10b981' },
+            { min: 3, max: 3, color: '#ef4444' },
+          ],
+        },
+      }),
+    ])
+    const when =
+      exportProject(graph).animations.animations['animation-cell_bus-c1'].bindings[0].when
+    expect(when.type).toBe('range')
+    expect(when.cases).toEqual([
+      { min: 2, max: 2, apply: { addClass: 'animation-c-10b981' } },
+      { min: 3, max: 3, apply: { addClass: 'animation-c-ef4444' } },
+    ])
+  })
+
+  it('строка без порогов не попадает в карточку и уходит в warnings', () => {
+    const graph = mockGraph([
+      mockCell({
+        id: 'c1',
+        stencilId: 'cell_bus',
+        w: 80,
+        h: 8,
+        rangeSource: {
+          tag: 'T.U',
+          ranges: [{ min: 0, max: 5, color: '#10b981' }, { color: '#ef4444' }],
+        },
+      }),
+    ])
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const result = exportProject(graph)
+    expect(result.warnings.some((w) => w.includes('без порогов'))).toBe(true)
+    const cases = result.animations.animations['animation-cell_bus-c1'].bindings[0].when.cases
+    expect(cases).toHaveLength(1)
+    warn.mockRestore()
   })
 
   it('rangeSource с tag но без ranges → не падает, range-карточка не создаётся', () => {
@@ -421,13 +468,15 @@ describe('exportProject', () => {
         stencilId: 'cell_bus',
         w: 80,
         h: 8,
-        rangeSource: { tag: 'PS.UA', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
+        rangeSource: { tag: 'PS.UA', ranges: [{ min: 0, max: 5, color: '#10b981' }] },
         boolSource: { groups: [['BR1.ONOFF'], ['BR2.ONOFF']] },
       }),
     ])
     const card = exportProject(graph).animations.animations['animation-cell_bus-b1']
     expect(card.animation).toBe('multi')
-    const vBind = card.bindings.find((b) => b.multiCondition?.apply?.addClass === 'animation-low')
+    const vBind = card.bindings.find(
+      (b) => b.multiCondition?.apply?.addClass === 'animation-c-10b981'
+    )
     expect(vBind.multiCondition.conditions[0].tag).toBe('PS.UA')
     expect(vBind.multiCondition.conditions[0].when.type).toBe('range')
     const orBind = card.bindings.find((b) => b.multiCondition?.expression === '(g0t0) && (g1t0)')
@@ -637,7 +686,7 @@ describe('exportProject', () => {
         boolSource: { groups: [['ОБЩИЙ.ONOFF']] },
         rangeSource: {
           tag: 'PS031.UA',
-          ranges: [{ min: 0, max: 5, class: 'animation-low' }],
+          ranges: [{ min: 0, max: 5, color: '#10b981' }],
         },
       }),
     ])
@@ -675,7 +724,7 @@ describe('exportProject', () => {
         slots: { onoff: 'LOCAL.ONOFF' },
         rangeSource: {
           tag: 'PS031.UA',
-          ranges: [{ min: 0, max: 5, class: 'animation-low' }],
+          ranges: [{ min: 0, max: 5, color: '#10b981' }],
         },
       }),
     ])
@@ -1014,7 +1063,7 @@ describe('exportProject', () => {
     flipV: true,
     groupId: 'grp-ab12cd34',
     busId: 'bus-1',
-    rangeSource: { tag: 'PS031.U', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
+    rangeSource: { tag: 'PS031.U', ranges: [{ min: 0, max: 5, color: '#10b981' }] },
     boolSource: { groups: [['BR1.ONOFF']] },
     navigation: 'view_other',
   }
@@ -1036,7 +1085,7 @@ describe('exportProject', () => {
   })
 
   const LINK_SAMPLES = {
-    rangeSource: { tag: 'PS031.U', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
+    rangeSource: { tag: 'PS031.U', ranges: [{ min: 0, max: 5, color: '#10b981' }] },
     boolSource: { groups: [['BR1.ONOFF']] },
     strokeWidth: 4,
     strokeColor: '#ff0000',

@@ -5,10 +5,12 @@
 // В слое две миграции:
 //  • символ-подпись `cell_text` → фигура-разметка (`tms.Shape`): подпись перестала быть
 //    оборудованием — у неё нет ни портов, ни анимаций, её место среди фигур;
-//  • порты шины `top_i`/`bot_i` → единственный ряд `p_i` в середине толщины.
+//  • порты шины `top_i`/`bot_i` → единственный ряд `p_i` в середине толщины;
+//  • строки диапазонов: class-имя палитры (`animation-low`) → свой цвет.
 import { TEXT_FONT_SIZE, TEXT_PADDING_X } from '../stencils/textCell'
 import { placeShape } from '../stencils/shapeElement'
 import { computeBusPorts } from '../stencils/busCell'
+import { rangeRowColor } from '../constants/animation'
 import { measureTextWidth } from '../utils/textMetrics'
 
 /**
@@ -130,6 +132,23 @@ function rebuildBusPorts(cell) {
 }
 
 /**
+ * Строки источника значения с прежним class-именем (`animation-low`) → свой цвет:
+ * цвет диапазона теперь задаёт автор пикером, а фиксированной палитры больше нет.
+ * null, если менять нечего.
+ */
+function recolorRanges(cell) {
+  const rows = cell?.tms?.rangeSource?.ranges
+  if (!Array.isArray(rows) || !rows.some((r) => r?.class)) return null
+  const next = rows.map((r) => {
+    if (!r?.class) return r
+    const out = { ...r, ...(rangeRowColor(r) ? { color: rangeRowColor(r) } : {}) }
+    delete out.class
+    return out
+  })
+  return { ...cell, tms: { ...cell.tms, rangeSource: { ...cell.tms.rangeSource, ranges: next } } }
+}
+
+/**
  * graphJson формы (из IndexedDB) → `{ json, changed }`. `changed: false` отдаёт
  * исходный объект без копирования — вызывающий по этому флагу решает, нужна ли
  * перезапись в IDB.
@@ -148,9 +167,10 @@ export function migrateGraphJson(json) {
       return shapeCell
     }
     const migrated = isBusCellJson(c) ? rebuildBusPorts(c) : relinkBusPorts(c, busIds)
-    if (!migrated) return c
+    const recolored = recolorRanges(migrated || c)
+    if (!migrated && !recolored) return c
     changed = true
-    return migrated
+    return recolored || migrated
   })
   return changed ? { json: { ...json, cells: next }, changed: true } : { json, changed: false }
 }

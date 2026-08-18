@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { useCanvas } from './useCanvas'
-import { getStencilById } from '../stencils/registry'
+import { getStencilById, registryVersion } from '../stencils/registry'
 import { isShapeCell } from '../stencils/shapeElement'
 import { injectStencilSvg, buildPortItems } from '../stencils/svgInjector'
 import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
@@ -37,6 +37,10 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
   const overlayBtns = computed(() => {
     canvas.graphVersion.value
     canvas.paperViewTick.value
+    // Флаги символа (`noRotate`) читаются из реестра, а он меняется при правке символа
+    // в редакторе — без этой зависимости кнопки у уже выделенной ячейки остались бы
+    // прежними до следующего изменения графа.
+    registryVersion.value
     // Прячем на время drag'а ячейки: bumpVersion в drag-окне подавлен, поэтому
     // кнопки иначе замерли бы на старом месте. Флаг реактивный — computed
     // пересчитывается на старте/конце drag'а (не на каждый mousemove).

@@ -177,3 +177,24 @@ describe('порты шины: два ряда → один', () => {
     expect(second.json).toBe(first.json)
   })
 })
+
+describe('строки диапазонов: class палитры → цвет', () => {
+  const cellWithRanges = (ranges) => ({
+    type: 'tms.Stencil',
+    id: 'c1',
+    tms: { stencilId: 'cell_qw', rangeSource: { tag: 'V.U', ranges } },
+  })
+
+  it('прежнее class-имя переезжает в свой цвет', () => {
+    const { json, changed } = migrateGraphJson({
+      cells: [cellWithRanges([{ min: 0, max: 5, class: 'animation-low' }])],
+    })
+    expect(changed).toBe(true)
+    expect(json.cells[0].tms.rangeSource.ranges).toEqual([{ min: 0, max: 5, color: '#10b981' }])
+  })
+
+  it('строки со своим цветом не трогаем — второго прохода нет', () => {
+    const json = { cells: [cellWithRanges([{ min: 0, max: 5, color: '#123456' }])] }
+    expect(migrateGraphJson(json)).toEqual({ json, changed: false })
+  })
+})

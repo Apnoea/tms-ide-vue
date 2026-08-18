@@ -16,6 +16,7 @@ import { useElementSize, useEventListener } from '@vueuse/core'
 import interact from 'interactjs'
 import Button from 'primevue/button'
 import Select from 'primevue/select'
+import ContextMenu from 'primevue/contextmenu'
 import InputNumber from 'primevue/inputnumber'
 import { useConfirm } from 'primevue/useconfirm'
 import { useUiStore } from '../stores/useUiStore'
@@ -772,8 +773,56 @@ useEventListener(window, 'keydown', (e) => {
   ) {
     e.preventDefault()
     removeShapes(selectedIds.value)
+    return
+  }
+  // Порядок наложения — те же аккорды, что на холсте (см. useHotkeys): Ctrl+] / Ctrl+[,
+  // с Shift — до края. У фигур слой задаёт позиция в массиве, а не z.
+  if ((e.ctrlKey || e.metaKey) && (e.code === 'BracketRight' || e.code === 'BracketLeft')) {
+    if (!selectedIds.value.length) return
+    e.preventDefault()
+    const up = e.code === 'BracketRight'
+    ed.reorderShapes(
+      selectedIds.value,
+      e.shiftKey ? (up ? 'front' : 'back') : up ? 'forward' : 'backward'
+    )
   }
 })
+
+// ПКМ по фигуре: порядок наложения и удаление — те же операции, что в меню холста.
+// Клик по невыделенной фигуре сначала выделяет её (как на холсте), поэтому команда
+// всегда работает с тем, на что нажали.
+const ctxMenu = ref(null)
+const ctxItems = computed(() => [
+  {
+    label: 'Порядок',
+    icon: 'pi pi-sort-alt',
+    items: [
+      { label: 'На передний план', icon: 'pi pi-angle-double-up', command: () => order('front') },
+      { label: 'Выше', icon: 'pi pi-angle-up', command: () => order('forward') },
+      { label: 'Ниже', icon: 'pi pi-angle-down', command: () => order('backward') },
+      { label: 'На задний план', icon: 'pi pi-angle-double-down', command: () => order('back') },
+    ],
+  },
+  { separator: true },
+  {
+    label: 'Удалить',
+    icon: 'pi pi-trash',
+    command: () => removeShapes(selectedIds.value),
+  },
+])
+
+function order(mode) {
+  ed.reorderShapes(selectedIds.value, mode)
+}
+
+function onShapeContextMenu(event) {
+  const el = event.target.closest('[data-se-move="shape"]')
+  const id = el?.dataset?.id
+  if (!id) return
+  event.preventDefault()
+  if (!selectedSet.value.has(id)) select(id)
+  ctxMenu.value?.show(event)
+}
 
 onMounted(() => {
   setupInteract()
@@ -1004,6 +1053,7 @@ onBeforeUnmount(() => {
             @pointerdown="onSurfaceDown"
             @pointermove="onSurfaceMove"
             @dblclick="finishPolyline"
+            @contextmenu="onShapeContextMenu"
           >
             <!-- Холст: та же канва (белый фон + сетка) продолжается за границы
                  стенсила, но на opacity .3 и без редактирования (pointer-events
@@ -1196,5 +1246,8 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <!-- ПКМ по фигуре: порядок наложения + удаление (как в меню холста). -->
+    <ContextMenu ref="ctxMenu" :model="ctxItems" />
   </div>
 </template>

@@ -10,9 +10,12 @@ import {
 } from './stencilSvg'
 
 describe('serializeSvg', () => {
-  it('оборачивает фигуры в svg с viewBox из meta', () => {
+  it('оборачивает фигуры в svg с viewBox из meta, без XML-декларации', () => {
     const svg = serializeSvg([], { width: 40, height: 20 })
-    expect(svg).toContain('<?xml version="1.0" encoding="UTF-8"?>')
+    // Декларации быть НЕ должно: файл под git пишут два пути (редактор и импорт .zip),
+    // а второй теряет её на sanitizeSvgMarkup — иначе дифф «дышит» туда-сюда.
+    expect(svg.startsWith('<svg ')).toBe(true)
+    expect(svg).not.toContain('<?xml')
     expect(svg).toContain('viewBox="0 0 40 20"')
     expect(svg).toContain('width="40"')
     expect(svg).toContain('height="20"')
@@ -916,5 +919,22 @@ describe('выравнивание подписи (якорь роста)', () =
     expect(right).toContain('text-anchor="end"')
     const rBox = shapeBounds({ ...text, align: 'right' })
     expect(rBox.x + rBox.w).toBeCloseTo(100)
+  })
+})
+
+describe('portSeq в stencil.json', () => {
+  const meta = { id: 'cell_x', label: 'X', category: 'C', width: 20, height: 20 }
+
+  it('нулевой счётчик не пишется: у рукописных имён портов он пустой', () => {
+    // Иначе поле-ноль появлялось в json при каждом пересохранении такого символа.
+    const json = buildStencilJson({ ...meta, portSeq: 0 }, [{ name: 'top', x: 10, y: 0 }])
+    expect(json.ports).toHaveLength(1)
+    expect(json.portSeq).toBeUndefined()
+  })
+
+  it('счётчик пишется, когда порты выдавал редактор (имена pN)', () => {
+    const json = buildStencilJson({ ...meta, portSeq: 0 }, [{ name: 'p3', x: 10, y: 0 }])
+    // Берём максимум из счётчика и фактических имён — имя p3 занято, следующее p4.
+    expect(json.portSeq).toBe(3)
   })
 })

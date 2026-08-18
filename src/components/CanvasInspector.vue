@@ -37,7 +37,6 @@ import TagPickerDialog from './TagPickerDialog.vue'
 import TagField from './TagField.vue'
 import RangeBlock from './RangeBlock.vue'
 import BooleanBlock from './BooleanBlock.vue'
-import { ANIMATION_CLASS_OPTIONS } from '../constants/animation'
 import { previewOuterKey } from '../constants/ids'
 
 // Ячейки без анимаций: статичные стенсилы (флаг `static: true` в stencil.json —
@@ -625,11 +624,15 @@ function mutateSelectedTms(updater) {
 const {
   openRangePicker,
   updateRange,
+  addRange,
+  removeRange,
   removeRangeSource,
   toggleRangeHighlight,
   multiRange,
   openMultiRangePicker,
   updateMultiRange,
+  addMultiRange,
+  removeMultiRangeRow,
   removeMultiRange,
   toggleMultiRangeHighlight,
 } = useValueRanges({ details, mutateSelectedTms, openPicker })
@@ -920,10 +923,11 @@ const {
             <RangeBlock
               :range-source="multiRange"
               :tags-loaded="!!project.tags.length"
-              :class-options="ANIMATION_CLASS_OPTIONS"
               :pasteable="animClip.hasRange.value"
               @open-tag-picker="openMultiRangePicker"
               @update-range="updateMultiRange"
+              @add-range="addMultiRange"
+              @remove-range="removeMultiRangeRow"
               @highlight="toggleMultiRangeHighlight"
               @remove="removeMultiRange"
               @paste="pasteRange"
@@ -1512,17 +1516,18 @@ const {
               @paste="pasteBool"
             />
 
-            <!-- Диапазоны значений (аналоговое значение) — виден всегда.
+            <!-- Значение тега → класс: диапазоны либо точные значения (свитч в блоке).
                  rangeSource создаётся лениво при выборе тега (onPickTag),
                  очищается через × (виден при непустом). -->
             <RangeBlock
               :range-source="details.rangeSource"
               :tags-loaded="!!project.tags.length"
-              :class-options="ANIMATION_CLASS_OPTIONS"
               :copyable="!!details.rangeSource"
               :pasteable="animClip.hasRange.value"
               @open-tag-picker="openRangePicker"
               @update-range="updateRange"
+              @add-range="addRange"
+              @remove-range="removeRange"
               @highlight="toggleRangeHighlight"
               @remove="removeRangeSource"
               @copy="copyRange"

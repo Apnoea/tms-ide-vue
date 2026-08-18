@@ -526,6 +526,32 @@ describe('useStencilEditor', () => {
     expect(ed.output().json).toMatchObject({ noRotate: true })
   })
 
+  it('запрет поворота, выставленный существующему символу, доезжает до json', () => {
+    // Символ БЕЗ флага: правим и включаем запрет — он обязан появиться в json, иначе
+    // на холсте кнопки поворота останутся живыми (гейт canCellRotate читает реестр).
+    const ed = createStencilEditor()
+    ed.loadStencil({
+      id: 'cell_plain',
+      label: 'P',
+      category: 'Прочее',
+      width: 20,
+      height: 20,
+      svgText:
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">' +
+        '<rect x="0" y="0" width="20" height="20" fill="none" stroke="#000" stroke-width="2"/></svg>',
+    })
+    expect(ed.meta.noRotate).toBe(false)
+    expect(ed.output().json.noRotate).toBeUndefined()
+
+    ed.meta.noRotate = true
+    ed.commit()
+    expect(ed.output().json).toMatchObject({ noRotate: true })
+    // Снимок истории тоже несёт флаг: иначе следующий Ctrl+Z молча снял бы запрет.
+    ed.undo()
+    ed.redo()
+    expect(ed.meta.noRotate).toBe(true)
+  })
+
   it('addShape по умолчанию даёт state=always; смена состояния меняет и коммитит', () => {
     const ed = createStencilEditor()
     const s = ed.addShape({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 })
@@ -717,5 +743,61 @@ describe('nudgeShapes', () => {
     ed.select(s.id)
     ed.nudgeShapes(0, 0)
     expect(ed.shapes.value[0]).toMatchObject({ x: 10, y: 10 })
+  })
+})
+
+describe('порядок наложения фигур', () => {
+  const ids = (ed) => ed.shapes.value.map((s) => s.text)
+
+  /** Три подписи с известным порядком: a (низ) → b → c (верх). */
+  function threeShapes() {
+    const ed = createStencilEditor()
+    for (const text of ['a', 'b', 'c']) ed.addShape({ type: 'text', x: 0, y: 0, text })
+    return ed
+  }
+
+  it('на передний/задний план двигает выделенное как целое', () => {
+    const ed = threeShapes()
+    const [a, b] = ed.shapes.value.map((s) => s.id)
+    ed.reorderShapes([a, b], 'front')
+    // Взаимный порядок выделенных сохраняется.
+    expect(ids(ed)).toEqual(['c', 'a', 'b'])
+    ed.reorderShapes([b], 'back')
+    expect(ids(ed)).toEqual(['b', 'c', 'a'])
+  })
+
+  it('выше/ниже — на одну позицию', () => {
+    const ed = threeShapes()
+    const b = ed.shapes.value[1].id
+    ed.reorderShapes([b], 'forward')
+    expect(ids(ed)).toEqual(['a', 'c', 'b'])
+    ed.reorderShapes([b], 'backward')
+    expect(ids(ed)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('шаг истории только на реальном перемещении, undo возвращает порядок', () => {
+    const ed = threeShapes()
+    const top = ed.shapes.value[2].id
+    // Верхняя уже на переднем плане — двигать некуда, пустой шаг не пишем.
+    ed.reorderShapes([top], 'front')
+    expect(ed.canUndo.value).toBe(true) // от addShape
+    const before = ids(ed)
+    ed.undo()
+    // Последним шагом был addShape('c'), а не порядок → откатывается именно он.
+    expect(ids(ed)).toEqual(['a', 'b'])
+    ed.redo()
+    expect(ids(ed)).toEqual(before)
+
+    ed.reorderShapes([ed.shapes.value[0].id], 'front')
+    expect(ids(ed)).toEqual(['b', 'c', 'a'])
+    ed.undo()
+    expect(ids(ed)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('чужие и пустые id игнорируются', () => {
+    const ed = threeShapes()
+    ed.reorderShapes(['ghost'], 'front')
+    ed.reorderShapes([], 'back')
+    expect(ids(ed)).toEqual(['a', 'b', 'c'])
   })
 })

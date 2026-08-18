@@ -3,7 +3,7 @@
   "label": "Отделитель",
   "category": "Коммутация",
   "shapeFile": "shape.svg",
-  "width": 20,
+  "width": 15,
   "height": 40,
   "quality": true,
   "ports": [

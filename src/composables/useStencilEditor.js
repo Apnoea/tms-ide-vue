@@ -14,6 +14,7 @@
  * шагом (см. StencilEditor) и со snap'ом не связана.
  */
 import { computed, reactive, ref } from 'vue'
+import { reorderIds } from '../utils/zOrder'
 import { snapToGrid } from '../utils/grid'
 import {
   serializeSvg,
@@ -317,6 +318,33 @@ export function createStencilEditor() {
     commit()
   }
 
+  /**
+   * Порядок наложения фигур = порядок в массиве (он же порядок в экспортном SVG),
+   * поэтому «выше/ниже» — это перестановка списка. Правила те же, что на холсте, и
+   * считает их та же чистая функция (`reorderIds`): выделенное едет как целое.
+   *
+   * Нужно потому, что иначе порядок задаётся только очерёдностью рисования: залил
+   * фигуру после контура — перекрыл его, и лечилось это лишь перерисовкой.
+   *
+   * @param {Array<string>} ids — что двигаем
+   * @param {'front'|'back'|'forward'|'backward'} mode
+   */
+  function reorderShapes(ids, mode) {
+    const targets = (ids || []).filter((id) => shapes.value.some((s) => s.id === id))
+    if (!targets.length) return
+    const order = reorderIds(
+      shapes.value.map((s) => s.id),
+      targets,
+      mode
+    )
+    const byId = new Map(shapes.value.map((s) => [s.id, s]))
+    const next = order.map((id) => byId.get(id))
+    // Порядок не изменился (уже на краю) — не плодим шаг истории.
+    if (next.every((s, i) => s === shapes.value[i])) return
+    shapes.value = next
+    commit()
+  }
+
   // Буфер копирования без внутренних id (paste присвоит новые), на сессию
   // редактора. Массив — Ctrl+C берёт всё выделение.
   const clipboardShapes = ref([])
@@ -589,6 +617,7 @@ export function createStencilEditor() {
     commonValue,
     applyToSelected,
     removeShapes,
+    reorderShapes,
     copyShapes,
     pasteShapes,
     setAnimationMode,

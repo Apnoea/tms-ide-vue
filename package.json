@@ -1,6 +1,6 @@
 {
   "name": "tms-ide-vue",
-  "version": "1.0.0",
+  "version": "2026.8.0",
   "description": "Web IDE для сборки SVG-мнемосхем SCADA (WebScada)",
   "author": "Alexey Kozyutenko",
   "private": true,

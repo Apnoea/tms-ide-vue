@@ -3,22 +3,22 @@
   "label": "Трансформатор (3об)",
   "category": "Трансформаторы",
   "shapeFile": "shape.svg",
-  "width": 40,
+  "width": 30,
   "height": 30,
   "ports": [
     {
       "name": "phase_a",
-      "x": 20,
+      "x": 15,
       "y": 0
     },
     {
       "name": "phase_b",
-      "x": 10,
+      "x": 5,
       "y": 30
     },
     {
       "name": "phase_c",
-      "x": 30,
+      "x": 25,
       "y": 30
     }
   ]

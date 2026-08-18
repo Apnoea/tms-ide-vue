@@ -4,6 +4,7 @@ import { dia } from '@joint/core'
 import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'
 import { computeBusPorts } from '../stencils/busCell'
 import { getStencilById } from '../stencils/registry'
+import { snapToGrid } from '../utils/grid'
 import { useCanvas } from './useCanvas'
 import { useBusSnap } from './useBusSnap'
 
@@ -45,8 +46,9 @@ describe('useBusSnap', () => {
 
   it('находит шину в зоне подноса и игнорирует далёкую точку', () => {
     const bus = makeBus(graph)
-    // Линия шины на y=210, допуск — 20 плюс полтолщины.
-    expect(snap.findBusAtPoint({ x: 140, y: 235 })?.id).toBe(bus.id)
+    // Линия шины на y=210, допуск — BUS_SNAP_RANGE плюс полтолщины (15 + 10).
+    expect(snap.findBusAtPoint({ x: 140, y: 230 })?.id).toBe(bus.id)
+    expect(snap.findBusAtPoint({ x: 140, y: 240 })).toBeNull()
     expect(snap.findBusAtPoint({ x: 140, y: 400 })).toBeNull()
     // По X — только в пределах тела.
     expect(snap.findBusAtPoint({ x: 50, y: 210 })).toBeNull()
@@ -67,7 +69,9 @@ describe('useBusSnap', () => {
     const pos = cell.get('position')
     const size = cell.get('size')
     expect(pos.y + size.height / 2).toBe(210) // центр на линии шины
-    expect(pos.x).toBe(130) // снап вдоль: 143 - 10 → 130
+    // Вдоль шины — снап курсора к сетке: ожидание считаем из ФАКТИЧЕСКОЙ ширины
+    // символа (габариты definitions меняются при пересохранении, хардкод хрупок).
+    expect(pos.x).toBe(snapToGrid(143 - size.width / 2, 10))
     expect(cell.get('tms').busId).toBe(bus.id)
     expect(cell.get('z')).toBeGreaterThan(bus.get('z'))
     // Проводов не появляется: символ на шине не соединяется, он на ней лежит.
@@ -179,7 +183,11 @@ describe('useBusSnap', () => {
     // Точка в зоне шины (линия 210, допуск 30) — иначе превью и не должно быть.
     snap.updateBusSnapPreview('cell_qr', { x: 143, y: 230 })
     const stencil = getStencilById('cell_qr')
-    expect(snap.busSnapPreview.value).toEqual({ angle: 0, cx: 140, cy: 210 })
+    expect(snap.busSnapPreview.value).toEqual({
+      angle: 0,
+      cx: snapToGrid(143 - stencil.width / 2, 10) + stencil.width / 2,
+      cy: 210,
+    })
     expect(stencil.height).toBeGreaterThan(0)
 
     snap.updateBusSnapPreview('cell_qr', { x: 143, y: 500 })

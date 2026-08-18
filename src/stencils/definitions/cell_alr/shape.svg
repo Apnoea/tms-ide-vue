@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="30" height="30">
   <g data-anim-suffix=".true">
-    <polygon points="15,3 28,27 2,27" fill="#facc15" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <polygon class="tms-state-fill" points="15,3 28,27 2,27" fill="#facc15" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     <line x1="15" y1="9" x2="15" y2="19" stroke="#000" stroke-width="2" stroke-linecap="round"/>
-    <circle cx="15" cy="23" r="1" fill="#000" stroke="#000" stroke-width="1"/>
+    <circle class="tms-state-fill" cx="15" cy="23" r="1" fill="#000" stroke="#000" stroke-width="1"/>
   </g>
 </svg>

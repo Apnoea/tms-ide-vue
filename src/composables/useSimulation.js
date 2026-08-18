@@ -1,10 +1,12 @@
 import { ref, onBeforeUnmount } from 'vue'
 import { useNotify, TOAST_LIFE } from './useNotify'
 import {
-  ANIMATION_CLASS_OPTIONS,
   CLASS_OFF,
   CLASS_HIDDEN,
   STATE_COLOR_PREFIX,
+  RANGE_COLOR_PREFIX,
+  rangeColorClass,
+  rangeRowColor,
   buildRangeCssRules,
   buildStateColorCssRules,
   stateColorClass,
@@ -44,10 +46,29 @@ export function useSimulation() {
   let simTick = 0
   const SIM_CSS_ID = 'tms-sim-css'
 
-  function pickRandomRangeClass() {
-    // null = пропустить (тег «нейтральный»). Доля null = 1/(N+1).
-    const idx = Math.floor(Math.random() * (ANIMATION_CLASS_OPTIONS.length + 1))
-    return ANIMATION_CLASS_OPTIONS[idx] || null
+  /**
+   * Фаза тега: доля 0..1 либо null («нейтральный» тег, вероятность 1/4 — как прежде
+   * при трёх классах). Фаза, а не готовый класс: цвета теперь свои у каждого источника,
+   * и по одной фазе элементы с общим тегом красятся согласованно, каждый — своей строкой.
+   */
+  function pickRandomPhase() {
+    const r = Math.random()
+    return r < 0.25 ? null : (r - 0.25) / 0.75
+  }
+
+  /** Строки источника с заданным цветом — только они дают класс (как в экспорте). */
+  function colorRows(vs) {
+    return (vs?.ranges || []).filter((r) => rangeRowColor(r))
+  }
+
+  /** Цвета всех источников формы — из них собираются CSS-правила симуляции. */
+  function collectRangeColors() {
+    const graph = canvas.graphRef.value
+    const out = []
+    for (const cell of graph?.getCells() || []) {
+      for (const r of colorRows(cell.get('tms')?.rangeSource)) out.push(rangeRowColor(r))
+    }
+    return out
   }
 
   /** Резолвит `{slot.X}` → актуальный тег из tms.slots[X]. Общий шаблонный
@@ -58,7 +79,11 @@ export function useSimulation() {
     return hadUnresolved ? null : value
   }
 
-  function injectSimulationCss() {
+  // Сигнатура набора цветов, под который собран <style>: автор может перекрасить
+  // строку во время симуляции — тогда правило нужно доинжектить.
+  let simCssKey = ''
+
+  function injectSimulationCss(colors) {
     // Пересобираем на каждый старт (remove + add): цвета состояний (stateColors)
     // автор мог изменить и пересохранить — кэш дал бы старый цвет. Заодно это
     // снимает дубль <style> после HMR/re-mount (id тот же, старый удаляется).
@@ -72,7 +97,11 @@ export function useSimulation() {
     // прозрачный rect-хитбокс ячейки (иначе зелёная «рамка» у стенсилов без
     // своей rect-обёртки). animation-hidden гасим отдельно (в экспорте — без !important).
     const strokeExtra = ':not([joint-selector="wrapper"]):not(.tms-hit-area)'
-    const rangeOffCss = buildRangeCssRules({ scope: '.tms-simulating ', strokeExtra }).join('\n')
+    simCssKey = colors.join('|')
+    const rangeOffCss = buildRangeCssRules(colors, {
+      scope: '.tms-simulating ',
+      strokeExtra,
+    }).join('\n')
     // State-color: те же правила, что в exporter, но scope'нуты под .tms-simulating.
     const stateColorCss = buildStateColorCssRules(getAllStencils(), {
       scope: '.tms-simulating ',
@@ -90,10 +119,12 @@ export function useSimulation() {
     for (const cell of graph.getCells()) {
       const view = paper.findViewByModel(cell)
       if (!view?.el) continue
-      for (const cls of ANIMATION_CLASS_OPTIONS) view.el.classList.remove(cls)
-      // Цвет состояния (animation-color-<ключ>) — ключи динамические, чистим по префиксу.
+      // Цвет диапазона (animation-c-<цвет>) и цвет состояния (animation-color-<ключ>) —
+      // оба класса генерируются из данных, поэтому чистим по префиксам, а не по списку.
       for (const cls of [...view.el.classList]) {
-        if (cls.startsWith(STATE_COLOR_PREFIX)) view.el.classList.remove(cls)
+        if (cls.startsWith(STATE_COLOR_PREFIX) || cls.startsWith(RANGE_COLOR_PREFIX)) {
+          view.el.classList.remove(cls)
+        }
       }
       // animation-off от boolSource висит на outer-g (затемнение всей ячейки),
       // от стенсильного template — на внутренних элементах. Чистим оба места.
@@ -111,36 +142,48 @@ export function useSimulation() {
     const paper = canvas.paperRef.value
     if (!graph || !paper) return
     clearSimClasses()
+    // Цвет строки могли поменять на ходу — правило под него могло ещё не попасть в CSS.
+    const colors = collectRangeColors()
+    if (colors.join('|') !== simCssKey) injectSimulationCss(colors)
 
     // Per-tag stateful pickers. Lazy: rolling state кэшируется при первом
     // обращении, последующие cell'ы с тем же тегом получают то же значение.
-    const rangeClassByTag = new Map() // tag → class | null
+    const phaseByTag = new Map() // tag → доля 0..1 | null
     const boolByTag = new Map() // tag → boolean (true = false-фаза/off, false = on)
-    const rangeClassFor = (tag) => {
-      if (!rangeClassByTag.has(tag)) rangeClassByTag.set(tag, pickRandomRangeClass())
-      return rangeClassByTag.get(tag)
+    const phaseFor = (tag) => {
+      if (!phaseByTag.has(tag)) phaseByTag.set(tag, pickRandomPhase())
+      return phaseByTag.get(tag)
     }
     const boolFalseFor = (tag) => {
       if (!boolByTag.has(tag)) boolByTag.set(tag, Math.random() < 0.5)
       return boolByTag.get(tag)
     }
+    /** Класс строки источника по фазе тега: цвет берём из НАСТРОЕК этого элемента. */
+    const rangeClassFor = (vs) => {
+      const phase = phaseFor(vs.tag)
+      if (phase === null) return null
+      const rows = colorRows(vs)
+      if (!rows.length) return null
+      const idx = Math.min(rows.length - 1, Math.floor(phase * rows.length))
+      return rangeColorClass(rangeRowColor(rows[idx]))
+    }
 
-    // Диапазоны: класс по тегу. Все ячейки/линки с PS031.UA в одном цвете.
+    // Источник значения: фаза общая по тегу, цвет — свой у каждого элемента.
     for (const cell of graph.getCells()) {
-      const tag = cell.get('tms')?.rangeSource?.tag
-      if (!tag) continue
-      const cls = rangeClassFor(tag)
+      const vs = cell.get('tms')?.rangeSource
+      if (!vs?.tag) continue
+      const cls = rangeClassFor(vs)
       if (!cls) continue
       paper.findViewByModel(cell)?.el?.classList.add(cls)
     }
-    // cell_node наследует range-класс от соединённого провода — берём тег первого
-    // подходящего линка и используем его state (тот же что у провода).
+    // cell_node наследует цвет от соединённого провода — берём источник первого
+    // подходящего линка целиком (та же фаза и те же строки, что у провода).
     for (const cell of graph.getElements()) {
       const tms = cell.get('tms') || {}
       if (tms.stencilId !== 'cell_node' || tms.rangeSource?.tag) continue
       const link = graph.getConnectedLinks(cell).find((l) => l.get('tms')?.rangeSource?.tag)
       if (!link) continue
-      const cls = rangeClassFor(link.get('tms').rangeSource.tag)
+      const cls = rangeClassFor(link.get('tms').rangeSource)
       if (!cls) continue
       paper.findViewByModel(cell)?.el?.classList.add(cls)
     }
@@ -228,7 +271,7 @@ export function useSimulation() {
 
   function startSimulation() {
     if (simulating.value || !canvas.paperRef.value) return
-    injectSimulationCss()
+    injectSimulationCss(collectRangeColors())
     // Класс tms-simulating вешает Vue через :class binding на paperContainer
     // — реактивно на simulating ref. Manual classList.add тут не нужен.
     simulating.value = true

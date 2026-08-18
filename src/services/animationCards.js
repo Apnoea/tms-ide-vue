@@ -3,13 +3,26 @@
 // Что эмитим — см. «Раннтайм-протокол» в CLAUDE.md.
 
 import { getStencilById } from '../stencils/registry'
-import { CLASS_OFF, stateColorClass } from '../constants/animation'
+import { CLASS_OFF, rangeColorClass, rangeRowColor, stateColorClass } from '../constants/animation'
 import { innerPrefix } from '../constants/ids'
 import { normalizeBoolSource, boolSourceTags } from '../utils/boolSource'
 
+/** Строки источника, годные к эмиту: без цвета или без порогов case пустой. */
+function usableRows(vs) {
+  return (vs.ranges || []).filter(
+    (r) => rangeRowColor(r) && (Number.isFinite(r.min) || Number.isFinite(r.max))
+  )
+}
+
+/** Класс перекраса строки: генерируется из её цвета (см. rangeColorClass). */
+function rowClass(row) {
+  return rangeColorClass(rangeRowColor(row))
+}
+
 /**
- * Карточка анимации диапазонов: один range-биндинг, читающий выбранный тег
- * и добавляющий соответствующий класс в зависимости от диапазона значения.
+ * Карточка анимации диапазонов: один range-биндинг — значение тега → класс цвета той
+ * строки, в чей интервал оно попало. Сравнение inclusive по обоим концам, поэтому
+ * одинаковые границы (`3 – 3`) задают ТОЧНОЕ значение.
  */
 export function buildRangeCard(vs) {
   return {
@@ -20,10 +33,10 @@ export function buildRangeCard(vs) {
         when: {
           source: 'value',
           type: 'range',
-          cases: (vs.ranges || []).map((r) => ({
+          cases: usableRows(vs).map((r) => ({
             min: r.min,
             max: r.max,
-            apply: { addClass: r.class },
+            apply: { addClass: rowClass(r) },
           })),
         },
       },
@@ -88,17 +101,13 @@ export function buildMultiCard(c) {
   const stencil = getStencilById(c.stencilId)
   const bindings = []
 
+  // Источник значения — слой на строку: у multi-биндинга одно `apply`, а классов
+  // столько же, сколько строк.
   const vs = c.rangeSource
-  if (vs?.tag && vs.ranges?.length) {
-    for (const r of vs.ranges) {
-      bindings.push(
-        singleMultiBinding(
-          vs.tag,
-          'value',
-          { type: 'range', cases: [{ min: r.min, max: r.max }] },
-          r.class
-        )
-      )
+  if (vs?.tag) {
+    for (const r of usableRows(vs)) {
+      const when = { type: 'range', cases: [{ min: r.min, max: r.max }] }
+      bindings.push(singleMultiBinding(vs.tag, 'value', when, rowClass(r)))
     }
   }
 
