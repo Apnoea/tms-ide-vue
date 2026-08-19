@@ -145,6 +145,11 @@ export const LINK_META_FIELDS = [
     normalize: clampNumber(0.5, 40, undefined),
   },
   { key: 'strokeColor', keep: Boolean, attr: 'stroke' },
+  // Наконечники на концах провода: `solid` — треугольник, `open` — две линии под 45°.
+  // Смотрят В точку соединения. Без `attr`: маркер — объект, который зависит ещё и от
+  // толщины/цвета линии, поэтому его собирает linkStyleAttrs.
+  { key: 'arrowStart', keep: Boolean, normalize: oneOf(['solid', 'open'], undefined) },
+  { key: 'arrowEnd', keep: Boolean, normalize: oneOf(['solid', 'open'], undefined) },
 ]
 
 // ─── ID-генераторы ──────────────────────────────────────────────────────────

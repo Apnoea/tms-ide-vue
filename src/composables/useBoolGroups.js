@@ -84,18 +84,18 @@ export function useBoolGroups({ details, mutateSelectedTms, openPicker }) {
   }
 
   /** «+ тег (И)» внутри группы gi. */
-  function onAddSwitchTag(gi) {
+  function onAddBoolTag(gi) {
     editingBool.value = { groupIdx: gi, tagIdx: null }
     openBoolPicker()
   }
 
   /** Клик по тегу-зависимости → замена по индексу (gi, ti). */
-  function editSwitchTagAt(gi, ti) {
+  function editBoolTagAt(gi, ti) {
     editingBool.value = { groupIdx: gi, tagIdx: ti }
     openBoolPicker()
   }
 
-  function removeSwitchSources() {
+  function clearBoolGroups() {
     writeBoolGroups([])
   }
 
@@ -130,14 +130,14 @@ export function useBoolGroups({ details, mutateSelectedTms, openPicker }) {
   }
 
   /** × на строке тега (gi, ti). Опустевшая группа отбрасывается (в writeBoolGroups). */
-  function removeSwitchTagAt(gi, ti) {
+  function removeBoolTagAt(gi, ti) {
     const groups = normalizeBoolSource(details.value?.boolSource).groups
     const next = groups.map((g, i) => (i === gi ? g.filter((_, j) => j !== ti) : g))
     writeBoolGroups(next)
   }
 
   /** × в шапке группы — удалить группу целиком. */
-  function removeSwitchGroup(gi) {
+  function removeBoolGroup(gi) {
     const groups = normalizeBoolSource(details.value?.boolSource).groups
     writeBoolGroups(groups.filter((_, i) => i !== gi))
   }
@@ -146,10 +146,10 @@ export function useBoolGroups({ details, mutateSelectedTms, openPicker }) {
     boolGroups,
     boolRemovable,
     onAddGroup,
-    onAddSwitchTag,
-    editSwitchTagAt,
-    removeSwitchTagAt,
-    removeSwitchGroup,
-    removeSwitchSources,
+    onAddBoolTag,
+    editBoolTagAt,
+    removeBoolTagAt,
+    removeBoolGroup,
+    clearBoolGroups,
   }
 }

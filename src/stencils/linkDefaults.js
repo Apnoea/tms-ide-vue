@@ -5,6 +5,7 @@
 
 import { dia, routers, linkTools } from '@joint/core'
 import { LINK_META_FIELDS } from '../constants/ids'
+import { RANGE_FILL_CLASS } from '../constants/animation'
 
 const { Directions } = routers.rightAngle
 
@@ -103,7 +104,8 @@ export const LINK_DEFAULTS = {
     line: {
       stroke: '#000',
       strokeWidth: 2,
-      // Направление на электросхеме неинформативно — стрелок нет.
+      // По умолчанию наконечников нет — их включает настройка провода
+      // (`arrowStart`/`arrowEnd`, см. linkStyleAttrs).
       targetMarker: { type: 'none' },
       sourceMarker: { type: 'none' },
     },
@@ -134,6 +136,65 @@ export function normalizeLinkZ(z) {
   return z
 }
 
+/** Длина и полуширина наконечника — пропорционально толщине линии. */
+export function arrowSize(strokeWidth) {
+  const w = Number(strokeWidth)
+  const base = Number.isFinite(w) && w > 0 ? w : LINK_DEFAULTS.attrs.line.strokeWidth
+  return { len: base * 4, half: base * 2 }
+}
+
+/**
+ * Геометрия наконечника в системе маркера: начало в точке конца линии, ось X смотрит
+ * В точку соединения. `solid` — замкнутый треугольник (заливается цветом линии),
+ * `open` — две линии под 45° (незамкнутая «галочка», красится обводкой).
+ *
+ * Одна функция на холст и экспорт: JointJS рисует `d` как маркер линка, exporter — тем
+ * же путём в группе провода, иначе вид разошёлся бы с `view.svg`.
+ */
+export function arrowPath(kind, strokeWidth, dir = 1) {
+  const { len, half } = arrowSize(strokeWidth)
+  const back = len * (dir < 0 ? -1 : 1)
+  if (kind === 'solid') return `M 0 0 L ${back} ${half} L ${back} ${-half} Z`
+  if (kind === 'open') return `M ${back} ${half} L 0 0 L ${back} ${-half}`
+  return null
+}
+
+/**
+ * Наконечник для экспортного SVG — элементом внутри группы провода, а не `<marker>` в
+ * `<defs>`: маркер не потомок группы, и CSS анимаций (обесточивание, цвет диапазона) до
+ * него не достаёт — линия посерела бы, а наконечник остался цветным.
+ *
+ * `tms-range-fill` на треугольнике — тот же opt-in, что у тела шины: заливку красят
+ * только помеченные элементы.
+ *
+ * @param {'solid'|'open'} kind
+ * @param {{x: number, y: number}} point — конец линии
+ * @param {number} angle — куда смотрит наконечник (градусы, ось X)
+ */
+export function arrowExportSvg(kind, point, angle, strokeWidth, color) {
+  const d = arrowPath(kind, strokeWidth)
+  if (!d || !point) return ''
+  const transform = `translate(${point.x} ${point.y}) rotate(${angle})`
+  const paint =
+    kind === 'solid'
+      ? `class="${RANGE_FILL_CLASS}" fill="${color}" stroke="none"`
+      : `fill="none" stroke="${color}" stroke-width="${strokeWidth ?? 2}"`
+  return `<path d="${d}" transform="${transform}" ${paint}/>`
+}
+
+/**
+ * JointJS-описание маркера конца, `null` — наконечник не задан. Экспортируется, потому
+ * что инспектор ставит маркеры точечным `link.attr('line/sourceMarker', …)`: замена
+ * всего `attrs` снесла бы `wrapper` (hit-area) и маркеры не перерисовывались бы.
+ */
+export function arrowMarker(kind, tms, dir = 1) {
+  const d = arrowPath(kind, tms?.strokeWidth, dir)
+  if (!d) return null
+  const color = tms?.strokeColor || LINK_DEFAULTS.attrs.line.stroke
+  if (kind === 'solid') return { type: 'path', d, fill: color, stroke: 'none' }
+  return { type: 'path', d, fill: 'none', stroke: color, strokeWidth: tms?.strokeWidth ?? 2 }
+}
+
 /**
  * tms-стиль (толщина/цвет) → `attrs.line`. Источник правды — tms, но рисует JointJS
  * по attrs, поэтому дублируем при КАЖДОМ создании модели (paste, load): иначе копия
@@ -147,6 +208,13 @@ export function linkStyleAttrs(tms) {
     const v = tms?.[f.key]
     if (f.attr && v !== undefined) lineAttrs[f.attr] = v
   }
+  // Оси маркеров у концов противоположны — JointJS разворачивает `sourceMarker`,
+  // поэтому «тело вдоль линии внутрь» это +X у начала и −X у конца (с обратным знаком
+  // остриё смотрит из точки соединения наружу).
+  const start = arrowMarker(tms?.arrowStart, tms, 1)
+  const end = arrowMarker(tms?.arrowEnd, tms, -1)
+  if (start) lineAttrs.sourceMarker = start
+  if (end) lineAttrs.targetMarker = end
   if (!Object.keys(lineAttrs).length) return null
   return { line: { ...LINK_DEFAULTS.attrs.line, ...lineAttrs } }
 }

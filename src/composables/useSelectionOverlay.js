@@ -3,7 +3,7 @@ import { useCanvas } from './useCanvas'
 import { getStencilById, registryVersion } from '../stencils/registry'
 import { isShapeCell } from '../stencils/shapeElement'
 import { injectStencilSvg, buildPortItems } from '../stencils/svgInjector'
-import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
+import { projectToScreen, rotatedAabb, overlayButtonPositions } from '../utils/paperGeom'
 
 /**
  * HTML-overlay одиночной выделенной ячейки: rotate/delete/lock по углам visual-AABB
@@ -57,27 +57,13 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
     const aabb = rotatedAabb(cell.get('position'), cell.get('size'), cell.angle() || 0)
     const tl = projectToScreen(paper, aabb.x, aabb.y)
     const br = projectToScreen(paper, aabb.x + aabb.width, aabb.y + aabb.height)
-    const { x: left, y: top } = tl
-    const { x: right, y: bottom } = br
-    const HALF = 16 // половина кнопки (32×32) — позиции считаем по её центру
-    // Кнопка крупнее мелкого символа (20×20), поэтому зазор заметный: иначе
-    // кнопки наползают на соседей и клик по соседу попадает в них.
-    const GAP = 24
     return {
       id: cell.id,
       canRotate: canCellRotate(cell),
       canFlip: canCellFlip(cell),
+      // Замок виден всегда — им же снимают блокировку, когда остальное read-only.
       locked: !!cell.get('tms')?.locked,
-      rotateCcw: { left: `${left - GAP - HALF}px`, top: `${top - GAP - HALF}px` },
-      rotateCw: { left: `${right + GAP - HALF}px`, top: `${top - GAP - HALF}px` },
-      delete: { left: `${right + GAP - HALF}px`, top: `${bottom + GAP - HALF}px` },
-      // Замок — нижний-левый угол; кнопка видна всегда (единственный способ снять
-      // блокировку при read-only остальных).
-      lock: { left: `${left - GAP - HALF}px`, top: `${bottom + GAP - HALF}px` },
-      // Flip — на серединах сторон: горизонтальный (лево↔право) сверху по центру,
-      // вертикальный (верх↔низ) слева по центру.
-      flipH: { left: `${(left + right) / 2 - HALF}px`, top: `${top - GAP - HALF}px` },
-      flipV: { left: `${left - GAP - HALF}px`, top: `${(top + bottom) / 2 - HALF}px` },
+      ...overlayButtonPositions({ left: tl.x, top: tl.y, right: br.x, bottom: br.y }),
     }
   })
 

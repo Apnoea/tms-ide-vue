@@ -181,6 +181,48 @@ describe('exportProject', () => {
     expect(cell.size).toMatchObject({ width: 20, height: 20 })
   })
 
+  it('наконечники: провод уезжает группой, стрелки внутри неё', () => {
+    // Внутри группы, а не <marker> в defs: иначе классы анимации (обесточивание,
+    // цвет диапазона) не достали бы наконечник, и линия посерела бы без него.
+    const graph = mockGraph(
+      [
+        mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 }),
+        mockCell({ id: 'c2', stencilId: 'cell_qw', x: 100, y: 0, w: 20, h: 20 }),
+      ],
+      [
+        mockLink({
+          id: 'l1',
+          source: { id: 'c1' },
+          target: { id: 'c2' },
+          tms: { arrowEnd: 'solid', strokeWidth: 3 },
+        }),
+      ]
+    )
+    const svg = exportProject(graph).svgText
+    expect(svg).toMatch(/<g id="animation-wire-l1">/)
+    // Размер от толщины: len = 4×3 = 12, half = 2×3 = 6.
+    expect(svg).toContain('d="M 0 0 L 12 6 L 12 -6 Z"')
+    // Треугольник заливается цветом линии и помечен opt-in классом заливки.
+    expect(svg).toContain('class="tms-range-fill"')
+    // Провод горизонтальный (c1 → c2 вправо), наконечник на конце: тело рисуется в +X,
+    // поэтому его разворачивают на 180° — остриё остаётся в точке соединения, тело
+    // уходит назад по линии. Экспорт считает это сам, без JointJS-маркеров.
+    expect(svg).toContain('rotate(180)')
+  })
+
+  it('без наконечников структура прежняя — один <path> с id', () => {
+    const graph = mockGraph(
+      [
+        mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 }),
+        mockCell({ id: 'c2', stencilId: 'cell_qw', x: 100, y: 0, w: 20, h: 20 }),
+      ],
+      [mockLink({ id: 'l1', source: { id: 'c1' }, target: { id: 'c2' } })]
+    )
+    const svg = exportProject(graph).svgText
+    expect(svg).toContain('<path id="animation-wire-l1"')
+    expect(svg).not.toMatch(/<g id="animation-wire-l1">/)
+  })
+
   it('cell_bus: цвет тела переживает round-trip, дефолт в meta не пишется', () => {
     const graph = mockGraph([
       mockCell({ id: 'b1', stencilId: 'cell_bus', w: 100, h: 10, color: '#ff8800' }),
@@ -1089,6 +1131,8 @@ describe('exportProject', () => {
     boolSource: { groups: [['BR1.ONOFF']] },
     strokeWidth: 4,
     strokeColor: '#ff0000',
+    arrowStart: 'open',
+    arrowEnd: 'solid',
   }
 
   it('инвариант: каждое поле LINK_META_FIELDS переживает экспорт → разбор', () => {

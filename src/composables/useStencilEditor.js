@@ -23,6 +23,9 @@ import {
   parseStencilSvg,
   translateShape,
   shapeBounds,
+  shapesBounds,
+  rotateShape90,
+  flipShape,
   portSeqFrom,
 } from '../utils/stencilSvg'
 import { normalizeStateColor } from '../constants/animation'
@@ -345,6 +348,36 @@ export function createStencilEditor() {
     commit()
   }
 
+  /**
+   * Поворот на 90° и отражение выделенного — вокруг центра его общего bbox, как на
+   * холсте вокруг центра ячейки. Угла у фигур нет (модель осе-выровненная), поэтому
+   * преобразование «запекается» в координаты: прямоугольник остаётся прямоугольником,
+   * эллипс — эллипсом, у ломаной едут точки (см. mapShapePoints).
+   *
+   * @param {Array<string>} ids
+   * @param {(shape: object, center: {x: number, y: number}) => object} apply
+   */
+  function transformShapes(ids, apply) {
+    const set = new Set(ids || [])
+    const targets = shapes.value.filter((s) => set.has(s.id))
+    if (!targets.length) return
+    const bbox = shapesBounds(targets)
+    if (!bbox) return
+    const center = { x: bbox.x + bbox.w / 2, y: bbox.y + bbox.h / 2 }
+    shapes.value = shapes.value.map((s) => (set.has(s.id) ? apply(s, center) : s))
+    commit()
+  }
+
+  /** `dir > 0` — по часовой, как кнопка «повернуть по часовой» на холсте. */
+  function rotateShapes(ids, dir = 1) {
+    transformShapes(ids, (s, center) => rotateShape90(s, center, dir))
+  }
+
+  /** Ось 'h' — отражение по горизонтали, 'v' — по вертикали. */
+  function flipShapes(ids, axis) {
+    transformShapes(ids, (s, center) => flipShape(s, center, axis))
+  }
+
   // Буфер копирования без внутренних id (paste присвоит новые), на сессию
   // редактора. Массив — Ctrl+C берёт всё выделение.
   const clipboardShapes = ref([])
@@ -618,6 +651,8 @@ export function createStencilEditor() {
     applyToSelected,
     removeShapes,
     reorderShapes,
+    rotateShapes,
+    flipShapes,
     copyShapes,
     pasteShapes,
     setAnimationMode,

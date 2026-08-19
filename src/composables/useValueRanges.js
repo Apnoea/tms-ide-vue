@@ -6,13 +6,10 @@ import { getStencilById } from '../stencils/registry'
 import { toPlain } from '../utils/plain'
 import { RANGE_COLOR_PRESETS, rangeRowColor } from '../constants/animation'
 
-// Дефолтные диапазоны; клонируем каждый диапазон на использование —
-// чтобы ячейки не делили один и тот же массив.
-//
 // max-границы укорочены на 0.01: WebScada condition-evaluator inclusive по
-// обоим концам (`>=min && <=max`). При max=4/4/7 значение 4 матчило бы и low,
-// и mid одновременно — итоговый цвет зависел бы от порядка CSS-правил, а не
-// от данных. Та же логика что для quality `[0, 191]` (max=191, не 192).
+// обоим концам (`>=min && <=max`). При max=4/4/7 значение 4 попало бы сразу в две
+// строки, и цвет решался бы порядком CSS-правил, а не данными. Та же логика, что у
+// quality `[0, 191]` (max=191, не 192).
 const RANGE_DEFAULTS = [
   { min: 0, max: 3.99, color: RANGE_COLOR_PRESETS[0] },
   { min: 4, max: 6.99, color: RANGE_COLOR_PRESETS[1] },
@@ -26,7 +23,7 @@ function defaultRows() {
 
 /**
  * Новая строка источника: цвет — первый пресет, не занятый другими строками (чтобы
- * добавленная строка сразу отличалась), пороги/значение пустые — их вписывает автор.
+ * добавленная строка сразу отличалась), пороги пустые — их вписывает автор.
  */
 function newRow(vs) {
   const used = new Set((vs?.ranges || []).map((r) => rangeRowColor(r)))
@@ -36,7 +33,7 @@ function newRow(vs) {
 
 /**
  * Правка одной строки: возвращает новый массив ranges либо null, если ввод
- * невалиден. min/max/value — числа; нечисловой ввод (пустая строка, буквы) дал бы NaN,
+ * невалиден. min/max — числа; нечисловой ввод (пустая строка, буквы) дал бы NaN,
  * который молча сломал бы сравнение при экспорте → правку игнорируем. Русская
  * десятичная запятая («3,99») — самый частый «съеденный» ввод у инженеров с ru-
  * раскладкой: нормализуем в точку до Number(), иначе тоже NaN → тихий откат.
@@ -138,7 +135,7 @@ export function useValueRanges({ details, mutateSelectedTms, openPicker }) {
     canvas.toggleHighlightedTag(tag)
   }
 
-  // ─── Мульти-режим: локальный шаблон (тег + пороги) ───
+  // ─── Мульти: локальный шаблон (тег + строки) ───
   const multiRange = ref(null) // { tag, ranges } | null
 
   watch(

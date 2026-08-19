@@ -38,6 +38,7 @@ import TagField from './TagField.vue'
 import RangeBlock from './RangeBlock.vue'
 import BooleanBlock from './BooleanBlock.vue'
 import { previewOuterKey } from '../constants/ids'
+import { arrowMarker } from '../stencils/linkDefaults'
 
 // Ячейки без анимаций: статичные стенсилы (флаг `static: true` в stencil.json —
 // нет визуальной реакции на animation-классы) и фигуры-разметка (у них анимаций нет
@@ -251,6 +252,8 @@ const details = computed(() => {
       // Толщина/цвет линии — из JointJS-attr (реально отрисованные); дефолты 2 / #000.
       strokeWidth: cell.attr('line/strokeWidth') ?? 2,
       strokeColor: cell.attr('line/stroke') || '#000000',
+      arrowStart: cell.get('tms')?.arrowStart || null,
+      arrowEnd: cell.get('tms')?.arrowEnd || null,
       rangeSource: tms.rangeSource || null,
       boolSource: tms.boolSource || null,
     }
@@ -431,6 +434,36 @@ function toggleShapeFill(on) {
   patchShape({ fill: on ? details.value?.fill || '#ffffff' : 'none' })
 }
 
+// Свитч наконечника (`solid` — треугольник, `open` — две линии под 45°, нет поля —
+// без стрелки): миниатюра вместо подписи, выбор одним кликом. Глиф в том же формате,
+// что иконки инструментов холста: [{ d, mode }] в системе 16×16.
+// `'none'` в значении, а не null: SelectButton сравнивает значения, и null конфликтует
+// с «ничего не выбрано» — в tms он превращается обратно в отсутствие поля.
+const ARROW_OPTIONS = [
+  // У «нет» — просто линия; у остальных короткий хвост и крупный наконечник.
+  { value: 'none', tip: 'Без стрелки', glyph: [{ d: 'M 3 8 L 13 8', mode: 'stroke' }] },
+  {
+    value: 'open',
+    tip: 'Стрелка линиями',
+    // Хвост доводим до ВЕРШИНЫ галочки (12.5), иначе между ними остаётся разрыв.
+    glyph: [{ d: 'M 4 8 L 12.5 8 M 7 3.5 L 12.5 8 L 7 12.5', mode: 'stroke' }],
+  },
+  {
+    value: 'solid',
+    tip: 'Стрелка треугольником',
+    // Треугольник крупнее галочки по геометрии: у той к контуру добавляется толщина
+    // обводки, и при равных размерах залитый выглядел мельче.
+    glyph: [
+      { d: 'M 3 8 L 6 8', mode: 'stroke' },
+      { d: 'M 14.5 8 L 6 2.5 L 6 13.5 Z', mode: 'fill' },
+    ],
+  },
+]
+const ARROW_ENDS = [
+  { key: 'arrowStart', label: 'Стрелки в начале' },
+  { key: 'arrowEnd', label: 'Стрелки в конце' },
+]
+
 // ─── Провод: стиль линии (толщина/цвет) ───
 // Пишем в JointJS-attr (мгновенная отрисовка) + в tms[tmsKey] (round-trip через
 // data-tms-meta + автосейв). Дефолт в tms не держим — meta пишет только
@@ -447,12 +480,43 @@ function applyLinkStyle(attrPath, tmsKey, isDefault, value) {
   if (isDefault(value)) delete next[tmsKey]
   else next[tmsKey] = value
   link.set('tms', next)
+  // Наконечник зависит от толщины и цвета линии — пересобираем его тем же билдером.
+  syncArrows(link, next)
   canvas.bumpVersion()
   canvas.requestSnapshot()
 }
 const applyStrokeWidth = (v) => applyLinkStyle('line/strokeWidth', 'strokeWidth', (x) => x === 2, v)
 const applyStrokeColor = (c) =>
   applyLinkStyle('line/stroke', 'strokeColor', (x) => x === '#000000' || x === '#000', c)
+
+/**
+ * Наконечники провода из его `tms` → в attrs. Точечным `attr()`, а не заменой всего
+ * `attrs`: у standard.Link там ещё `wrapper` (хитбокс), и подмена объекта целиком его
+ * сносит, а маркеры при этом не перерисовываются.
+ *
+ * Зовётся и при смене толщины/цвета: размер наконечника считается от толщины, цвет
+ * берётся от линии — иначе стрелка осталась бы прежней.
+ */
+function syncArrows(link, tms) {
+  link.attr('line/sourceMarker', arrowMarker(tms.arrowStart, tms) || { type: 'none' })
+  link.attr('line/targetMarker', arrowMarker(tms.arrowEnd, tms) || { type: 'none' })
+}
+
+/** Наконечник на конце провода; пустое значение снимает его. */
+function applyArrow(endKey, kind) {
+  const graph = canvas.graphRef.value
+  const d = details.value
+  if (!graph || d?.kind !== 'link') return
+  const link = graph.getCell(d.id)
+  if (!link) return
+  const next = { ...(link.get('tms') || {}) }
+  if (kind) next[endKey] = kind
+  else delete next[endKey]
+  link.set('tms', next)
+  syncArrows(link, next)
+  canvas.bumpVersion()
+  canvas.requestSnapshot()
+}
 
 // ─── Замок ячейки ───
 function applyLockToggle() {
@@ -643,26 +707,26 @@ const {
   boolGroups,
   boolRemovable,
   onAddGroup,
-  onAddSwitchTag,
-  editSwitchTagAt,
-  removeSwitchTagAt,
-  removeSwitchGroup,
-  removeSwitchSources,
+  onAddBoolTag,
+  editBoolTagAt,
+  removeBoolTagAt,
+  removeBoolGroup,
+  clearBoolGroups,
 } = useBoolGroups({ details, mutateSelectedTms, openPicker })
 
 /** Открыть picker массовой привязки булева тега (multi-select). */
-function openMultiSwitchPicker() {
+function openMultiBoolPicker() {
   openPicker({
     tags: () => project.booleanTags,
     header: 'Булев тег для всех выделенных символов',
-    onSelect: onPickMultiSwitchTag,
+    onSelect: onPickMultiBoolTag,
   })
 }
 
 /** Multi-select: добавить тег НОВОЙ группой [tag] в boolSource всех
  * выделенных (у выделения нет общего состояния → каждому — своя новая группа,
  * не дублируя уже существующую одиночную группу с этим тегом). */
-function onPickMultiSwitchTag(tag) {
+function onPickMultiBoolTag(tag) {
   if (!tag) return
   const sel = canvas.selection.value
   if (!sel.length) return
@@ -917,7 +981,7 @@ const {
               :tags-loaded="!!project.tags.length"
               :pasteable="animClip.hasBool.value"
               title="Булево значение"
-              @add-group="openMultiSwitchPicker"
+              @add-group="openMultiBoolPicker"
               @paste="pasteBool"
             />
             <RangeBlock
@@ -1463,6 +1527,43 @@ const {
                     @update:model-value="applyStrokeWidth"
                   />
                 </div>
+
+                <!-- Наконечники смотрят В точку соединения, размер — от толщины линии.
+                     Концы независимы: бывает и один, и оба. -->
+                <div v-for="end in ARROW_ENDS" :key="end.key" class="flex items-center gap-3">
+                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                    {{ end.label }}
+                  </span>
+                  <SelectButton
+                    :model-value="details[end.key] || 'none'"
+                    :options="ARROW_OPTIONS"
+                    option-value="value"
+                    :allow-empty="false"
+                    size="small"
+                    class="ml-auto"
+                    @update:model-value="(v) => applyArrow(end.key, v === 'none' ? null : v)"
+                  >
+                    <template #option="{ option }">
+                      <svg
+                        v-tooltip.bottom="option.tip"
+                        viewBox="0 0 16 16"
+                        class="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <path
+                          v-for="(el, i) in option.glyph"
+                          :key="i"
+                          :d="el.d"
+                          :fill="el.mode === 'fill' ? 'currentColor' : 'none'"
+                          :stroke="el.mode === 'stroke' ? 'currentColor' : 'none'"
+                          stroke-width="1.6"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </template>
+                  </SelectButton>
+                </div>
               </div>
             </div>
           </template>
@@ -1506,11 +1607,11 @@ const {
               title="Булево значение"
               @open-slot-picker="openSlotPicker(details.slots[0])"
               @add-group="onAddGroup"
-              @add-tag="onAddSwitchTag"
-              @edit-tag="editSwitchTagAt"
-              @remove-tag="removeSwitchTagAt"
-              @remove-group="removeSwitchGroup"
-              @remove="removeSwitchSources"
+              @add-tag="onAddBoolTag"
+              @edit-tag="editBoolTagAt"
+              @remove-tag="removeBoolTagAt"
+              @remove-group="removeBoolGroup"
+              @remove="clearBoolGroups"
               @highlight-tag="canvas.toggleHighlightedTag"
               @copy="copyBool"
               @paste="pasteBool"

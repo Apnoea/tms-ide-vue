@@ -11,7 +11,7 @@ import {
   resolveValueDecimals,
 } from '../stencils/valueCell'
 import { buildNodeExportSvg } from '../stencils/nodeCell'
-import { LINK_Z } from '../stencils/linkDefaults'
+import { LINK_Z, arrowExportSvg } from '../stencils/linkDefaults'
 import { isBackgroundZ } from '../utils/zOrder'
 import {
   CLASS_OFF,
@@ -338,6 +338,9 @@ export function exportProject(graph, paper = null) {
   // ─── Линии (links) ───
   for (const link of links) {
     let pathD = null
+    // Концы пути с направлением — для наконечников. Наконечник смотрит В точку
+    // соединения, поэтому у начала берём тангенс задом наперёд.
+    let ends = null
 
     // Если есть paper — забираем реальный путь, как он отрисовался на холсте
     // (с учётом rightAngle-роутинга и изломов). JointJS 4 standard.Link
@@ -363,6 +366,23 @@ export function exportProject(graph, paper = null) {
             // ignore
           }
         }
+        // Геометрию концов берём у JointJS, а не парсим `d`: у мостиков (jumpover)
+        // в пути есть дуги, и «две последние координаты» уже не задают направление.
+        try {
+          const conn = linkView?.getConnection?.()
+          if (conn?.length) {
+            const first = conn.tangentAtLength(0)
+            const last = conn.tangentAtLength(conn.length())
+            // Тело наконечника рисуется в +X (см. arrowPath), поэтому поворачиваем
+            // его ВДОЛЬ линии внутрь: у начала это направление пути, у конца — обратное.
+            ends = {
+              start: { point: first.start, angle: first.angle() },
+              end: { point: last.end, angle: last.angle() + 180 },
+            }
+          }
+        } catch {
+          // ignore — упадём в fallback ниже
+        }
       }
     }
 
@@ -377,6 +397,12 @@ export function exportProject(graph, paper = null) {
         continue
       }
       pathD = `M ${source.x},${source.y} L ${target.x},${target.y}`
+      // Прямая: направление — по линии источник→цель.
+      const deg = (Math.atan2(target.y - source.y, target.x - source.x) * 180) / Math.PI
+      ends = {
+        start: { point: source, angle: deg },
+        end: { point: target, angle: deg + 180 },
+      }
 
       minX = Math.min(minX, source.x, target.x)
       minY = Math.min(minY, source.y, target.y)
@@ -416,6 +442,10 @@ export function exportProject(graph, paper = null) {
       // Ручные изломы — иначе round-trip перерисовал бы провод по дефолтному
       // маршруту (геометрия пути в `d` рантайму, изломы редактору).
       vertices: vertices.length ? vertices.map((v) => ({ x: v.x, y: v.y })) : null,
+      // Наконечники + геометрия концов: рисуются в группе провода (см. arrowExportSvg).
+      arrowStart: linkTms.arrowStart || null,
+      arrowEnd: linkTms.arrowEnd || null,
+      ends,
       // Порядок в полосе проводов (кто кого огибает). Дно полосы не пишем — шум.
       z: link.get('z') !== LINK_Z ? link.get('z') : null,
     })
@@ -637,7 +667,18 @@ export function exportProject(graph, paper = null) {
       // l.id и l.d сейчас составляются из UUID-производных и сгенерированных
       // path-данных — symbol-safe, но escapeAttr держит инвариант на случай
       // если JointJS-расширение когда-то засунет туда что-то экзотическое.
-      return `  <path id="${escapeAttr(l.id)}" d="${escapeAttr(l.d)}" stroke="${escapeAttr(l.strokeColor || '#000')}" stroke-width="${l.strokeWidth ?? 2}" fill="none" ${ATTR_META}="${metaAttr}"/>`
+      const color = escapeAttr(l.strokeColor || '#000')
+      const width = l.strokeWidth ?? 2
+      const lineAttrs = `d="${escapeAttr(l.d)}" stroke="${color}" stroke-width="${width}" fill="none" ${ATTR_META}="${metaAttr}"`
+      const arrows = [
+        arrowExportSvg(l.arrowStart, l.ends?.start?.point, l.ends?.start?.angle, width, color),
+        arrowExportSvg(l.arrowEnd, l.ends?.end?.point, l.ends?.end?.angle, width, color),
+      ].filter(Boolean)
+      // Без наконечников структура прежняя (один <path> с id) — уже выгруженные схемы
+      // не переписываются. Со наконечниками id переезжает на группу: рантайм вешает
+      // класс на неё, и правила анимации каскадом достают и линию, и наконечники.
+      if (!arrows.length) return `  <path id="${escapeAttr(l.id)}" ${lineAttrs}/>`
+      return `  <g id="${escapeAttr(l.id)}"><path ${lineAttrs}/>${arrows.join('')}</g>`
     })
     .join('\n')
 

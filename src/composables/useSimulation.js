@@ -21,11 +21,11 @@ const SIM_CYCLE_MS = 1500
 /**
  * Симуляция: визуальный preview animation-классов через JS-таймер.
  *
- * Группировка по тегу — на каждом тике один rolling state per-tag (lazy,
- * через rangeClassFor / boolFalseFor), и все ячейки/линки привязанные к одному
- * тегу рисуются согласованно. Аналоговый тег → low/mid/high/none; тег bool →
- * true/false. Это даёт реалистичную картину распространения — одна шина
- * одного цвета, выключатель и его зависимости в согласованной фазе.
+ * Группировка по тегу — на каждом тике одна фаза per-tag (lazy, через phaseFor /
+ * boolFalseFor), и все ячейки/линки с этим тегом рисуются согласованно: у значения
+ * фаза выбирает строку источника (цвет берётся из НАСТРОЕК элемента), у булева —
+ * true/false. Это даёт реалистичную картину распространения — одна шина одного цвета,
+ * выключатель и его зависимости в согласованной фазе.
  *
  * CSS под `.tms-simulating` инжектится один раз в `<head>` (не протекает в
  * обычный режим); класс на paperContainer вешает Vue через :class binding
@@ -42,7 +42,7 @@ export function useSimulation() {
   const simulating = ref(false)
   let simIntervalId = null
   // Счётчик тиков — циклическая смена value-состояний (states[simTick % N]).
-  // Персистентен между тиками (в отличие от per-tag rolling, что случаен каждый тик).
+  // Персистентен между тиками (в отличие от фазы тега — та случайна на каждом тике).
   let simTick = 0
   const SIM_CSS_ID = 'tms-sim-css'
 
@@ -136,7 +136,7 @@ export function useSimulation() {
     }
   }
 
-  /** Один rolling state per-tag за тик: ячейки/линки с одним тегом — согласованно. */
+  /** Одна фаза per-tag за тик: ячейки/линки с одним тегом — согласованно. */
   function applySimClass() {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
@@ -146,8 +146,8 @@ export function useSimulation() {
     const colors = collectRangeColors()
     if (colors.join('|') !== simCssKey) injectSimulationCss(colors)
 
-    // Per-tag stateful pickers. Lazy: rolling state кэшируется при первом
-    // обращении, последующие cell'ы с тем же тегом получают то же значение.
+    // Per-tag pickers. Lazy: фаза кэшируется при первом обращении, последующие
+    // cell'ы с тем же тегом получают то же значение.
     const phaseByTag = new Map() // tag → доля 0..1 | null
     const boolByTag = new Map() // tag → boolean (true = false-фаза/off, false = on)
     const phaseFor = (tag) => {
@@ -189,7 +189,7 @@ export function useSimulation() {
     }
 
     // Bool-биндинги стенсильного template: для КАЖДОГО binding'а резолвим тег
-    // ({slot.X} → tms.slots[X]), смотрим rolling state и применяем класс
+    // ({slot.X} → tms.slots[X]), смотрим фазу тега и применяем класс
     // соответствующего case'а (true или false). Несколько биндингов на одном
     // теге (например .true у cell_qw или .true + .false у
     // cell_qr/cell_qk/cell_qf) переключаются согласованно.

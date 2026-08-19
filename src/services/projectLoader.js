@@ -11,19 +11,6 @@ import { isBackgroundZ, BACKGROUND_Z_BOUNDS } from '../utils/zOrder'
 import { textCellToShape, legacyBusPortId } from './legacyFormat'
 
 /**
- * Парсит SVG-текст и возвращает массив JointJS-cells (включая links),
- * готовый для graph.fromJSON.
- *
- * Возвращает { ok, cells, errors, stencilIds }.
- *  - ok: SVG успешно распарсился. Пустая форма (0 ячеек) — это ok=true: пустая
- *    схема ≠ битый файл, импорт обязан сохранить её (заготовка / цель навигации).
- *    ok=false только при реальном сбое парсинга (пустой ввод / parse error).
- *  - cells: массив JointJS-совместимых cell-JSON
- *  - errors: массив warning-строк (для toast'а пользователю)
- *  - stencilIds: все stencilId, встреченные в meta (включая выкинутые из-за
- *    незарегистрированного стенсила) — для подсчёта недостающих стенсилов
- */
-/**
  * Первая и последняя точки пути провода. Нужны как ПОСЛЕДНЯЯ линия обороны: если в
  * meta конец не привязан и координат у него нет, линию всё равно можно восстановить —
  * `d` пишет реальную геометрию, как она была на холсте.
@@ -72,6 +59,19 @@ function indexPorts(index, cellJson) {
   }
 }
 
+/**
+ * Парсит SVG-текст и возвращает массив JointJS-cells (включая links),
+ * готовый для graph.fromJSON.
+ *
+ * Возвращает { ok, cells, errors, stencilIds }.
+ *  - ok: SVG успешно распарсился. Пустая форма (0 ячеек) — это ok=true: пустая
+ *    схема ≠ битый файл, импорт обязан сохранить её (заготовка / цель навигации).
+ *    ok=false только при реальном сбое парсинга (пустой ввод / parse error).
+ *  - cells: массив JointJS-совместимых cell-JSON
+ *  - errors: массив warning-строк (для toast'а пользователю)
+ *  - stencilIds: все stencilId, встреченные в meta (включая выкинутые из-за
+ *    незарегистрированного стенсила) — для подсчёта недостающих стенсилов
+ */
 export function parseSvgProject(svgText) {
   if (!svgText || !svgText.trim()) {
     return { ok: false, cells: [], errors: ['Пустой SVG'], stencilIds: [] }

@@ -801,3 +801,65 @@ describe('порядок наложения фигур', () => {
     expect(ids(ed)).toEqual(['a', 'b', 'c'])
   })
 })
+
+describe('поворот и отражение фигур', () => {
+  const byId = (ed, id) => ed.shapes.value.find((s) => s.id === id)
+
+  it('поворот идёт вокруг центра ОБЩЕГО габарита выделения', () => {
+    const ed = createStencilEditor()
+    const a = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    const b = ed.addShape({ type: 'rect', x: 10, y: 0, w: 10, h: 10 })
+    ed.selectMany([a.id, b.id])
+
+    // Габарит 20×10, центр (10,5): по часовой пара из горизонтальной становится
+    // вертикальной, а не крутится каждая вокруг себя.
+    ed.rotateShapes([a.id, b.id], 1)
+    expect(byId(ed, a.id)).toMatchObject({ x: 5, y: -5, w: 10, h: 10 })
+    expect(byId(ed, b.id)).toMatchObject({ x: 5, y: 5, w: 10, h: 10 })
+  })
+
+  it('поворот и отражение — один шаг истории на всю пачку', () => {
+    const ed = createStencilEditor()
+    const a = ed.addShape({ type: 'rect', x: 10, y: 10, w: 20, h: 10 })
+    const b = ed.addShape({ type: 'line', x1: 10, y1: 30, x2: 30, y2: 30 })
+
+    ed.rotateShapes([a.id, b.id], 1)
+    ed.undo()
+    expect(byId(ed, a.id)).toMatchObject({ x: 10, y: 10, w: 20, h: 10 })
+    expect(byId(ed, b.id)).toMatchObject({ x1: 10, x2: 30, y1: 30 })
+
+    ed.flipShapes([a.id, b.id], 'h')
+    ed.undo()
+    expect(byId(ed, a.id)).toMatchObject({ x: 10, y: 10 })
+  })
+
+  it('отражение одной фигуры остаётся в её габарите', () => {
+    const ed = createStencilEditor()
+    const s = ed.addShape({
+      type: 'polyline',
+      points: [
+        [10, 10],
+        [30, 10],
+        [30, 20],
+      ],
+    })
+    ed.flipShapes([s.id], 'h')
+    expect(byId(ed, s.id).points).toEqual([
+      [30, 10],
+      [10, 10],
+      [10, 20],
+    ])
+  })
+
+  it('чужие и пустые id ничего не меняют и не пишут историю', () => {
+    const ed = createStencilEditor()
+    const s = ed.addShape({ type: 'rect', x: 10, y: 10, w: 10, h: 10 })
+    ed.rotateShapes(['ghost'], 1)
+    ed.flipShapes([], 'v')
+    ed.undo()
+    // Последним шагом остался addShape — откат убирает фигуру целиком.
+    expect(ed.shapes.value).toEqual([])
+    ed.redo()
+    expect(byId(ed, s.id)).toMatchObject({ x: 10, y: 10 })
+  })
+})

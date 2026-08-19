@@ -16,6 +16,32 @@ export function projectToScreen(paper, mx, my) {
   return { x: mx * scale + tx, y: my * scale + ty }
 }
 
+// Overlay-кнопки выделения (32×32). Зазор заметный: кнопка крупнее мелкого символа
+// (20×20), иначе она наползает на него и на соседей, и клик по соседу попадает в неё.
+const BTN_HALF = 16
+const BTN_GAP = 24
+
+/**
+ * Позиции overlay-кнопок вокруг рамки выделения (css-`left`/`top` по центру кнопки).
+ * Считаются от рамки в ПИКСЕЛЯХ — что за ней (ячейка холста или габарит фигур в
+ * редакторе символов), функции всё равно; общая формула держит раскладку кнопок
+ * одинаковой в холсте и редакторе.
+ *
+ * Повороты — по верхним углам, отражения — на серединах сторон (горизонтальное
+ * сверху, вертикальное слева), удаление и замок — по нижним.
+ */
+export function overlayButtonPositions({ left, top, right, bottom }) {
+  const at = (x, y) => ({ left: `${x - BTN_HALF}px`, top: `${y - BTN_HALF}px` })
+  return {
+    rotateCcw: at(left - BTN_GAP, top - BTN_GAP),
+    rotateCw: at(right + BTN_GAP, top - BTN_GAP),
+    flipH: at((left + right) / 2, top - BTN_GAP),
+    flipV: at(left - BTN_GAP, (top + bottom) / 2),
+    delete: at(right + BTN_GAP, bottom + BTN_GAP),
+    lock: at(left - BTN_GAP, bottom + BTN_GAP),
+  }
+}
+
 /**
  * Осевыровненный bbox ячейки С УЧЁТОМ поворота. `cell.getBBox()` даёт
  * неповёрнутую рамку (position+size), поэтому у развёрнутого стенсила (вертикальный

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { insideApproachDirection, rightAngleDirections } from './linkDefaults'
+import {
+  insideApproachDirection,
+  rightAngleDirections,
+  arrowSize,
+  arrowPath,
+  arrowExportSvg,
+  linkStyleAttrs,
+} from './linkDefaults'
 
 // Порт шины стоит в СЕРЕДИНЕ толщины, и дефолт роутера (MAGNET_SIDE = ближайшая
 // сторона bbox) при равноудалённых top/bottom заводил все провода с одной стороны.
@@ -72,5 +79,51 @@ describe('rightAngleDirections', () => {
       })
     ).toEqual({})
     expect(rightAngleDirections([], null)).toEqual({})
+  })
+})
+
+describe('наконечники провода', () => {
+  it('размер пропорционален толщине линии', () => {
+    expect(arrowSize(2)).toEqual({ len: 8, half: 4 })
+    expect(arrowSize(4)).toEqual({ len: 16, half: 8 })
+    // Мусор и ноль → дефолтная толщина линии (2).
+    expect(arrowSize(undefined)).toEqual({ len: 8, half: 4 })
+  })
+
+  it('solid — замкнутый треугольник, open — две линии под 45°', () => {
+    // Вершина в точке конца линии (0 0), тело — вдоль оси X: наконечник смотрит В точку
+    // соединения. Направление задаёт dir: у targetMarker тело в +X, у sourceMarker в −X
+    // (оси концов у JointJS противоположны).
+    expect(arrowPath('solid', 2)).toBe('M 0 0 L 8 4 L 8 -4 Z')
+    expect(arrowPath('solid', 2, -1)).toBe('M 0 0 L -8 4 L -8 -4 Z')
+    expect(arrowPath('open', 2)).toBe('M 8 4 L 0 0 L 8 -4')
+    expect(arrowPath(undefined, 2)).toBeNull()
+  })
+
+  it('маркеры концов смотрят внутрь линии: у source тело в +X, у конца в −X', () => {
+    // JointJS разворачивает sourceMarker, поэтому знаки у концов разные. С обратными
+    // остриё уходит ЗА точку соединения, и стрелка смотрит наружу схемы.
+    const line = linkStyleAttrs({ arrowStart: 'solid', arrowEnd: 'solid' }).line
+    expect(line.sourceMarker.d).toBe('M 0 0 L 8 4 L 8 -4 Z')
+    expect(line.targetMarker.d).toBe('M 0 0 L -8 4 L -8 -4 Z')
+  })
+
+  it('стиль линии несёт маркеры только для заданных концов', () => {
+    expect(linkStyleAttrs({ arrowEnd: 'solid' }).line.targetMarker).toMatchObject({
+      type: 'path',
+      fill: '#000',
+    })
+    expect(linkStyleAttrs({ arrowEnd: 'solid' }).line.sourceMarker).toEqual({ type: 'none' })
+    // Полая — контуром в цвет линии, без заливки.
+    const open = linkStyleAttrs({ arrowStart: 'open', strokeColor: '#ff0000' }).line.sourceMarker
+    expect(open).toMatchObject({ fill: 'none', stroke: '#ff0000' })
+    expect(linkStyleAttrs({})).toBeNull()
+  })
+
+  it('экспортный наконечник ставится в точку конца и поворачивается по углу', () => {
+    const svg = arrowExportSvg('solid', { x: 40, y: 10 }, 90, 2, '#000')
+    expect(svg).toContain('transform="translate(40 10) rotate(90)"')
+    expect(svg).toContain('class="tms-range-fill"')
+    expect(arrowExportSvg(null, { x: 0, y: 0 }, 0, 2, '#000')).toBe('')
   })
 })

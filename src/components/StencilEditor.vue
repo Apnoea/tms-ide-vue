@@ -27,9 +27,12 @@ import {
   stencilDraftIssues,
   isFillableShape,
   radii,
-  shapeBounds,
+  shapesBounds,
+  canRotateShapes,
+  canFlipShapes,
   TEXT_SHAPE_SIZE,
 } from '../utils/stencilSvg'
+import { overlayButtonPositions } from '../utils/paperGeom'
 import { confirmDanger } from '../utils/confirmDanger'
 import { range, rangeFromTo, gridLineColor, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
@@ -496,6 +499,10 @@ function onStageDown(e) {
   if (e.button !== 0 || tool.value !== 'select') return
   // Клик по фигуре/ручке/порту — их жест (drag через interact.js).
   if (e.target.closest('[data-se-move]')) return
+  // Кнопки поворота/отражения лежат НАД stage: без этого гейта их pointerdown
+  // трактуется как клик по пустому месту и снимает выделение раньше, чем сработает
+  // @click, — кнопка получала бы пустой список и ничего не делала.
+  if (e.target.closest('[data-se-overlay]')) return
   startLasso(e)
 }
 
@@ -509,24 +516,11 @@ const { lassoRect, startLasso } = useEditorLasso({
 // Рамка вокруг всего выделения при N>1: у отдельных фигур halo своё, но общий
 // габарит показывает, что жест drag/Delete применится ко всей пачке. При одной
 // фигуре не рисуем — там есть halo и ручки.
-const selectionBox = computed(() => {
-  if (selectedIds.value.length < 2) return null
-  let x0 = Infinity
-  let y0 = Infinity
-  let x1 = -Infinity
-  let y1 = -Infinity
-  for (const s of shapes.value) {
-    if (!selectedSet.value.has(s.id)) continue
-    const b = shapeBounds(s)
-    if (!b) continue
-    x0 = Math.min(x0, b.x)
-    y0 = Math.min(y0, b.y)
-    x1 = Math.max(x1, b.x + b.w)
-    y1 = Math.max(y1, b.y + b.h)
-  }
-  if (x0 === Infinity) return null
-  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
-})
+/** Габарит выделения в user-координатах — общий якорь рамки и overlay-кнопок. */
+const selectedBounds = computed(() =>
+  shapesBounds(shapes.value.filter((s) => selectedSet.value.has(s.id)))
+)
+const selectionBox = computed(() => (selectedIds.value.length < 2 ? null : selectedBounds.value))
 
 // ─── Ручки выделенной фигуры ───
 // Только при ОДНОЙ выделенной (selectedId при N>1 — null): групповой ресайз по
@@ -775,6 +769,20 @@ useEventListener(window, 'keydown', (e) => {
     removeShapes(selectedIds.value)
     return
   }
+  // Поворот и отражение — те же клавиши, что на холсте (см. useHotkeys). Без Ctrl,
+  // поэтому проверяем поля ввода: R посреди набора подписи не должен крутить фигуру.
+  if (!e.ctrlKey && !e.metaKey && !e.altKey && !isInInput(e.target) && selectedIds.value.length) {
+    if (e.code === 'KeyR') {
+      e.preventDefault()
+      rotateSelectedBy(e.shiftKey ? -90 : 90)
+      return
+    }
+    if (e.shiftKey && (e.code === 'KeyH' || e.code === 'KeyV')) {
+      e.preventDefault()
+      flipSelected(e.code === 'KeyH' ? 'h' : 'v')
+      return
+    }
+  }
   // Порядок наложения — те же аккорды, что на холсте (см. useHotkeys): Ctrl+] / Ctrl+[,
   // с Shift — до края. У фигур слой задаёт позиция в массиве, а не z.
   if ((e.ctrlKey || e.metaKey) && (e.code === 'BracketRight' || e.code === 'BracketLeft')) {
@@ -788,28 +796,106 @@ useEventListener(window, 'keydown', (e) => {
   }
 })
 
+// Overlay-кнопки выделения: поворот на 90°, отражение и удаление — те же иконки,
+// позиции и клавиши, что на холсте (раскладку считает общая overlayButtonPositions).
+// Рамку берём из МОДЕЛИ и переводим в пиксели сами: у фигур нет своего DOM-узла с
+// габаритом, а у SVG свой масштаб (scale = px на единицу модели).
+
+/** Выделенные фигуры в порядке отрисовки — вход предикатов доступности операций. */
+const selectedShapes = computed(() => shapes.value.filter((s) => selectedSet.value.has(s.id)))
+
+// Операцию предлагаем только там, где она реально меняет картинку: у круга и квадрата
+// поворот, у прямоугольника и ортогональной линии отражение — no-op, и «мёртвая»
+// кнопка (или пункт меню) читается как поломка. Один источник для кнопок, ПКМ-меню и
+// хоткеев — иначе клавиша делала бы то, чего кнопка не предлагает.
+const canRotateSel = computed(() => canRotateShapes(selectedShapes.value))
+const canFlipSelH = computed(() => canFlipShapes(selectedShapes.value, 'h'))
+const canFlipSelV = computed(() => canFlipShapes(selectedShapes.value, 'v'))
+
+const shapeOverlay = computed(() => {
+  if (!selectedIds.value.length || tool.value !== 'select') return null
+  const bbox = selectedBounds.value
+  if (!bbox) return null
+  const k = scale.value
+  return {
+    canRotate: canRotateSel.value,
+    canFlipH: canFlipSelH.value,
+    canFlipV: canFlipSelV.value,
+    ...overlayButtonPositions({
+      left: bbox.x * k,
+      top: bbox.y * k,
+      right: (bbox.x + bbox.w) * k,
+      bottom: (bbox.y + bbox.h) * k,
+    }),
+  }
+})
+
+// Гейт держим здесь, а не только в разметке: через него проходят и кнопка, и пункт
+// меню, и хоткей — иначе клавиша делала бы «преобразование», которого не видно.
+function rotateSelectedBy(deg) {
+  if (!canRotateSel.value) return
+  ed.rotateShapes(selectedIds.value, deg < 0 ? -1 : 1)
+}
+function flipSelected(axis) {
+  if (!(axis === 'h' ? canFlipSelH.value : canFlipSelV.value)) return
+  ed.flipShapes(selectedIds.value, axis)
+}
+
 // ПКМ по фигуре: порядок наложения и удаление — те же операции, что в меню холста.
 // Клик по невыделенной фигуре сначала выделяет её (как на холсте), поэтому команда
 // всегда работает с тем, на что нажали.
 const ctxMenu = ref(null)
-const ctxItems = computed(() => [
-  {
-    label: 'Порядок',
-    icon: 'pi pi-sort-alt',
-    items: [
-      { label: 'На передний план', icon: 'pi pi-angle-double-up', command: () => order('front') },
-      { label: 'Выше', icon: 'pi pi-angle-up', command: () => order('forward') },
-      { label: 'Ниже', icon: 'pi pi-angle-down', command: () => order('backward') },
-      { label: 'На задний план', icon: 'pi pi-angle-double-down', command: () => order('back') },
-    ],
-  },
-  { separator: true },
-  {
-    label: 'Удалить',
-    icon: 'pi pi-trash',
-    command: () => removeShapes(selectedIds.value),
-  },
-])
+const ctxItems = computed(() => {
+  // Пункты преобразований — под теми же предикатами, что кнопки: у симметричной
+  // фигуры подменю целиком не показываем, а не отдаём пункт-пустышку.
+  const flips = [
+    canFlipSelH.value && {
+      label: 'По горизонтали · Shift+H',
+      icon: 'pi pi-arrows-h',
+      command: () => flipSelected('h'),
+    },
+    canFlipSelV.value && {
+      label: 'По вертикали · Shift+V',
+      icon: 'pi pi-arrows-v',
+      command: () => flipSelected('v'),
+    },
+  ].filter(Boolean)
+  return [
+    {
+      label: 'Порядок',
+      icon: 'pi pi-sort-alt',
+      items: [
+        { label: 'На передний план', icon: 'pi pi-angle-double-up', command: () => order('front') },
+        { label: 'Выше', icon: 'pi pi-angle-up', command: () => order('forward') },
+        { label: 'Ниже', icon: 'pi pi-angle-down', command: () => order('backward') },
+        { label: 'На задний план', icon: 'pi pi-angle-double-down', command: () => order('back') },
+      ],
+    },
+    ...(canRotateSel.value
+      ? [
+          {
+            label: 'Повернуть',
+            icon: 'pi pi-refresh',
+            items: [
+              { label: 'По часовой · R', icon: 'pi pi-undo', command: () => rotateSelectedBy(90) },
+              {
+                label: 'Против часовой · Shift+R',
+                icon: 'pi pi-undo',
+                command: () => rotateSelectedBy(-90),
+              },
+            ],
+          },
+        ]
+      : []),
+    ...(flips.length ? [{ label: 'Отразить', icon: 'pi pi-arrows-h', items: flips }] : []),
+    { separator: true },
+    {
+      label: 'Удалить',
+      icon: 'pi pi-trash',
+      command: () => removeShapes(selectedIds.value),
+    },
+  ]
+})
 
 function order(mode) {
   ed.reorderShapes(selectedIds.value, mode)
@@ -1043,206 +1129,272 @@ onBeforeUnmount(() => {
           @scroll="updateRuler"
           @pointerdown="onStageDown"
         >
-          <svg
-            ref="svgEl"
-            :width="pxW"
-            :height="pxH"
-            :viewBox="`0 0 ${meta.width} ${meta.height}`"
-            class="shadow-sm overflow-visible"
-            :class="tool === 'select' ? 'cursor-default' : 'cursor-crosshair'"
-            @pointerdown="onSurfaceDown"
-            @pointermove="onSurfaceMove"
-            @dblclick="finishPolyline"
-            @contextmenu="onShapeContextMenu"
-          >
-            <!-- Холст: та же канва (белый фон + сетка) продолжается за границы
+          <div class="relative">
+            <svg
+              ref="svgEl"
+              :width="pxW"
+              :height="pxH"
+              :viewBox="`0 0 ${meta.width} ${meta.height}`"
+              class="shadow-sm overflow-visible"
+              :class="tool === 'select' ? 'cursor-default' : 'cursor-crosshair'"
+              @pointerdown="onSurfaceDown"
+              @pointermove="onSurfaceMove"
+              @dblclick="finishPolyline"
+              @contextmenu="onShapeContextMenu"
+            >
+              <!-- Холст: та же канва (белый фон + сетка) продолжается за границы
                  стенсила, но на opacity .3 и без редактирования (pointer-events
                  none — рисуем только в области стенсила). Порядок: сначала вся
                  канва на .3, поверх — область стенсила 0..W/0..H на opacity 1. -->
-            <g opacity="0.3" pointer-events="none">
-              <rect
-                :x="-gridPadX"
-                :y="-gridPadY"
-                :width="meta.width + gridPadX * 2"
-                :height="meta.height + gridPadY * 2"
-                fill="#fff"
-              />
-              <line
-                v-for="x in gridXFull"
-                :key="`fvx${x}`"
-                :x1="x"
-                :y1="-gridPadY"
-                :x2="x"
-                :y2="meta.height + gridPadY"
-                :stroke="lineColor(x)"
-                stroke-width="1"
-                vector-effect="non-scaling-stroke"
-              />
-              <line
-                v-for="y in gridYFull"
-                :key="`fhy${y}`"
-                :x1="-gridPadX"
-                :y1="y"
-                :x2="meta.width + gridPadX"
-                :y2="y"
-                :stroke="lineColor(y)"
-                stroke-width="1"
-                vector-effect="non-scaling-stroke"
-              />
-            </g>
-            <g pointer-events="none">
-              <rect x="0" y="0" :width="meta.width" :height="meta.height" fill="#fff" />
-              <line
-                v-for="x in gridX"
-                :key="`vx${x}`"
-                :x1="x"
-                :y1="0"
-                :x2="x"
-                :y2="meta.height"
-                :stroke="lineColor(x)"
-                stroke-width="1"
-                vector-effect="non-scaling-stroke"
-              />
-              <line
-                v-for="y in gridY"
-                :key="`hy${y}`"
-                :x1="0"
-                :y1="y"
-                :x2="meta.width"
-                :y2="y"
-                :stroke="lineColor(y)"
-                stroke-width="1"
-                vector-effect="non-scaling-stroke"
-              />
-            </g>
+              <g opacity="0.3" pointer-events="none">
+                <rect
+                  :x="-gridPadX"
+                  :y="-gridPadY"
+                  :width="meta.width + gridPadX * 2"
+                  :height="meta.height + gridPadY * 2"
+                  fill="#fff"
+                />
+                <line
+                  v-for="x in gridXFull"
+                  :key="`fvx${x}`"
+                  :x1="x"
+                  :y1="-gridPadY"
+                  :x2="x"
+                  :y2="meta.height + gridPadY"
+                  :stroke="lineColor(x)"
+                  stroke-width="1"
+                  vector-effect="non-scaling-stroke"
+                />
+                <line
+                  v-for="y in gridYFull"
+                  :key="`fhy${y}`"
+                  :x1="-gridPadX"
+                  :y1="y"
+                  :x2="meta.width + gridPadX"
+                  :y2="y"
+                  :stroke="lineColor(y)"
+                  stroke-width="1"
+                  vector-effect="non-scaling-stroke"
+                />
+              </g>
+              <g pointer-events="none">
+                <rect x="0" y="0" :width="meta.width" :height="meta.height" fill="#fff" />
+                <line
+                  v-for="x in gridX"
+                  :key="`vx${x}`"
+                  :x1="x"
+                  :y1="0"
+                  :x2="x"
+                  :y2="meta.height"
+                  :stroke="lineColor(x)"
+                  stroke-width="1"
+                  vector-effect="non-scaling-stroke"
+                />
+                <line
+                  v-for="y in gridY"
+                  :key="`hy${y}`"
+                  :x1="0"
+                  :y1="y"
+                  :x2="meta.width"
+                  :y2="y"
+                  :stroke="lineColor(y)"
+                  stroke-width="1"
+                  vector-effect="non-scaling-stroke"
+                />
+              </g>
 
-            <!-- Фигуры в натуральном z-порядке (= порядок экспорта). Выделенную
+              <!-- Фигуры в натуральном z-порядке (= порядок экспорта). Выделенную
                  НЕ выносим вперёд: её заливка перекрыла бы фигуры, лежащие выше.
                  Halo рисуем прямо перед выделенной фигурой, в её же слое — реальные
                  цвет линии/заливка видны поверх; выделение всё равно читается по
                  halo вокруг обводки и ручкам (ручки рисуются последними, сверху).
                  renderShapes фильтрует по превью состояния (эмуляция animation-hidden). -->
-            <ShapePrimitive
-              v-for="s in renderShapes"
-              :key="s.id"
-              :shape="s"
-              :selected="selectedSet.has(s.id)"
-              :halo-width="haloWidthFor(s)"
-              :halo-stroke="SEL_STROKE"
-              :pointer-events="shapePointerEvents"
-              @select="onShapeSelect(s.id, $event)"
-            />
+              <ShapePrimitive
+                v-for="s in renderShapes"
+                :key="s.id"
+                :shape="s"
+                :selected="selectedSet.has(s.id)"
+                :halo-width="haloWidthFor(s)"
+                :halo-stroke="SEL_STROKE"
+                :pointer-events="shapePointerEvents"
+                @select="onShapeSelect(s.id, $event)"
+              />
 
-            <!-- Превью тянущейся фигуры -->
-            <rect
-              v-if="draftRect"
-              :x="draftRect.x"
-              :y="draftRect.y"
-              :width="draftRect.w"
-              :height="draftRect.h"
-              fill="none"
-              :style="{ stroke: SEL_STROKE }"
-              stroke-width="1"
-              stroke-dasharray="3 2"
-              vector-effect="non-scaling-stroke"
-            />
-            <line
-              v-if="drawing?.type === 'line'"
-              :x1="drawing.sx"
-              :y1="drawing.sy"
-              :x2="drawing.cx"
-              :y2="drawing.cy"
-              :style="{ stroke: SEL_STROKE }"
-              stroke-width="1"
-              stroke-dasharray="3 2"
-              vector-effect="non-scaling-stroke"
-            />
-            <ellipse
-              v-if="draftEllipse"
-              :cx="draftEllipse.cx"
-              :cy="draftEllipse.cy"
-              :rx="draftEllipse.rx"
-              :ry="draftEllipse.ry"
-              fill="none"
-              :style="{ stroke: SEL_STROKE }"
-              stroke-width="1"
-              stroke-dasharray="3 2"
-              vector-effect="non-scaling-stroke"
-            />
-            <polyline
-              v-if="polyPreview"
-              :points="polyPreview"
-              fill="none"
-              :style="{ stroke: SEL_STROKE }"
-              stroke-width="1"
-              stroke-dasharray="3 2"
-              vector-effect="non-scaling-stroke"
-            />
+              <!-- Превью тянущейся фигуры -->
+              <rect
+                v-if="draftRect"
+                :x="draftRect.x"
+                :y="draftRect.y"
+                :width="draftRect.w"
+                :height="draftRect.h"
+                fill="none"
+                :style="{ stroke: SEL_STROKE }"
+                stroke-width="1"
+                stroke-dasharray="3 2"
+                vector-effect="non-scaling-stroke"
+              />
+              <line
+                v-if="drawing?.type === 'line'"
+                :x1="drawing.sx"
+                :y1="drawing.sy"
+                :x2="drawing.cx"
+                :y2="drawing.cy"
+                :style="{ stroke: SEL_STROKE }"
+                stroke-width="1"
+                stroke-dasharray="3 2"
+                vector-effect="non-scaling-stroke"
+              />
+              <ellipse
+                v-if="draftEllipse"
+                :cx="draftEllipse.cx"
+                :cy="draftEllipse.cy"
+                :rx="draftEllipse.rx"
+                :ry="draftEllipse.ry"
+                fill="none"
+                :style="{ stroke: SEL_STROKE }"
+                stroke-width="1"
+                stroke-dasharray="3 2"
+                vector-effect="non-scaling-stroke"
+              />
+              <polyline
+                v-if="polyPreview"
+                :points="polyPreview"
+                fill="none"
+                :style="{ stroke: SEL_STROKE }"
+                stroke-width="1"
+                stroke-dasharray="3 2"
+                vector-effect="non-scaling-stroke"
+              />
 
-            <!-- Рамка лассо + общий габарит выделения (при N>1). Обе в user-
+              <!-- Рамка лассо + общий габарит выделения (при N>1). Обе в user-
                  координатах, поэтому зум/скролл их не сдвигают. -->
-            <rect
-              v-if="lassoRect"
-              pointer-events="none"
-              :x="lassoRect.x"
-              :y="lassoRect.y"
-              :width="lassoRect.w"
-              :height="lassoRect.h"
-              fill="none"
-              :style="{ stroke: SEL_STROKE }"
-              stroke-width="1"
-              stroke-dasharray="4 2"
-              vector-effect="non-scaling-stroke"
-            />
-            <rect
-              v-if="selectionBox"
-              pointer-events="none"
-              :x="selectionBox.x"
-              :y="selectionBox.y"
-              :width="selectionBox.w"
-              :height="selectionBox.h"
-              fill="none"
-              :style="{ stroke: SEL_STROKE }"
-              stroke-width="1"
-              stroke-dasharray="2 2"
-              opacity="0.7"
-              vector-effect="non-scaling-stroke"
-            />
+              <rect
+                v-if="lassoRect"
+                pointer-events="none"
+                :x="lassoRect.x"
+                :y="lassoRect.y"
+                :width="lassoRect.w"
+                :height="lassoRect.h"
+                fill="none"
+                :style="{ stroke: SEL_STROKE }"
+                stroke-width="1"
+                stroke-dasharray="4 2"
+                vector-effect="non-scaling-stroke"
+              />
+              <rect
+                v-if="selectionBox"
+                pointer-events="none"
+                :x="selectionBox.x"
+                :y="selectionBox.y"
+                :width="selectionBox.w"
+                :height="selectionBox.h"
+                fill="none"
+                :style="{ stroke: SEL_STROKE }"
+                stroke-width="1"
+                stroke-dasharray="2 2"
+                opacity="0.7"
+                vector-effect="non-scaling-stroke"
+              />
 
-            <!-- Ручки выделенной фигуры -->
-            <circle
-              v-for="hnd in handles"
-              :key="`${selectedId}-${hnd.h}`"
-              data-se-move="handle"
-              :data-id="selectedId"
-              :data-h="hnd.h"
-              :cx="hnd.x"
-              :cy="hnd.y"
-              :r="hr"
-              fill="#fff"
-              :style="{ stroke: SEL_STROKE }"
-              stroke-width="1.5"
-              vector-effect="non-scaling-stroke"
-              class="cursor-pointer"
-            />
+              <!-- Ручки выделенной фигуры -->
+              <circle
+                v-for="hnd in handles"
+                :key="`${selectedId}-${hnd.h}`"
+                data-se-move="handle"
+                :data-id="selectedId"
+                :data-h="hnd.h"
+                :cx="hnd.x"
+                :cy="hnd.y"
+                :r="hr"
+                fill="#fff"
+                :style="{ stroke: SEL_STROKE }"
+                stroke-width="1.5"
+                vector-effect="non-scaling-stroke"
+                class="cursor-pointer"
+              />
 
-            <!-- Порты -->
-            <circle
-              v-for="p in ports"
-              :key="p.id"
-              data-se-move="port"
-              :data-id="p.id"
-              :cx="p.x"
-              :cy="p.y"
-              :r="hr * 1.2"
-              fill="#f59e0b"
-              stroke="#78350f"
-              stroke-width="1"
-              vector-effect="non-scaling-stroke"
-              :class="tool === 'port' ? 'cursor-pointer' : 'cursor-move'"
-              @pointerdown="onPortDown($event, p.id)"
-            />
-          </svg>
+              <!-- Порты -->
+              <circle
+                v-for="p in ports"
+                :key="p.id"
+                data-se-move="port"
+                :data-id="p.id"
+                :cx="p.x"
+                :cy="p.y"
+                :r="hr * 1.2"
+                fill="#f59e0b"
+                stroke="#78350f"
+                stroke-width="1"
+                vector-effect="non-scaling-stroke"
+                :class="tool === 'port' ? 'cursor-pointer' : 'cursor-move'"
+                @pointerdown="onPortDown($event, p.id)"
+              />
+            </svg>
+            <!-- Кнопки поворота и отражения выделения — те же иконки, позиции и клавиши,
+               что на холсте (см. useSelectionOverlay). Якорь — bbox выделения из МОДЕЛИ,
+               поэтому при перемещении фигуры кнопки едут вместе с ней. -->
+            <template v-if="shapeOverlay">
+              <Button
+                v-if="shapeOverlay.canRotate"
+                v-tooltip.top="'Повернуть против часовой · Shift+R'"
+                icon="pi pi-undo"
+                severity="secondary"
+                rounded
+                size="small"
+                data-se-overlay="1"
+                class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
+                :style="shapeOverlay.rotateCcw"
+                @click="rotateSelectedBy(-90)"
+              />
+              <Button
+                v-if="shapeOverlay.canRotate"
+                v-tooltip.top="'Повернуть по часовой · R'"
+                icon="pi pi-undo -scale-x-100"
+                severity="secondary"
+                rounded
+                size="small"
+                data-se-overlay="1"
+                class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
+                :style="shapeOverlay.rotateCw"
+                @click="rotateSelectedBy(90)"
+              />
+              <Button
+                v-if="shapeOverlay.canFlipH"
+                v-tooltip.top="'Отразить по горизонтали · Shift+H'"
+                icon="pi pi-arrows-h"
+                severity="secondary"
+                rounded
+                size="small"
+                data-se-overlay="1"
+                class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
+                :style="shapeOverlay.flipH"
+                @click="flipSelected('h')"
+              />
+              <Button
+                v-if="shapeOverlay.canFlipV"
+                v-tooltip.top="'Отразить по вертикали · Shift+V'"
+                icon="pi pi-arrows-v"
+                severity="secondary"
+                rounded
+                size="small"
+                data-se-overlay="1"
+                class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
+                :style="shapeOverlay.flipV"
+                @click="flipSelected('v')"
+              />
+              <Button
+                v-tooltip.top="'Удалить · Del'"
+                icon="pi pi-trash"
+                severity="secondary"
+                rounded
+                size="small"
+                data-se-overlay="1"
+                class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
+                :style="shapeOverlay.delete"
+                @click="removeShapes(selectedIds)"
+              />
+            </template>
+          </div>
         </div>
       </div>
     </div>

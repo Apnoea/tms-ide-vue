@@ -161,33 +161,152 @@ export function serializeShape(shape, markFill) {
 }
 
 /**
- * Масштаб фигуры относительно НАЧАЛА КООРДИНАТ (фигуры-примитивы холста хранятся
- * прижатыми к 0,0 — см. shapeElement.placeShape). Нужен ресайзу фигуры за ручки:
- * тянут её габарит, а геометрия должна поехать в те же пропорции.
+ * ЕДИНЫЙ обход опорных точек фигуры: `fn(x, y)` → `[x, y]`. На нём стоят все
+ * преобразования (перенос, масштаб, поворот, отражение) — иначе каждое повторяло бы
+ * switch по типам, и они разъезжались бы при добавлении примитива.
  *
- * Подпись не масштабируем: её габарит задаёт шрифт, и «растянутый» текст выглядел
- * бы как другой размер шрифта, которого в модели нет (размер правится полем).
+ * Прямоугольник и эллипс заданы не точками, а размерами, поэтому им отображаются два
+ * угла (у эллипса — центр и «радиус-угол»), а размеры пересчитываются по результату
+ * через abs: так поворот на 90° сам меняет стороны местами, а отражение не даёт
+ * отрицательной ширины.
+ *
+ * Подпись переносится точкой привязки — глифы остаются горизонтальными: угла у
+ * фигуры-текста нет, а вертикальный текст в мнемосхемах не нужен.
  */
-export function scaleShape(s, sx, sy) {
-  if (s.type === 'rect') return { ...s, x: s.x * sx, y: s.y * sy, w: s.w * sx, h: s.h * sy }
+function mapShapePoints(s, fn) {
+  if (!s) return s
+  if (s.type === 'rect') {
+    const [ax, ay] = fn(s.x, s.y)
+    const [bx, by] = fn(s.x + s.w, s.y + s.h)
+    return {
+      ...s,
+      x: Math.min(ax, bx),
+      y: Math.min(ay, by),
+      w: Math.abs(bx - ax),
+      h: Math.abs(by - ay),
+    }
+  }
   if (s.type === 'circle') {
-    return { ...s, cx: s.cx * sx, cy: s.cy * sy, rx: radii(s).rx * sx, ry: radii(s).ry * sy }
+    const { rx, ry } = radii(s)
+    const [cx, cy] = fn(s.cx, s.cy)
+    const [ex, ey] = fn(s.cx + rx, s.cy + ry)
+    return { ...s, cx, cy, rx: Math.abs(ex - cx), ry: Math.abs(ey - cy) }
   }
   if (s.type === 'line') {
-    return { ...s, x1: s.x1 * sx, y1: s.y1 * sy, x2: s.x2 * sx, y2: s.y2 * sy }
+    const [x1, y1] = fn(s.x1, s.y1)
+    const [x2, y2] = fn(s.x2, s.y2)
+    return { ...s, x1, y1, x2, y2 }
   }
-  if (s.type === 'polyline') {
-    return { ...s, points: s.points.map(([x, y]) => [x * sx, y * sy]) }
+  if (s.type === 'polyline') return { ...s, points: s.points.map(([x, y]) => fn(x, y)) }
+  if (s.type === 'text') {
+    const [x, y] = fn(s.x, s.y)
+    return { ...s, x, y }
   }
   return s
 }
 
+/**
+ * Масштаб фигуры относительно НАЧАЛА КООРДИНАТ (фигуры-примитивы холста хранятся
+ * прижатыми к 0,0 — см. shapeElement.placeShape). Нужен ресайзу фигуры за ручки:
+ * тянут её габарит, а геометрия должна поехать в те же пропорции. Подпись не
+ * масштабируется — её габарит задаёт шрифт (mapShapePoints двигает только привязку).
+ */
+export function scaleShape(s, sx, sy) {
+  return mapShapePoints(s, (x, y) => [x * sx, y * sy])
+}
+
+/**
+ * Поворот на 90° вокруг точки: `dir > 0` — по часовой. Ось Y экранная (вниз), поэтому
+ * по часовой вектор (dx, dy) переходит в (−dy, dx). Координаты округляем: шаг вершин
+ * равен пикселю (SHAPE_GRID), а нечётный габарит дал бы половинки.
+ */
+export function rotateShape90(s, center, dir = 1) {
+  const k = dir < 0 ? -1 : 1
+  return mapShapePoints(s, (x, y) => {
+    const dx = x - center.x
+    const dy = y - center.y
+    return [Math.round(center.x - k * dy), Math.round(center.y + k * dx)]
+  })
+}
+
+/** Отражение подписи меняет якорь: иначе текст уезжает за прежние границы. */
+const FLIPPED_ALIGN = { left: 'right', right: 'left' }
+
+/** Отражение вокруг точки: 'h' — по горизонтали (меняет левый и правый край). */
+export function flipShape(s, center, axis) {
+  const flipped = mapShapePoints(s, (x, y) => [
+    axis === 'h' ? 2 * center.x - x : x,
+    axis === 'v' ? 2 * center.y - y : y,
+  ])
+  if (axis !== 'h' || flipped.type !== 'text') return flipped
+  const align = FLIPPED_ALIGN[flipped.align]
+  return align ? { ...flipped, align } : flipped
+}
+
 export function translateShape(s, dx, dy) {
-  if (s.type === 'rect' || s.type === 'text') return { ...s, x: s.x + dx, y: s.y + dy }
-  if (s.type === 'line') return { ...s, x1: s.x1 + dx, y1: s.y1 + dy, x2: s.x2 + dx, y2: s.y2 + dy }
-  if (s.type === 'circle') return { ...s, cx: s.cx + dx, cy: s.cy + dy }
-  if (s.type === 'polyline') return { ...s, points: s.points.map(([x, y]) => [x + dx, y + dy]) }
-  return s
+  return mapShapePoints(s, (x, y) => [x + dx, y + dy])
+}
+
+/**
+ * Ключ ВИДА фигуры: одинаковый ключ = преобразование ничего визуально не поменяло.
+ * У линии и ломаной порядок вершин на картинку не влияет (реверс рисует ту же
+ * линию), поэтому точки сравниваются как множество; у прямоугольника и эллипса
+ * геометрия уже нормализована (mapShapePoints пересчитывает размеры по abs), и
+ * сравнивать можно как есть.
+ */
+function shapeViewKey(s) {
+  const setKey = (pts) =>
+    pts
+      .map(([x, y]) => `${x},${y}`)
+      .sort()
+      .join(' ')
+  if (s.type === 'line')
+    return setKey([
+      [s.x1, s.y1],
+      [s.x2, s.y2],
+    ])
+  if (s.type === 'polyline') return setKey(s.points || [])
+  if (s.type === 'rect') return `r ${s.x} ${s.y} ${s.w} ${s.h}`
+  if (s.type === 'circle') {
+    const { rx, ry } = radii(s)
+    return `c ${s.cx} ${s.cy} ${rx} ${ry}`
+  }
+  if (s.type === 'text') return `t ${s.x} ${s.y} ${s.align || ''}`
+  return JSON.stringify(s)
+}
+
+/** Меняет ли преобразование вид выделения (центр — центр общего габарита). */
+function transformChangesView(shapes, apply) {
+  const bbox = shapesBounds(shapes)
+  if (!bbox) return false
+  const center = { x: bbox.x + bbox.w / 2, y: bbox.y + bbox.h / 2 }
+  return shapes.some((s) => shapeViewKey(apply(s, center)) !== shapeViewKey(s))
+}
+
+/**
+ * Доступен ли поворот выделения: у круга и квадрата он ничего не меняет, у
+ * одиночной подписи — только переносит точку привязки (глифы остаются
+ * горизонтальными), и кнопка обещала бы разворот, которого не будет.
+ */
+export function canRotateShapes(shapes) {
+  const list = (shapes || []).filter(Boolean)
+  if (!list.length) return false
+  if (list.length === 1 && list[0].type === 'text') return false
+  return transformChangesView(list, (s, center) => rotateShape90(s, center, 1))
+}
+
+/**
+ * Доступно ли отражение выделения по оси: симметричным фигурам (прямоугольник,
+ * эллипс, ортогональная линия) оно ничего не даёт. У одиночной подписи зеркалить
+ * нечего, кроме якоря роста, — а его меняет только горизонтальная ось.
+ */
+export function canFlipShapes(shapes, axis) {
+  const list = (shapes || []).filter(Boolean)
+  if (!list.length) return false
+  if (list.length === 1 && list[0].type === 'text') {
+    return axis === 'h' && !!FLIPPED_ALIGN[list[0].align]
+  }
+  return transformChangesView(list, (s, center) => flipShape(s, center, axis))
 }
 
 /**
@@ -225,15 +344,11 @@ export function shapeBounds(s) {
 }
 
 /**
- * Обрезка пустых полей: считаем bbox фигур + портов, расширяем до кратных grid
- * границ (min — вниз, max — вверх, чтобы контент не срезался), сдвигаем всё в
- * (0,0). Итоговый стенсил = ровно контент, размеры кратны grid. Обводку в bbox
- * не учитываем — как в рукописных стенсилах (rect x=0 со stroke срезается вьюбоксом).
- *
- * @returns {{shapes:Array, ports:Array, width:number, height:number}}
+ * bbox НАБОРА фигур (и портов, если переданы) — `null`, если считать нечего. Один
+ * источник для кропа габарита символа и для трансформаций выделения: центр поворота
+ * обязан совпадать с той рамкой, по которой обрезается символ.
  */
-export function cropToContent(shapes, ports = [], grid = 10) {
-  if (!shapes?.length) return { shapes: shapes || [], ports: ports || [], width: 0, height: 0 }
+export function shapesBounds(shapes, ports = []) {
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
@@ -244,13 +359,33 @@ export function cropToContent(shapes, ports = [], grid = 10) {
     if (x > maxX) maxX = x
     if (y > maxY) maxY = y
   }
-  for (const s of shapes) {
+  for (const s of shapes || []) {
     const b = shapeBounds(s)
     if (!b) continue
     acc(b.x, b.y)
     acc(b.x + b.w, b.y + b.h)
   }
-  for (const p of ports) acc(p.x, p.y)
+  for (const p of ports || []) acc(p.x, p.y)
+  if (!Number.isFinite(minX)) return null
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+}
+
+/**
+ * Обрезка пустых полей: считаем bbox фигур + портов, расширяем до кратных grid
+ * границ (min — вниз, max — вверх, чтобы контент не срезался), сдвигаем всё в
+ * (0,0). Итоговый стенсил = ровно контент, размеры кратны grid. Обводку в bbox
+ * не учитываем — как в рукописных стенсилах (rect x=0 со stroke срезается вьюбоксом).
+ *
+ * @returns {{shapes:Array, ports:Array, width:number, height:number}}
+ */
+export function cropToContent(shapes, ports = [], grid = 10) {
+  if (!shapes?.length) return { shapes: shapes || [], ports: ports || [], width: 0, height: 0 }
+  const bounds = shapesBounds(shapes, ports)
+  if (!bounds) return { shapes, ports, width: 0, height: 0 }
+  const minX = bounds.x
+  const minY = bounds.y
+  const maxX = bounds.x + bounds.w
+  const maxY = bounds.y + bounds.h
 
   const x0 = Math.floor(minX / grid) * grid
   const y0 = Math.floor(minY / grid) * grid
@@ -266,11 +401,6 @@ export function cropToContent(shapes, ports = [], grid = 10) {
   }
 }
 
-/**
- * Модель → строка shape.svg. viewBox/width/height берём из meta (кратны шагу сетки).
- * Фигуры оборачиваем в `<g>` — единый формат с рукописными стенсилами (у них
- * всё в группе); на группу состояния вешается data-anim-suffix.
- */
 // Тело группы: сериализованные фигуры с отступом (пустая строка, если фигур нет).
 // markFill пробрасываем в serializeShape — метку заливки ставим лишь у stateful.
 function groupBody(shapes, markFill) {
@@ -287,6 +417,11 @@ function stateKeys(meta) {
   return meta?.stateMode === 'value' ? (meta.states || []).map((s) => s.key) : ['true', 'false']
 }
 
+/**
+ * Модель → строка shape.svg. viewBox/width/height берём из meta (кратны шагу сетки).
+ * Фигуры оборачиваем в `<g>` — единый формат с рукописными стенсилами (у них
+ * всё в группе); на группу состояния вешается data-anim-suffix.
+ */
 export function serializeSvg(shapes, meta) {
   const w = num(meta.width)
   const h = num(meta.height)
