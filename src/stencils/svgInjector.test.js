@@ -8,8 +8,13 @@ import {
   syncStencilInstances,
   flipTransform,
   buildPortItems,
-  widthResizeMin,
-  resizeStencilWidth,
+  contentTransform,
+  scaledSize,
+  stencilScale,
+  scalableStencil,
+  contentScales,
+  applyStencilScale,
+  STENCIL_SCALE_MAX,
 } from './svgInjector'
 
 describe('reinjectAllStencils: z проводов', () => {
@@ -362,72 +367,143 @@ describe('syncStencilInstances: программные порты (шина)', (
   })
 })
 
-describe('ресайз ширины символа (resizeX)', () => {
-  // Без paper (view = null) перерисовка содержимого пропускается — модельная часть
-  // (размер, позиция, кламп) работает и проверяется здесь.
+describe('масштаб символа: чистые функции', () => {
+  const stencil = {
+    id: 'cell_x',
+    width: 20,
+    height: 40,
+    ports: [
+      { name: 'p1', x: 10, y: 0 },
+      { name: 'p2', x: 10, y: 40 },
+      { name: 'p3', x: 5, y: 20 },
+    ],
+  }
+
+  it('stencilScale: дефолт 1, меньше единицы не бывает, потолок клампится', () => {
+    expect(stencilScale(undefined)).toBe(1)
+    expect(stencilScale({ scale: 0.5 })).toBe(1)
+    expect(stencilScale({ scale: 2.5 })).toBe(2.5)
+    expect(stencilScale({ scale: 99 })).toBe(STENCIL_SCALE_MAX)
+  })
+
+  it('scaledSize: обе стороны садятся на сетку', () => {
+    expect(scaledSize(stencil, 1)).toEqual({ width: 20, height: 40 })
+    expect(scaledSize(stencil, 2)).toEqual({ width: 40, height: 80 })
+    // 20×1.3 = 26 → 25, 40×1.3 = 52 → 50: габарит между клетками увёл бы за собой
+    // крайние порты, а с ними концы проводов.
+    expect(scaledSize(stencil, 1.3)).toEqual({ width: 25, height: 50 })
+  })
+
+  it('порты: крайние липнут к границам, внутренние садятся на сетку', () => {
+    const items = buildPortItems(stencil, 40, 80)
+    expect(items.map((i) => i.args)).toEqual([
+      { x: 20, y: 0 },
+      { x: 20, y: 80 },
+      { x: 10, y: 40 },
+    ])
+  })
+
+  it('порт на границе не уезжает внутрь при дробном масштабе', () => {
+    // 25/20 = 1.25: y=40 (нижний край) обязан стать 50, а не 50±округление внутрь.
+    const items = buildPortItems(stencil, 25, 50)
+    expect(items[1].args).toEqual({ x: 15, y: 50 })
+    // Внутренний порт (5, 20) → 6.25 / 25 → на сетку.
+    expect(items[2].args).toEqual({ x: 5, y: 25 })
+  })
+
+  it('программные символы контентом не масштабируются: тянутая шина не растягивается', () => {
+    // Их билдеры рисуют по ФАКТИЧЕСКОМУ размеру, поэтому база масштаба = он сам.
+    // Иначе тело шины, растянутой за края, уезжало бы во всю ширину холста.
+    expect(contentScales(getStencilById('cell_bus'))).toBe(false)
+    expect(contentScales(getStencilById('cell_text'))).toBe(false)
+    expect(contentScales(getStencilById('cell_node'))).toBe(false)
+    expect(contentScales(getStencilById('cell_qw'))).toBe(true)
+    // База = фактический размер → трансформа нет вообще.
+    expect(contentTransform({ baseWidth: 260, baseHeight: 8, width: 260, height: 8 })).toBeNull()
+  })
+
+  it('масштаб и flip складываются в один transform', () => {
+    const base = { baseWidth: 20, baseHeight: 40 }
+    expect(contentTransform({ ...base, width: 20, height: 40 })).toBeNull()
+    expect(contentTransform({ ...base, width: 40, height: 80 })).toBe('scale(2 2)')
+    expect(contentTransform({ ...base, width: 40, height: 80, flipH: true })).toBe(
+      'translate(40 0) scale(-1 1) scale(2 2)'
+    )
+    // Снап сторон может дать чуть разные коэффициенты — держим оба, а не средний.
+    expect(contentTransform({ ...base, width: 25, height: 50 })).toBe('scale(1.25 1.25)')
+  })
+})
+
+describe('масштаб символа: применение к экземпляру', () => {
+  // Без paper (view = null) перерисовка контента пропускается, модельная часть —
+  // размер, позиция, порты, tms — работает.
   const paper = { findViewByModel: () => null }
 
-  function valueCell(extraTms = {}) {
+  function cellOf(stencilId, tms = {}) {
+    const stencil = getStencilById(stencilId)
     const graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
     const cell = new TMSStencil({
       position: { x: 100, y: 50 },
-      size: { width: 100, height: 20 },
-      tms: { stencilId: 'cell_value', ...extraTms },
+      size: { width: stencil.width, height: stencil.height },
+      tms: { stencilId, ...tms },
+      ports: { items: buildPortItems(stencil, stencil.width, stencil.height) },
     })
     graph.addCell(cell)
     return cell
   }
 
-  it('растяжимость объявляет символ, а не код: у cell_value она есть, у cell_qw нет', () => {
-    expect(widthResizeMin(valueCell())).toBe(getStencilById('cell_value').minWidth)
-    const qw = new TMSStencil({ size: { width: 20, height: 20 }, tms: { stencilId: 'cell_qw' } })
-    expect(widthResizeMin(qw)).toBeNull()
+  it('масштабируются обычные символы и карточка значения, но не шина / точка / залоченные', () => {
+    expect(scalableStencil(cellOf('cell_qw'))).toMatchObject({ id: 'cell_qw' })
+    // Карточка значения — тем же жестом, что остальные: своей ширины у неё больше нет.
+    expect(scalableStencil(cellOf('cell_value'))).toMatchObject({ id: 'cell_value' })
+    expect(scalableStencil(cellOf('cell_bus'))).toBeNull()
+    expect(scalableStencil(cellOf('cell_node'))).toBeNull()
+    expect(scalableStencil(cellOf('cell_qw', { locked: true }))).toBeNull()
   })
 
-  it('замок запрещает ресайз: ручек нет и правка не проходит', () => {
-    const cell = valueCell({ locked: true })
-    expect(widthResizeMin(cell)).toBeNull()
-    // Жест идёт мимо paper.interactive, поэтому отказ обязан быть и в самой правке.
-    expect(resizeStencilWidth(cell, paper, 200)).toBe(false)
-    expect(cell.get('size').width).toBe(100)
+  it('пишет размер, множитель и пересчитывает порты', () => {
+    const cell = cellOf('cell_qw') // 20×20, порты по серединам сторон
+    expect(applyStencilScale(cell, paper, 2)).toBe(true)
+    expect(cell.get('size')).toMatchObject({ width: 40, height: 40 })
+    expect(cell.get('tms').scale).toBe(2)
+    const args = cell.getPorts().map((p) => p.args)
+    expect(args).toEqual([
+      { x: 20, y: 0 },
+      { x: 40, y: 20 },
+      { x: 20, y: 40 },
+      { x: 0, y: 20 },
+    ])
   })
 
-  it('ширина пишется, высота и левый край не трогаются', () => {
-    const cell = valueCell()
-    expect(resizeStencilWidth(cell, paper, 160)).toBe(true)
-    expect(cell.get('size')).toMatchObject({ width: 160, height: 20 })
-    expect(cell.get('position')).toMatchObject({ x: 100, y: 50 })
+  it('позицию берёт от вызывающего (ручка держит свой угол), возврат к ×1 снимает поле', () => {
+    const cell = cellOf('cell_qw')
+    applyStencilScale(cell, paper, 2, { position: { x: 80, y: 30 } })
+    expect(cell.get('position')).toMatchObject({ x: 80, y: 30 })
+    expect(applyStencilScale(cell, paper, 1, { position: { x: 100, y: 50 } })).toBe(true)
+    expect(cell.get('size')).toMatchObject({ width: 20, height: 20 })
+    // ×1 — дефолт: поле не держим, иначе оно уедет в meta пустым фактом.
+    expect('scale' in cell.get('tms')).toBe(false)
   })
 
-  it('anchorRight держит правый край на месте (левая ручка тянет символ влево)', () => {
-    const cell = valueCell()
-    resizeStencilWidth(cell, paper, 140, { anchorRight: true })
-    const pos = cell.get('position')
-    expect(pos.x + cell.get('size').width).toBe(200)
-    expect(pos.x).toBe(60)
+  it('ниже родного размера не уменьшает, выше потолка не растит', () => {
+    const cell = cellOf('cell_qw')
+    expect(applyStencilScale(cell, paper, 0.5)).toBe(false)
+    applyStencilScale(cell, paper, 99)
+    expect(cell.get('tms').scale).toBe(STENCIL_SCALE_MAX)
+    expect(cell.get('size')).toMatchObject({ width: 80, height: 80 })
   })
 
-  it('минимум из stencil.json: уже него не сжать, правый край всё равно на месте', () => {
-    const cell = valueCell()
-    const min = getStencilById('cell_value').minWidth
-    resizeStencilWidth(cell, paper, 5, { anchorRight: true })
-    expect(cell.get('size').width).toBe(min)
-    // Кламп не должен ломать привязку края: иначе карточка при сжатии «прыгала» бы.
-    expect(cell.get('position').x + min).toBe(200)
+  it('повторный вызов с тем же масштабом ничего не меняет (нет шага истории)', () => {
+    const cell = cellOf('cell_qw')
+    expect(applyStencilScale(cell, paper, 3)).toBe(true)
+    expect(applyStencilScale(cell, paper, 3)).toBe(false)
   })
 
-  it('та же ширина = no-op: вызывающему нечего писать в историю', () => {
-    const cell = valueCell()
-    expect(resizeStencilWidth(cell, paper, 100)).toBe(false)
-  })
-
-  it('сверка с реестром выставленную ширину не сбрасывает', () => {
-    // static/minWidth = «габарит свой»: иначе загрузка формы возвращала бы карточке
-    // ширину из stencil.json и правка молча терялась.
-    const cell = valueCell()
+  it('сверка с реестром уважает масштаб: увеличенный экземпляр не сбрасывается', () => {
+    const cell = cellOf('cell_qw')
+    applyStencilScale(cell, paper, 2)
     const graph = cell.graph
-    resizeStencilWidth(cell, paper, 180)
-    syncStencilInstances(graph, paper, getStencilById('cell_value'))
-    expect(cell.get('size').width).toBe(180)
+    syncStencilInstances(graph, paper, getStencilById('cell_qw'))
+    expect(cell.get('size')).toMatchObject({ width: 40, height: 40 })
   })
 })

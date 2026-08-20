@@ -84,6 +84,12 @@ export function useProject({
     initHistory()
     canvas.clearSelection()
     reportDetached(synced)
+    // Вписываем содержимое в область видимости, как кнопка «Вписать»: zoom и translate
+    // paper'а от прошлой формы остаются, а новая нарисована в своих координатах — без
+    // этого форма, начатая не у левого-верхнего угла, открывается за кадром, и холст
+    // выглядит пустым. Пустая форма при этом просто сбрасывается к 100% и (0,0).
+    // nextTick — ячейки должны попасть в DOM: transformToFitContent мерит по нему.
+    nextTick(() => canvas.fitToContent())
   }
 
   /**

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { readdirSync, readFileSync } from 'node:fs'
 import {
   validateStencilJson,
   registerStencil,
@@ -228,5 +229,32 @@ describe('декл-флаги через registerStencil', () => {
     ).toBe(true)
     expect(getStencilById(id).noRotate).toBe(true)
     unregisterStencil(id)
+  })
+})
+
+// Встроенные определения валидируем ПО ФАЙЛАМ, а не через реестр: реестр отдаёт уже
+// разобранный объект, а здесь важно, что на диске нет полей вне `known`. Именно это
+// ловит рассинхрон «код флаг больше не читает, а определение его держит» — такой
+// коммит один раз уже уронил CI (снятый `resizeX` вернулся при откате папки).
+describe('встроенные определения', () => {
+  const DIR = 'src/stencils/definitions'
+  const ids = readdirSync(DIR, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+
+  it('в definitions/ есть символы', () => {
+    expect(ids.length).toBeGreaterThan(5)
+  })
+
+  it.each(ids)('%s: stencil.json без issues', (id) => {
+    const path = `${DIR}/${id}/stencil.json`
+    const json = JSON.parse(readFileSync(path, 'utf8'))
+    let svgText = null
+    try {
+      svgText = readFileSync(`${DIR}/${id}/shape.svg`, 'utf8')
+    } catch {
+      // Программные символы (bus/value/node) рисуются кодом — shape.svg может не быть.
+    }
+    expect(validateStencilJson(path, json, svgText)).toEqual([])
   })
 })

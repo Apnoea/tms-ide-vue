@@ -2,7 +2,7 @@
 // Реальные: dia.Graph + workspace-стор (Pinia). Мокаем canvas-singleton, notify,
 // I/O-слои (projectZip/exporter/projectLoader/registry) и инжектим бэг зависимостей.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { dia } from '@joint/core'
 import { tmsNamespace } from '../stencils/tmsStencil'
@@ -110,6 +110,22 @@ describe('useProject', () => {
       expect(deps.autosave.persistMeta).toHaveBeenCalled()
       expect(deps.undo.initHistory).toHaveBeenCalled()
       expect(mockCanvas.clearSelection).toHaveBeenCalled()
+    })
+
+    it('вписывает контент новой формы в область видимости', async () => {
+      seedForms(
+        [
+          { id: 'a', graphJson: { cells: [] } },
+          { id: 'b', graphJson: { cells: [] } },
+        ],
+        'a'
+      )
+      const { selectForm } = useProject(makeDeps())
+      await selectForm('b')
+      await nextTick()
+      // Иначе форма, нарисованная не у левого-верхнего угла, открывается за кадром:
+      // zoom/translate остаются от прошлой формы.
+      expect(mockCanvas.fitToContent).toHaveBeenCalled()
     })
 
     it('гасит pending snapshot ДО первого await (иначе таймер пишет граф A под ключ B)', async () => {

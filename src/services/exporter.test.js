@@ -1100,6 +1100,7 @@ describe('exportProject', () => {
     valueUnit: 'кВ',
     decimals: 3,
     dotSize: 6,
+    scale: 2,
     locked: true,
     flipH: true,
     flipV: true,

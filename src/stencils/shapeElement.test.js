@@ -12,6 +12,10 @@ import {
   resizeShapeCell,
   isShapeResizable,
   moveShapePoint,
+  rotateShapeCells,
+  flipShapeCells,
+  canRotateShapeGeometry,
+  canFlipShapeGeometry,
   sanitizeShape,
 } from './shapeElement'
 
@@ -309,5 +313,87 @@ describe('sanitizeShape: заливка', () => {
     for (const bad of ['url(#x)', 'rgb(0,0,0)', '"; fill: red', 42]) {
       expect(sanitizeShape({ type: 'rect', w: 10, h: 10, fill: bad }).fill).toBe('none')
     }
+  })
+})
+
+describe('поворот и отражение фигуры (геометрией)', () => {
+  it('поворот меняет стороны местами и держит центр', () => {
+    const graph = graphOf()
+    const cell = materializeShape(graph, paper, { type: 'rect', x: 0, y: 0, w: 40, h: 20 })
+    cell.set('position', { x: 100, y: 100 }) // центр (120, 110)
+
+    expect(rotateShapeCells(graph, paper, [cell.id], 1)).toBe(1)
+    expect(cell.get('size')).toEqual({ width: 20, height: 40 })
+    // Центр на месте — иначе фигура уезжала бы вбок на половину разницы габаритов.
+    const pos = cell.get('position')
+    expect({ x: pos.x + 10, y: pos.y + 20 }).toEqual({ x: 120, y: 110 })
+  })
+
+  it('поворот идёт по геометрии, а не через angle: ручки ресайза остаются рабочими', () => {
+    const graph = graphOf()
+    const cell = materializeShape(graph, paper, { type: 'rect', x: 0, y: 0, w: 40, h: 20 })
+    rotateShapeCells(graph, paper, [cell.id], 1)
+    expect(cell.angle()).toBe(0)
+    expect(isShapeResizable(cell)).toBe(true)
+    // Геометрия в модели тоже повёрнута (в view.svg уезжает уже готовой).
+    expect(cell.get('tms').shape).toMatchObject({ w: 20, h: 40 })
+  })
+
+  it('отражение зеркалит ломаную', () => {
+    const graph = graphOf()
+    const cell = materializeShape(graph, paper, {
+      type: 'polyline',
+      points: [
+        [0, 0],
+        [20, 0],
+        [20, 10],
+      ],
+    })
+    expect(flipShapeCells(graph, paper, [cell.id], 'h')).toBe(1)
+    expect(cell.get('tms').shape.points).toEqual([
+      [20, 0],
+      [0, 0],
+      [0, 10],
+    ])
+  })
+
+  it('симметричным фигурам операция недоступна (кнопка была бы мёртвой)', () => {
+    const graph = graphOf()
+    const square = materializeShape(graph, paper, { type: 'rect', x: 0, y: 0, w: 20, h: 20 })
+    const rect = materializeShape(graph, paper, { type: 'rect', x: 0, y: 0, w: 40, h: 20 })
+    expect(canRotateShapeGeometry(square)).toBe(false)
+    expect(canRotateShapeGeometry(rect)).toBe(true)
+    expect(canFlipShapeGeometry(rect, 'h')).toBe(false)
+    const diagonal = materializeShape(graph, paper, {
+      type: 'line',
+      x1: 0,
+      y1: 0,
+      x2: 20,
+      y2: 10,
+    })
+    expect(canFlipShapeGeometry(diagonal, 'h')).toBe(true)
+  })
+
+  it('подпись поворачивается не геометрией (её крутит angle), а отражение меняет якорь', () => {
+    const graph = graphOf()
+    const cell = materializeShape(graph, paper, {
+      type: 'text',
+      x: 0,
+      y: 10,
+      text: 'Ввод',
+      align: 'left',
+    })
+    expect(canRotateShapeGeometry(cell)).toBe(false)
+    expect(flipShapeCells(graph, paper, [cell.id], 'h')).toBe(1)
+    expect(cell.get('tms').shape.align).toBe('right')
+  })
+
+  it('залоченную не трогаем', () => {
+    const graph = graphOf()
+    const cell = materializeShape(graph, paper, { type: 'rect', x: 0, y: 0, w: 40, h: 20 })
+    cell.set('tms', { ...cell.get('tms'), locked: true })
+    expect(canRotateShapeGeometry(cell)).toBe(false)
+    expect(rotateShapeCells(graph, paper, [cell.id], 1)).toBe(0)
+    expect(cell.get('size')).toEqual({ width: 40, height: 20 })
   })
 })

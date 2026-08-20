@@ -1,37 +1,50 @@
 import { computed } from 'vue'
 import { useCanvas } from './useCanvas'
 import { getStencilById, registryVersion } from '../stencils/registry'
-import { isShapeCell } from '../stencils/shapeElement'
+import {
+  isShapeCell,
+  rotateShapeCells,
+  flipShapeCells,
+  canRotateShapeGeometry,
+  canFlipShapeGeometry,
+} from '../stencils/shapeElement'
 import { injectStencilSvg, buildPortItems } from '../stencils/svgInjector'
 import { projectToScreen, rotatedAabb, overlayButtonPositions } from '../utils/paperGeom'
 
 /**
  * HTML-overlay одиночной выделенной ячейки: rotate/delete/lock по углам visual-AABB
  * и flip на серединах сторон. Не JointJS elementTools — те кэшируют bbox при
- * addTools и не следуют за resize. Что доступно — решают `canCellRotate` (noRotate,
- * замок, из фигур только подпись) и `canCellFlip` (только символы).
+ * addTools и не следуют за resize. Что доступно — решают `canCellRotate` и
+ * `canCellFlip` (замок, noRotate, а у фигур — меняет ли операция картинку).
  */
 export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging }) {
   const canvas = useCanvas()
 
   /**
    * Поворот. Заблокированную (`tms.locked`) не вращаем, noRotate-стенсилы — тоже.
-   * Из фигур-разметки поворачивается только ПОДПИСЬ: у остальных ручки ресайза тянут
-   * габарит в экранных осях, и поворот пришлось бы в них учитывать, а у подписи
-   * ручек нет (её габарит задаёт шрифт).
+   * У фигуры-разметки поворачивается ГЕОМЕТРИЯ (`rotateShapeCells`), поэтому габарит
+   * остаётся в модельных осях и ручки ресайза продолжают работать; исключение —
+   * ПОДПИСЬ: её глифы горизонтальны, поворот геометрии дал бы просто перенос точки
+   * привязки, поэтому её вращает `angle` ячейки. Симметричной фигуре (круг, квадрат)
+   * кнопку не показываем — операция ничего не изменит.
    */
   function canCellRotate(cell) {
     if (!cell || cell.get('tms')?.locked) return false
-    if (isShapeCell(cell)) return cell.get('tms')?.shape?.type === 'text'
+    if (isShapeCell(cell)) {
+      return cell.get('tms')?.shape?.type === 'text' || canRotateShapeGeometry(cell)
+    }
     return !getStencilById(cell.get('tms')?.stencilId)?.noRotate
   }
 
   /**
-   * Отражение — только символы: оно зеркалит их SVG и позиции портов, а у фигуры ни
-   * того, ни другого нет (кнопка была бы мёртвой).
+   * Отражение по оси. У символа оно зеркалит SVG и позиции портов (`tms.flipH/flipV`),
+   * у фигуры — саму геометрию, и там же решается, есть ли смысл: прямоугольник и
+   * ортогональная линия отражением не меняются.
    */
-  function canCellFlip(cell) {
-    return canCellRotate(cell) && !isShapeCell(cell)
+  function canCellFlip(cell, axis) {
+    if (!cell || cell.get('tms')?.locked) return false
+    if (isShapeCell(cell)) return canFlipShapeGeometry(cell, axis)
+    return !getStencilById(cell.get('tms')?.stencilId)?.noRotate
   }
 
   const overlayBtns = computed(() => {
@@ -60,7 +73,8 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
     return {
       id: cell.id,
       canRotate: canCellRotate(cell),
-      canFlip: canCellFlip(cell),
+      canFlipH: canCellFlip(cell, 'h'),
+      canFlipV: canCellFlip(cell, 'v'),
       // Замок виден всегда — им же снимают блокировку, когда остальное read-only.
       locked: !!cell.get('tms')?.locked,
       ...overlayButtonPositions({ left: tl.x, top: tl.y, right: br.x, bottom: br.y }),
@@ -69,22 +83,36 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
 
   function rotateSelectedBy(delta) {
     const graph = canvas.graphRef.value
+    const paper = canvas.paperRef.value
     if (!graph) return
     const sel = canvas.selection.value.filter((s) => s.kind === 'cell')
     let changed = false
+    // Фигуры (кроме подписи) поворачиваем геометрией — одной операцией на пачку.
+    const geometryIds = sel
+      .map((item) => graph.getCell(item.id))
+      .filter((cell) => canRotateShapeGeometry(cell))
+      .map((cell) => cell.id)
+    if (geometryIds.length) {
+      changed = rotateShapeCells(graph, paper, geometryIds, delta < 0 ? -1 : 1) > 0
+    }
+    const geometrySet = new Set(geometryIds)
     for (const item of sel) {
       const cell = graph.getCell(item.id)
-      if (!canCellRotate(cell)) continue
+      if (geometrySet.has(item.id) || !canCellRotate(cell)) continue
       cell.rotate(delta)
       changed = true
     }
-    if (changed) scheduleSnapshot()
+    if (changed) {
+      canvas.bumpVersion()
+      scheduleSnapshot()
+    }
   }
 
   /**
-   * Отражение по оси ('h'/'v'): тоггл tms.flipH/flipV + пересчёт портов (провода
-   * идут за ними) + перерисовка визуала. false-флаги не храним. noRotate/locked
-   * пропускаем.
+   * Отражение по оси ('h'/'v'). У СИМВОЛА — тоггл tms.flipH/flipV + пересчёт портов
+   * (провода идут за ними) + перерисовка визуала; false-флаги не храним. У ФИГУРЫ
+   * зеркалится сама геометрия (`flipShapeCells`) — ни SVG-обёртки, ни портов у неё
+   * нет, а у подписи заодно инвертируется якорь роста. noRotate/locked пропускаем.
    */
   function flipSelected(axis) {
     const graph = canvas.graphRef.value
@@ -92,9 +120,16 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
     if (!graph) return
     const sel = canvas.selection.value.filter((s) => s.kind === 'cell')
     let changed = false
+    const shapeIds = sel
+      .map((item) => graph.getCell(item.id))
+      .filter((cell) => canFlipShapeGeometry(cell, axis))
+      .map((cell) => cell.id)
+    if (shapeIds.length) {
+      changed = flipShapeCells(graph, paper, shapeIds, axis) > 0
+    }
     for (const item of sel) {
       const cell = graph.getCell(item.id)
-      if (!canCellFlip(cell)) continue
+      if (isShapeCell(cell) || !canCellFlip(cell, axis)) continue
       const stencil = getStencilById(cell.get('tms')?.stencilId)
       if (!stencil) continue
       const tms = cell.get('tms') || {}
@@ -121,7 +156,10 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
       if (view) injectStencilSvg(view, stencil)
       changed = true
     }
-    if (changed) scheduleSnapshot()
+    if (changed) {
+      canvas.bumpVersion()
+      scheduleSnapshot()
+    }
   }
 
   function onDeleteSelected() {

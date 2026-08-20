@@ -1,6 +1,6 @@
 import { getStencilById, getAllStencils } from '../stencils/registry'
 import { instantiate } from '../stencils/parser'
-import { flipTransform } from '../stencils/svgInjector'
+import { contentTransform, contentScales } from '../stencils/svgInjector'
 import { isShapeCell } from '../stencils/shapeElement'
 import { serializeShape } from '../utils/stencilSvg'
 import { buildBusExportSvg, collectBusMarks } from '../stencils/busCell'
@@ -9,6 +9,7 @@ import {
   buildValueExportSvg,
   resolveValueDisplay,
   resolveValueDecimals,
+  valueTextColor,
 } from '../stencils/valueCell'
 import { buildNodeExportSvg } from '../stencils/nodeCell'
 import { LINK_Z, arrowExportSvg } from '../stencils/linkDefaults'
@@ -243,7 +244,11 @@ export function exportProject(graph, paper = null) {
     } else if (tms.stencilId === 'cell_node') {
       cellSvg = buildNodeExportSvg(size.width, size.height, tms)
     } else if (tms.stencilId === 'cell_value') {
-      cellSvg = buildValueExportSvg(animId, size.width, size.height, resolveValueDisplay(tms))
+      // Базовый размер: масштаб экземпляра накладывает contentTransform (см. ниже).
+      cellSvg = buildValueExportSvg(animId, stencil.width, stencil.height, {
+        ...resolveValueDisplay(tms),
+        color: valueTextColor(tms),
+      })
       if (tms.valueTag) {
         // text-id = animation-{animId}; animId дедуплицирован выше → ключ уникален
         // даже при двух cell_value с одним valueTag. Конвенция WebScada-рантайма:
@@ -279,6 +284,13 @@ export function exportProject(graph, paper = null) {
       width: size.width,
       height: size.height,
       stencilId: tms.stencilId,
+      // База масштаба контента: размер определения у обычных символов, фактический —
+      // у программных (их билдеры уже нарисовали по нему, см. contentScales).
+      baseWidth: contentScales(stencil) ? stencil.width : size.width,
+      baseHeight: contentScales(stencil) ? stencil.height : size.height,
+      // Масштаб экземпляра: сам размер уже в width/height, но при загрузке габарит
+      // выводится из множителя (см. syncStencilInstances), поэтому он нужен в meta.
+      scale: tms.scale,
       animId,
       svgContent: cellSvg,
       slots: tms.slots || null,
@@ -711,10 +723,17 @@ export function exportProject(graph, paper = null) {
         for (const child of Array.from(sourceRoot.children)) {
           inner += serializer.serializeToString(child)
         }
-        // Flip: контент оборачиваем во внутреннюю flip-группу (позиция/поворот — на
-        // outer, отражение внутри, как в редакторе). Порты в экспорт не идут.
-        const flip = flipTransform(c.width, c.height, c.flipH, c.flipV)
-        if (flip) inner = `<g transform="${flip}">${inner}</g>`
+        // Отражение и масштаб: контент оборачиваем во внутреннюю группу (позиция и
+        // поворот — на outer, как в редакторе). Порты в экспорт не идут.
+        const ct = contentTransform({
+          baseWidth: c.baseWidth,
+          baseHeight: c.baseHeight,
+          width: c.width,
+          height: c.height,
+          flipH: c.flipH,
+          flipV: c.flipV,
+        })
+        if (ct) inner = `<g transform="${ct}">${inner}</g>`
         const meta = {
           id: c.cellId,
           stencilId: c.stencilId,

@@ -16,6 +16,26 @@ export function projectToScreen(paper, mx, my) {
   return { x: mx * scale + tx, y: my * scale + ty }
 }
 
+/**
+ * Точка ячейки, ПОВЁРНУТАЯ вместе с ней. `angle` в JointJS вращает outer-группу вокруг
+ * центра ячейки, поэтому визуальное место любой локальной точки (угол габарита, ручка
+ * ресайза) не равно её модельным координатам. Обратный поворот — тот же вызов с
+ * отрицательным углом.
+ *
+ * @param {{x:number, y:number}} point — точка в модельных координатах (до поворота)
+ * @param {{x:number, y:number}} center — центр вращения (центр ячейки)
+ * @param {number} angle — градусы
+ */
+export function rotatePoint(point, center, angle) {
+  const a = ((angle || 0) * Math.PI) / 180
+  if (!a) return { x: point.x, y: point.y }
+  const cos = Math.cos(a)
+  const sin = Math.sin(a)
+  const dx = point.x - center.x
+  const dy = point.y - center.y
+  return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos }
+}
+
 // Overlay-кнопки выделения (32×32). Зазор заметный: кнопка крупнее мелкого символа
 // (20×20), иначе она наползает на него и на соседей, и клик по соседу попадает в неё.
 const BTN_HALF = 16

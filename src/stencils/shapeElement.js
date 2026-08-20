@@ -12,6 +12,10 @@ import {
   serializeShape,
   shapeBounds,
   translateShape,
+  rotateShape90,
+  flipShape,
+  canRotateShapes,
+  canFlipShapes,
   scaleShape,
   TEXT_SHAPE_SIZE,
 } from '../utils/stencilSvg'
@@ -229,6 +233,81 @@ export function shapeTypeLabel(shape) {
  * @param {string[]} cellIds — правим пачкой: инспектор работает и на мультивыделении
  * @returns {number} сколько фигур изменено
  */
+/**
+ * Можно ли повернуть / отразить фигуру. Считают те же предикаты, что в редакторе
+ * символов: у круга и квадрата поворот, у прямоугольника и ортогональной линии
+ * отражение ничего не меняют, и кнопка была бы мёртвой. ПОДПИСЬ — исключение: её
+ * глифы горизонтальны, поворот геометрии дал бы просто перенос точки привязки,
+ * поэтому её вращает `angle` ячейки (см. useSelectionOverlay), а отражение сводится
+ * к инверсии `align` — им занимается flipShape.
+ */
+export function canRotateShapeGeometry(cell) {
+  const shape = isShapeCell(cell) && !cell.get('tms')?.locked ? cell.get('tms')?.shape : null
+  return !!shape && shape.type !== 'text' && canRotateShapes([shape])
+}
+
+export function canFlipShapeGeometry(cell, axis) {
+  const shape = isShapeCell(cell) && !cell.get('tms')?.locked ? cell.get('tms')?.shape : null
+  return !!shape && canFlipShapes([shape], axis)
+}
+
+/**
+ * Поворот и отражение фигуры — преобразованием САМОЙ геометрии, а не трансформом на
+ * группе. Так габарит остаётся в модельных осях, и ручки ресайза продолжают тянуть
+ * края по-прежнему (у повёрнутого через `angle` пришлось бы маппить оси), а в
+ * `view.svg` уезжает уже готовая геометрия — нового поля в round-trip не появляется.
+ *
+ * Центр держим на месте: `placeShape` внутри `applyShapePatch` прижимает геометрию к
+ * (0,0) и сдвигает позицию, поэтому после поворота 20×40 → 40×20 фигура иначе уехала
+ * бы вбок на половину разницы габаритов.
+ *
+ * @returns {number} сколько фигур изменено
+ */
+function transformShapeCells(graph, paper, cellIds, apply, allow) {
+  if (!graph) return 0
+  let changed = 0
+  for (const id of cellIds) {
+    const cell = graph.getCell(id)
+    if (!isShapeCell(cell) || !allow(cell)) continue
+    const shape = cell.get('tms')?.shape
+    const box = shapeBounds(shape)
+    if (!box) continue
+    const center = { x: box.x + box.w / 2, y: box.y + box.h / 2 }
+    const pos = cell.get('position')
+    const size = cell.get('size')
+    const visualCenter = { x: pos.x + size.width / 2, y: pos.y + size.height / 2 }
+    if (!applyShapePatch(graph, paper, [id], apply(shape, center))) continue
+    // Возвращаем центр на место (см. выше про placeShape).
+    const next = cell.get('size')
+    cell.set('position', {
+      x: visualCenter.x - next.width / 2,
+      y: visualCenter.y - next.height / 2,
+    })
+    changed += 1
+  }
+  return changed
+}
+
+export function rotateShapeCells(graph, paper, cellIds, dir = 1) {
+  return transformShapeCells(
+    graph,
+    paper,
+    cellIds,
+    (shape, center) => rotateShape90(shape, center, dir),
+    canRotateShapeGeometry
+  )
+}
+
+export function flipShapeCells(graph, paper, cellIds, axis) {
+  return transformShapeCells(
+    graph,
+    paper,
+    cellIds,
+    (shape, center) => flipShape(shape, center, axis),
+    (cell) => canFlipShapeGeometry(cell, axis)
+  )
+}
+
 export function applyShapePatch(graph, paper, cellIds, patch) {
   if (!graph) return 0
   let changed = 0

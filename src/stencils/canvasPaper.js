@@ -4,6 +4,13 @@ import { LINK_DEFAULTS, gridRightAngleRouter } from './linkDefaults'
 
 const GRID_COLOR_ON_LIGHT = '#e2e8f0' // slate-200
 const GRID_COLOR_ON_DARK = '#334155' // slate-700
+/**
+ * Шаг сетки холста. Экспортируется, потому что от него зависят не только точки под
+ * ячейками: к нему снапятся габарит и порты масштабированного символа (см.
+ * svgInjector.scaledSize) — разъехавшись, эти два места дали бы порт между клетками.
+ */
+export const CANVAS_GRID = 5
+
 /** Фон холста по умолчанию (slate-50). Настройка окружения — см. `ui.canvasBg`. */
 export const CANVAS_BG_DEFAULT = '#f8fafc'
 
@@ -75,7 +82,7 @@ export function createCanvasPaper({ el, graph, isSelected, background = CANVAS_B
     model: graph,
     width: '100%',
     height: '100%',
-    gridSize: 5,
+    gridSize: CANVAS_GRID,
     // LinkView резолвит имя роутера через routerNamespace (не через опцию
     // `routers`), поэтому спредим встроенные и добавляем свой: имя работает и в
     // редакторе, и при загрузке из JSON/SVG.

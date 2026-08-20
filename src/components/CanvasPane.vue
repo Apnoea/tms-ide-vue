@@ -51,6 +51,14 @@ import SearchBar from './SearchBar.vue'
 const project = useProjectStore()
 const ui = useUiStore()
 const canvas = useCanvas()
+
+// Пикер фона СКРЫТ до решения по запросу скадистов «свой фон у каждой формы»: сейчас
+// `ui.canvasBg` — настройка окружения (одна на браузер, в проект не уезжает), а как
+// свойство формы она будет жить в мете проекта и, возможно, в `view.svg`. Функционал
+// не удалён: стор, применение фона и цвет сетки на месте — достаточно поднять флаг
+// обратно в true, чтобы вернуть контрол вместе с уже сохранённым цветом.
+const BG_PICKER_VISIBLE = false
+const paperBg = computed(() => (BG_PICKER_VISIBLE ? ui.canvasBg : CANVAS_BG_DEFAULT))
 const notify = useNotify()
 const confirm = useConfirm()
 
@@ -404,7 +412,7 @@ onMounted(async () => {
     el: paperContainer.value,
     graph,
     isSelected: (id) => canvas.isSelected(id),
-    background: ui.canvasBg,
+    background: paperBg.value,
   })
 
   // ─── Клик по пустому месту ───
@@ -743,10 +751,9 @@ watch(
   // setSelection/toggle/clear), ref-сравнения достаточно.
 )
 
-// Фон холста (настройка окружения, `ui.canvasBg`): цвет и точки сетки перерисовываем
-// вместе — иначе на тёмном фоне сетка исчезает.
+// Цвет фона и точки сетки перерисовываем вместе — иначе на тёмном фоне сетка исчезает.
 watch(
-  () => ui.canvasBg,
+  () => paperBg.value,
   (color) => {
     if (!paper) return
     paper.drawBackground({ color })
@@ -922,8 +929,10 @@ function performClearCanvas(count) {
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
 
         <!-- Фон холста — про то, КАК смотрим на схему (как зум), а не про её содержимое.
-             Popover, чтобы пикер не занимал место в тулбаре постоянно. -->
+             Popover, чтобы пикер не занимал место в тулбаре постоянно.
+             Скрыт флагом BG_PICKER_VISIBLE — см. комментарий у него. -->
         <Button
+          v-if="BG_PICKER_VISIBLE"
           v-tooltip.bottom="'Фон холста'"
           icon="pi pi-palette"
           severity="secondary"
@@ -932,7 +941,7 @@ function performClearCanvas(count) {
           class="tms-icon-btn"
           @click="bgPopover?.toggle($event)"
         />
-        <Popover ref="bgPopover">
+        <Popover v-if="BG_PICKER_VISIBLE" ref="bgPopover">
           <div class="flex items-center gap-3 text-[11px]">
             <span class="uppercase tracking-wider text-surface-500">Фон холста</span>
             <input
@@ -952,7 +961,7 @@ function performClearCanvas(count) {
           </div>
         </Popover>
 
-        <!-- Поиск (Ctrl+F) — в той же группе, что фон и зум: всё про просмотр схемы.
+        <!-- Поиск (Ctrl+F) — в той же группе, что зум и скрытый пока фон: всё про просмотр.
              Кнопка делает фичу видимой, а не только клавиатурной (панель SearchBar). -->
         <Button
           v-tooltip.bottom="'Найти на схеме по тегу / тексту · Ctrl+F'"
@@ -1118,7 +1127,8 @@ function performClearCanvas(count) {
       </Transition>
 
       <!-- Inline-overlay одиночной выделенной ячейки: поворот ↺/↻ и отражение H/V
-           (гейты `canRotate`/`canFlip`: noRotate, замок, фигуры — только подпись и только поворот), удаление (скрыто у locked)
+           (гейты `canRotate`/`canFlipH`/`canFlipV`: noRotate, замок, а у фигур — меняет ли
+           операция картинку), удаление (скрыто у locked)
            и замок (виден всегда — им же блокировку снимают). Reactive
            HTML-overlay, а не JointJS elementTools.Remove: тот кэширует позицию и
            не следует за resize. -->
@@ -1146,7 +1156,7 @@ function performClearCanvas(count) {
           @click="rotateSelectedBy(90)"
         />
         <Button
-          v-if="overlayBtns.canFlip"
+          v-if="overlayBtns.canFlipH"
           v-tooltip.top="'Отразить по горизонтали · Shift+H'"
           icon="pi pi-arrows-h"
           severity="secondary"
@@ -1157,7 +1167,7 @@ function performClearCanvas(count) {
           @click="flipSelected('h')"
         />
         <Button
-          v-if="overlayBtns.canFlip"
+          v-if="overlayBtns.canFlipV"
           v-tooltip.top="'Отразить по вертикали · Shift+V'"
           icon="pi pi-arrows-v"
           severity="secondary"

@@ -2,6 +2,7 @@
 // Геометрия и цвета одни для экспорта (buildValueExportSvg) и редактора
 // (buildValueContent), иначе превью расходится с view.svg.
 import { valueTextKey } from '../constants/ids'
+import { cssColor } from '../constants/animation'
 import { SVG_NS, escapeXml, escapeAttr, svgEl } from '../utils/xml'
 import { SVG_FONT } from '../utils/textMetrics'
 
@@ -25,13 +26,23 @@ export function resolveValueDecimals(tms = null) {
   return Number.isFinite(tms?.decimals) ? tms.decimals : VALUE_DECIMALS_DEFAULT
 }
 
+/**
+ * Цвет ЗНАЧЕНИЯ на карточке: своё `tms.color` либо дефолт. Красим только значение —
+ * подпись и единица служебные (серые), и перекрашивать их вместе с ним значит терять
+ * различимость. Чистим здесь же: цвет уходит в атрибут `fill` экспортного SVG, а в
+ * модель он мог попасть из чужого архива (см. busColor — тот же приём).
+ */
+export function valueTextColor(tms = null) {
+  return cssColor(tms?.color) || VALUE_TEXT_COLOR
+}
+
 // Сетка карточки (100×20): [0..3] полоска, дальше фон, label с x=8, общая baseline
 // y=height-5. UNIT_ZONE рассчитан на самый широкий unit («квар») + зазор.
 const VALUE_STRIPE_W = 3
 const VALUE_BG_COLOR = '#fafafa'
 const VALUE_STRIPE_COLOR = '#000' // нейтральный — не конкурирует с цветами диапазонов и не выделяется по теме
 const VALUE_LABEL_COLOR = '#71717a' // zinc-500
-const VALUE_TEXT_COLOR = '#18181b' // zinc-900
+export const VALUE_TEXT_COLOR = '#18181b' // zinc-900
 const VALUE_UNIT_COLOR = '#a1a1aa' // zinc-400
 const VALUE_PAD_LEFT = 8 // label-start от левого края
 const VALUE_UNIT_RIGHT_PAD = 5 // unit-end от правого края
@@ -47,14 +58,14 @@ const VALUE_EMPTY_MARK_COLOR = '#f59e0b' // amber-500
  * готовая пара от `resolveValueDisplay` (у вызывающего есть и tms, и пресеты).
  */
 export function buildValueExportSvg(animId, width = 100, height = 20, display = {}) {
-  const { label = '', unit = '' } = display
+  const { label = '', unit = '', color = VALUE_TEXT_COLOR } = display
   const by = height - VALUE_BASELINE_PAD
   const stripe = `<rect x="0" y="0" width="${VALUE_STRIPE_W}" height="${height}" fill="${VALUE_STRIPE_COLOR}"/>`
   const bg = `<rect x="${VALUE_STRIPE_W}" y="0" width="${Math.max(0, width - VALUE_STRIPE_W)}" height="${height}" fill="${VALUE_BG_COLOR}"/>`
   const labelText = `<text x="${VALUE_PAD_LEFT}" y="${by}" font-size="10" font-family="${SVG_FONT}" fill="${VALUE_LABEL_COLOR}">${escapeXml(label)}</text>`
   // animId для cell_value = tms.valueTag, может содержать ", &, < — escapeAttr
   // обязателен, иначе невалидный XML и упадёт round-trip projectLoader'ом.
-  const valueText = `<text id="${escapeAttr(valueTextKey(animId))}" x="${width - VALUE_UNIT_ZONE}" y="${by}" text-anchor="end" font-size="12" font-family="${SVG_FONT}" font-weight="bold" fill="${VALUE_TEXT_COLOR}">--</text>`
+  const valueText = `<text id="${escapeAttr(valueTextKey(animId))}" x="${width - VALUE_UNIT_ZONE}" y="${by}" text-anchor="end" font-size="12" font-family="${SVG_FONT}" font-weight="bold" fill="${color}">--</text>`
   const unitText = unit
     ? `<text x="${width - VALUE_UNIT_RIGHT_PAD}" y="${by}" text-anchor="end" font-size="9" font-family="${SVG_FONT}" fill="${VALUE_UNIT_COLOR}">${escapeXml(unit)}</text>`
     : ''
@@ -65,10 +76,12 @@ export function buildValueExportSvg(animId, width = 100, height = 20, display = 
  * Контент на холсте: полоска + фон + label/value/unit. Value показывает «--» —
  * реальное придёт в рантайме через text-анимацию.
  */
-export function buildValueContent(cellView) {
+export function buildValueContent(cellView, box = null) {
   const tms = cellView.model.get('tms') || {}
   const { label, unit } = resolveValueDisplay(tms)
-  const { width, height } = cellView.model.size()
+  // Размер приходит от вызывающего: карточка рисуется в координатах ОПРЕДЕЛЕНИЯ, а
+  // увеличенный экземпляр растягивает contentTransform (иначе масштаб лёг бы дважды).
+  const { width, height } = box || cellView.model.size()
   // Общая baseline «по полу»; PAD взят с запасом под descender'ы (φ в cosφ).
   const by = height - VALUE_BASELINE_PAD
 
@@ -105,7 +118,7 @@ export function buildValueContent(cellView) {
         'font-size': 12,
         'font-family': SVG_FONT,
         'font-weight': 'bold',
-        fill: VALUE_TEXT_COLOR,
+        fill: valueTextColor(tms),
       },
       '--'
     ),

@@ -102,6 +102,11 @@ export const CELL_META_FIELDS = [
   { key: 'color', keep: (v) => v !== undefined, normalize: (v) => cssColor(v) || undefined },
   // Диаметр точки соединения. Дефолт не пишем — отсутствие поля и есть он.
   { key: 'dotSize', keep: (v) => v !== undefined, normalize: clampNumber(2, 20, undefined) },
+  // Масштаб экземпляра символа (множитель к размеру из определения). Хранится
+  // НАМЕРЕНИЕ, а не готовый размер: правку самого символа увеличенный экземпляр
+  // должен переживать пропорционально, а по одному габариту «40×40» не понять, чего
+  // хотел автор. ×1 — дефолт, в meta не пишем.
+  { key: 'scale', keep: (v) => v > 1, normalize: clampNumber(1, 4, undefined) },
   // Шрифт cell_text. `normalize` гоняет значение через whitelist на обоих концах
   // round-trip'а. Дефолт (SVG_FONT) не пишем — отсутствие = он же.
   { key: 'fontFamily', keep: (v) => v !== undefined && v !== SVG_FONT, normalize: normalizeFont },

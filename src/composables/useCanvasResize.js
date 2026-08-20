@@ -2,9 +2,14 @@ import { computed, ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { useCanvas } from './useCanvas'
 import { snapToGrid } from '../utils/grid'
-import { projectToScreen } from '../utils/paperGeom'
+import { projectToScreen, rotatePoint } from '../utils/paperGeom'
 import { isShapeResizable, resizeShapeCell, moveShapePoint } from '../stencils/shapeElement'
-import { widthResizeMin, resizeStencilWidth } from '../stencils/svgInjector'
+import {
+  scalableStencil,
+  applyStencilScale,
+  scaledSize,
+  STENCIL_SCALE_MAX,
+} from '../stencils/svgInjector'
 
 /**
  * Ресайз за ручки на холсте: фигуры-разметки и символов с растяжимой шириной.
@@ -16,28 +21,63 @@ import { widthResizeMin, resizeStencilWidth } from '../stencils/svgInjector'
  * (`resizeShapeCell`), противоположный край стоит на месте, минимум — шаг сетки
  * (фигура нулевого размера неотличима от исчезнувшей). Линия и ломаная правятся ПО
  * ТОЧКАМ (`moveShapePoint`): ручка на каждой вершине, как в редакторе символов.
- * Символ с `resizeX` (карточка значения) получает ДВЕ ручки по бокам: высоту ему
- * задаёт содержимое (baseline и кегли фиксированы), тянуть её нечем.
  *
- * Повёрнутое ручек не получает: `angle` живёт на outer-группе, и тянуть габарит в
- * экранных осях означало бы решать, что делать с поворотом — сначала снимите поворот.
+ * Символы масштабируются ПРОПОРЦИОНАЛЬНО за УГЛОВЫЕ ручки: рисунок не
+ * перерисовывается, растягивается трансформом, а порты пересчитываются от размера
+ * (`applyStencilScale`). Боковых ручек у них нет — растяжение по одной оси для
+ * SCADA-символа бессмысленно (разъединитель, растянутый по горизонтали, читается как
+ * ошибка). Ниже родного размера не уменьшаем: порты сошлись бы в одну клетку.
+ *
+ * Повёрнутый СИМВОЛ масштабируется наравне с прямым: масштаб один на обе оси, поэтому
+ * достаточно повернуть вектор жеста на −angle, а ручки поставить на визуальные углы
+ * (`rotatePoint`). Позицию при этом считаем от ВИЗУАЛЬНОГО якоря: поворот идёт вокруг
+ * центра, центр при смене размера уезжает, и без компенсации символ уползал бы из-под
+ * курсора. ФИГУРА повёрнутой ручек не получает — там ручки тянут две оси независимо, а
+ * геометрия живёт в локальных координатах: сначала снимите поворот.
  */
 
-const WIDTH_HANDLES = [
-  { key: 'w', fx: 0, fy: 0.5, cursor: 'ew-resize' },
-  { key: 'e', fx: 1, fy: 0.5, cursor: 'ew-resize' },
-]
 const HANDLES = [
-  { key: 'nw', fx: 0, fy: 0, cursor: 'nwse-resize' },
-  { key: 'n', fx: 0.5, fy: 0, cursor: 'ns-resize' },
-  { key: 'ne', fx: 1, fy: 0, cursor: 'nesw-resize' },
-  { key: 'e', fx: 1, fy: 0.5, cursor: 'ew-resize' },
-  { key: 'se', fx: 1, fy: 1, cursor: 'nwse-resize' },
-  { key: 's', fx: 0.5, fy: 1, cursor: 'ns-resize' },
-  { key: 'sw', fx: 0, fy: 1, cursor: 'nesw-resize' },
-  { key: 'w', fx: 0, fy: 0.5, cursor: 'ew-resize' },
+  { key: 'nw', fx: 0, fy: 0 },
+  { key: 'n', fx: 0.5, fy: 0 },
+  { key: 'ne', fx: 1, fy: 0 },
+  { key: 'e', fx: 1, fy: 0.5 },
+  { key: 'se', fx: 1, fy: 1 },
+  { key: 's', fx: 0.5, fy: 1 },
+  { key: 'sw', fx: 0, fy: 1 },
+  { key: 'w', fx: 0, fy: 0.5 },
 ]
+
+// Курсоры по секторам 45°: направление ручки от центра + поворот ячейки. Держать
+// курсор в самой ручке нельзя — у повёрнутого символа диагонали меняются местами, и
+// «nwse» на верхнем-правом углу показывал бы растяжение не в ту сторону.
+const CURSORS = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize']
+
+function handleCursor(handle, angle) {
+  const deg = (Math.atan2(handle.fy - 0.5, handle.fx - 0.5) * 180) / Math.PI + (angle || 0)
+  const sector = Math.round((((deg % 180) + 180) % 180) / 45) % 4
+  return CURSORS[sector]
+}
+// Пропорциональный масштаб символа тянут только углы: боковая ручка означала бы
+// растяжение по одной оси.
+const CORNER_HANDLES = HANDLES.filter((h) => h.fx !== 0.5 && h.fy !== 0.5)
 const HALF = 4 // половина ручки (8×8) — позиции считаем по её центру
+
+/**
+ * Позиция ячейки, при которой ВИЗУАЛЬНОЕ место локального угла (`fx`/`fy` — доли
+ * габарита) совпадёт с `anchor`. Из `visual = pos + size/2 + R(angle)·d`, где
+ * `d` — вектор от центра к углу: `pos = anchor − size/2 − R(angle)·d`.
+ *
+ * Результат снапим к сетке — позиция ячейки обязана стоять на клетках; визуальный
+ * якорь при этом отходит меньше чем на половину клетки.
+ */
+function positionForAnchor(anchor, size, angle, handle, grid) {
+  const d = { x: (handle.fx - 0.5) * size.width, y: (handle.fy - 0.5) * size.height }
+  const r = rotatePoint(d, { x: 0, y: 0 }, angle)
+  return {
+    x: snapToGrid(anchor.x - size.width / 2 - r.x, grid),
+    y: snapToGrid(anchor.y - size.height / 2 - r.y, grid),
+  }
+}
 
 export function useCanvasResize({ scheduleSnapshot, dragging }) {
   const canvas = useCanvas()
@@ -57,11 +97,14 @@ export function useCanvasResize({ scheduleSnapshot, dragging }) {
     const paper = canvas.paperRef.value
     if (!graph || !paper) return null
     const cell = graph.getCell(sel[0].id)
-    if (!cell || (cell.angle && cell.angle() % 360 !== 0)) return null
+    if (!cell) return null
+    const angle = cell.angle ? cell.angle() : 0
     const shapeMode = isShapeResizable(cell)
-    // Символ тянут только по ширине — у него своя пара ручек (см. WIDTH_HANDLES).
-    const widthOnly = !shapeMode && widthResizeMin(cell) != null
-    if (!shapeMode && !widthOnly) return null
+    const scaleMode = !shapeMode && !!scalableStencil(cell)
+    if (!shapeMode && !scaleMode) return null
+    // Поворот масштабу символа не мешает (ручки едут на визуальные углы), а вот
+    // габаритным ручкам фигуры и ширине карточки — мешает.
+    if (angle % 360 !== 0 && !scaleMode) return null
     const pos = cell.get('position')
     const size = cell.get('size')
     const shape = cell.get('tms')?.shape
@@ -86,11 +129,18 @@ export function useCanvasResize({ scheduleSnapshot, dragging }) {
         }
       })
     }
-    return (widthOnly ? WIDTH_HANDLES : HANDLES).map((h) => {
-      const p = projectToScreen(paper, pos.x + size.width * h.fx, pos.y + size.height * h.fy)
+    const handles = scaleMode ? CORNER_HANDLES : HANDLES
+    const center = { x: pos.x + size.width / 2, y: pos.y + size.height / 2 }
+    return handles.map((h) => {
+      const corner = rotatePoint(
+        { x: pos.x + size.width * h.fx, y: pos.y + size.height * h.fy },
+        center,
+        angle
+      )
+      const p = projectToScreen(paper, corner.x, corner.y)
       return {
         key: h.key,
-        cursor: h.cursor,
+        cursor: handleCursor(h, angle),
         style: { left: `${p.x - HALF}px`, top: `${p.y - HALF}px` },
       }
     })
@@ -103,17 +153,35 @@ export function useCanvasResize({ scheduleSnapshot, dragging }) {
     if (!graph || !paper || sel.length !== 1) return
     const cell = graph.getCell(sel[0].id)
     const shapeMode = isShapeResizable(cell)
-    if (!shapeMode && widthResizeMin(cell) == null) return
+    const stencil = shapeMode ? null : scalableStencil(cell)
+    if (!shapeMode && !stencil) return
     evt.preventDefault()
     evt.stopPropagation()
     const pos = cell.get('position')
     const size = cell.get('size')
+    const angle = cell.angle ? cell.angle() : 0
+    // Якорь жеста — противоположный тянутому угол, В ВИЗУАЛЬНЫХ координатах: он стоит
+    // на месте весь жест, и от него считаются и масштаб, и новая позиция.
+    const opposite = HANDLES.find(
+      (h) => h.fx === (key.includes('w') ? 1 : 0) && h.fy === (key.includes('n') ? 1 : 0)
+    )
     drag = {
       cell,
       key,
-      // Режим фиксируем на старте: ключи ручек 'w'/'e' есть у обоих, а правят они
-      // разное — габарит фигуры против ширины символа.
-      mode: shapeMode ? 'shape' : 'width',
+      // Режим фиксируем на старте: ключи ручек у обоих одни, а правят они разное —
+      // габарит фигуры против пропорционального масштаба символа.
+      mode: shapeMode ? 'shape' : 'scale',
+      stencil,
+      angle,
+      anchorHandle: opposite,
+      anchor:
+        stencil && opposite
+          ? rotatePoint(
+              { x: pos.x + size.width * opposite.fx, y: pos.y + size.height * opposite.fy },
+              { x: pos.x + size.width / 2, y: pos.y + size.height / 2 },
+              angle
+            )
+          : null,
       start: { x: pos.x, y: pos.y, width: size.width, height: size.height },
       changed: false,
     }
@@ -124,14 +192,23 @@ export function useCanvasResize({ scheduleSnapshot, dragging }) {
     const paper = canvas.paperRef.value
     const grid = paper.options.gridSize || 5
     const p = paper.clientToLocalPoint(evt.clientX, evt.clientY)
-    if (drag.mode === 'width') {
-      // Левая ручка держит ПРАВЫЙ край: он остаётся на месте всё время жеста,
-      // поэтому считаем от исходного габарита, а не от текущего (тот уже уехал).
-      const s = drag.start
-      const anchorRight = drag.key === 'w'
-      const edge = snapToGrid(p.x, grid)
-      const width = anchorRight ? s.x + s.width - edge : edge - s.x
-      if (resizeStencilWidth(drag.cell, paper, width, { anchorRight })) {
+    if (drag.mode === 'scale') {
+      const stencil = drag.stencil
+      const handle = HANDLES.find((h) => h.key === drag.key)
+      if (!drag.anchor || !handle) return
+      // Курсор в локальных осях символа: поворот вектора «курсор − якорь» на −angle.
+      // Масштаб один на обе оси, поэтому «ведущей» осью считаем ту, куда курсор ушёл
+      // дальше — иначе диагональный жест почти не двигал бы символ.
+      const v = rotatePoint(
+        { x: p.x - drag.anchor.x, y: p.y - drag.anchor.y },
+        { x: 0, y: 0 },
+        -drag.angle
+      )
+      const k = Math.max(Math.abs(v.x) / stencil.width, Math.abs(v.y) / stencil.height)
+      const scale = Math.min(Math.max(1, k), STENCIL_SCALE_MAX)
+      const target = scaledSize(stencil, scale)
+      const position = positionForAnchor(drag.anchor, target, drag.angle, drag.anchorHandle, grid)
+      if (applyStencilScale(drag.cell, paper, scale, { position })) {
         drag.changed = true
         resizeTick.value++
       }

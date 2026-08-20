@@ -25,7 +25,7 @@ import { getStencilById, hasBoolSlot } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
 import { isShapeCell, shapeTypeLabel, applyShapePatch } from '../stencils/shapeElement'
 import { TEXT_FONT_SIZE } from '../stencils/textCell'
-import { VALUE_DECIMALS_DEFAULT } from '../stencils/valueCell'
+import { VALUE_DECIMALS_DEFAULT, VALUE_TEXT_COLOR } from '../stencils/valueCell'
 import { BUS_COLOR_DEFAULT, BUS_THICKNESS_MAX, setBusThickness } from '../stencils/busCell'
 import { NODE_SIZE_DEFAULT, NODE_SIZE_MAX } from '../stencils/nodeCell'
 import { nplural } from '../utils/plural'
@@ -393,9 +393,12 @@ function applyThickness(v) {
 function applyBodyColor(value) {
   withSelectedCell(
     ({ cell, tms, d }) => {
-      if (!d.isBus && !d.isNode) return false
+      if (!d.isBus && !d.isNode && !d.isValue) return false
       const next = { ...tms }
-      if (value && value !== BUS_COLOR_DEFAULT) next.color = value
+      // Дефолт зависит от символа: у карточки значения это цвет текста, у шины и точки
+      // — цвет тела. Совпал с дефолтом — поля не держим (отсутствие и есть дефолт).
+      const fallback = d.isValue ? VALUE_TEXT_COLOR : BUS_COLOR_DEFAULT
+      if (value && value !== fallback) next.color = value
       else delete next.color
       if (next.color === tms.color) return false
       cell.set('tms', next)
@@ -1402,6 +1405,20 @@ const {
                   class="ml-auto"
                   :placeholder="String(VALUE_DECIMALS_DEFAULT)"
                   @update:model-value="applyValueDecimals"
+                />
+              </div>
+              <!-- Цвет ЗНАЧЕНИЯ: подпись и единица остаются служебно-серыми, иначе
+                   карточка теряет различимость. Диапазоны, если привязаны, красят
+                   поверх — как у тела шины. -->
+              <div class="mt-2 flex items-center gap-3">
+                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                  Цвет значения
+                </span>
+                <input
+                  type="color"
+                  :value="details.color || VALUE_TEXT_COLOR"
+                  class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
+                  @input="applyBodyColor($event.target.value)"
                 />
               </div>
             </div>

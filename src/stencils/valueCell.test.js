@@ -5,6 +5,8 @@ import {
   VALUE_DECIMALS_DEFAULT,
   buildValueContent,
   buildValueExportSvg,
+  valueTextColor,
+  VALUE_TEXT_COLOR,
 } from './valueCell'
 
 // Справочника величин больше нет: подпись и единицу автор вписывает сам. Угадывание
@@ -57,5 +59,31 @@ describe('карточка без тега помечается на холст�
 
   it('в экспортный SVG пометка не уходит — это подсказка автору, не часть схемы', () => {
     expect(buildValueExportSvg('T1.VAL', 100, 20, {})).not.toContain('tms-value-empty')
+  })
+})
+
+describe('valueTextColor', () => {
+  it('дефолт, если цвет не задан', () => {
+    expect(valueTextColor(null)).toBe(VALUE_TEXT_COLOR)
+    expect(valueTextColor({})).toBe(VALUE_TEXT_COLOR)
+  })
+
+  it('свой цвет автора', () => {
+    expect(valueTextColor({ color: '#2563eb' })).toBe('#2563eb')
+  })
+
+  it('мусор из чужого архива отбрасывается (цвет уходит в атрибут fill)', () => {
+    expect(valueTextColor({ color: 'url(#evil)' })).toBe(VALUE_TEXT_COLOR)
+  })
+
+  it('экспорт красит ЗНАЧЕНИЕ, подпись и единица остаются служебными', () => {
+    const svg = buildValueExportSvg('PS.U', 100, 20, {
+      label: 'Ua',
+      unit: 'В',
+      color: '#2563eb',
+    })
+    expect(svg).toContain('fill="#2563eb"')
+    // Подпись и единица — свои цвета, их не перекрашиваем.
+    expect(svg.match(/#2563eb/g)).toHaveLength(1)
   })
 })
