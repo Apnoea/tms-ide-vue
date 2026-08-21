@@ -58,7 +58,13 @@ export function useBusSnap() {
       { position: bus.get('position'), size: bus.get('size') },
       cellSize || { width: stencil.width, height: stencil.height },
       point,
-      { canRotate: !stencil.noRotate, gridSize: paper?.options?.gridSize || 10 }
+      {
+        // Разворот на 180° при подносе сверху не даём тем, у кого содержимое —
+        // ТЕКСТ (`static`: карточка значения, подпись): перевёрнутая надпись не
+        // читается. Запрет поворота (`noRotate`) уважаем тем же условием.
+        canRotate: !stencil.noRotate && !stencil.static,
+        gridSize: paper?.options?.gridSize || 10,
+      }
     )
   }
 

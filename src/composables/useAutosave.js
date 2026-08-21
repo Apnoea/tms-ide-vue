@@ -90,6 +90,7 @@ export function useAutosave({ restoringHistory }) {
       workspace.loadForms(forms, meta.activeFormId)
       workspace.setFormTree(meta.hierarchy) // null у старых проектов → плоский
       workspace.setProjectName(meta.projectName ?? null) // старые проекты → без имени
+      workspace.loadFormBg(meta.formBg) // старые проекты → дефолтный фон у всех форм
       // Мета протухла (activeFormId не из formIds) → loadForms скорректировал
       // активную на первую; перезапишем мету, чтобы IDB не расходился со стором.
       if (workspace.activeFormId !== meta.activeFormId) await persistMeta()
@@ -126,6 +127,7 @@ export function useAutosave({ restoringHistory }) {
         activeFormId: workspace.activeFormId,
         hierarchy: workspace.formTree, // дерево форм (иерархия) — переживает reload
         projectName: workspace.projectName, // имя проекта — переживает reload
+        formBg: workspace.formBg, // фон холста по формам — свойство проекта, не браузера
       })
     )
   }
@@ -177,7 +179,13 @@ export function useAutosave({ restoringHistory }) {
    * @param {string|null} [projectName] — имя проекта (из имени .zip)
    * @returns {Promise<boolean>}
    */
-  async function replaceProject(forms, tagsText, hierarchy = null, projectName = null) {
+  async function replaceProject(
+    forms,
+    tagsText,
+    hierarchy = null,
+    projectName = null,
+    projectMeta = null
+  ) {
     // Хранилище не читается → и не пишем: импорт молча потерял бы данные проекта.
     if (readOnly()) return false
     // GC форм прежнего проекта: restore идёт по formIds меты, старые ключи копили
@@ -192,6 +200,9 @@ export function useAutosave({ restoringHistory }) {
     workspace.loadForms(forms, forms[0]?.id ?? null)
     workspace.setFormTree(hierarchy)
     workspace.setProjectName(projectName) // до persistMeta — уедет в мету
+    // Фон форм — после loadForms: loadFormBg отбрасывает ключи форм, которых в
+    // проекте нет (архив мог принести мету от прежнего состава).
+    workspace.loadFormBg(projectMeta?.formBg)
     ok = (await persistMeta()) && ok
     // Только если проект принёс теги. Иначе НЕ затираем project:tags в IDB
     // (импорт проекта без taglist'а не должен стирать уже загруженные теги).

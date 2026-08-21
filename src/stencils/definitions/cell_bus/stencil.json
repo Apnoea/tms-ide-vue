@@ -4,6 +4,7 @@
   "label": "Шина",
   "category": "Разметка и значения",
   "noRotate": true,
+  "noFlip": true,
   "shapeFile": "shape.svg",
   "width": 80,
   "height": 8,

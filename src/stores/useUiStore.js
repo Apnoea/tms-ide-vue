@@ -1,8 +1,5 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { useLocalStorage } from '@vueuse/core'
-import { CANVAS_BG_DEFAULT } from '../stencils/canvasPaper'
-import { cssColor } from '../constants/animation'
 
 export const useUiStore = defineStore('ui', () => {
   const lastTagListPickerStartIn = ref(null)
@@ -84,28 +81,10 @@ export const useUiStore = defineStore('ui', () => {
     canvasTool.value = 'select'
   }
 
-  // Фон холста — настройка ОКРУЖЕНИЯ, а не проекта: живёт в localStorage (как
-  // раскрытые категории палитры), в `.zip` не уезжает и на `view.svg` не влияет —
-  // фон схемы в рантайме даёт панель. Цвет точек сетки считается от него
-  // (`gridColorFor`), отдельной настройки нет.
-  const canvasBg = useLocalStorage('tms-ide:canvas-bg', CANVAS_BG_DEFAULT)
-
-  /** Мусор (правка localStorage руками) откатываем к дефолту, а не красим им холст. */
-  function setCanvasBg(color) {
-    canvasBg.value = cssColor(color) || CANVAS_BG_DEFAULT
-  }
-
-  function resetCanvasBg() {
-    canvasBg.value = CANVAS_BG_DEFAULT
-  }
-
   return {
     canvasTool,
     setCanvasTool,
     resetCanvasTool,
-    canvasBg,
-    setCanvasBg,
-    resetCanvasBg,
     lastTagListPickerStartIn,
     dragging,
     helpOpen,

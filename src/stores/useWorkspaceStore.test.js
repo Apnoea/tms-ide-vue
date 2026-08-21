@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useWorkspaceStore } from './useWorkspaceStore'
+import { CANVAS_BG_DEFAULT } from '../stencils/canvasPaper'
 
 const sample = () => [
   { id: 'a', graphJson: { cells: [{ id: 'x' }] } },
@@ -170,5 +171,68 @@ describe('useWorkspaceStore', () => {
       expect(ws.moveNode('b', 'a', 'inside')).toBe(true)
       expect(ws.formTree).toEqual([{ id: 'a', children: [{ id: 'b', children: [] }] }])
     })
+  })
+})
+
+// Фон холста — свойство ФОРМЫ (уезжает в мету проекта и в архив), поэтому живёт здесь,
+// а не в ui-сторе: у каждой схемы свой цвет, у коллеги проект открывается таким же.
+describe('фон форм', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  function seeded() {
+    const store = useWorkspaceStore()
+    store.loadForms(
+      [
+        { id: 'a', graphJson: { cells: [] } },
+        { id: 'b', graphJson: { cells: [] } },
+      ],
+      'a'
+    )
+    return store
+  }
+
+  it('по умолчанию фона нет (значит дефолтный)', () => {
+    const store = seeded()
+    expect(store.formBg).toEqual({})
+    expect(store.activeFormBg).toBeNull()
+  })
+
+  it('цвет пишется своей форме, другие остаются дефолтными', () => {
+    const store = seeded()
+    expect(store.setFormBg('a', '#101828')).toBe(true)
+    expect(store.activeFormBg).toBe('#101828')
+    store.setActiveFormId('b')
+    expect(store.activeFormBg).toBeNull()
+  })
+
+  it('дефолт и мусор записи не создают (в мете копим только заданные цвета)', () => {
+    const store = seeded()
+    expect(store.setFormBg('a', CANVAS_BG_DEFAULT)).toBe(false)
+    for (const bad of ['', 'url(x)', null]) expect(store.setFormBg('a', bad)).toBe(false)
+    expect(store.formBg).toEqual({})
+    // Несуществующая форма — тоже нет.
+    expect(store.setFormBg('ghost', '#101828')).toBe(false)
+  })
+
+  it('сброс в дефолт удаляет запись', () => {
+    const store = seeded()
+    store.setFormBg('a', '#101828')
+    expect(store.setFormBg('a', null)).toBe(true)
+    expect(store.formBg).toEqual({})
+  })
+
+  it('переименование формы переносит её фон, удаление — снимает', () => {
+    const store = seeded()
+    store.setFormBg('a', '#101828')
+    store.renameForm('a', 'a2')
+    expect(store.formBg).toEqual({ a2: '#101828' })
+    store.removeForm('a2')
+    expect(store.formBg).toEqual({})
+  })
+
+  it('загрузка меты отбрасывает цвета форм, которых в проекте нет, и мусор', () => {
+    const store = seeded()
+    store.loadFormBg({ a: '#101828', ghost: '#ffffff', b: 'url(evil)' })
+    expect(store.formBg).toEqual({ a: '#101828' })
   })
 })

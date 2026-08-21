@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { subtreeIds } from '../utils/formTreeDnd'
+import { cssColor } from '../constants/animation'
+import { CANVAS_BG_DEFAULT } from '../stencils/canvasPaper'
 
 /**
  * Проектный слой: формы (схемы) и активная форма. Хранит только ДАННЫЕ —
@@ -83,6 +85,34 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   // Имя проекта (= имя импортированного .zip без расширения; имя файла экспорта).
   // null — проект без имени (свежий bootstrap), UI покажет заглушку.
   const projectName = ref(null)
+  // Фон холста ПО ФОРМАМ: { formId: '#rrggbb' }. Свойство формы, а не окружения —
+  // уезжает в мету проекта и в архив, поэтому у коллеги схема откроется в тех же
+  // цветах. Дефолтный фон не храним: отсутствие ключа и есть он.
+  const formBg = ref({})
+
+  const activeFormBg = computed(() => formBg.value[activeFormId.value] ?? null)
+
+  /** Фон формы. `null`/дефолт — снять запись (не копим значения, равные дефолту). */
+  function setFormBg(id, color) {
+    if (!forms.has(id)) return false
+    const next = { ...formBg.value }
+    const clean = color ? cssColor(color) : null
+    if (clean && clean !== CANVAS_BG_DEFAULT) next[id] = clean
+    else delete next[id]
+    if (JSON.stringify(next) === JSON.stringify(formBg.value)) return false
+    formBg.value = next
+    return true
+  }
+
+  /** Массовая загрузка (restore из IDB / импорт архива): чужие ключи отбрасываем. */
+  function loadFormBg(map) {
+    const next = {}
+    for (const [id, color] of Object.entries(map || {})) {
+      const clean = cssColor(color)
+      if (forms.has(id) && clean && clean !== CANVAS_BG_DEFAULT) next[id] = clean
+    }
+    formBg.value = next
+  }
 
   function setProjectName(name) {
     projectName.value = name && String(name).trim() ? String(name).trim() : null
@@ -156,6 +186,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function removeForm(id) {
     if (!forms.has(id)) return activeFormId.value
     forms.delete(id)
+    if (formBg.value[id]) {
+      const rest = { ...formBg.value }
+      delete rest[id]
+      formBg.value = rest
+    }
     formTree.value = pruneTree(formTree.value, id)
     if (activeFormId.value === id) activeFormId.value = forms.keys().next().value ?? null
     syncList()
@@ -171,6 +206,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     forms.clear()
     for (const [k, v] of entries) forms.set(k, v)
     formTree.value = renameInTree(formTree.value, oldId, newId)
+    // Фон привязан к id формы — переносим вместе с ней, иначе схема «побелеет».
+    if (formBg.value[oldId]) {
+      const next = { ...formBg.value }
+      next[newId] = next[oldId]
+      delete next[oldId]
+      formBg.value = next
+    }
     if (activeFormId.value === oldId) activeFormId.value = newId
     syncList()
     return true
@@ -198,6 +240,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeFormId,
     formTree,
     projectName,
+    formBg,
+    activeFormBg,
+    setFormBg,
+    loadFormBg,
     setProjectName,
     setFormTree,
     moveNode,

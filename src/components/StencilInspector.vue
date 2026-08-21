@@ -290,7 +290,9 @@ function clearStateColor(key, which) {
           />
         </label>
 
-        <!-- Единственный флаг поведения — прямо после категории, без отдельной секции. -->
+        <!-- Флаги поведения — прямо после категории, без отдельной секции. Поворот и
+             отражение раздельно: карточке значения, например, поворот нужен (её ставят
+             вдоль вертикальных участков), а отражение зеркалило бы надпись. -->
         <label class="flex items-center gap-2 cursor-pointer">
           <Checkbox
             v-model="meta.noRotate"
@@ -299,6 +301,15 @@ function clearStateColor(key, which) {
             @update:model-value="commit"
           />
           <span class="text-surface-700">Запретить поворот</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <Checkbox
+            v-model="meta.noFlip"
+            binary
+            input-id="se-noflip"
+            @update:model-value="commit"
+          />
+          <span class="text-surface-700">Запретить отражение</span>
         </label>
 
         <div class="border-t border-surface-200 pt-4">

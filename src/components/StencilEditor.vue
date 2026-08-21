@@ -281,8 +281,15 @@ const scale = computed(() => {
 })
 const pxW = computed(() => meta.width * scale.value)
 const pxH = computed(() => meta.height * scale.value)
-// Ручки/порты — константного размера на экране (в user-единицах = px/scale).
+// Ручки — константного размера на экране (в user-единицах = px/scale).
 const hr = computed(() => 4 / scale.value)
+// Порт — в МОДЕЛЬНЫХ единицах, как на холсте (там `r: 3` в координатах символа):
+// автор видит вывод той же величины, что получит на схеме. Экранно-постоянный размер
+// врал: в редакторе зум крупный, и порт казался мелкой точкой на фоне символа.
+const PORT_R = 1.5
+// Обводка порта тоже модельная (без non-scaling-stroke): на холсте она масштабируется
+// зумом вместе с кружком, и «экранный» 1px в редакторе выглядел волоском.
+const PORT_STROKE = 0.5
 
 // ─── Сетка ───
 // Расчёты (шаг/уровни яркости/диапазоны) — в utils/editorRulers; здесь только
@@ -1321,11 +1328,10 @@ onBeforeUnmount(() => {
                 :data-id="p.id"
                 :cx="p.x"
                 :cy="p.y"
-                :r="hr * 1.2"
-                fill="#f59e0b"
-                stroke="#78350f"
-                stroke-width="1"
-                vector-effect="non-scaling-stroke"
+                :r="PORT_R"
+                fill="#ffffff"
+                stroke="#000000"
+                :stroke-width="PORT_STROKE"
                 :class="tool === 'port' ? 'cursor-pointer' : 'cursor-move'"
                 @pointerdown="onPortDown($event, p.id)"
               />

@@ -3,7 +3,6 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useEventListener, useResizeObserver } from '@vueuse/core'
 import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
-import Popover from 'primevue/popover'
 import Tag from 'primevue/tag'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
@@ -18,6 +17,7 @@ import {
 } from '../stencils/canvasPaper'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
+import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useCanvas } from '../composables/useCanvas'
 import { useAutosave } from '../composables/useAutosave'
 import { useUndoRedo } from '../composables/useUndoRedo'
@@ -44,21 +44,16 @@ import { nplural } from '../utils/plural'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { confirmDanger } from '../utils/confirmDanger'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
+import { cssColor } from '../constants/animation'
 import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
 import { TEXT_ICON, POLYLINE_ICON } from '../constants/icons'
 import SearchBar from './SearchBar.vue'
 
 const project = useProjectStore()
 const ui = useUiStore()
+const workspace = useWorkspaceStore()
 const canvas = useCanvas()
 
-// Пикер фона СКРЫТ до решения по запросу скадистов «свой фон у каждой формы»: сейчас
-// `ui.canvasBg` — настройка окружения (одна на браузер, в проект не уезжает), а как
-// свойство формы она будет жить в мете проекта и, возможно, в `view.svg`. Функционал
-// не удалён: стор, применение фона и цвет сетки на месте — достаточно поднять флаг
-// обратно в true, чтобы вернуть контрол вместе с уже сохранённым цветом.
-const BG_PICKER_VISIBLE = false
-const paperBg = computed(() => (BG_PICKER_VISIBLE ? ui.canvasBg : CANVAS_BG_DEFAULT))
 const notify = useNotify()
 const confirm = useConfirm()
 
@@ -86,8 +81,8 @@ const bus = useBusResize({ scheduleSnapshot })
 // Объявляем до listeners-блока: useEventListener читает paperContainer как
 // зависимость, а у `const`-ref'а нет hoisting'а (TDZ).
 const paperContainer = ref(null)
-// Popover пикера фона (кнопка рядом с зумом — «вид холста», не свойство схемы).
-const bgPopover = ref(null)
+// Скрытый <input type="color"> пикера фона: кнопка тулбара открывает его click()'ом.
+const bgInput = ref(null)
 let paper = null
 let graph = null
 
@@ -412,7 +407,7 @@ onMounted(async () => {
     el: paperContainer.value,
     graph,
     isSelected: (id) => canvas.isSelected(id),
-    background: paperBg.value,
+    background: workspace.activeFormBg || CANVAS_BG_DEFAULT,
   })
 
   // ─── Клик по пустому месту ───
@@ -751,9 +746,34 @@ watch(
   // setSelection/toggle/clear), ref-сравнения достаточно.
 )
 
-// Цвет фона и точки сетки перерисовываем вместе — иначе на тёмном фоне сетка исчезает.
+// Цвет, пока пикер открыт: нативный диалог шлёт `input` непрерывно (живое превью),
+// и писать на каждый тик в стор + IndexedDB значило бы десятки записей за один выбор.
+// Поэтому превью держим локально, а в проект пишем на `change` — по закрытию диалога.
+const bgPreview = ref(null)
+
+function previewFormBackground(color) {
+  bgPreview.value = cssColor(color) || null
+}
+
+/**
+ * Фон активной формы: в стор + персист меты (фон живёт в `project:meta`, а не в графе —
+ * `Ctrl+Z` его не откатывает) + пометка «проект разошёлся с .zip». `null` — дефолт.
+ */
+function commitFormBackground(color) {
+  bgPreview.value = null
+  if (!workspace.setFormBg(workspace.activeFormId, color)) return
+  persistMeta()
+  canvas.markDirty()
+}
+
+// Фон холста — свойство ФОРМЫ (`workspace.formBg`), поэтому watch следит и за сменой
+// активной формы: открыл другую — холст перекрасился в её цвет. Цвет точек сетки
+// перерисовываем вместе с фоном, иначе на тёмном сетка исчезает.
+const formBackground = computed(
+  () => bgPreview.value || workspace.activeFormBg || CANVAS_BG_DEFAULT
+)
 watch(
-  () => paperBg.value,
+  () => formBackground.value,
   (color) => {
     if (!paper) return
     paper.drawBackground({ color })
@@ -928,40 +948,45 @@ function performClearCanvas(count) {
 
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
 
-        <!-- Фон холста — про то, КАК смотрим на схему (как зум), а не про её содержимое.
-             Popover, чтобы пикер не занимал место в тулбаре постоянно.
-             Скрыт флагом BG_PICKER_VISIBLE — см. комментарий у него. -->
-        <Button
-          v-if="BG_PICKER_VISIBLE"
-          v-tooltip.bottom="'Фон холста'"
-          icon="pi pi-palette"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-icon-btn"
-          @click="bgPopover?.toggle($event)"
+        <!-- Фон АКТИВНОЙ ФОРМЫ (см. workspace.formBg). Клик по иконке открывает
+             нативный пикер сразу: промежуточная всплывашка ради одного контрола
+             стоила лишнего клика. Сам `input` спрятан, но живёт в DOM — открыть
+             диалог можно только его собственным click(). -->
+        <span class="relative inline-flex">
+          <Button
+            v-tooltip.bottom="'Фон этой формы'"
+            icon="pi pi-palette"
+            severity="secondary"
+            text
+            size="small"
+            class="tms-icon-btn"
+            @click="bgInput?.click()"
+          />
+          <!-- Крестик поверх иконки — сброс к дефолту. Виден только у формы со своим
+               фоном: иначе висел бы пустым обещанием. stop, чтобы клик не всплыл на
+               кнопку и не открыл пикер вместо сброса. -->
+          <button
+            v-if="workspace.activeFormBg"
+            v-tooltip.bottom="'Вернуть фон по умолчанию'"
+            type="button"
+            class="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+            @click.stop="commitFormBackground(null)"
+          >
+            <i class="pi pi-times text-[7px]!" />
+          </button>
+        </span>
+        <input
+          ref="bgInput"
+          type="color"
+          class="sr-only"
+          tabindex="-1"
+          aria-hidden="true"
+          :value="formBackground"
+          @input="previewFormBackground($event.target.value)"
+          @change="commitFormBackground($event.target.value)"
         />
-        <Popover v-if="BG_PICKER_VISIBLE" ref="bgPopover">
-          <div class="flex items-center gap-3 text-[11px]">
-            <span class="uppercase tracking-wider text-surface-500">Фон холста</span>
-            <input
-              type="color"
-              :value="ui.canvasBg"
-              class="h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-              @input="ui.setCanvasBg($event.target.value)"
-            />
-            <button
-              v-if="ui.canvasBg !== CANVAS_BG_DEFAULT"
-              type="button"
-              class="text-surface-500 underline decoration-dotted hover:text-surface-700"
-              @click="ui.resetCanvasBg()"
-            >
-              сбросить
-            </button>
-          </div>
-        </Popover>
 
-        <!-- Поиск (Ctrl+F) — в той же группе, что зум и скрытый пока фон: всё про просмотр.
+        <!-- Поиск (Ctrl+F) — в той же группе, что фон и зум: всё про просмотр схемы.
              Кнопка делает фичу видимой, а не только клавиатурной (панель SearchBar). -->
         <Button
           v-tooltip.bottom="'Найти на схеме по тегу / тексту · Ctrl+F'"
@@ -1257,7 +1282,7 @@ function performClearCanvas(count) {
       <div
         v-for="h in resizeHandles"
         :key="h.key"
-        class="absolute z-20 h-2 w-2 rounded-sm border border-primary-500 bg-surface-0"
+        class="absolute z-20 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-surface-0 bg-primary-500 shadow-sm"
         :style="{ ...h.style, cursor: h.cursor }"
         @pointerdown="onHandleDown($event, h.key)"
       ></div>

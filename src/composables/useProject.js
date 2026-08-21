@@ -352,7 +352,13 @@ export function useProject({
       return
     }
 
-    const persisted = await replaceProject(forms, data.tagsText, data.hierarchy, projectName)
+    const persisted = await replaceProject(
+      forms,
+      data.tagsText,
+      data.hierarchy,
+      projectName,
+      data.project
+    )
 
     // Стенсилы, на которые ссылаются формы (по meta SVG), но которых нет ни в базе,
     // ни в бандле — отрисовать их нечем, предупреждаем.
@@ -407,11 +413,17 @@ export function useProject({
 
     // Оверрайды стенсилов проекта (новые + изменённые встроенные) → в IDB: они
     // переживут reload и в prod, где dev-плагина нет. Заменяем весь набор — импорт
-    // меняет проект целиком. Это делает стенсилы персистентными независимо от
-    // persistStencilsToDisk ниже (тот — dev-бонус: пишет файлы в definitions/,
-    // чтобы новый стенсил попал в кодовую базу под git).
+    // меняет проект целиком.
     await replaceStencilOverrides(importedStencils)
-    if (importedStencils.length) persistStencilsToDisk(importedStencils)
+    // На ДИСК (dev-бонус: файл в `definitions/` попадает под git) пишем ТОЛЬКО символы,
+    // которых в кодовой базе нет. Изменённый встроенный туда писать нельзя: архив
+    // хранит версию на момент своего экспорта, и открытие старого проекта откатывало бы
+    // правки символа в репозитории — так однажды вернулись уже снятые флаги карточки
+    // значения и уронили CI. В рантайме версия из архива всё равно работает — её
+    // держит оверрайд выше.
+    const newStencilIds = new Set(newStencils.map((s) => s.stencilJson?.id))
+    const toDisk = importedStencils.filter((s) => newStencilIds.has(s.stencilJson?.id))
+    if (toDisk.length) persistStencilsToDisk(toDisk)
 
     applyActiveForm()
     notify.success('Проект импортирован', okMsg)
@@ -472,7 +484,16 @@ export function useProject({
         .filter(Boolean)
 
       const tagsText = await readTagsText()
-      await deliver({ forms: formsOut, stencils, tagsText, hierarchy: workspace.formTree })
+      await deliver({
+        forms: formsOut,
+        stencils,
+        tagsText,
+        hierarchy: workspace.formTree,
+        // Редакторная мета: фон холста по формам. В `view.svg` он не уезжает — фон
+        // схемы в рантайме даёт панель, а здесь он нужен, чтобы у коллеги проект
+        // открылся в тех же цветах.
+        project: { formBg: workspace.formBg },
+      })
 
       // Архив отдан браузеру → снимаем «не выгружено». У `<a download>` нет
       // подтверждения записи, поэтому формулировка «отправлен на скачивание».

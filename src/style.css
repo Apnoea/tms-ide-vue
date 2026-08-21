@@ -70,21 +70,23 @@ body,
   filter: drop-shadow(0 0 3px #f97316) drop-shadow(0 0 8px #f97316) drop-shadow(0 0 18px #fb923c); /* orange-500 + дальний orange-400-ореол */
 }
 
-/* draw.io-стиль: порты ячейки скрыты по умолчанию и проявляются при наведении
-   на ячейку (или когда она выделена) — наводишь на элемент, видишь куда тянуть
-   провод. JointJS magnet-логика во время drag-линии работает по событиям, а не
-   по opacity, поэтому скрытые порты остаются функциональны для рисования связей. */
+/* draw.io-стиль: порты ячейки скрыты по умолчанию и проявляются при НАВЕДЕНИИ —
+   наводишь на элемент, видишь куда тянуть провод. У выделенного их НЕ показываем:
+   там же стоят ручки масштаба (по углам габарита), и вместе с портами выделенный
+   символ превращался в кашу аффордансов. Провод при этом рисуется как раньше:
+   курсор всё равно над символом, а значит порты видны. JointJS magnet-логика во
+   время drag-линии работает по событиям, а не по opacity, поэтому и скрытые порты
+   остаются функциональны для рисования связей. */
 .joint-element .joint-port {
   opacity: 0;
   transition: opacity 0.08s linear;
 }
-.joint-element:hover .joint-port,
-.joint-element.tms-selected .joint-port {
+.joint-element:hover .joint-port {
   opacity: 1;
 }
 
 /* Заблокированная ячейка (`tms.locked`): порты и bus-resize-хэндлы не показываем
-   даже на hover/выделении — интерактив с ней запрещён (см. paper.interactive /
+   даже на hover — интерактив с ней запрещён (см. paper.interactive /
    useBusResize). Индикатор-замок рисует HTML-overlay в CanvasPane. */
 .joint-element.tms-locked .joint-port,
 .joint-element.tms-locked [data-edge] {

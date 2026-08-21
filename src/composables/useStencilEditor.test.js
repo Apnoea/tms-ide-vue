@@ -863,3 +863,21 @@ describe('поворот и отражение фигур', () => {
     expect(byId(ed, s.id)).toMatchObject({ x: 10, y: 10 })
   })
 })
+
+describe('обрезка по контенту: габарит кратен 10', () => {
+  it('порт остаётся на сетке 5, а размеры округляются до 10', () => {
+    const ed = createStencilEditor()
+    // Контент 13×34 (нечётные габариты) + порт на пятёрке.
+    ed.addShape({ type: 'rect', x: 1, y: 3, w: 13, h: 34 })
+    ed.addPort(10, 5)
+    const { json } = ed.output()
+    // Иначе центр символа попадает на полуклетку, и поворот на 90° уводит порты
+    // (а с ними концы проводов) с сетки — см. BOX_GRID.
+    expect(json.width % 10).toBe(0)
+    expect(json.height % 10).toBe(0)
+    for (const p of json.ports || []) {
+      expect(p.x % 5).toBe(0)
+      expect(p.y % 5).toBe(0)
+    }
+  })
+})

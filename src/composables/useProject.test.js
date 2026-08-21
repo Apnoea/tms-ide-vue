@@ -30,6 +30,9 @@ vi.mock('../services/projectZip', () => ({
   collectUsedStencilIds: vi.fn(() => []),
 }))
 
+// Запись файлов в definitions/ — dev-плагин по HTTP; в тесте только факт вызова.
+vi.mock('../services/stencilLibrary', () => ({ persistStencilsToDisk: vi.fn(async () => true) }))
+
 // stencilOverrides — IDB-персист правок стенсилов; в тесте детерминируем.
 // stencilSignature — упрощённая, но чувствительная к json+svg (для ветки changed).
 vi.mock('../services/stencilOverrides', () => ({
@@ -56,6 +59,7 @@ import { parseSvgProject } from '../services/projectLoader'
 import { getStencilById, registerStencil } from '../stencils/registry'
 import { replaceStencilOverrides } from '../services/stencilOverrides'
 import { buildProjectZipBlob, pickProjectArchive, readProjectZipFile } from '../services/projectZip'
+import { persistStencilsToDisk } from '../services/stencilLibrary'
 
 // Свежие моки инжектируемых зависимостей на каждый тест.
 function makeDeps(overrides = {}) {
@@ -229,7 +233,8 @@ describe('useProject', () => {
         [{ id: 'f1', graphJson: { cells: [] } }],
         null,
         null,
-        'project' // имя проекта = имя архива без .zip
+        'project', // имя проекта = имя архива без .zip
+        undefined // редакторная мета (project.json) — в этом архиве её нет
       )
       expect(mockNotify.success).toHaveBeenCalled()
     })
@@ -320,6 +325,31 @@ describe('useProject', () => {
       const savedOverrides = replaceStencilOverrides.mock.calls.at(-1)[0]
       expect(savedOverrides.map((s) => s.id)).toEqual(['cell_ok'])
       expect(mockNotify.warn).toHaveBeenCalledWith('Символы с недопустимым id пропущены', 'ev"il')
+    })
+
+    // На диск (файл в definitions/ под git) идут только символы, которых в кодовой базе
+    // нет. Архив хранит версию на момент экспорта — писать ею встроенный символ значит
+    // откатывать правки репозитория при открытии старого проекта.
+    it('на диск уходит только НОВЫЙ символ, изменённый встроенный — лишь в оверрайды', async () => {
+      bundle([{ id: 'f1', svgText: 'x' }], {
+        stencils: [
+          { id: 'cell_new', stencilJson: { id: 'cell_new' }, shapeSvg: 'A' },
+          { id: 'cell_qw', stencilJson: { id: 'cell_qw' }, shapeSvg: 'NEW' },
+        ],
+      })
+      parseSvgProject.mockReturnValue({ ok: true, cells: [], stencilIds: [] })
+      // cell_qw в реестре есть (и отличается), cell_new — нет.
+      getStencilById.mockImplementation((id) =>
+        id === 'cell_qw' ? { id: 'cell_qw', svgText: 'OLD' } : null
+      )
+      const { importProjectFromArchive } = useProject(makeDeps())
+      await importProjectFromArchive()
+
+      expect(replaceStencilOverrides.mock.calls.at(-1)[0].map((s) => s.id)).toEqual([
+        'cell_new',
+        'cell_qw',
+      ])
+      expect(persistStencilsToDisk.mock.calls.at(-1)[0].map((s) => s.id)).toEqual(['cell_new'])
     })
 
     it('неизменённый существующий стенсил НЕ перерегистрируется', async () => {

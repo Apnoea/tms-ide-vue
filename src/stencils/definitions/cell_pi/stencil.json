@@ -6,6 +6,7 @@
   "width": 30,
   "height": 40,
   "noRotate": true,
+  "noFlip": true,
   "ports": [
     {
       "name": "top",

@@ -4,7 +4,7 @@
   "label": "Значение тега",
   "category": "Разметка и значения",
   "static": true,
-  "noRotate": true,
+  "noFlip": true,
   "defaults": {
     "valueTag": ""
   },

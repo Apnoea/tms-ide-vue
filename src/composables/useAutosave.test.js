@@ -186,6 +186,7 @@ describe('useAutosave', () => {
         activeFormId: 'main',
         hierarchy: [{ id: 'main', children: [] }],
         projectName: null,
+        formBg: {},
       })
       expect(idbStore.get(formKey('main'))).toEqual({ cells: [] })
     })
@@ -290,6 +291,7 @@ describe('useAutosave', () => {
         activeFormId: 'b',
         hierarchy: [],
         projectName: null,
+        formBg: {},
       })
     })
   })
@@ -322,6 +324,7 @@ describe('useAutosave', () => {
           { id: 'b', children: [] },
         ],
         projectName: null,
+        formBg: {},
       })
       expect(idbStore.get('project:tags')).toBe('TAG1;Bool')
       expect(useWorkspaceStore().activeFormId).toBe('a')

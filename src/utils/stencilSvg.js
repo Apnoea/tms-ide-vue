@@ -670,6 +670,7 @@ export function buildStencilJson(meta, ports, shapes = []) {
   // Декл-флаги пишем только когда включены (json чище; отсутствие = false).
   // `static` в редакторе не задаётся (только у встроенных text/value в их json).
   if (meta.noRotate) json.noRotate = true
+  if (meta.noFlip) json.noFlip = true
   if (meta.quality) json.quality = true
   if (ports?.length) {
     json.ports = ports.map((p) => ({ name: p.name, x: p.x, y: p.y }))

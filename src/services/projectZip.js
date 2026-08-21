@@ -1,6 +1,6 @@
 // Проект ↔ ZIP-архив — единственный формат ввода-вывода проекта. Раскладка внутри
 // архива: forms/<id>/{view.svg,animations.json}, library/<id>/{stencil.json,
-// shape.svg}, taglist.csv, hierarchy.json. Экспорт → скачивание Blob, импорт →
+// shape.svg}, taglist.csv, hierarchy.json, project.json (редакторная мета). Экспорт → скачивание Blob, импорт →
 // выбор .zip (FSA-picker) → распаковка в структуру для оркестрации (useProject).
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 
@@ -11,11 +11,12 @@ import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
  *   forms: { id: string, viewSvg: string, animationsJson: string }[],
  *   stencils?: { id: string, stencilJson: object, shapeSvg: string }[],
  *   tagsText?: string | null,
- *   hierarchy?: Array | null
+ *   hierarchy?: Array | null,
+ *   project?: object | null
  * }} bundle
  * @returns {Blob}
  */
-export function buildProjectZipBlob({ forms, stencils, tagsText, hierarchy }) {
+export function buildProjectZipBlob({ forms, stencils, tagsText, hierarchy, project }) {
   const files = {}
   for (const f of forms) {
     files[`forms/${f.id}/view.svg`] = strToU8(f.viewSvg)
@@ -28,6 +29,11 @@ export function buildProjectZipBlob({ forms, stencils, tagsText, hierarchy }) {
     }
   }
   if (tagsText != null) files['taglist.csv'] = strToU8(tagsText)
+  // project.json — редакторная мета проекта (сейчас фон холста по формам). Отдельным
+  // файлом, а не полем в hierarchy.json: тот массив-дерево, и менять его форму значило
+  // бы ломать чтение старых архивов. Пустую мету не пишем.
+  if (project && Object.keys(project).length)
+    files['project.json'] = strToU8(JSON.stringify(project, null, 2) + '\n')
   if (hierarchy?.length)
     files['hierarchy.json'] = strToU8(JSON.stringify(hierarchy, null, 2) + '\n')
   return new Blob([zipSync(files, { level: 6 })], { type: 'application/zip' })
@@ -73,7 +79,8 @@ export async function pickProjectArchive() {
  *   forms: { id: string, svgText: string }[],
  *   stencils: { id: string, stencilJson: object, shapeSvg: string }[],
  *   tagsText: string | null,
- *   hierarchy: Array | null
+ *   hierarchy: Array | null,
+ *   project: object | null
  * }>}
  */
 export async function readProjectZipFile(file) {
@@ -125,7 +132,20 @@ export async function readProjectZipFile(file) {
     }
   }
 
-  return { forms, stencils, tagsText, hierarchy }
+  // project.json — редакторная мета (фон холста по формам). Битую/отсутствующую
+  // молча игнорируем: проект от неё не зависит, схемы откроются с дефолтным фоном.
+  let project = null
+  const projectText = text('project.json')
+  if (projectText) {
+    try {
+      const parsed = JSON.parse(projectText)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) project = parsed
+    } catch {
+      project = null
+    }
+  }
+
+  return { forms, stencils, tagsText, hierarchy, project }
 }
 
 /** Уникальные stencilId, используемые формами (по graphJson). Для GC бандла. */

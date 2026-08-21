@@ -32,6 +32,15 @@ import { normalizeStateColor } from '../constants/animation'
 
 export const SHAPE_GRID = 1
 export const PORT_GRID = 5
+/**
+ * Шаг ГАБАРИТА символа при обрезке по контенту — 10, а не PORT_GRID.
+ *
+ * Поворот на 90° идёт вокруг центра ячейки, то есть вокруг (w/2, h/2). При нечётной
+ * половине (ширина 15 → центр 7.5) порт, снапнутый к 5, после поворота попадает на
+ * полуклетку, и конец провода слезает с сетки. Кратность 10 держит центр на сетке;
+ * сдвиг контента при кропе тоже кратен 10, поэтому сами порты остаются кратными 5.
+ */
+const BOX_GRID = 10
 
 // Слот-драйвер внутренней анимации. Булев режим → ключ `onoff` (hasBoolSlot,
 // на холсте рисуется блоком «Булево значение»). Режим «по значению» → ключ
@@ -62,7 +71,7 @@ let seq = 0
 const nextId = () => `s${++seq}`
 
 export function createStencilEditor() {
-  // noRotate/quality — декл-флаги стенсила, моделируем как поля (уезжают в json).
+  // noRotate/noFlip/quality — декл-флаги стенсила, моделируем как поля (уезжают в json).
   // `static` в редакторе не задаётся: его несут только встроенные text/value.
   // stateful — мастер-тумблер анимации; выключен = в json нет slots и
   // animationTemplate. Включён — stateMode решает форму: `boolean` (слот onoff,
@@ -74,6 +83,7 @@ export function createStencilEditor() {
     width: 40,
     height: 40,
     noRotate: false,
+    noFlip: false,
     quality: false,
     stateful: false,
     stateMode: 'boolean', // 'boolean' | 'value'
@@ -552,6 +562,7 @@ export function createStencilEditor() {
     meta.width = def.width || 40
     meta.height = def.height || 40
     meta.noRotate = !!def.noRotate
+    meta.noFlip = !!def.noFlip
     meta.quality = !!def.quality
     // Режим «по значению» опознаём по полю `states` в json, иначе булев. Ключ слота
     // сохраняем как есть — переименование сломало бы привязку у расставленных.
@@ -589,6 +600,7 @@ export function createStencilEditor() {
     meta.width = 40
     meta.height = 40
     meta.noRotate = false
+    meta.noFlip = false
     meta.quality = false
     meta.stateful = false
     meta.stateMode = 'boolean'
@@ -608,9 +620,9 @@ export function createStencilEditor() {
   }
 
   // Черновик → артефакты проекта. Перед сериализацией обрезаем пустые поля (bbox,
-  // кратно PORT_GRID) и сдвигаем в (0,0): символ = ровно нарисованное.
+  // кратно BOX_GRID) и сдвигаем в (0,0): символ = ровно нарисованное.
   function output() {
-    const cropped = cropToContent(shapes.value, ports.value, PORT_GRID)
+    const cropped = cropToContent(shapes.value, ports.value, BOX_GRID)
     const croppedMeta = { ...meta, width: cropped.width, height: cropped.height }
     return {
       json: buildStencilJson(croppedMeta, cropped.ports, cropped.shapes),

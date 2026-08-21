@@ -5,6 +5,7 @@
   "label": "Текстовое поле",
   "category": "Разметка и значения",
   "static": true,
+  "noFlip": true,
   "defaults": {
     "text": "Текст"
   },

@@ -60,7 +60,9 @@ function handleCursor(handle, angle) {
 // Пропорциональный масштаб символа тянут только углы: боковая ручка означала бы
 // растяжение по одной оси.
 const CORNER_HANDLES = HANDLES.filter((h) => h.fx !== 0.5 && h.fy !== 0.5)
-const HALF = 4 // половина ручки (8×8) — позиции считаем по её центру
+// Позицию ручки отдаём ТОЧКОЙ (угол габарита / вершина), а центрируем её в разметке
+// трансформом: так центр круга сидит ровно на углу независимо от размера ручки и её
+// рамки — вычитание половины размера пришлось бы держать в синхроне с вёрсткой.
 
 /**
  * Позиция ячейки, при которой ВИЗУАЛЬНОЕ место локального угла (`fx`/`fy` — доли
@@ -125,7 +127,7 @@ export function useCanvasResize({ scheduleSnapshot, dragging }) {
         return {
           key: e.key,
           cursor: 'move',
-          style: { left: `${p.x - HALF}px`, top: `${p.y - HALF}px` },
+          style: { left: `${p.x}px`, top: `${p.y}px` },
         }
       })
     }
@@ -141,7 +143,7 @@ export function useCanvasResize({ scheduleSnapshot, dragging }) {
       return {
         key: h.key,
         cursor: handleCursor(h, angle),
-        style: { left: `${p.x - HALF}px`, top: `${p.y - HALF}px` },
+        style: { left: `${p.x}px`, top: `${p.y}px` },
       }
     })
   })

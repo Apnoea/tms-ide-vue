@@ -21,7 +21,10 @@ export const TMSStencil = dia.Element.define(
             portBody: {
               r: 3,
               fill: '#ffffff',
-              stroke: '#06b6d4', // cyan-500 (= primary темы)
+              // Обводка ЧЁРНАЯ, а не primary: cyan-заливка занята ручками ресайза
+              // («тянуть»), и порт в тех же цветах читался как их продолжение —
+              // белый кружок в чёрном контуре отличается от них с первого взгляда.
+              stroke: '#000000',
               strokeWidth: 1,
               magnet: 'active',
               cursor: 'crosshair',

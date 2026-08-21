@@ -222,10 +222,14 @@ export function linkStyleAttrs(tms) {
 // Ручки концов: кружок размером с порт, но контрастный. Живут в слое инструментов
 // ПОВЕРХ magnet'ов — иначе перетаскивание конца превращалось бы в рисование нового
 // провода (magnet выигрывает).
+// Белая заливка + АМБЕР-обводка: та же форма, что у порта (белый кружок), но своим
+// цветом — «это ручка провода, а не точка подключения». Cyan занят ручками масштаба,
+// чёрный — портами, поэтому третьей роли достался третий цвет.
+const HANDLE_STROKE = '#f59e0b' // amber-500
 const ENDPOINT_HANDLE_ATTRS = {
   r: 3,
-  fill: '#f97316', // orange-500 — отличать от cyan-порта, читается как «тащи меня»
-  stroke: '#ffffff',
+  fill: '#ffffff',
+  stroke: HANDLE_STROKE,
   'stroke-width': 1,
   cursor: 'move',
 }
@@ -237,12 +241,12 @@ const TargetEndpointHandle = linkTools.TargetArrowhead.extend({
   tagName: 'circle',
   attributes: ENDPOINT_HANDLE_ATTRS,
 })
-// Ручка излома: дефолтный r=6 ужимаем до размера порта.
+// Ручка излома: дефолтный r=6 ужимаем до размера порта, вид — как у ручек концов.
 const VertexHandle = linkTools.Vertices.VertexHandle.extend({
   attributes: {
     r: 3,
-    fill: '#33334f',
-    stroke: '#ffffff',
+    fill: '#ffffff',
+    stroke: HANDLE_STROKE,
     'stroke-width': 1,
     cursor: 'move',
   },
