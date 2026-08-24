@@ -3,6 +3,7 @@ import {
   insideApproachDirection,
   rightAngleDirections,
   arrowSize,
+  isInsideBBox,
   arrowPath,
   arrowExportSvg,
   linkStyleAttrs,
@@ -84,19 +85,22 @@ describe('rightAngleDirections', () => {
 
 describe('наконечники провода', () => {
   it('размер пропорционален толщине линии', () => {
-    expect(arrowSize(2)).toEqual({ len: 8, half: 4 })
-    expect(arrowSize(4)).toEqual({ len: 16, half: 8 })
+    expect(arrowSize(2)).toEqual({ len: 5, half: 5 })
+    expect(arrowSize(4)).toEqual({ len: 10, half: 10 })
     // Мусор и ноль → дефолтная толщина линии (2).
-    expect(arrowSize(undefined)).toEqual({ len: 8, half: 4 })
+    expect(arrowSize(undefined)).toEqual({ len: 5, half: 5 })
+    // Раствор 90°: длина равна полуширине, каждая сторона идёт под 45°.
+    const { len, half } = arrowSize(3)
+    expect(len).toBe(half)
   })
 
-  it('solid — замкнутый треугольник, open — две линии под 45°', () => {
+  it('solid — замкнутый треугольник, open — две линии; раствор у обоих 90°', () => {
     // Вершина в точке конца линии (0 0), тело — вдоль оси X: наконечник смотрит В точку
     // соединения. Направление задаёт dir: у targetMarker тело в +X, у sourceMarker в −X
     // (оси концов у JointJS противоположны).
-    expect(arrowPath('solid', 2)).toBe('M 0 0 L 8 4 L 8 -4 Z')
-    expect(arrowPath('solid', 2, -1)).toBe('M 0 0 L -8 4 L -8 -4 Z')
-    expect(arrowPath('open', 2)).toBe('M 8 4 L 0 0 L 8 -4')
+    expect(arrowPath('solid', 2)).toBe('M 0 0 L 5 5 L 5 -5 Z')
+    expect(arrowPath('solid', 2, -1)).toBe('M 0 0 L -5 5 L -5 -5 Z')
+    expect(arrowPath('open', 2)).toBe('M 5 5 L 0 0 L 5 -5')
     expect(arrowPath(undefined, 2)).toBeNull()
   })
 
@@ -104,8 +108,8 @@ describe('наконечники провода', () => {
     // JointJS разворачивает sourceMarker, поэтому знаки у концов разные. С обратными
     // остриё уходит ЗА точку соединения, и стрелка смотрит наружу схемы.
     const line = linkStyleAttrs({ arrowStart: 'solid', arrowEnd: 'solid' }).line
-    expect(line.sourceMarker.d).toBe('M 0 0 L 8 4 L 8 -4 Z')
-    expect(line.targetMarker.d).toBe('M 0 0 L -8 4 L -8 -4 Z')
+    expect(line.sourceMarker.d).toBe('M 0 0 L 5 5 L 5 -5 Z')
+    expect(line.targetMarker.d).toBe('M 0 0 L -5 5 L -5 -5 Z')
   })
 
   it('стиль линии несёт маркеры только для заданных концов', () => {
@@ -125,5 +129,25 @@ describe('наконечники провода', () => {
     expect(svg).toContain('transform="translate(40 10) rotate(90)"')
     expect(svg).toContain('class="tms-range-fill"')
     expect(arrowExportSvg(null, { x: 0, y: 0 }, 0, 2, '#000')).toBe('')
+  })
+})
+
+// Ручка конца провода стоит в anchor'е, если тот ВНУТРИ тела (слот шины в середине
+// толщины): путь у шины заканчивается на границе, и ручка иначе уезжала бы с точки
+// соединения на край. Предикат — общий с insideApproachDirection.
+describe('isInsideBBox', () => {
+  const bbox = { x: 100, y: 50, width: 80, height: 8 }
+
+  it('точка в теле — да, на границе и снаружи — нет', () => {
+    expect(isInsideBBox({ x: 140, y: 54 }, bbox)).toBe(true)
+    // Границы не считаются: порт на контуре обычного символа — не «внутри тела».
+    expect(isInsideBBox({ x: 100, y: 54 }, bbox)).toBe(false)
+    expect(isInsideBBox({ x: 140, y: 50 }, bbox)).toBe(false)
+    expect(isInsideBBox({ x: 200, y: 54 }, bbox)).toBe(false)
+  })
+
+  it('без точки или bbox — нет (концы без привязки)', () => {
+    expect(isInsideBBox(null, bbox)).toBe(false)
+    expect(isInsideBBox({ x: 1, y: 1 }, null)).toBe(false)
   })
 })

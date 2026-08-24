@@ -23,14 +23,20 @@ const { Directions } = routers.rightAngle
  *
  * null = порт на границе тела (обычный символ) → направление оставляем роутеру.
  */
+/** Точка СТРОГО внутри bbox (границы не считаются): порт в теле, а не на контуре. */
+export function isInsideBBox(point, bbox) {
+  if (!point || !bbox) return false
+  return (
+    point.x > bbox.x &&
+    point.x < bbox.x + bbox.width &&
+    point.y > bbox.y &&
+    point.y < bbox.y + bbox.height
+  )
+}
+
 export function insideApproachDirection(anchor, bbox, from) {
   if (!anchor || !bbox || !from) return null
-  const inside =
-    anchor.x > bbox.x &&
-    anchor.x < bbox.x + bbox.width &&
-    anchor.y > bbox.y &&
-    anchor.y < bbox.y + bbox.height
-  if (!inside) return null
+  if (!isInsideBBox(anchor, bbox)) return null
   const dx = from.x - anchor.x
   const dy = from.y - anchor.y
   const vertical =
@@ -136,17 +142,24 @@ export function normalizeLinkZ(z) {
   return z
 }
 
-/** Длина и полуширина наконечника — пропорционально толщине линии. */
+/**
+ * Длина и полуширина наконечника — пропорционально толщине линии. Длина РАВНА
+ * полуширине: это раствор 90° (по 45° на сторону) — «тупой» наконечник, как на
+ * присланных схемах. Оба вида строятся из одной пары, поэтому угол у стрелки-линий и у
+ * треугольника одинаков по построению, а не «на глаз».
+ */
 export function arrowSize(strokeWidth) {
   const w = Number(strokeWidth)
   const base = Number.isFinite(w) && w > 0 ? w : LINK_DEFAULTS.attrs.line.strokeWidth
-  return { len: base * 4, half: base * 2 }
+  const side = base * 2.5
+  return { len: side, half: side }
 }
 
 /**
  * Геометрия наконечника в системе маркера: начало в точке конца линии, ось X смотрит
  * В точку соединения. `solid` — замкнутый треугольник (заливается цветом линии),
- * `open` — две линии под 45° (незамкнутая «галочка», красится обводкой).
+ * `open` — две линии (незамкнутая «галочка», красится обводкой). Раствор у обоих
+ * одинаковый — 90°, см. arrowSize.
  *
  * Одна функция на холст и экспорт: JointJS рисует `d` как маркер линка, exporter — тем
  * же путём в группе провода, иначе вид разошёлся бы с `view.svg`.
@@ -233,13 +246,39 @@ const ENDPOINT_HANDLE_ATTRS = {
   'stroke-width': 1,
   cursor: 'move',
 }
+/**
+ * Позиция ручки конца. JointJS ставит её на КОНЕЦ ПУТИ, а у шины путь заканчивается на
+ * границе тела (см. defaultConnectionPoint в canvasPaper: иначе провод уходил бы под
+ * тело вместе с наконечником). Ручка при этом уезжала с точки соединения на край, хотя
+ * соединение — это слот в СЕРЕДИНЕ толщины. Поэтому у концов, чей anchor лежит внутри
+ * тела, ставим ручку в anchor; у остальных поведение штатное.
+ *
+ * Угол не считаем: ручка — круг, вращать нечего.
+ */
+function endpointHandleUpdate(base) {
+  return function update() {
+    const view = this.relatedView
+    const isSource = this.arrowheadType === 'source'
+    const anchor = isSource ? view?.sourceAnchor : view?.targetAnchor
+    const endView = isSource ? view?.sourceView : view?.targetView
+    const bbox = endView?.model?.isElement?.() ? endView.model.getBBox() : null
+    if (anchor && isInsideBBox(anchor, bbox)) {
+      this.vel.attr('transform', `translate(${anchor.x} ${anchor.y})`)
+      return this
+    }
+    return base.prototype.update.call(this)
+  }
+}
+
 const SourceEndpointHandle = linkTools.SourceArrowhead.extend({
   tagName: 'circle',
   attributes: ENDPOINT_HANDLE_ATTRS,
+  update: endpointHandleUpdate(linkTools.SourceArrowhead),
 })
 const TargetEndpointHandle = linkTools.TargetArrowhead.extend({
   tagName: 'circle',
   attributes: ENDPOINT_HANDLE_ATTRS,
+  update: endpointHandleUpdate(linkTools.TargetArrowhead),
 })
 // Ручка излома: дефолтный r=6 ужимаем до размера порта, вид — как у ручек концов.
 const VertexHandle = linkTools.Vertices.VertexHandle.extend({

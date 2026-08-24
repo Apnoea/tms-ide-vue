@@ -127,6 +127,11 @@ export function createCanvasPaper({ el, graph, isSelected, background = CANVAS_B
     defaultConnectionPoint: function (line, view) {
       const stencilId = view?.model?.get?.('tms')?.stencilId
       if (stencilId === 'cell_node') return view.model.getBBox().center()
+      // Шина: слот стоит в СЕРЕДИНЕ толщины, и провод, доведённый до anchor'а, уходил
+      // внутрь тела — вместе с наконечником, который там и прятался. Заканчиваем линию
+      // на границе тела: соединение по-прежнему обозначает маркер на занятом слоте
+      // (см. collectBusMarks), а стрелка остаётся снаружи и видна.
+      if (stencilId === 'cell_bus') return connectionPoints.bbox.apply(this, arguments)
       return connectionPoints.anchor.apply(this, arguments)
     },
     // Anchor — точка, от которой роутер строит путь. У cell_node порт в ЦЕНТРЕ

@@ -200,8 +200,8 @@ describe('exportProject', () => {
     )
     const svg = exportProject(graph).svgText
     expect(svg).toMatch(/<g id="animation-wire-l1">/)
-    // Размер от толщины: len = 4×3 = 12, half = 2×3 = 6.
-    expect(svg).toContain('d="M 0 0 L 12 6 L 12 -6 Z"')
+    // Размер от толщины: сторона = 2.5×3 = 7.5, раствор 90° (len === half).
+    expect(svg).toContain('d="M 0 0 L 7.5 7.5 L 7.5 -7.5 Z"')
     // Треугольник заливается цветом линии и помечен opt-in классом заливки.
     expect(svg).toContain('class="tms-range-fill"')
     // Провод горизонтальный (c1 → c2 вправо), наконечник на конце: тело рисуется в +X,

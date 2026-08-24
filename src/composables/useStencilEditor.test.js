@@ -301,10 +301,10 @@ describe('useStencilEditor', () => {
     ed.addPort(0, 0)
     ed.addPort(10, 0)
     const p3 = ed.addPort(20, 0)
-    ed.removePort(p3.id) // удалён ПОСЛЕДНИЙ — max по именам дал бы снова p3
+    ed.removePorts([p3.id]) // удалён ПОСЛЕДНИЙ — max по именам дал бы снова p3
     expect(ed.addPort(30, 0).name).toBe('p4')
     // Дырка в середине тоже не переиспользуется.
-    ed.removePort(ed.ports.value.find((p) => p.name === 'p2').id)
+    ed.removePorts([ed.ports.value.find((p) => p.name === 'p2').id])
     expect(ed.addPort(40, 10).name).toBe('p5')
     expect(ed.output().json.portSeq).toBe(5)
   })
@@ -879,5 +879,74 @@ describe('обрезка по контенту: габарит кратен 10',
       expect(p.x % 5).toBe(0)
       expect(p.y % 5).toBe(0)
     }
+  })
+})
+
+// Порт теперь ведёт себя как элемент: выделяется кликом, удаляется Del, ездит
+// стрелками. Раньше единственным способом удалить был повторный клик по нему.
+describe('выделение портов', () => {
+  function withPorts() {
+    const ed = createStencilEditor()
+    ed.addShape({ type: 'rect', x: 0, y: 0, w: 40, h: 40 })
+    const a = ed.addPort(10, 0)
+    const b = ed.addPort(20, 40)
+    return { ed, a, b }
+  }
+
+  it('клик выделяет порт, Ctrl+клик добавляет и убирает', () => {
+    const { ed, a, b } = withPorts()
+    ed.selectPort(a.id)
+    expect(ed.selectedPortIds.value).toEqual([a.id])
+    ed.selectPort(b.id, true)
+    expect(ed.selectedPortIds.value).toEqual([a.id, b.id])
+    ed.selectPort(a.id, true)
+    expect(ed.selectedPortIds.value).toEqual([b.id])
+  })
+
+  it('выделение портов и фигур взаимно исключающее — Del всегда однозначен', () => {
+    const { ed, a } = withPorts()
+    const shape = ed.shapes.value[0]
+    ed.select(shape.id)
+    ed.selectPort(a.id)
+    expect(ed.selectedIds.value).toEqual([])
+    ed.select(shape.id)
+    expect(ed.selectedPortIds.value).toEqual([])
+  })
+
+  it('removePorts удаляет пачку одним шагом истории и чистит выделение', () => {
+    const { ed, a, b } = withPorts()
+    ed.selectPort(a.id)
+    ed.selectPort(b.id, true)
+    expect(ed.removePorts(ed.selectedPortIds.value)).toBe(2)
+    expect(ed.ports.value).toEqual([])
+    expect(ed.selectedPortIds.value).toEqual([])
+    // Один Ctrl+Z возвращает оба порта, а не по одному.
+    ed.undo()
+    expect(ed.ports.value).toHaveLength(2)
+  })
+
+  it('чужие id и пустой список историю не пишут', () => {
+    const { ed } = withPorts()
+    expect(ed.removePorts([])).toBe(0)
+    expect(ed.removePorts(['ghost'])).toBe(0)
+    expect(ed.ports.value).toHaveLength(2)
+  })
+
+  it('стрелки двигают выделенные порты по границе символа', () => {
+    const { ed, a } = withPorts()
+    ed.selectPort(a.id)
+    // Порт был на верхней границе (10,0); сдвиг вправо остаётся на ней.
+    expect(ed.nudgePorts(PORT_GRID, 0)).toBe(true)
+    const moved = ed.ports.value.find((p) => p.id === a.id)
+    expect(moved).toMatchObject({ x: 15, y: 0 })
+    // Имя не меняется: по нему провод держится за порт (см. portSeq).
+    expect(moved.name).toBe(a.name)
+  })
+
+  it('без выделения и с нулевым смещением ничего не двигаем', () => {
+    const { ed, a } = withPorts()
+    expect(ed.nudgePorts(PORT_GRID, 0)).toBe(false)
+    ed.selectPort(a.id)
+    expect(ed.nudgePorts(0, 0)).toBe(false)
   })
 })

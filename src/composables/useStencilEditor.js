@@ -105,8 +105,14 @@ export function createStencilEditor() {
   const shapes = ref([])
   const ports = ref([])
   const tool = ref('select') // 'select' | 'rect' | 'line' | 'circle' | 'polyline' | 'port'
-  // Выделение множественное (клик, Ctrl+клик, лассо). Порты в него не входят.
+  // Выделение множественное (клик, Ctrl+клик, лассо).
   const selectedIds = ref([])
+  // Порты выделяются СВОИМ списком, а не общим с фигурами: у них нет ни свойств
+  // (инспектор рисует «Фигуру»), ни порядка наложения, ни копирования — общее
+  // выделение пришлось бы фильтровать в каждом потребителе. Взаимно исключающее:
+  // клик по фигуре снимает выделение портов и наоборот, поэтому Del всегда очевиден.
+  const selectedPortIds = ref([])
+  const selectedPortSet = computed(() => new Set(selectedPortIds.value))
   const selectedSet = computed(() => new Set(selectedIds.value))
   // «Ровно одна» — гейт ручек ресайза и полей геометрии/текста. При N>1 null.
   const selectedId = computed(() => (selectedIds.value.length === 1 ? selectedIds.value[0] : null))
@@ -187,6 +193,56 @@ export function createStencilEditor() {
   /** Выделить ровно одну фигуру (null — снять выделение). */
   function select(id) {
     selectedIds.value = id ? [id] : []
+    selectedPortIds.value = []
+  }
+
+  /** Клик по порту. additive (Ctrl/Cmd) — добавить/убрать, не теряя остальные. */
+  function selectPort(id, additive = false) {
+    selectedIds.value = []
+    if (!id) {
+      selectedPortIds.value = []
+      return
+    }
+    if (!additive) {
+      selectedPortIds.value = [id]
+      return
+    }
+    selectedPortIds.value = selectedPortSet.value.has(id)
+      ? selectedPortIds.value.filter((x) => x !== id)
+      : [...selectedPortIds.value, id]
+  }
+
+  /** Удалить выделенные порты — одним шагом истории на пачку. */
+  function removePorts(ids) {
+    const set = new Set(ids || [])
+    if (!set.size) return 0
+    const before = ports.value.length
+    ports.value = ports.value.filter((p) => !set.has(p.id))
+    const removed = before - ports.value.length
+    if (!removed) return 0
+    selectedPortIds.value = selectedPortIds.value.filter((id) => !set.has(id))
+    commit()
+    return removed
+  }
+
+  /**
+   * Сдвиг выделенных портов стрелками — шагом сетки схемы. Порт живёт на границе
+   * символа, поэтому каждый проецируется на ближайшую сторону (portOnEdge) сам:
+   * общий сдвиг, как у фигур, увёл бы их внутрь тела.
+   */
+  function nudgePorts(dx, dy) {
+    if (!selectedPortIds.value.length || (!dx && !dy)) return false
+    const set = selectedPortSet.value
+    let changed = false
+    ports.value = ports.value.map((p) => {
+      if (!set.has(p.id)) return p
+      const next = portOnEdge(p.x + dx, p.y + dy)
+      if (next.x === p.x && next.y === p.y) return p
+      changed = true
+      return { ...p, ...next }
+    })
+    if (changed) commit()
+    return changed
   }
 
   /** Ctrl/Cmd+клик: добавить/убрать фигуру, не теряя остальные. */
@@ -199,6 +255,7 @@ export function createStencilEditor() {
 
   /** Результат лассо. additive (Ctrl/Cmd) — объединяем с текущим, иначе заменяем. */
   function selectMany(ids, additive = false) {
+    if (ids.length) selectedPortIds.value = []
     if (!additive) {
       selectedIds.value = [...ids]
       return
@@ -547,11 +604,6 @@ export function createStencilEditor() {
     ports.value = ports.value.map((p) => (p.id === id ? { ...p, x: px, y: py } : p))
   }
 
-  function removePort(id) {
-    ports.value = ports.value.filter((p) => p.id !== id)
-    commit()
-  }
-
   // Правка существующего стенсила (только незалоченные — их SVG в нашем формате).
   // История сбрасывается: загруженное состояние = базовая точка для undo.
   function loadStencil(def) {
@@ -641,6 +693,8 @@ export function createStencilEditor() {
     selectedId,
     selectedIds,
     selectedSet,
+    selectedPortIds,
+    selectedPortSet,
     editingId,
     previewState,
     canUndo,
@@ -675,7 +729,9 @@ export function createStencilEditor() {
     applyPositionPreset,
     addPort,
     movePort,
-    removePort,
+    removePorts,
+    selectPort,
+    nudgePorts,
     commit,
     undo,
     redo,

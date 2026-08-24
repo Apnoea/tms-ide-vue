@@ -59,6 +59,8 @@ const {
   selectedId,
   selectedIds,
   selectedSet,
+  selectedPortIds,
+  selectedPortSet,
   editingId,
   previewState,
   canUndo,
@@ -78,7 +80,8 @@ const {
   removeShapes,
   addPort,
   movePort,
-  removePort,
+  removePorts,
+  selectPort,
   commit,
   undo,
   redo,
@@ -100,7 +103,11 @@ const DRAW_TOOLS = [
     glyph: TEXT_ICON,
     tip: 'Подпись (клик — поставить, текст правится в инспекторе)',
   },
-  { key: 'port', icon: 'pi pi-map-marker', tip: 'Порт (клик по порту — удалить)' },
+  {
+    key: 'port',
+    icon: 'pi pi-map-marker',
+    tip: 'Порт (клик по существующему — выделить, Del — удалить)',
+  },
 ]
 
 // Тоггл рисующих инструментов: повторный клик по активному инструменту
@@ -362,12 +369,15 @@ const drawing = ref(null) // { type, sx, sy, cx, cy } — тянущаяся ф�
 const polyPoints = ref([]) // накопленные вершины ломаной
 const polyCursor = ref(null) // «резинка» до курсора
 
-function onSurfaceDown(e) {
+/**
+ * Жест рисующего инструмента. Зовётся со STAGE, а не с SVG символа: начинать штрих и
+ * ставить порт можно за пределами холста — так же, как рамку выделения. Координаты
+ * считает `unitsFromEvent` (функция линейная, за границами viewBox работает так же), а
+ * прижимает их к области символа снап: `snapShapeX/Y` и `portOnEdge` клампят в
+ * 0..width/height, поэтому фигура не уедет за габарит, а порт сядет на ближнюю границу.
+ */
+function onDrawDown(e) {
   if (e.button !== 0) return
-  // Режим выбора обрабатывает stage целиком (onStageDown) — рамку можно начинать и
-  // за пределами символа. Здесь остаются только рисующие инструменты: рисовать
-  // по-прежнему разрешено лишь внутри области стенсила.
-  if (tool.value === 'select') return
   if (tool.value === 'port') {
     if (e.target.closest('[data-se-move="port"]')) return // клик по порту — его хендлер
     const u = unitsFromEvent(e)
@@ -405,7 +415,7 @@ function onSurfaceDown(e) {
   window.addEventListener('pointerup', onDrawUp)
 }
 
-function onSurfaceMove(e) {
+function onStageMove(e) {
   if (tool.value === 'polyline' && polyPoints.value.length) {
     const u = snappedShape(e)
     polyCursor.value = [u.x, u.y]
@@ -503,13 +513,17 @@ function onShapeSelect(id, e) {
  * 0..W/H, для рамки это нормально: в модель они не пишутся).
  */
 function onStageDown(e) {
-  if (e.button !== 0 || tool.value !== 'select') return
-  // Клик по фигуре/ручке/порту — их жест (drag через interact.js).
-  if (e.target.closest('[data-se-move]')) return
+  if (e.button !== 0) return
   // Кнопки поворота/отражения лежат НАД stage: без этого гейта их pointerdown
   // трактуется как клик по пустому месту и снимает выделение раньше, чем сработает
   // @click, — кнопка получала бы пустой список и ничего не делала.
   if (e.target.closest('[data-se-overlay]')) return
+  if (tool.value !== 'select') {
+    onDrawDown(e)
+    return
+  }
+  // Клик по фигуре/ручке/порту — их жест (drag через interact.js).
+  if (e.target.closest('[data-se-move]')) return
   startLasso(e)
 }
 
@@ -676,12 +690,17 @@ function setupInteract() {
   })
 }
 
-// Порт: в режиме порта клик удаляет его (add идёт по фону, см. onSurfaceDown).
+/**
+ * Клик по порту ВЫДЕЛЯЕТ его (Ctrl/Cmd — добавляет к выделению), удаляет — `Del`, как у
+ * фигур. Раньше удалением был повторный клик в режиме «Порт»: жест не совпадал ни с чем
+ * другим в редакторе и срабатывал мимоходом при попытке порт подвинуть.
+ *
+ * stopPropagation обязателен: в режиме «Порт» pointerdown по холсту создаёт новый порт,
+ * и без него клик по существующему тут же добавлял бы второй рядом.
+ */
 function onPortDown(e, id) {
-  if (tool.value === 'port') {
-    e.stopPropagation()
-    removePort(id)
-  }
+  e.stopPropagation()
+  selectPort(id, e.ctrlKey || e.metaKey)
 }
 
 const ARROW_DIRS = {
@@ -750,7 +769,7 @@ useEventListener(window, 'keydown', (e) => {
       drawing.value = null
       polyPoints.value = []
       polyCursor.value = null
-    } else if (selectedIds.value.length) {
+    } else if (selectedIds.value.length || selectedPortIds.value.length) {
       select(null)
     } else {
       requestClose()
@@ -761,20 +780,33 @@ useEventListener(window, 'keydown', (e) => {
   // (у фигур сетка 1px, у портов и размера символа — 5). В полях ввода не
   // перехватываем: там стрелки правят значение степпера.
   const arrow = ARROW_DIRS[e.key]
-  if (arrow && !isInInput(e.target) && !isInListWidget(e.target) && selectedIds.value.length) {
-    e.preventDefault()
-    const step = e.shiftKey ? PORT_GRID : SHAPE_GRID
-    ed.nudgeShapes(arrow.x * step, arrow.y * step)
-    return
+  if (arrow && !isInInput(e.target) && !isInListWidget(e.target)) {
+    // Порт живёт на сетке символа, поэтому у него шаг всегда PORT_GRID: пиксельный
+    // сдвиг увёл бы вывод с клетки, и провод на схеме перестал бы попадать в порт.
+    if (selectedPortIds.value.length) {
+      e.preventDefault()
+      ed.nudgePorts(arrow.x * PORT_GRID, arrow.y * PORT_GRID)
+      return
+    }
+    if (selectedIds.value.length) {
+      e.preventDefault()
+      const step = e.shiftKey ? PORT_GRID : SHAPE_GRID
+      ed.nudgeShapes(arrow.x * step, arrow.y * step)
+      return
+    }
   }
-  if (
-    (e.key === 'Delete' || e.key === 'Backspace') &&
-    !isInInput(e.target) &&
-    selectedIds.value.length
-  ) {
-    e.preventDefault()
-    removeShapes(selectedIds.value)
-    return
+  if ((e.key === 'Delete' || e.key === 'Backspace') && !isInInput(e.target)) {
+    // Выделение взаимно исключающее (см. selectPort), поэтому порядок проверок не спорит.
+    if (selectedPortIds.value.length) {
+      e.preventDefault()
+      removePorts(selectedPortIds.value)
+      return
+    }
+    if (selectedIds.value.length) {
+      e.preventDefault()
+      removeShapes(selectedIds.value)
+      return
+    }
   }
   // Поворот и отражение — те же клавиши, что на холсте (см. useHotkeys). Без Ctrl,
   // поэтому проверяем поля ввода: R посреди набора подписи не должен крутить фигуру.
@@ -1135,6 +1167,7 @@ onBeforeUnmount(() => {
           class="flex flex-1 items-center justify-center overflow-auto bg-surface-100"
           @scroll="updateRuler"
           @pointerdown="onStageDown"
+          @pointermove="onStageMove"
         >
           <div class="relative">
             <svg
@@ -1144,8 +1177,6 @@ onBeforeUnmount(() => {
               :viewBox="`0 0 ${meta.width} ${meta.height}`"
               class="shadow-sm overflow-visible"
               :class="tool === 'select' ? 'cursor-default' : 'cursor-crosshair'"
-              @pointerdown="onSurfaceDown"
-              @pointermove="onSurfaceMove"
               @dblclick="finishPolyline"
               @contextmenu="onShapeContextMenu"
             >
@@ -1330,6 +1361,7 @@ onBeforeUnmount(() => {
                 :cy="p.y"
                 :r="PORT_R"
                 fill="#ffffff"
+                :style="selectedPortSet.has(p.id) ? { stroke: SEL_STROKE } : null"
                 stroke="#000000"
                 :stroke-width="PORT_STROKE"
                 :class="tool === 'port' ? 'cursor-pointer' : 'cursor-move'"
