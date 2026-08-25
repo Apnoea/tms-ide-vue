@@ -55,6 +55,7 @@ const mockCanvas = {
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
 import { useProject } from './useProject'
+import { reinjectAllStencils } from '../stencils/svgInjector'
 import { parseSvgProject } from '../services/projectLoader'
 import { getStencilById, registerStencil } from '../stencils/registry'
 import { replaceStencilOverrides } from '../services/stencilOverrides'
@@ -114,6 +115,29 @@ describe('useProject', () => {
       expect(deps.autosave.persistMeta).toHaveBeenCalled()
       expect(deps.undo.initHistory).toHaveBeenCalled()
       expect(mockCanvas.clearSelection).toHaveBeenCalled()
+    })
+
+    it('инъекция разметки идёт ПОСЛЕ разморозки paper', async () => {
+      // У замороженного paper'а нет представлений добавленных ячеек, поэтому
+      // reinjectAllStencils внутри заморозки молча ничего не рисует — на схеме
+      // остаются только провода (символы отрисовываются пустым body). Порядок:
+      // freeze → fromJSON → unfreeze → инъекция.
+      seedForms(
+        [
+          { id: 'a', graphJson: { cells: [] } },
+          { id: 'b', graphJson: { cells: [] } },
+        ],
+        'a'
+      )
+      const unfreeze = vi.fn()
+      mockCanvas.paperRef.value = { id: 'paper', freeze: vi.fn(), unfreeze }
+      const { selectForm } = useProject(makeDeps())
+      await selectForm('b')
+
+      expect(unfreeze).toHaveBeenCalled()
+      expect(unfreeze.mock.invocationCallOrder[0]).toBeLessThan(
+        reinjectAllStencils.mock.invocationCallOrder[0]
+      )
     })
 
     it('вписывает контент новой формы в область видимости', async () => {
@@ -217,9 +241,12 @@ describe('useProject', () => {
   })
 
   describe('importProjectFromArchive', () => {
-    function bundle(forms, { stencils = [], tagsText = null, hierarchy = null } = {}) {
+    function bundle(
+      forms,
+      { stencils = [], tagsText = null, hierarchy = null, project = undefined } = {}
+    ) {
       pickProjectArchive.mockResolvedValue({ name: 'project.zip' })
-      readProjectZipFile.mockResolvedValue({ forms, stencils, tagsText, hierarchy })
+      readProjectZipFile.mockResolvedValue({ forms, stencils, tagsText, hierarchy, project })
     }
 
     it('пустая валидная форма сохраняется (цель навигации не теряется)', async () => {
@@ -237,6 +264,51 @@ describe('useProject', () => {
         undefined // редакторная мета (project.json) — в этом архиве её нет
       )
       expect(mockNotify.success).toHaveBeenCalled()
+    })
+
+    it('небезопасные имена форм чинятся, ссылки на них переезжают', async () => {
+      // id формы = имя папки в архиве + цель tms.navigation: `..` уводил бы файл за
+      // папку проекта при обратном экспорте, поэтому чиним на импорте и тянем за
+      // собой навигацию, иерархию и фон формы.
+      bundle(
+        [
+          { id: '..', svgText: 'a' },
+          { id: 'Схема 1', svgText: 'b' },
+          { id: 'main', svgText: 'c' },
+        ],
+        {
+          hierarchy: [{ id: 'main', children: [{ id: '..', children: [] }] }],
+          project: { formBg: { 'Схема 1': '#101010' } },
+        }
+      )
+      parseSvgProject.mockImplementation((svg) => ({
+        ok: true,
+        // На форме `main` кнопка ведёт на форму «..» — ссылка обязана переехать.
+        cells: svg === 'c' ? [{ id: 'c1', tms: { navigation: '..' } }] : [],
+        stencilIds: [],
+      }))
+      const deps = makeDeps()
+      const { importProjectFromArchive } = useProject(deps)
+      await importProjectFromArchive()
+
+      const [formsArg, , hierarchyArg, , projectArg] = deps.autosave.replaceProject.mock.calls[0]
+      const ids = formsArg.map((f) => f.id)
+      expect(ids).toContain('main')
+      expect(ids).toEqual(expect.arrayContaining([expect.stringMatching(/^form_\d+$/)]))
+      expect(ids).not.toContain('..')
+      // Навигация указывает на НОВОЕ имя формы, которая была «..».
+      const navTarget = formsArg.find((f) => f.id === 'main').graphJson.cells[0].tms.navigation
+      expect(ids).toContain(navTarget)
+      expect(navTarget).not.toBe('..')
+      // Иерархия и фон переехали вместе с формами.
+      expect(hierarchyArg[0].children[0].id).toBe(navTarget)
+      expect(Object.keys(projectArg.formBg)).toEqual([
+        formsArg.find((f) => f.id !== 'main' && f.id !== navTarget).id,
+      ])
+      expect(mockNotify.warn).toHaveBeenCalledWith(
+        'Формы переименованы',
+        expect.stringContaining('→')
+      )
     })
 
     it('битый SVG пропускается, валидные формы импортируются', async () => {

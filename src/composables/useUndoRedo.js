@@ -1,5 +1,6 @@
 import { onBeforeUnmount } from 'vue'
 import { reinjectAllStencils } from '../stencils/svgInjector'
+import { withPaperFrozen } from '../utils/paperBatch'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { useCanvas } from './useCanvas'
 
@@ -118,7 +119,10 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
     try {
       json = JSON.parse(str)
       withRestoreGuard(restoringHistory, () => {
-        graph.fromJSON(json)
+        // Undo/redo — то же массовое переписывание графа, что загрузка формы:
+        // промежуточные состояния перерисовывать незачем. Инъекция — ПОСЛЕ
+        // разморозки: у замороженного paper'а нет представлений новых ячеек.
+        withPaperFrozen(paper, () => graph.fromJSON(json))
         reinjectAllStencils(graph, paper)
         canvas.bumpVersion()
         canvas.clearSelection()

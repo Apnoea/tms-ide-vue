@@ -385,9 +385,18 @@ function onDrawDown(e) {
     return
   }
   // Подпись ставится одним кликом (не drag'ом): габарит задаёт шрифт, а не рамка.
+  // Якорь — по левому краю (клик = начало текста), как на холсте; центр остаётся
+  // дефолтом для фигур БЕЗ поля `align`, поэтому нарисованные ранее символы целы.
   if (tool.value === 'text') {
     const u = snappedShape(e)
-    addShape({ type: 'text', x: u.x, y: u.y, text: 'Текст', fontSize: TEXT_SHAPE_SIZE })
+    addShape({
+      type: 'text',
+      x: u.x,
+      y: u.y,
+      text: 'Текст',
+      fontSize: TEXT_SHAPE_SIZE,
+      align: 'left',
+    })
     return
   }
   if (tool.value === 'polyline') {

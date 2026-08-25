@@ -45,15 +45,28 @@ describe('parser.instantiate', () => {
     ])
   })
 
-  it('собирает финальный id="animation-{stencilId}-{cellId}{suffix}" в SVG', () => {
-    const { svg } = instantiate(stencil, 'c1', { onoff: 'X.Y' })
-    expect(svg).toContain('id="animation-cell_test-c1.RZ"')
-    expect(svg).toContain('id="animation-cell_test-c1.RZ-closed"')
+  it('собирает финальный id="animation-{stencilId}-{cellId}{suffix}" в разметке', () => {
+    // instantiate отдаёт DOM-клон шаблона (шаблон парсится один раз на определение),
+    // поэтому id проверяем по узлам, а не по строке.
+    const { root } = instantiate(stencil, 'c1', { onoff: 'X.Y' })
+    const ids = [...root.querySelectorAll('[id]')].map((el) => el.getAttribute('id'))
+    expect(ids).toContain('animation-cell_test-c1.RZ')
+    expect(ids).toContain('animation-cell_test-c1.RZ-closed')
   })
 
-  it('удаляет data-anim-suffix из выходного SVG', () => {
-    const { svg } = instantiate(stencil, 'c1', { onoff: 'X.Y' })
-    expect(svg).not.toContain('data-anim-suffix')
+  it('удаляет data-anim-suffix из разметки экземпляра', () => {
+    const { root } = instantiate(stencil, 'c1', { onoff: 'X.Y' })
+    expect(root.querySelectorAll('[data-anim-suffix]')).toHaveLength(0)
+  })
+
+  it('шаблон в кэше не мутируется: второй экземпляр получает свои id', () => {
+    // Клонируем шаблон, а не правим его: иначе у второй ячейки суффиксы уже сняты,
+    // и её элементы остались бы с id первой.
+    instantiate(stencil, 'c1', { onoff: 'X.Y' })
+    const { root } = instantiate(stencil, 'c2', { onoff: 'X.Y' })
+    const ids = [...root.querySelectorAll('[id]')].map((el) => el.getAttribute('id'))
+    expect(ids).toContain('animation-cell_test-c2.RZ')
+    expect(ids.some((id) => id.includes('-c1.'))).toBe(false)
   })
 
   it('пропускает binding если slot не выбран (resolved=null) → карточка без bindings отбрасывается', () => {
@@ -69,10 +82,10 @@ describe('parser.instantiate', () => {
     expect(animations).toEqual({})
   })
 
-  it('возвращает svg=null если svgText отсутствует', () => {
+  it('возвращает root=null если svgText отсутствует (программный символ)', () => {
     const bare = { ...stencil, svgText: '' }
-    const { svg } = instantiate(bare, 'c1', { onoff: 'X' })
-    expect(svg).toBeNull()
+    const { root } = instantiate(bare, 'c1', { onoff: 'X' })
+    expect(root).toBeNull()
   })
 
   it('подстановка нескольких разных слотов в одной карточке', () => {

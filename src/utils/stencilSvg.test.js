@@ -11,7 +11,10 @@ import {
   flipShape,
   canRotateShapes,
   canFlipShapes,
+  serializeShape,
+  textLines,
   TEXT_SHAPE_SIZE,
+  TEXT_LINE_HEIGHT,
 } from './stencilSvg'
 
 describe('serializeSvg', () => {
@@ -782,12 +785,13 @@ describe('canRotateShapes / canFlipShapes (доступность операци
     expect(canFlipShapes(corner, 'h')).toBe(true)
   })
 
-  it('одиночная подпись: поворота нет, отражение — только когда меняет якорь', () => {
+  it('одиночная подпись: ни поворота, ни отражения при любом якоре', () => {
     const centered = [{ type: 'text', x: 10, y: 10, text: 'Wh' }]
     expect(canRotateShapes(centered)).toBe(false)
     expect(canFlipShapes(centered, 'h')).toBe(false)
+    // Якорь роста правится полем `align`, зеркалить подпись незачем.
     const anchored = [{ type: 'text', x: 10, y: 10, text: 'Wh', align: 'left' }]
-    expect(canFlipShapes(anchored, 'h')).toBe(true)
+    expect(canFlipShapes(anchored, 'h')).toBe(false)
     expect(canFlipShapes(anchored, 'v')).toBe(false)
   })
 
@@ -807,6 +811,55 @@ describe('canRotateShapes / canFlipShapes (доступность операци
   it('пустое выделение — операций нет', () => {
     expect(canRotateShapes([])).toBe(false)
     expect(canFlipShapes(undefined, 'h')).toBe(false)
+  })
+})
+
+describe('многострочная подпись', () => {
+  const multi = { type: 'text', x: 10, y: 20, text: 'Ввод 110\nячейка 12', fontSize: 10 }
+
+  it('строки режутся по \\n, пустая строка внутри значима', () => {
+    expect(textLines(multi)).toEqual(['Ввод 110', 'ячейка 12'])
+    expect(textLines({ text: 'A\n\nB' })).toEqual(['A', '', 'B'])
+    expect(textLines({})).toEqual([''])
+  })
+
+  it('одна строка — прежняя разметка без tspan', () => {
+    const svg = serializeShape({ type: 'text', x: 10, y: 20, text: 'Ввод' })
+    expect(svg).toContain('>Ввод</text>')
+    expect(svg).not.toContain('tspan')
+  })
+
+  it('несколько строк — tspan на строку, у первой dy=0', () => {
+    const svg = serializeShape(multi)
+    expect(svg).toContain('<tspan x="10" dy="0">Ввод 110</tspan>')
+    expect(svg).toContain(`<tspan x="10" dy="${10 * TEXT_LINE_HEIGHT}">ячейка 12</tspan>`)
+  })
+
+  it('габарит растёт вниз: y как у одной строки, высота по числу строк', () => {
+    const one = shapeBounds({ type: 'text', x: 10, y: 20, text: 'Ввод 110', fontSize: 10 })
+    const two = shapeBounds(multi)
+    expect(two.y).toBe(one.y)
+    expect(two.h).toBeCloseTo(one.h + 10 * TEXT_LINE_HEIGHT)
+    // Ширина — по самой длинной строке, а не по их сумме.
+    expect(two.w).toBeGreaterThanOrEqual(one.w)
+  })
+
+  it('round-trip: выравнивание читается из text-anchor', () => {
+    const shape = { type: 'text', x: 10, y: 20, text: 'Ввод', align: 'left' }
+    const svg = serializeSvg([{ ...shape, stroke: '#000', strokeWidth: 2, fill: 'none' }], {
+      width: 40,
+      height: 20,
+    })
+    expect(svg).toContain('text-anchor="start"')
+    expect(parseStencilSvg(svg)[0].align).toBe('left')
+  })
+
+  it('round-trip: tspan-строки читаются обратно в text с \\n', () => {
+    const svg = serializeSvg([{ ...multi, stroke: '#000', strokeWidth: 2, fill: 'none' }], {
+      width: 60,
+      height: 40,
+    })
+    expect(parseStencilSvg(svg)[0].text).toBe('Ввод 110\nячейка 12')
   })
 })
 

@@ -13,6 +13,9 @@ import {
 import { persistStencilsToDisk } from '../services/stencilLibrary'
 import { replaceStencilOverrides, stencilSignature } from '../services/stencilOverrides'
 import { withRestoreGuard } from '../utils/restoreGuard'
+import { withPaperFrozen } from '../utils/paperBatch'
+import { renameFormIds, remapNavigation, remapTree, remapProjectMeta } from '../utils/formIds'
+import { FORM_ID_RE } from '../constants/ids'
 import { nplural } from '../utils/plural'
 import { toPlain } from '../utils/plain'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
@@ -59,9 +62,6 @@ export function useProject({
   const { cancelPendingSnapshot, initHistory } = undo
   const { stopSimulation, simulating } = simulation
 
-  // Допустимое имя формы (= имя папки при экспорте = цель навигации).
-  const FORM_ID_RE = /^[A-Za-z0-9_-]+$/
-
   // idbSet возвращает false, не бросает (запись формы/меты могла не пройти —
   // квота / приватный режим). Флагаем явно: иначе новая/переименованная форма
   // молча пропадёт после reload, а «не сохранено» не загорится.
@@ -75,7 +75,9 @@ export function useProject({
   function loadActiveIntoCanvas(graph, paper, json) {
     let synced = { changed: 0, detached: [] }
     withRestoreGuard(restoringHistory, () => {
-      graph.fromJSON(json || { cells: [] })
+      // Заморозка — только на fromJSON: инъекция ниже ходит через findViewByModel, а
+      // у замороженного paper'а представлений новых ячеек ещё нет (см. paperBatch).
+      withPaperFrozen(paper, () => graph.fromJSON(json || { cells: [] }))
       // sync: символ могли править, пока форма была закрыта — её порты лежат в
       // graphJson. initHistory ниже берёт уже сверенный граф за базу.
       synced = reinjectAllStencils(graph, paper, { sync: true }) || synced
@@ -328,6 +330,11 @@ export function useProject({
       else rejectedStencils.push(String(s.id ?? '?'))
     }
 
+    // Имена форм архива → безопасные id. Раньше id брался из пути (`forms/<id>/…`)
+    // как есть, а он же становится ключом формы, целью навигации и ПУТЁМ в исходящем
+    // архиве: `..` в имени уводил файл за папку проекта при распаковке на объекте.
+    const renamedForms = renameFormIds(data.forms.map((f) => f.id))
+
     const forms = []
     const usedStencilIds = new Set()
     let skipped = 0
@@ -345,7 +352,10 @@ export function useProject({
         skipped++
         continue
       }
-      forms.push({ id: f.id, graphJson: { cells: parsed.cells } })
+      // Ссылки навигации адресуют форму по id — переименовали форму, значит правим и
+      // ссылки на неё, иначе переход при клике уводил бы в никуда.
+      const cells = remapNavigation(parsed.cells, renamedForms.map)
+      forms.push({ id: renamedForms.map.get(f.id) ?? f.id, graphJson: { cells } })
     }
     if (!forms.length) {
       notify.error('Импорт проекта', 'Не найдено валидных форм')
@@ -355,9 +365,10 @@ export function useProject({
     const persisted = await replaceProject(
       forms,
       data.tagsText,
-      data.hierarchy,
+      // Иерархия и фон привязаны к id формы — переносим их на новые имена.
+      remapTree(data.hierarchy, renamedForms.map),
       projectName,
-      data.project
+      remapProjectMeta(data.project, renamedForms.map)
     )
 
     // Стенсилы, на которые ссылаются формы (по meta SVG), но которых нет ни в базе,
@@ -369,6 +380,16 @@ export function useProject({
     if (missing.length) notify.warn('Не хватает стенсилов', missing.join(', '))
     if (rejectedStencils.length) {
       notify.warn('Символы с недопустимым id пропущены', rejectedStencils.join(', '))
+    }
+    // Имя формы — это её адрес в рантайме (цель навигации, имя папки), поэтому о
+    // переименовании говорим прямо: на объекте прежнее имя могло быть уже прописано.
+    if (renamedForms.renamed.length) {
+      const head = renamedForms.renamed
+        .slice(0, 3)
+        .map(([from, to]) => `${from} → ${to}`)
+        .join('; ')
+      const tail = renamedForms.renamed.length > 3 ? ` (+${renamedForms.renamed.length - 3})` : ''
+      notify.warn('Формы переименованы', head + tail)
     }
     if (parseWarnings.length) {
       const head = parseWarnings.slice(0, 5).join('; ')
@@ -458,7 +479,7 @@ export function useProject({
         graphs.push(json)
         let synced = { changed: 0, detached: [] }
         withRestoreGuard(restoringHistory, () => {
-          graph.fromJSON(json)
+          withPaperFrozen(paper, () => graph.fromJSON(json))
           // sync: в .zip уходит форма, сверенная с реестром — иначе закрытая форма
           // выгружалась бы с портами прежней версии символа.
           synced = reinjectAllStencils(graph, paper, { sync: true }) || synced
@@ -523,7 +544,7 @@ export function useProject({
       if (liveGraph && livePaper) {
         const activeJson = workspace.getFormGraph(originalActive) || { cells: [] }
         withRestoreGuard(restoringHistory, () => {
-          liveGraph.fromJSON(activeJson)
+          withPaperFrozen(livePaper, () => liveGraph.fromJSON(activeJson))
           reinjectAllStencils(liveGraph, livePaper)
           canvas.bumpVersion()
         })

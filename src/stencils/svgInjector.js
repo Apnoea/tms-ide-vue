@@ -7,6 +7,7 @@ import { TMSStencil } from './tmsStencil'
 import { normalizeLinkZ } from './linkDefaults'
 import { svgEl } from '../utils/xml'
 import { snapToGrid } from '../utils/grid'
+import { portPointAt } from '../utils/portGeom'
 import { CANVAS_GRID } from './canvasPaper'
 import { computeBusPorts, buildBusContent } from './busCell'
 import { reinjectAllShapes } from './shapeElement'
@@ -225,16 +226,11 @@ export function injectStencilSvg(cellView, stencil) {
   } else {
     const tms = cellView.model.get('tms') || {}
     const cellId = cellView.model.id
-    const { svg } = instantiate(stencil, cellId, tms.slots || {})
-    if (!svg) return false
-
-    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml')
-    // parseFromString не бросает исключение — ошибки приходят как parsererror-элемент
-    if (doc.getElementsByTagName('parsererror').length > 0) {
-      console.error('[svgInjector] Не удалось распарсить SVG стенсила', stencil.id)
-      return false
-    }
-    for (const child of Array.from(doc.documentElement.children)) {
+    // Клон разобранного шаблона (см. parser.instantiate): ни строкового
+    // промежутка, ни повторного парса — узлы сразу переезжают в DOM холста.
+    const { root } = instantiate(stencil, cellId, tms.slots || {})
+    if (!root) return false
+    for (const child of Array.from(root.children)) {
       target.appendChild(child)
     }
   }
@@ -359,30 +355,6 @@ export function applyStencilScale(cell, paper, scale, { position } = {}) {
 }
 
 /**
- * Точка порта в координатах холста (с учётом поворота ячейки). Нужна, чтобы
- * отцепленный конец провода остался ровно там, где был порт: `args` в items — наши
- * же локальные координаты, поэтому считаем по ним, а не спрашиваем paper.
- */
-function portPoint(cell, portId) {
-  const item = (cell.get('ports')?.items || []).find((i) => i.id === portId)
-  const pos = cell.get('position')
-  const size = cell.get('size')
-  const px = pos.x + (item?.args?.x ?? size.width / 2)
-  const py = pos.y + (item?.args?.y ?? size.height / 2)
-  const angle = cell.angle ? cell.angle() : 0
-  if (!angle) return { x: px, y: py }
-  const cx = pos.x + size.width / 2
-  const cy = pos.y + size.height / 2
-  const rad = (angle * Math.PI) / 180
-  const dx = px - cx
-  const dy = py - cy
-  return {
-    x: cx + dx * Math.cos(rad) - dy * Math.sin(rad),
-    y: cy + dx * Math.sin(rad) + dy * Math.cos(rad),
-  }
-}
-
-/**
  * Правка символа в редакторе → расставленные экземпляры на холсте. Обновляет то,
  * что задаёт стенсил: набор и позиции портов, габарит, рисунок. Провода следуют за
  * портом сами (ссылка по имени), поэтому «сдвинул порт» не требует ничего.
@@ -442,7 +414,7 @@ export function syncStencilInstances(graph, paper, stencil, prev = null) {
         const ref = link.get(end)
         const wanted = ref?.id ? wantedByCell.get(ref.id) : null
         if (!wanted || !ref.port || wanted.has(ref.port)) continue
-        link.set(end, portPoint(graph.getCell(ref.id), ref.port))
+        link.set(end, portPointAt(graph.getCell(ref.id), ref.port))
         report.detached.push(link.id)
       }
     }

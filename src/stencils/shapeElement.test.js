@@ -17,10 +17,28 @@ import {
   canRotateShapeGeometry,
   canFlipShapeGeometry,
   sanitizeShape,
+  reinjectAllShapes,
 } from './shapeElement'
 
 const paper = { findViewByModel: () => null }
 const graphOf = () => new dia.Graph({}, { cellNamespace: tmsNamespace })
+
+/** paper с настоящими DOM-узлами: нужен, когда проверяем саму инъекцию разметки. */
+function domPaper() {
+  const views = new Map()
+  return {
+    views,
+    findViewByModel(cell) {
+      if (!views.has(cell.id)) {
+        const el = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+        const body = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+        el.appendChild(body)
+        views.set(cell.id, { model: cell, el, findBySelector: () => body, body })
+      }
+      return views.get(cell.id)
+    },
+  }
+}
 
 describe('placeShape', () => {
   it('прижимает фигуру к (0,0) и отдаёт её место габаритом', () => {
@@ -283,6 +301,40 @@ describe('moveShapePoint', () => {
   })
 })
 
+describe('инъекция разметки фигуры (кэш по сериализации)', () => {
+  it('одинаковые фигуры получают КАЖДАЯ свою разметку, а не общие узлы', () => {
+    // Разметка кэшируется по строке `serializeShape` (геометрия прижата к 0,0, поэтому
+    // однотипные фигуры дают одну строку). Кэш обязан отдавать КЛОН: иначе второй
+    // экземпляр «украл» бы узлы у первого, и тот остался бы пустым.
+    const graph = graphOf()
+    const p = domPaper()
+    const a = materializeShape(graph, p, { type: 'rect', x: 0, y: 0, w: 20, h: 10 })
+    const b = materializeShape(graph, p, { type: 'rect', x: 60, y: 0, w: 20, h: 10 })
+    reinjectAllShapes(graph, p)
+
+    const bodyA = p.findViewByModel(a).body
+    const bodyB = p.findViewByModel(b).body
+    // hit-area + сама фигура у обоих.
+    expect(bodyA.querySelectorAll('rect').length).toBe(2)
+    expect(bodyB.querySelectorAll('rect').length).toBe(2)
+    // Узлы независимы (не один и тот же элемент, переехавший из первого view).
+    expect(bodyA.querySelector('rect:not(.tms-hit-area)')).not.toBe(
+      bodyB.querySelector('rect:not(.tms-hit-area)')
+    )
+  })
+
+  it('повторная инъекция не копит узлы', () => {
+    const graph = graphOf()
+    const p = domPaper()
+    const cell = materializeShape(graph, p, { type: 'circle', cx: 5, cy: 5, rx: 5, ry: 5 })
+    reinjectAllShapes(graph, p)
+    reinjectAllShapes(graph, p)
+    const body = p.findViewByModel(cell).body
+    expect(body.querySelectorAll('circle').length).toBe(1)
+    expect(body.querySelectorAll('rect.tms-hit-area').length).toBe(1)
+  })
+})
+
 describe('sanitizeShape: заливка', () => {
   // Заливка вернулась в разметку, но только у замкнутых типов: у линии заливать
   // нечего, а у подписи цвет живёт в `stroke` — `fill` там означал бы другое.
@@ -313,6 +365,17 @@ describe('sanitizeShape: заливка', () => {
     for (const bad of ['url(#x)', 'rgb(0,0,0)', '"; fill: red', 42]) {
       expect(sanitizeShape({ type: 'rect', w: 10, h: 10, fill: bad }).fill).toBe('none')
     }
+  })
+})
+
+describe('sanitizeShape: многострочная подпись', () => {
+  it('переносы приводятся к \\n', () => {
+    expect(sanitizeShape({ type: 'text', text: 'A\r\nB\rC' }).text).toBe('A\nB\nC')
+  })
+
+  it('число строк ограничено', () => {
+    const many = Array.from({ length: 100 }, (_, i) => `L${i}`).join('\n')
+    expect(sanitizeShape({ type: 'text', text: many }).text.split('\n')).toHaveLength(32)
   })
 })
 
@@ -374,7 +437,7 @@ describe('поворот и отражение фигуры (геометрие�
     expect(canFlipShapeGeometry(diagonal, 'h')).toBe(true)
   })
 
-  it('подпись поворачивается не геометрией (её крутит angle), а отражение меняет якорь', () => {
+  it('подпись не крутится геометрией (её крутит angle) и не отражается', () => {
     const graph = graphOf()
     const cell = materializeShape(graph, paper, {
       type: 'text',
@@ -384,8 +447,10 @@ describe('поворот и отражение фигуры (геометрие�
       align: 'left',
     })
     expect(canRotateShapeGeometry(cell)).toBe(false)
-    expect(flipShapeCells(graph, paper, [cell.id], 'h')).toBe(1)
-    expect(cell.get('tms').shape.align).toBe('right')
+    // Зеркальный текст не нужен, а якорь роста правится полем `align` в инспекторе.
+    expect(canFlipShapeGeometry(cell, 'h')).toBe(false)
+    expect(flipShapeCells(graph, paper, [cell.id], 'h')).toBe(0)
+    expect(cell.get('tms').shape.align).toBe('left')
   })
 
   it('залоченную не трогаем', () => {

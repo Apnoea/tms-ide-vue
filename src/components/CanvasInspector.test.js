@@ -208,7 +208,7 @@ describe('CanvasInspector: фигура-разметка', () => {
     // стирание «под новый текст» сносило бы фигуру на первом же пустом состоянии.
     const cell = selectShape({ type: 'text', x: 20, y: 20, text: 'Подпись', fontSize: 14 })
     await wrapper.vm.$nextTick()
-    const input = wrapper.findAll('input[type="text"]')[0]
+    const input = wrapper.find('textarea')
     input.element.value = ''
     await input.trigger('input')
     expect(graph.getCell(cell.id)).toBeTruthy()
@@ -219,12 +219,27 @@ describe('CanvasInspector: фигура-разметка', () => {
   it('непустой текст пишется в фигуру живьём', async () => {
     const cell = selectShape({ type: 'text', x: 20, y: 20, text: 'Подпись', fontSize: 14 })
     await wrapper.vm.$nextTick()
-    const input = wrapper.findAll('input[type="text"]')[0]
+    const input = wrapper.find('textarea')
     input.element.value = 'Секция'
     await input.trigger('input')
     expect(cell.get('tms').shape.text).toBe('Секция')
     await input.trigger('blur')
     expect(graph.getCell(cell.id)).toBeTruthy()
+  })
+
+  it('перенос строки в поле растит габарит ячейки вниз', async () => {
+    // Подпись правится в Textarea (Enter = новая строка), поэтому в модель приходит
+    // многострочный текст — ячейка обязана стать выше, иначе фигура вылезет за неё.
+    const cell = selectShape({ type: 'text', x: 20, y: 20, text: 'Ввод', fontSize: 14 })
+    await wrapper.vm.$nextTick()
+    const before = cell.get('size').height
+    const top = cell.get('position').y
+    const input = wrapper.find('textarea')
+    input.element.value = 'Ввод\nячейка 12'
+    await input.trigger('input')
+    expect(cell.get('tms').shape.text).toBe('Ввод\nячейка 12')
+    expect(cell.get('size').height).toBeGreaterThan(before)
+    expect(cell.get('position').y).toBe(top)
   })
 
   it('у линии нет заливки, у подписи есть текст и шрифт', async () => {

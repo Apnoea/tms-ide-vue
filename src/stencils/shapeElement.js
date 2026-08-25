@@ -93,16 +93,41 @@ function injectShapeSvg(cellView) {
     })
   )
 
+  const root = shapeMarkup(shape)
+  if (!root) return false
+  for (const child of Array.from(root.cloneNode(true).children)) target.appendChild(child)
+  return true
+}
+
+/**
+ * Разметка фигуры (корневой `<svg>`) с кэшем по её же сериализации: `serializeShape` —
+ * единственный источник правды о виде фигуры (он же рисует `view.svg`), поэтому DOM
+ * собираем из строки, а не вторым генератором.
+ *
+ * Геометрия фигур прижата к 0,0 (см. placeShape), значит однотипные фигуры дают одну
+ * строку — на схеме с десятками одинаковых подложек парсится одна.
+ */
+const SHAPE_MARKUP_LIMIT = 200
+const shapeMarkupCache = new Map()
+
+function shapeMarkup(shape) {
+  const key = serializeShape(shape, false)
+  const hit = shapeMarkupCache.get(key)
+  if (hit) return hit
   const doc = new DOMParser().parseFromString(
-    `<svg xmlns="http://www.w3.org/2000/svg">${serializeShape(shape, false)}</svg>`,
+    `<svg xmlns="http://www.w3.org/2000/svg">${key}</svg>`,
     'image/svg+xml'
   )
   if (doc.getElementsByTagName('parsererror').length > 0) {
     console.error('[shapeElement] Не удалось собрать SVG фигуры', shape.type)
-    return false
+    return null
   }
-  for (const child of Array.from(doc.documentElement.children)) target.appendChild(child)
-  return true
+  // Кэш ограничен: фигур в проекте сколько угодно, а держать их разметку вечно
+  // незачем. Простой сброс вместо LRU — попадания дают однотипные фигуры одной
+  // схемы, и после сброса они наберутся заново.
+  if (shapeMarkupCache.size >= SHAPE_MARKUP_LIMIT) shapeMarkupCache.clear()
+  shapeMarkupCache.set(key, doc.documentElement)
+  return doc.documentElement
 }
 
 /** Создать фигуру в графе (жест рисования). Возвращает ячейку или null. */
@@ -128,6 +153,10 @@ export function materializeShape(graph, paper, shape) {
  * `shape.svg` (см. stencilSvg.elementToShape): координаты не обязательны (дефолт 0),
  * размеры — обязательны.
  */
+// Предел строк в подписи: реальные подписи мнемосхемы — это 2-3 строки, а тысяча
+// строк из битого архива раздула бы габарит фигуры на весь холст.
+const MAX_TEXT_LINES = 32
+
 export function sanitizeShape(raw) {
   if (!raw || typeof raw !== 'object') return null
   const num = (v, fallback = 0) => {
@@ -192,8 +221,11 @@ export function sanitizeShape(raw) {
       }
     }
     case 'text': {
-      const text = typeof raw.text === 'string' ? raw.text : ''
-      if (!text) return null
+      const source = typeof raw.text === 'string' ? raw.text : ''
+      if (!source) return null
+      // Переносы приводим к `\n` (из буфера обмена и с Windows приходит `\r\n`) и
+      // ограничиваем их число — дальше подпись живёт одной строкой с разделителями.
+      const text = source.replace(/\r\n?/g, '\n').split('\n').slice(0, MAX_TEXT_LINES).join('\n')
       return {
         type: 'text',
         x: num(raw.x),

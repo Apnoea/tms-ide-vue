@@ -34,11 +34,14 @@ export function useClipboard({ scheduleSnapshot }) {
   // Если буфер не reactive, computed-зависимости (например `ctxItems` в CanvasPane,
   // решающий показывать ли «Вставить» в context-menu) не пересчитываются на копирование.
   const clipboard = shallowRef({ cells: [], links: [] })
-  // Сколько раз текущий буфер уже вставляли. Каждый следующий Ctrl+V из одного
-  // буфера сдвигается дальше (offset × N), иначе копии легли бы стопкой в одну
-  // точку. Сбрасывается на copy. Duplicate буфер не трогает — у него всегда
-  // свежий снимок текущего выделения, шаг = 1.
-  let pasteCount = 0
+  // Шаг сдвига копии от того, к чему она цепляется, — иначе копии легли бы стопкой.
+  const PASTE_STEP = 20
+  // Ячейки ПОСЛЕДНЕЙ вставки: следующий Ctrl+V считает сдвиг от них в ИХ ТЕКУЩЕМ
+  // месте, а не от снимка в буфере — иначе, отвезя копию в сторону, вторая вставка
+  // легла бы рядом с её прежним местом. Сброс на copy; нет живых копий (удалили,
+  // сменили форму) — отсчёт снова от оригинала. Duplicate буфер не трогает: он берёт
+  // свежий снимок выделения, а выделением после дубля становится сама копия.
+  let pasteAnchorIds = null
 
   function snapshotCell(item) {
     const graph = canvas.graphRef.value
@@ -92,13 +95,13 @@ export function useClipboard({ scheduleSnapshot }) {
     return out
   }
 
-  function pasteSnapshots(snaps, offsetSteps = 1) {
+  function pasteSnapshots(snaps, shift = { dx: PASTE_STEP, dy: PASTE_STEP }) {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
     if (!graph || !paper || !snaps.cells.length) {
       return { added: 0, skipped: 0, linksAdded: 0 }
     }
-    const offset = 20 * offsetSteps
+    const { dx, dy } = shift
     const oldToNew = new Map()
     const newCellIds = []
     let skipped = 0
@@ -137,8 +140,8 @@ export function useClipboard({ scheduleSnapshot }) {
       }
 
       const g = paper.options.gridSize
-      const finalX = snapToGrid(snap.position.x + offset, g)
-      const finalY = snapToGrid(snap.position.y + offset, g)
+      const finalX = snapToGrid(snap.position.x + dx, g)
+      const finalY = snapToGrid(snap.position.y + dy, g)
 
       if (snap.isShape) {
         // Геометрия в tms локальная (прижата к 0,0) — materializeShape ждёт
@@ -190,9 +193,9 @@ export function useClipboard({ scheduleSnapshot }) {
         ...LINK_DEFAULTS,
         source: { id: newSrcId, ...(linkSnap.sourcePort ? { port: linkSnap.sourcePort } : {}) },
         target: { id: newTgtId, ...(linkSnap.targetPort ? { port: linkSnap.targetPort } : {}) },
-        // Изломы сдвигаем на тот же offset, что и ячейки — маршрут сохраняет форму.
+        // Изломы сдвигаем на тот же вектор, что и ячейки — маршрут сохраняет форму.
         ...(linkSnap.vertices?.length
-          ? { vertices: linkSnap.vertices.map((v) => ({ x: v.x + offset, y: v.y + offset })) }
+          ? { vertices: linkSnap.vertices.map((v) => ({ x: v.x + dx, y: v.y + dy })) }
           : {}),
         ...(linkSnap.tms ? { tms: linkSnap.tms } : {}),
         // Порядок в полосе (см. снимок): add-хендлер холста пропускает значение
@@ -211,7 +214,7 @@ export function useClipboard({ scheduleSnapshot }) {
       canvas.setSelection([...newCellIds.map((id) => ({ kind: 'cell', id })), ...newLinkItems])
       scheduleSnapshot()
     }
-    return { added: newCellIds.length, skipped, linksAdded }
+    return { added: newCellIds.length, skipped, linksAdded, cellIds: newCellIds }
   }
 
   /** Формирует строку для toast'а: «3 символа + 2 провода» или варианты. */
@@ -240,21 +243,46 @@ export function useClipboard({ scheduleSnapshot }) {
     }
   }
 
+  /**
+   * Левый-верхний угол набора: точка отсчёта и для снимка в буфере, и для живых
+   * ячеек последней вставки. Берём минимум, а не bbox с размерами: сравниваем один
+   * набор с его же копией, размеры у них одинаковые.
+   */
+  function originOfSnaps(snaps) {
+    const xs = snaps.cells.map((s) => s.position.x)
+    const ys = snaps.cells.map((s) => s.position.y)
+    return { x: Math.min(...xs), y: Math.min(...ys) }
+  }
+
+  /** То же по живым ячейкам последней вставки. null — их больше нет в графе. */
+  function originOfAnchor() {
+    const graph = canvas.graphRef.value
+    if (!graph || !pasteAnchorIds?.length) return null
+    const cells = pasteAnchorIds.map((id) => graph.getCell(id)).filter(Boolean)
+    if (!cells.length) return null
+    const positions = cells.map((c) => c.get('position'))
+    return {
+      x: Math.min(...positions.map((p) => p.x)),
+      y: Math.min(...positions.map((p) => p.y)),
+    }
+  }
+
   /** Вставляет snapshots + показывает success/warn toast по результату. */
-  function pasteWithToast(snaps, successLabel, failLabel, offsetSteps = 1) {
-    const { added, skipped, linksAdded } = pasteSnapshots(snaps, offsetSteps)
-    if (added) {
-      notify.success(successLabel, describePasted(added, linksAdded, skipped))
+  function pasteWithToast(snaps, successLabel, failLabel, shift) {
+    const result = pasteSnapshots(snaps, shift)
+    if (result.added) {
+      notify.success(successLabel, describePasted(result.added, result.linksAdded, result.skipped))
     } else {
       notify.warn(failLabel, 'Не удалось создать копии — стенсилы не найдены в реестре')
     }
+    return result
   }
 
   function copySelection() {
     const snaps = snapshotSelection('Нечего копировать')
     if (!snaps) return
     clipboard.value = snaps
-    pasteCount = 0
+    pasteAnchorIds = null
     notify.success(
       'Скопировано',
       snaps.links.length
@@ -268,8 +296,16 @@ export function useClipboard({ scheduleSnapshot }) {
       notify.info('Буфер пуст', 'Скопируй символы через Ctrl+C', TOAST_LIFE.SHORT)
       return
     }
-    pasteCount++
-    pasteWithToast(clipboard.value, 'Вставлено', 'Не удалось вставить', pasteCount)
+    // Цепляемся к предыдущей копии там, где она СЕЙЧАС; если её нет (первый Ctrl+V,
+    // копии удалили, сменили форму) — к оригиналу из буфера.
+    const src = originOfSnaps(clipboard.value)
+    const base = originOfAnchor() || src
+    const shift = {
+      dx: base.x - src.x + PASTE_STEP,
+      dy: base.y - src.y + PASTE_STEP,
+    }
+    const { cellIds } = pasteWithToast(clipboard.value, 'Вставлено', 'Не удалось вставить', shift)
+    if (cellIds?.length) pasteAnchorIds = cellIds
   }
 
   function duplicateSelection() {

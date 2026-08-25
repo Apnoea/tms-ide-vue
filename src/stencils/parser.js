@@ -70,38 +70,59 @@ function generateAnimations(stencil, cellId, slots) {
 }
 
 /**
- * `data-anim-suffix` → финальный `id` (атрибут снимается: экспортный SVG чист).
+ * Разобранный `shape.svg` символа — ОДИН на определение, дальше только клонируется:
+ * разбор XML на каждый экземпляр стоил бы сотню парсов на форму при каждом
+ * переключении формы, undo и прогоне формы в экспорте.
  *
- * @param {string} svgText — содержимое shape.svg
- * @param {string} cellId — короткий id ячейки
- * @param {string} stencilId
+ * Ключ — сам объект стенсила: реестр на каждую правку кладёт НОВЫЙ объект
+ * (`registerStencil`), поэтому WeakMap инвалидируется сам, а удалённый символ уходит
+ * вместе со своим шаблоном.
  */
-function injectIds(svgText, cellId, stencilId) {
-  if (typeof DOMParser === 'undefined') {
-    throw new Error('injectIds: DOMParser недоступен (среда — не браузер?)')
-  }
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(svgText, 'image/svg+xml')
+const templateCache = new WeakMap()
 
+function templateRoot(stencil) {
+  if (!stencil?.svgText) return null
+  const cached = templateCache.get(stencil)
+  if (cached) return cached
+  if (typeof DOMParser === 'undefined') {
+    throw new Error('parser: DOMParser недоступен (среда — не браузер?)')
+  }
+  const doc = new DOMParser().parseFromString(stencil.svgText, 'image/svg+xml')
   const root = doc.documentElement
   if (root.nodeName === 'parsererror' || doc.getElementsByTagName('parsererror').length) {
-    throw new Error('injectIds: не удалось распарсить shape.svg')
+    throw new Error(`parser: не удалось распарсить shape.svg символа "${stencil.id}"`)
   }
-
-  const els = doc.querySelectorAll(`[${ATTR_SUFFIX}]`)
-  for (const el of els) {
-    const suffix = el.getAttribute(ATTR_SUFFIX) || ''
-    el.setAttribute('id', innerKey(stencilId, cellId, suffix))
-    el.removeAttribute(ATTR_SUFFIX)
-  }
-
-  return new XMLSerializer().serializeToString(root)
+  templateCache.set(stencil, root)
+  return root
 }
 
-/** Карточки animations.json + SVG с проставленными id. */
+/**
+ * Клон разметки символа с проставленными id: `data-anim-suffix` → `id` (атрибут
+ * снимается — экспортный SVG чист). Возвращается КОРНЕВОЙ `<svg>`-элемент клона;
+ * вызывающий берёт его детей (в DOM холста или в сериализацию экспорта).
+ *
+ * Шаблон в кэше не мутируем — правки идут только по клону.
+ */
+function instantiateSvg(stencil, cellId) {
+  const tpl = templateRoot(stencil)
+  if (!tpl) return null
+  const root = tpl.cloneNode(true)
+  for (const el of root.querySelectorAll(`[${ATTR_SUFFIX}]`)) {
+    el.setAttribute('id', innerKey(stencil.id, cellId, el.getAttribute(ATTR_SUFFIX) || ''))
+    el.removeAttribute(ATTR_SUFFIX)
+  }
+  return root
+}
+
+/**
+ * Карточки animations.json + разметка экземпляра.
+ *
+ * @returns {{ animations: object, root: Element|null }} `root` — корень клона
+ *   разметки (null у символа без `shape.svg`: программные рисуются билдерами)
+ */
 export function instantiate(stencil, cellId, slots = {}) {
   return {
     animations: generateAnimations(stencil, cellId, slots),
-    svg: stencil.svgText ? injectIds(stencil.svgText, cellId, stencil.id) : null,
+    root: instantiateSvg(stencil, cellId),
   }
 }

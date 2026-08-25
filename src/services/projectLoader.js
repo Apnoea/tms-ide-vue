@@ -8,6 +8,7 @@ import { LINK_DEFAULTS, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkD
 import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 import { sanitizeShape } from '../stencils/shapeElement'
 import { isBackgroundZ, BACKGROUND_Z_BOUNDS } from '../utils/zOrder'
+import { portPoints } from '../utils/portGeom'
 import { textCellToShape, legacyBusPortId } from './legacyFormat'
 
 /**
@@ -35,27 +36,16 @@ function portKey(x, y) {
   return `${Math.round(x)}:${Math.round(y)}`
 }
 
-function indexPorts(index, cellJson) {
-  const { x, y } = cellJson.position
-  const { width, height } = cellJson.size
-  const angle = cellJson.angle || 0
-  const rad = (angle * Math.PI) / 180
-  const cx = x + width / 2
-  const cy = y + height / 2
-  for (const item of cellJson.ports?.items || []) {
-    const px = x + (item.args?.x ?? 0)
-    const py = y + (item.args?.y ?? 0)
-    if (!angle) {
-      index.set(portKey(px, py), { id: cellJson.id, port: item.id })
-      continue
-    }
-    // Повёрнутый символ: порт живёт в локальных координатах, а на холсте он повёрнут
-    // вокруг центра ячейки вместе с ней.
-    const dx = px - cx
-    const dy = py - cy
-    const rx = cx + dx * Math.cos(rad) - dy * Math.sin(rad)
-    const ry = cy + dx * Math.sin(rad) + dy * Math.cos(rad)
-    index.set(portKey(rx, ry), { id: cellJson.id, port: item.id })
+function indexPorts(index, cellJson, byCellPoint) {
+  // Позиции считает общая формула (utils/portGeom) — та же, что у отцепления конца
+  // провода и врезки символа в линию: разойдись копии, привязки поехали бы.
+  for (const { id, x, y } of portPoints(cellJson)) {
+    const key = portKey(x, y)
+    index.set(key, { id: cellJson.id, port: id })
+    // Тот же индекс, но с привязкой к ячейке: когда чиним конец провода, порт
+    // СВОЕЙ ячейки предпочтительнее чужого в той же точке (у соприкасающихся
+    // символов порты совпадают, и общий индекс отдал бы соседа).
+    if (byCellPoint) byCellPoint.set(`${cellJson.id}@${key}`, id)
   }
 }
 
@@ -92,6 +82,12 @@ export function parseSvgProject(svgText) {
   const elementIds = new Set() // id успешно собранных ячеек — для отсева висячих проводов
   const busIds = new Set() // id шин: только у них порт-рефы линков переводим на новую схему
   const portIndex = new Map() // точка холста → { id, port }: чинит потерянные привязки
+  // id ячейки → имена её портов: ловим провод, висящий на порту, которого у символа
+  // НЕТ (символ пересохранили с другими именами портов, форма приехала из среды с
+  // другой его версией). JointJS такую привязку не ругает — молча берёт центр ячейки,
+  // и провод с наконечником уезжает в середину символа. Чиним по геометрии.
+  const cellPorts = new Map()
+  const portByCellPoint = new Map() // `${cellId}@${точка}` → порт этой же ячейки
 
   // ─── Ячейки: <g> с data-tms-meta ───
   for (const g of doc.querySelectorAll(`g[${ATTR_META}]`)) {
@@ -203,7 +199,10 @@ export function parseSvgProject(svgText) {
       cells.push(migrated || cellJson)
       elementIds.add(meta.id)
       if (meta.stencilId === 'cell_bus') busIds.add(meta.id)
-      if (!migrated) indexPorts(portIndex, cellJson)
+      if (!migrated) {
+        indexPorts(portIndex, cellJson, portByCellPoint)
+        cellPorts.set(meta.id, new Set(portItems.map((it) => it.id)))
+      }
     } catch (e) {
       errors.push(`Парсинг символа: ${e.message}`)
     }
@@ -220,20 +219,41 @@ export function parseSvgProject(svgText) {
       // концов — след старой регрессии, они восстанавливаются именно так).
       const pathEnds = pathEndpoints(p.getAttribute('d'))
       const resolveEnd = (end, fallback, which) => {
-        if (end?.id && elementIds.has(end.id)) {
-          // Порт шины прошлой схемы: у собранной ячейки порты уже новые
-          // (buildPortItems), и без перевода конец повис бы на несуществующем
-          // `top_i` — экспорт увёл бы его в центр шины с предупреждением.
-          const port = busIds.has(end.id) ? legacyBusPortId(end.port) : null
-          return port ? { ...end, port } : end
+        // Имя порта, на котором конец должен сидеть у собранной ячейки: у шины
+        // прошлой схемы порты переименованы (buildPortItems), без перевода конец
+        // повис бы на несуществующем `top_i` — экспорт увёл бы его в центр шины.
+        const wanted =
+          end?.id && busIds.has(end.id) ? legacyBusPortId(end.port) || end.port : end?.port
+        const known = end?.id ? cellPorts.get(end.id) : null
+        // Порт, которого у символа нет: так бывает, когда символ пересохранили с
+        // другими именами портов. Мёртвую привязку не оставляем — JointJS молча
+        // уводит такой конец в центр символа (провод и наконечник уезжают в
+        // середину), поэтому чиним по геометрии, как потерянное имя порта.
+        const portMissing = !!(wanted && known && !known.has(wanted))
+        if (end?.id && elementIds.has(end.id) && !portMissing) {
+          return wanted && wanted !== end.port ? { ...end, port: wanted } : end
         }
         const point =
           Number.isFinite(end?.x) && Number.isFinite(end?.y) ? { x: end.x, y: end.y } : fallback
+        // Точка совпала с портом — привязку возвращаем: это не угадывание, а
+        // восстановление (порт стоит ровно там, где кончается линия). Сначала ищем
+        // порт СВОЕЙ ячейки, потом любой в этой точке.
+        const key = point ? portKey(point.x, point.y) : null
+        const ownPort = key && end?.id ? portByCellPoint.get(`${end.id}@${key}`) : null
+        const hit = ownPort ? { id: end.id, port: ownPort } : key ? portIndex.get(key) : null
+        if (portMissing) {
+          errors.push(
+            hit
+              ? `Провод ${meta.id}: ${which} висел на порту "${wanted}", которого у символа нет — привязка восстановлена по геометрии`
+              : `Провод ${meta.id}: ${which} висел на порту "${wanted}", которого у символа нет — конец отвязан`
+          )
+          // Геометрия не помогла, но ячейка есть: привязываем к символу целиком —
+          // связь сохраняется (символ поедет — провод потянется), а несуществующее
+          // имя порта не уедет в следующий экспорт.
+          if (!hit) return elementIds.has(end.id) ? { id: end.id } : point
+          return { ...hit }
+        }
         if (!point) return null
-        // Точка совпала с портом собранного символа — привязку возвращаем: это не
-        // угадывание, а восстановление (порт стоит ровно там, где кончается линия).
-        // Так лечатся архивы, где имя порта потеряно, а геометрия цела.
-        const hit = portIndex.get(portKey(point.x, point.y))
         if (hit) return { ...hit }
         if (end?.id || !Number.isFinite(end?.x)) {
           errors.push(

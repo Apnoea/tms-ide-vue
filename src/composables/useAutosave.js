@@ -1,4 +1,5 @@
 import { reinjectAllStencils } from '../stencils/svgInjector'
+import { withPaperFrozen } from '../utils/paperBatch'
 import { registerStencil } from '../stencils/registry'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { toPlain } from '../utils/plain'
@@ -102,7 +103,7 @@ export function useAutosave({ restoringHistory }) {
 
     const activeJson = workspace.getFormGraph(workspace.activeFormId) || { cells: [] }
     return withRestoreGuard(restoringHistory, () => {
-      graph.fromJSON(activeJson)
+      withPaperFrozen(paper, () => graph.fromJSON(activeJson))
       // sync: порты/габарит экземпляров сверяем с реестром (символ мог быть правлен
       // в прошлой сессии, а форма хранит порты той версии). Оверрайды символов
       // подняты выше, поэтому реестр здесь уже актуален.

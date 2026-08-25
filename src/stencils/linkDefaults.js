@@ -164,11 +164,10 @@ export function arrowSize(strokeWidth) {
  * Одна функция на холст и экспорт: JointJS рисует `d` как маркер линка, exporter — тем
  * же путём в группе провода, иначе вид разошёлся бы с `view.svg`.
  */
-export function arrowPath(kind, strokeWidth, dir = 1) {
+export function arrowPath(kind, strokeWidth) {
   const { len, half } = arrowSize(strokeWidth)
-  const back = len * (dir < 0 ? -1 : 1)
-  if (kind === 'solid') return `M 0 0 L ${back} ${half} L ${back} ${-half} Z`
-  if (kind === 'open') return `M ${back} ${half} L 0 0 L ${back} ${-half}`
+  if (kind === 'solid') return `M 0 0 L ${len} ${half} L ${len} ${-half} Z`
+  if (kind === 'open') return `M ${len} ${half} L 0 0 L ${len} ${-half}`
   return null
 }
 
@@ -200,8 +199,8 @@ export function arrowExportSvg(kind, point, angle, strokeWidth, color) {
  * что инспектор ставит маркеры точечным `link.attr('line/sourceMarker', …)`: замена
  * всего `attrs` снесла бы `wrapper` (hit-area) и маркеры не перерисовывались бы.
  */
-export function arrowMarker(kind, tms, dir = 1) {
-  const d = arrowPath(kind, tms?.strokeWidth, dir)
+export function arrowMarker(kind, tms) {
+  const d = arrowPath(kind, tms?.strokeWidth)
   if (!d) return null
   const color = tms?.strokeColor || LINK_DEFAULTS.attrs.line.stroke
   if (kind === 'solid') return { type: 'path', d, fill: color, stroke: 'none' }
@@ -221,11 +220,13 @@ export function linkStyleAttrs(tms) {
     const v = tms?.[f.key]
     if (f.attr && v !== undefined) lineAttrs[f.attr] = v
   }
-  // Оси маркеров у концов противоположны — JointJS разворачивает `sourceMarker`,
-  // поэтому «тело вдоль линии внутрь» это +X у начала и −X у конца (с обратным знаком
-  // остриё смотрит из точки соединения наружу).
-  const start = arrowMarker(tms?.arrowStart, tms, 1)
-  const end = arrowMarker(tms?.arrowEnd, tms, -1)
+  // Маркеры ОБОИХ концов одинаковы: `marker-start` ориентируется по направлению
+  // пути, а `target-marker` JointJS отдаёт с `rotate(180)` (defsAttributesNS в
+  // @joint/core), то есть внутрь линии у обоих смотрит +X — как в дефолтном маркере
+  // `M 10 -5 0 0 10 5 z`. Зеркальный путь для конца увёл бы наконечник ЗА точку
+  // соединения, под символ.
+  const start = arrowMarker(tms?.arrowStart, tms)
+  const end = arrowMarker(tms?.arrowEnd, tms)
   if (start) lineAttrs.sourceMarker = start
   if (end) lineAttrs.targetMarker = end
   if (!Object.keys(lineAttrs).length) return null

@@ -8,6 +8,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import InputText from 'primevue/inputtext'
+import Textarea from 'primevue/textarea'
 import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
@@ -16,6 +17,7 @@ import Button from 'primevue/button'
 import { getCategories, registryVersion } from '../stencils/registry'
 import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor'
 import { normalizeStateColor } from '../constants/animation'
+import { ALIGN_OPTIONS } from '../composables/useTextCellProps'
 import { isFillableShape, TEXT_SHAPE_SIZE } from '../utils/stencilSvg'
 import { FONT_FAMILIES, normalizeFont } from '../utils/textMetrics'
 
@@ -99,6 +101,15 @@ function setTextBold(on) {
   updateShape(selectedShape.value.id, { bold: !!on })
   commit()
 }
+// Выравнивание — якорь роста подписи; у фигуры без поля это центр (старые символы
+// рисуются как раньше), у новых редактор ставит левый край.
+const textAlign = computed(() => selectedShape.value?.align || 'center')
+function setTextAlign(v) {
+  if (!selectedShape.value || !v) return
+  updateShape(selectedShape.value.id, { align: v })
+  commit()
+}
+
 // Шрифт меняет габарит подписи (cropToContent считает его замером), поэтому
 // коммитим сразу — как жирность, а не как ввод текста.
 const textFont = computed(() => normalizeFont(selectedShape.value?.fontFamily))
@@ -538,16 +549,16 @@ function clearStateColor(key, which) {
           <template v-if="isTextShape">
             <div>
               <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
-              <!-- Пустое поле = удалить подпись (по коммиту, не на каждый символ:
-                   иначе стирание текста «под новый» сносило бы фигуру). -->
-              <InputText
+              <!-- Как у подписи на холсте (см. CanvasInspector): пустое поле удаляет
+                   фигуру по коммиту, Enter добавляет строку. -->
+              <Textarea
                 :model-value="textValue"
+                rows="3"
                 size="small"
                 class="w-full"
                 placeholder="Пустое поле удалит подпись"
                 @update:model-value="setText"
                 @blur="commitText"
-                @keyup.enter="commitText"
               />
             </div>
             <label class="flex items-center justify-between">
@@ -564,6 +575,24 @@ function clearStateColor(key, which) {
                 @update:model-value="setTextSize"
                 @blur="commit"
               />
+            </label>
+            <!-- Выравнивание = якорь роста: точка привязки стоит на месте, текст
+                 растёт от неё (те же варианты, что у подписи на холсте). -->
+            <label class="flex items-center justify-between">
+              <span class="text-surface-700">Выравнивание</span>
+              <SelectButton
+                :model-value="textAlign"
+                :options="ALIGN_OPTIONS"
+                option-value="value"
+                data-key="value"
+                :allow-empty="false"
+                size="small"
+                @update:model-value="setTextAlign"
+              >
+                <template #option="{ option }">
+                  <i :class="option.icon" v-tooltip.top="option.tip" />
+                </template>
+              </SelectButton>
             </label>
             <label class="flex items-center justify-between">
               <span class="text-surface-700">Шрифт</span>

@@ -3,6 +3,15 @@
 // shape.svg}, taglist.csv, hierarchy.json, project.json (редакторная мета). Экспорт → скачивание Blob, импорт →
 // выбор .zip (FSA-picker) → распаковка в структуру для оркестрации (useProject).
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
+import { FORM_ID_RE, FORM_ID_MAX } from '../constants/ids'
+
+/** Id, из которого строится путь внутри архива. Нарушитель = баг, а не данные. */
+function assertPathSafeId(id, what) {
+  const s = String(id ?? '')
+  if (!FORM_ID_RE.test(s) || s.length > FORM_ID_MAX) {
+    throw new Error(`Недопустимый id ${what} для архива: «${s}»`)
+  }
+}
 
 /**
  * Собирает ZIP проекта из экспортного бандла (см. useProject.buildAndDeliverBundle).
@@ -19,11 +28,20 @@ import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 export function buildProjectZipBlob({ forms, stencils, tagsText, hierarchy, project }) {
   const files = {}
   for (const f of forms) {
+    // Последний рубеж перед путём в архиве: id формы приходит из данных (проект в
+    // IDB, импортированный архив), а `..` или слэш в нём уводят файл за папку
+    // проекта при распаковке на объекте. Импорт такие имена уже чинит
+    // (utils/formIds), поэтому здесь это «невозможное состояние» — падаем, а не
+    // санируем молча: путь наружу не должен зависеть от проверки на входе.
+    assertPathSafeId(f.id, 'формы')
     files[`forms/${f.id}/view.svg`] = strToU8(f.viewSvg)
     files[`forms/${f.id}/animations.json`] = strToU8(f.animationsJson)
   }
   if (stencils?.length) {
     for (const s of stencils) {
+      // У символов id фильтрует реестр (STENCIL_ID_RE), но путь строится здесь —
+      // проверяем на общих правах.
+      assertPathSafeId(s.id, 'символа')
       files[`library/${s.id}/stencil.json`] = strToU8(JSON.stringify(s.stencilJson, null, 2) + '\n')
       files[`library/${s.id}/shape.svg`] = strToU8(s.shapeSvg)
     }

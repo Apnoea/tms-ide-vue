@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { shapes } from '@joint/core'
 import { getStencilById } from '../stencils/registry'
 import { snapToGrid } from '../utils/grid'
+import { portPoints } from '../utils/portGeom'
 import { pickPassThroughPorts, spliceRotation } from '../utils/wireSplice'
 import { LINK_DEFAULTS } from '../stencils/linkDefaults'
 import { useCanvas } from './useCanvas'
@@ -90,22 +91,9 @@ export function useWireSplice() {
     return { a, b, wirePoint, wireDir }
   }
 
-  // Абсолютные позиции портов с учётом поворота ячейки. JointJS вращает порты
-  // вокруг центра bbox по часовой (угол в градусах, ось Y вниз).
-  function portAbsPositions(cell) {
-    const pos = cell.get('position')
-    const size = cell.get('size')
-    const rad = ((cell.angle() || 0) * Math.PI) / 180
-    const cos = Math.cos(rad)
-    const sin = Math.sin(rad)
-    const cx = pos.x + size.width / 2
-    const cy = pos.y + size.height / 2
-    return (cell.get('ports')?.items || []).map((it) => {
-      const dx = pos.x + (it.args?.x ?? 0) - cx
-      const dy = pos.y + (it.args?.y ?? 0) - cy
-      return { id: it.id, x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos }
-    })
-  }
+  // Абсолютные позиции портов — общей формулой (utils/portGeom): та же нужна
+  // отцеплению конца провода и индексу портов при импорте.
+  const portAbsPositions = portPoints
 
   /**
    * Разбивает провод на два сегмента с проходом через cell. Исходный линк

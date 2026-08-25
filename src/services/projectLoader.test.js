@@ -199,6 +199,51 @@ describe('parseSvgProject', () => {
     expect(out.errors).toEqual([])
   })
 
+  it('конец на несуществующем порту чинится по геометрии своего символа', () => {
+    // Так приезжают формы, нарисованные с ДРУГОЙ версией символа: автор пересохранил
+    // его, переименовав порты (`top` → `p2`). JointJS мёртвую привязку не ругает —
+    // молча берёт центр ячейки, и провод с наконечником уезжает в середину символа.
+    const link = attr({ id: 'l1', source: { id: 'a', port: 'p2' }, target: { x: 200, y: 200 } })
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      ${cellG('a')}
+      <path d="M 10,0 L 200,200" data-tms-meta='${link}'/>
+    </svg>`
+    const out = parseSvgProject(svg)
+    const link1 = out.cells.find((c) => c.type === 'standard.Link')
+    // Порт `top` cell_qw стоит на (10,0) — ровно там, где начинается путь.
+    expect(link1.source).toEqual({ id: 'a', port: 'top' })
+    expect(out.errors.some((e) => /порту "p2".*восстановлена по геометрии/.test(e))).toBe(true)
+  })
+
+  it('несуществующий порт без совпадения по геометрии — привязка к символу целиком', () => {
+    // Имя порта не спасти, но связь с символом важнее точки: символ поедет — провод
+    // потянется. Мёртвое имя в привязке не оставляем, иначе оно уедет в экспорт.
+    const link = attr({ id: 'l1', source: { id: 'a', port: 'p2' }, target: { x: 200, y: 200 } })
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      ${cellG('a')}
+      <path d="M 77,88 L 200,200" data-tms-meta='${link}'/>
+    </svg>`
+    const out = parseSvgProject(svg)
+    const link1 = out.cells.find((c) => c.type === 'standard.Link')
+    expect(link1.source).toEqual({ id: 'a' })
+    expect(out.errors.some((e) => /конец отвязан/.test(e))).toBe(true)
+  })
+
+  it('порт своей ячейки предпочитается чужому в той же точке', () => {
+    // Соприкасающиеся символы: порт соседа стоит в той же точке, и общий индекс
+    // отдал бы его — провод перецепился бы на другой символ.
+    const link = attr({ id: 'l1', source: { id: 'a', port: 'p2' }, target: { x: 200, y: 200 } })
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      ${cellG('a')}
+      <g transform="translate(0,-20)" data-tms-meta='${attr({ id: 'b', stencilId: 'cell_qw', width: 20, height: 20 })}'/>
+      <path d="M 10,0 L 200,200" data-tms-meta='${link}'/>
+    </svg>`
+    const out = parseSvgProject(svg)
+    const link1 = out.cells.find((c) => c.type === 'standard.Link')
+    // У 'b' порт bottom тоже на (10,0), но провод висел на ячейке 'a' — её и берём.
+    expect(link1.source).toEqual({ id: 'a', port: 'top' })
+  })
+
   it('закрепление на шине переживает импорт, ссылка в пустоту снимается', () => {
     // busId ведёт «символ едет за шиной» (см. useBusSnap). Шина могла в архив не
     // попасть — тогда закрепление держало бы символ за несуществующей ячейкой.

@@ -174,6 +174,84 @@ describe('useWorkspaceStore', () => {
   })
 })
 
+// hierarchy.json приезжает из чужого архива, то есть это непроверенные данные. Раньше
+// битая структура роняла ИМПОРТ ЦЕЛИКОМ (`.map is not a function`) — из-за файла,
+// без которого проект прекрасно открывается плоским списком.
+describe('иерархия из чужого архива', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  function seeded() {
+    const store = useWorkspaceStore()
+    store.loadForms(
+      ['a', 'b', 'c'].map((id) => ({ id, graphJson: { cells: [] } })),
+      'a'
+    )
+    return store
+  }
+
+  it('мусорные узлы не роняют импорт, детей поднимаем на место отброшенного', () => {
+    const ws = seeded()
+    ws.setFormTree([null, { id: '', children: [{ id: 'b', children: [] }] }, 'строка', 42])
+    expect(ws.formTree).toEqual([{ id: 'b', children: [] }])
+  })
+
+  it('children не массивом — узел остаётся, детей просто нет', () => {
+    const ws = seeded()
+    ws.setFormTree([{ id: 'a', children: 'oops' }, { id: 'b' }])
+    expect(ws.formTree).toEqual([
+      { id: 'a', children: [] },
+      { id: 'b', children: [] },
+    ])
+  })
+
+  it('числовой id приводится к строке (ключи форм — строки из путей архива)', () => {
+    const ws = seeded()
+    ws.setFormTree([{ id: 42, children: [] }])
+    expect(ws.formTree).toEqual([{ id: '42', children: [] }])
+  })
+
+  it('дубль формы в двух ветках режется — иначе путается drag-n-drop', () => {
+    const ws = seeded()
+    ws.setFormTree([
+      { id: 'a', children: [{ id: 'b', children: [] }] },
+      { id: 'b', children: [] },
+    ])
+    expect(ws.formTree).toEqual([{ id: 'a', children: [{ id: 'b', children: [] }] }])
+  })
+
+  it('узел на несуществующую форму ОСТАЁТСЯ — FormTree рисует его битым', () => {
+    const ws = seeded()
+    ws.setFormTree([{ id: 'gone', children: [] }])
+    expect(ws.formTree).toEqual([{ id: 'gone', children: [] }])
+  })
+
+  it('в мусоре нет ни одного годного узла → плоский список форм', () => {
+    const ws = seeded()
+    ws.setFormTree([null, { children: [] }])
+    expect(ws.formTree).toEqual([
+      { id: 'a', children: [] },
+      { id: 'b', children: [] },
+      { id: 'c', children: [] },
+    ])
+  })
+
+  it('иерархия объектом вместо массива → плоский список', () => {
+    const ws = seeded()
+    ws.setFormTree({ a: 1 })
+    expect(ws.formTree.map((n) => n.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('слишком глубокая вложенность обрезается, форма не теряется из панели', () => {
+    const ws = seeded()
+    // 40 уровней: глубже 32 отбрасываем — форма уедет в «Без иерархии», а не в стек.
+    let node = { id: 'deep', children: [] }
+    for (let i = 0; i < 40; i++) node = { id: `n${i}`, children: [node] }
+    ws.setFormTree([node])
+    const depth = (n, d = 1) => (n.children.length ? depth(n.children[0], d + 1) : d)
+    expect(depth(ws.formTree[0])).toBeLessThanOrEqual(33)
+  })
+})
+
 // Фон холста — свойство ФОРМЫ (уезжает в мету проекта и в архив), поэтому живёт здесь,
 // а не в ui-сторе: у каждой схемы свой цвет, у коллеги проект открывается таким же.
 describe('фон форм', () => {

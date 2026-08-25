@@ -225,7 +225,11 @@ export function exportProject(graph, paper = null) {
 
     // Программные стенсилы (шина, текст, значение) рендерятся по реальному размеру
     // и без редактор-only декораций; остальные — svgText шаблона + bindings.
+    // Разметка экземпляра: у программных символов (шина, подпись, значение, узел)
+    // её строит билдер СТРОКОЙ по фактическому размеру, у остальных — клон
+    // разобранного `shape.svg` (DOM). Держим оба вида и сериализуем в одном месте.
     let cellSvg
+    let cellSvgRoot = null
     if (tms.stencilId === 'cell_bus') {
       // Маркеры занятых слотов — тем же сборщиком, что рисует холст (см. busCell).
       cellSvg = buildBusExportSvg(
@@ -273,7 +277,8 @@ export function exportProject(graph, paper = null) {
       // Передаём КОРОТКИЙ animId — id стенсильных карточек короткие
       // (например animation-cell_qw-c1.true).
       const inst = instantiate(stencil, animId, tms.slots || {})
-      cellSvg = inst.svg
+      // DOM-клон, а не строка: детей сериализуем ниже, одним проходом.
+      cellSvgRoot = inst.root
       Object.assign(animations, inst.animations)
     }
 
@@ -293,6 +298,7 @@ export function exportProject(graph, paper = null) {
       scale: tms.scale,
       animId,
       svgContent: cellSvg,
+      svgRoot: cellSvgRoot,
       slots: tms.slots || null,
       rangeSource: tms.rangeSource || null,
       boolSource: tms.boolSource || null,
@@ -717,8 +723,11 @@ export function exportProject(graph, paper = null) {
           if (c.angle) transform += ` rotate(${c.angle} ${c.width / 2} ${c.height / 2})`
           return `  <g transform="${transform}" ${ATTR_META}="${escapeAttr(JSON.stringify(meta))}">${serializeShape(c.shape, false)}</g>`
         }
-        const doc = new DOMParser().parseFromString(c.svgContent, 'image/svg+xml')
-        const sourceRoot = doc.documentElement
+        // Шаблонный символ приходит DOM-клоном (parser.instantiate), программный —
+        // строкой от своего билдера: её парсим, чтобы вырезать корневой <svg>.
+        const sourceRoot =
+          c.svgRoot ??
+          new DOMParser().parseFromString(c.svgContent, 'image/svg+xml').documentElement
         let inner = ''
         for (const child of Array.from(sourceRoot.children)) {
           inner += serializer.serializeToString(child)

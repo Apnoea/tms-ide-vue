@@ -104,6 +104,36 @@ describe('ShapePrimitive', () => {
     expect(w.findComponent(ShapePrimitive).emitted('select')).toHaveLength(1)
   })
 
+  it('подпись: якорь из align, одна строка без tspan', () => {
+    const w = mountShape({ id: 's9', type: 'text', x: 4, y: 12, text: 'Ввод', align: 'left' })
+    const el = w.find('text')
+    expect(el.attributes('text-anchor')).toBe('start')
+    expect(el.findAll('tspan')).toHaveLength(0)
+    expect(el.text()).toBe('Ввод')
+  })
+
+  it('подпись без align центрируется — старые символы рисуются как раньше', () => {
+    const w = mountShape({ id: 's10', type: 'text', x: 4, y: 12, text: 'Ввод' })
+    expect(w.find('text').attributes('text-anchor')).toBe('middle')
+  })
+
+  it('многострочная подпись: tspan на строку, dy у первой = 0', () => {
+    const w = mountShape({
+      id: 's11',
+      type: 'text',
+      x: 4,
+      y: 12,
+      text: 'Ввод 110\nячейка 12',
+      fontSize: 10,
+      align: 'left',
+    })
+    const rows = w.findAll('tspan')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].attributes()).toMatchObject({ x: '4', dy: '0' })
+    expect(rows[1].attributes('dy')).toBe('12')
+    expect(rows[1].text()).toBe('ячейка 12')
+  })
+
   it('pointerEvents=none в режиме рисования — фигура прозрачна для мыши', () => {
     const w = mountShape(
       { id: 's8', type: 'rect', x: 0, y: 0, w: 10, h: 10 },

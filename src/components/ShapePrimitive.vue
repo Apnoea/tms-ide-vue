@@ -12,9 +12,11 @@
 import { computed } from 'vue'
 import {
   ROUND_RX,
-  TEXT_SHAPE_ANCHOR,
+  TEXT_LINE_HEIGHT,
   TEXT_SHAPE_SIZE,
   radii,
+  textAnchorOf,
+  textLines,
   textShapeBox,
 } from '../utils/stencilSvg'
 import { normalizeFont } from '../utils/textMetrics'
@@ -59,7 +61,9 @@ const geom = computed(() => {
       attrs: {
         x: s.x,
         y: s.y,
-        'text-anchor': TEXT_SHAPE_ANCHOR,
+        // Якорь — из `align` фигуры (тем же textAnchorOf, что в serializeShape):
+        // превью редактора и `shape.svg` обязаны совпадать до атрибута.
+        'text-anchor': textAnchorOf(s),
         'font-size': s.fontSize ?? TEXT_SHAPE_SIZE,
         'font-family': normalizeFont(s.fontFamily),
         'font-weight': s.bold ? 'bold' : null,
@@ -80,6 +84,16 @@ const fill = computed(() => {
   if (s.type === 'line') return null
   if (s.type === 'text') return s.stroke || '#000'
   return s.fill
+})
+
+// Строки подписи и шаг вниз — та же геометрия, что у serializeShape: редактор и
+// `view.svg` обязаны показывать одинаковый текст. Одну строку рисуем без tspan'ов.
+const textRows = computed(() => {
+  if (!isText.value) return null
+  const lines = textLines(props.shape)
+  if (lines.length < 2) return null
+  const step = (props.shape.fontSize ?? TEXT_SHAPE_SIZE) * TEXT_LINE_HEIGHT
+  return lines.map((line, i) => ({ line, dy: i === 0 ? 0 : step }))
 })
 
 // Скругление: у rect это rx (в geom), у линий — круглые торцы/стыки.
@@ -132,6 +146,9 @@ const capJoin = computed(() => {
     :pointer-events="pointerEvents"
     @pointerdown="emit('select', $event)"
   >
-    <template v-if="isText">{{ shape.text }}</template>
+    <template v-if="textRows">
+      <tspan v-for="(row, i) in textRows" :key="i" :x="shape.x" :dy="row.dy">{{ row.line }}</tspan>
+    </template>
+    <template v-else-if="isText">{{ shape.text }}</template>
   </component>
 </template>

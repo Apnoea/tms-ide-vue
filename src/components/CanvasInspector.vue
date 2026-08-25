@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
+import Textarea from 'primevue/textarea'
 import InputNumber from 'primevue/inputnumber'
 import AutoComplete from 'primevue/autocomplete'
 import Select from 'primevue/select'
@@ -1069,15 +1070,17 @@ const {
               <div v-if="details.isShapeText">
                 <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
                 <!-- Пустое поле = удалить подпись (по коммиту, не на каждый символ:
-                     иначе стирание текста «под новый» сносило бы фигуру). -->
-                <InputText
+                     иначе стирание текста «под новый» сносило бы фигуру). Textarea, а
+                     не InputText: подпись многострочная, Enter добавляет строку —
+                     поэтому шаг истории пишется по blur, а не по Enter. -->
+                <Textarea
                   :model-value="shapeText"
+                  rows="3"
                   size="small"
                   class="w-full"
                   placeholder="Пустое поле удалит подпись"
                   @update:model-value="onShapeTextInput"
                   @blur="commitShapeText"
-                  @keyup.enter="commitShapeText"
                 />
               </div>
 

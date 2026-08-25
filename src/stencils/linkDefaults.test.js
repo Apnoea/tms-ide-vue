@@ -5,6 +5,7 @@ import {
   arrowSize,
   isInsideBBox,
   arrowPath,
+  arrowMarker,
   arrowExportSvg,
   linkStyleAttrs,
 } from './linkDefaults'
@@ -95,21 +96,23 @@ describe('наконечники провода', () => {
   })
 
   it('solid — замкнутый треугольник, open — две линии; раствор у обоих 90°', () => {
-    // Вершина в точке конца линии (0 0), тело — вдоль оси X: наконечник смотрит В точку
-    // соединения. Направление задаёт dir: у targetMarker тело в +X, у sourceMarker в −X
-    // (оси концов у JointJS противоположны).
+    // Вершина в точке конца линии (0 0), тело — вдоль оси X внутрь линии.
     expect(arrowPath('solid', 2)).toBe('M 0 0 L 5 5 L 5 -5 Z')
-    expect(arrowPath('solid', 2, -1)).toBe('M 0 0 L -5 5 L -5 -5 Z')
     expect(arrowPath('open', 2)).toBe('M 5 5 L 0 0 L 5 -5')
     expect(arrowPath(undefined, 2)).toBeNull()
   })
 
-  it('маркеры концов смотрят внутрь линии: у source тело в +X, у конца в −X', () => {
-    // JointJS разворачивает sourceMarker, поэтому знаки у концов разные. С обратными
-    // остриё уходит ЗА точку соединения, и стрелка смотрит наружу схемы.
+  it('маркеры ОБОИХ концов одинаковы: тело в +X, остриё в точке соединения', () => {
+    // `marker-start` ориентируется по направлению пути, а `target-marker` JointJS
+    // отдаёт с `rotate(180)` — то есть внутрь линии у обоих указывает +X. Раньше у
+    // конца знак был обратным: наконечник уезжал ЗА точку соединения, под символ, и
+    // после загрузки формы пропадал (в инспекторе при этом оставался выбранным).
     const line = linkStyleAttrs({ arrowStart: 'solid', arrowEnd: 'solid' }).line
     expect(line.sourceMarker.d).toBe('M 0 0 L 5 5 L 5 -5 Z')
-    expect(line.targetMarker.d).toBe('M 0 0 L -5 5 L -5 -5 Z')
+    expect(line.targetMarker.d).toBe('M 0 0 L 5 5 L 5 -5 Z')
+    // Тот же путь, что ставит инспектор при выборе наконечника — иначе вид провода
+    // зависел бы от того, только что его настроили или загрузили из архива.
+    expect(line.targetMarker.d).toBe(arrowMarker('solid', { strokeWidth: 2 }).d)
   })
 
   it('стиль линии несёт маркеры только для заданных концов', () => {

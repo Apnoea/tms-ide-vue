@@ -39,6 +39,26 @@ describe('projectZip', () => {
     expect(data.hierarchy).toEqual([{ id: 'main', children: [{ id: 'sub', children: [] }] }])
   })
 
+  it('id формы с путём наружу в архив не уезжает', () => {
+    // Zip-slip: `forms/../../x/view.svg` при распаковке на объекте уедет за папку
+    // проекта. Импорт такие имена чинит (utils/formIds), здесь — последний рубеж:
+    // путь наружу не должен зависеть от того, что кто-то раньше проверил вход.
+    for (const id of ['..', 'a/b', 'a\\b', '', 'f'.repeat(65)]) {
+      expect(() =>
+        buildProjectZipBlob({ forms: [{ id, viewSvg: '<svg/>', animationsJson: '{}' }] })
+      ).toThrow(/Недопустимый id формы/)
+    }
+  })
+
+  it('id символа тоже проверяется — путь строится здесь', () => {
+    expect(() =>
+      buildProjectZipBlob({
+        forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],
+        stencils: [{ id: '../evil', stencilJson: {}, shapeSvg: '<g/>' }],
+      })
+    ).toThrow(/Недопустимый id символа/)
+  })
+
   it('минимальный бандл (только формы) → нет стенсилов/тегов/иерархии', async () => {
     const blob = buildProjectZipBlob({
       forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],

@@ -62,37 +62,67 @@ export function radii(shape) {
   return { rx, ry }
 }
 
-// Подпись: размер по умолчанию и якорь. `middle` — дефолт (подпись символа почти
-// всегда центрируется по фигуре), у фигур холста якорь выбирается полем `align`.
-// Шрифт — из whitelist'а utils/textMetrics, тем же семейством идёт замер (иначе bbox
-// разойдётся с рендером).
+// Подпись: кегль по умолчанию и якорь для фигуры БЕЗ поля `align` (такие
+// центрируются — так нарисованы встроенные символы). Шрифт — из whitelist'а
+// utils/textMetrics, тем же семейством идёт замер, иначе bbox разойдётся с рендером.
 export const TEXT_SHAPE_SIZE = 10
-export const TEXT_SHAPE_ANCHOR = 'middle'
+const TEXT_SHAPE_ANCHOR = 'middle'
+
+/**
+ * Межстрочный шаг подписи, в долях кегля. Константа, а не поле фигуры: одно значение
+ * держит подписи одинаковыми у всех авторов, а лишнее поле пришлось бы тащить через
+ * round-trip и валидацию.
+ */
+export const TEXT_LINE_HEIGHT = 1.2
+
+/**
+ * Строки подписи. Многострочность живёт в самом `text` как `\n` — новых полей в
+ * модели и в `data-tms-meta` не появляется. Пустая строка внутри значима (автор
+ * оставил интервал), поэтому не отбрасываем.
+ */
+export function textLines(shape) {
+  return String(shape?.text ?? '').split('\n')
+}
 
 // Выравнивание подписи = ЯКОРЬ роста (как align у cell_text): точка x,y стоит на
-// месте, а текст растёт от неё. Отсутствие поля = прежний middle, поэтому символы,
-// нарисованные до появления align, выглядят как раньше.
+// месте, а текст растёт от неё. Новую подпись оба редактора создают с `left` — клик
+// ставит начало текста; без поля работает дефолт выше (центр).
 const TEXT_ANCHORS = { left: 'start', center: 'middle', right: 'end' }
-function textAnchorOf(shape) {
+export function textAnchorOf(shape) {
   return TEXT_ANCHORS[shape?.align] || TEXT_SHAPE_ANCHOR
+}
+
+// Инверсия TEXT_ANCHORS: `text-anchor` из файла → поле `align` модели. Без чтения
+// выравнивание терялось бы на пересохранении символа — подпись прыгала бы в центр.
+const TEXT_ALIGN_BY_ANCHOR = { start: 'left', middle: 'center', end: 'right' }
+function textAlignOf(el) {
+  return TEXT_ALIGN_BY_ANCHOR[el.getAttribute('text-anchor')] || null
 }
 
 /**
  * Габарит подписи: ширину меряем canvas-метрикой (шрифт задаёт размер, рамки у
- * текста нет), высоту берём как fontSize с небольшим запасом на descender'ы.
- * `x`/`y` — точка привязки: baseline по y, по x — согласно якорю (см. textAnchorOf).
+ * текста нет), высоту — по числу строк с запасом на descender'ы.
+ * `x`/`y` — точка привязки: baseline ПЕРВОЙ строки по y, по x — согласно якорю (см.
+ * textAnchorOf). Блок растёт вниз, поэтому у уже расставленных подписей место не
+ * меняется, когда автор дописывает строку.
  */
 export function textShapeBox(shape) {
   const size = shape.fontSize ?? TEXT_SHAPE_SIZE
-  const w = measureTextWidth(shape.text, size, shape.bold, -1, shape.fontFamily)
-  const width = w < 0 ? (shape.text || '').length * size * 0.6 : w
+  const lines = textLines(shape)
+  // Замер недоступен (нет canvas — jsdom/воркер) → оценка по числу символов:
+  // приблизительный габарит полезнее нулевого.
+  const widths = lines.map((line) => {
+    const w = measureTextWidth(line, size, shape.bold, -1, shape.fontFamily)
+    return w < 0 ? line.length * size * 0.6 : w
+  })
+  const width = Math.max(0, ...widths)
   const anchor = textAnchorOf(shape)
   const x = anchor === 'start' ? shape.x : anchor === 'end' ? shape.x - width : shape.x - width / 2
   return {
     x,
     y: shape.y - size,
     w: width,
-    h: size * 1.25,
+    h: size * 1.25 + (lines.length - 1) * size * TEXT_LINE_HEIGHT,
   }
 }
 
@@ -149,11 +179,25 @@ export function serializeShape(shape, markFill) {
       // Цвет подписи — это fill (обводки у текста нет), поэтому stroke не пишем:
       // он дал бы «жирный контур» вокруг глифов.
       const weight = shape.bold ? ' font-weight="bold"' : ''
-      return (
+      const size = shape.fontSize ?? TEXT_SHAPE_SIZE
+      const lines = textLines(shape)
+      const open =
         `<text x="${num(shape.x)}" y="${num(shape.y)}" text-anchor="${textAnchorOf(shape)}" ` +
-        `font-size="${num(shape.fontSize ?? TEXT_SHAPE_SIZE)}" font-family="${normalizeFont(shape.fontFamily)}"${weight} ` +
-        `fill="${shape.stroke || '#000'}">${escapeXml(shape.text || '')}</text>`
-      )
+        `font-size="${num(size)}" font-family="${normalizeFont(shape.fontFamily)}"${weight} ` +
+        `fill="${shape.stroke || '#000'}">`
+      // Одна строка — прежняя разметка: уже выгруженные shape.svg не переписываются
+      // (иначе дифф «дышал» бы на каждом пересохранении символа).
+      if (lines.length < 2) return `${open}${escapeXml(shape.text || '')}</text>`
+      // Несколько — по tspan'у на строку: переносы SVG сам не делает. У каждого свой
+      // x (без него строка продолжила бы предыдущую) и dy — шаг вниз. text-anchor
+      // стоит на <text> и наследуется, поэтому якорь роста тот же, что у одной строки.
+      const tspans = lines
+        .map(
+          (line, i) =>
+            `<tspan x="${num(shape.x)}" dy="${i === 0 ? 0 : num(size * TEXT_LINE_HEIGHT)}">${escapeXml(line)}</tspan>`
+        )
+        .join('')
+      return `${open}${tspans}</text>`
     }
     default:
       return ''
@@ -303,9 +347,11 @@ export function canRotateShapes(shapes) {
 export function canFlipShapes(shapes, axis) {
   const list = (shapes || []).filter(Boolean)
   if (!list.length) return false
-  if (list.length === 1 && list[0].type === 'text') {
-    return axis === 'h' && !!FLIPPED_ALIGN[list[0].align]
-  }
+  // Одиночную подпись НЕ отражаем: зеркальный текст не нужен, а якорь роста меняют
+  // полем `align` в инспекторе. Поворот ей доступен (через `angle` ячейки), отражение —
+  // нет. В составе пачки подпись отражается вместе с остальными фигурами, и там
+  // `flipShape` инвертирует её якорь сам.
+  if (list.length === 1 && list[0].type === 'text') return false
   return transformChangesView(list, (s, center) => flipShape(s, center, axis))
 }
 
@@ -489,6 +535,18 @@ function isRounded(el) {
 }
 
 /**
+ * Инверсия многострочного рендера: строки собираются из `<tspan>`, а `<text>` без них
+ * читается целиком (рукописные символы и старые shape.svg). Каждая строка триммится —
+ * в файле tspan'ы могут стоять с отступами; пустой tspan даёт пустую строку, потому
+ * что автор явно оставил интервал.
+ */
+function readTextLines(el) {
+  const tspans = Array.from(el.children).filter((c) => c.tagName.toLowerCase() === 'tspan')
+  if (!tspans.length) return (el.textContent || '').trim()
+  return tspans.map((t) => (t.textContent || '').trim()).join('\n')
+}
+
+/**
  * Разбор одного элемента. Возвращает null, если у фигуры нет ОБЯЗАТЕЛЬНЫХ размеров:
  * чужой `<rect x="0" y="0"/>` иначе дал бы `w: NaN`, и при пересохранении символа в
  * файл уехало бы `width="NaN"` — символ ломается молча. Координаты необязательны
@@ -537,14 +595,16 @@ function elementToShape(el) {
       if (el.tagName.toLowerCase() === 'polygon') shape.closed = true
       return shape
     }
-    case 'text':
+    case 'text': {
       // Цвет подписи лежит в fill (у текста нет обводки), поэтому кладём его в
       // `stroke` модели — редактор правит цвет фигуры одним полем для всех типов.
+      const align = textAlignOf(el)
       return {
         type: 'text',
         x: n('x'),
         y: n('y'),
-        text: (el.textContent || '').trim(),
+        ...(align ? { align } : {}),
+        text: readTextLines(el),
         fontSize: size('font-size') ?? TEXT_SHAPE_SIZE,
         // Чужой shape.svg мог принести любой шрифт — берём только из whitelist,
         // иначе замер (canvas) считал бы одним, а панель рисовала другим.
@@ -554,6 +614,7 @@ function elementToShape(el) {
         strokeWidth: 2,
         fill: 'none',
       }
+    }
     default:
       return null
   }

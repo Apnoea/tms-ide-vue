@@ -93,7 +93,18 @@ export function useCanvasDraw(paperContainer, { scheduleSnapshot }) {
     const p = localPoint(evt)
 
     if (tool === 'text') {
-      commitShape({ type: 'text', x: p.x, y: p.y, text: 'Текст', fontSize: TEXT_FONT_SIZE })
+      // Якорь новой подписи — по левому краю: клик ставит НАЧАЛО текста (как в любом
+      // редакторе), а многострочная подпись выравнивается по левому краю. Дефолт для
+      // фигуры БЕЗ поля `align` остался центром, поэтому уже расставленные подписи и
+      // старые архивы не съезжают.
+      commitShape({
+        type: 'text',
+        x: p.x,
+        y: p.y,
+        text: 'Текст',
+        fontSize: TEXT_FONT_SIZE,
+        align: 'left',
+      })
       return
     }
 

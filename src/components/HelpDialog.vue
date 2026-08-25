@@ -131,7 +131,7 @@ const sections = [
     title: 'Буфер и отмена',
     items: [
       { keys: ['Ctrl', 'C'], desc: 'Скопировать выделенные символы' },
-      { keys: ['Ctrl', 'V'], desc: 'Вставить из буфера (со сдвигом)' },
+      { keys: ['Ctrl', 'V'], desc: 'Вставить — со сдвигом от предыдущей копии' },
       { keys: ['Ctrl', 'D'], desc: 'Дублировать выделение' },
       { keys: ['Ctrl', 'Z'], desc: 'Отмена' },
       { keys: ['Ctrl', 'Y'], keysAlt: ['Ctrl', 'Shift', 'Z'], desc: 'Повтор' },

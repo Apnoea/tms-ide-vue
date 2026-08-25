@@ -145,6 +145,64 @@ describe('useClipboard', () => {
     expect(byX(100).get('tms').groupId).toBeUndefined()
   })
 
+  it('paste: следующая копия цепляется к предыдущей ТАМ, ГДЕ ОНА СЕЙЧАС', () => {
+    // Иначе получается баг: отвёз копию в сторону — вторая вставка легла рядом с её
+    // прежним местом, потому что сдвиг считался от снимка в буфере.
+    const a = makeCell({ x: 0, y: 0 })
+    graph.addCells([a])
+    mockCanvas.selection.value = [{ kind: 'cell', id: a.id }]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+
+    const first = graph.getElements().find((e) => e.id !== a.id)
+    expect(first.get('position')).toEqual({ x: 20, y: 20 })
+
+    // Автор увёз копию.
+    first.set('position', { x: 300, y: 100 })
+    pasteClipboard()
+
+    const second = graph.getElements().find((e) => e.id !== a.id && e.id !== first.id)
+    expect(second.get('position')).toEqual({ x: 320, y: 120 })
+  })
+
+  it('paste: без перемещения копии идут каскадом от оригинала', () => {
+    const a = makeCell({ x: 0, y: 0 })
+    graph.addCells([a])
+    mockCanvas.selection.value = [{ kind: 'cell', id: a.id }]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+    pasteClipboard()
+
+    const xs = graph
+      .getElements()
+      .filter((e) => e.id !== a.id)
+      .map((e) => e.get('position').x)
+      .sort((p, q) => p - q)
+    expect(xs).toEqual([20, 40])
+  })
+
+  it('paste: копии удалили — отсчёт снова от оригинала', () => {
+    const a = makeCell({ x: 0, y: 0 })
+    graph.addCells([a])
+    mockCanvas.selection.value = [{ kind: 'cell', id: a.id }]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+    graph
+      .getElements()
+      .find((e) => e.id !== a.id)
+      .remove()
+    pasteClipboard()
+
+    const copy = graph.getElements().find((e) => e.id !== a.id)
+    expect(copy.get('position')).toEqual({ x: 20, y: 20 })
+  })
+
   it('paste: изломы bridge-провода сохраняются (сдвинуты на offset)', () => {
     const a = makeCell({ x: 0 })
     const b = makeCell({ x: 100 })

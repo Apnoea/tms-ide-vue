@@ -18,8 +18,41 @@ import { CANVAS_BG_DEFAULT } from '../stencils/canvasPaper'
  */
 
 // ─── Чистые операции над деревом иерархии (узел = { id, children: [] }) ───
-function normalizeTree(nodes) {
-  return (nodes || []).map((n) => ({ id: n.id, children: normalizeTree(n.children) }))
+
+/**
+ * Предел вложенности. Всё глубже отбрасывается: форма из отброшенного поддерева не
+ * исчезает — FormTree покажет её в «Без иерархии», а рекурсия не уйдёт в стек.
+ */
+const TREE_DEPTH_MAX = 32
+
+/**
+ * Иерархия приходит из `hierarchy.json` чужого архива, то есть это НЕПРОВЕРЕННЫЕ
+ * данные: узел может оказаться `null`, `children` — строкой, `id` — числом или
+ * пустым. Нормализация тотальна (не бросает): иерархия необязательна, и битый файл не
+ * должен мешать импорту — проект откроется плоским списком.
+ *
+ * Мусорный узел отбрасываем, а его детей ПОДНИМАЕМ на его место: под битым родителем
+ * могут лежать настоящие формы. Узлы на НЕСУЩЕСТВУЮЩИЕ формы, наоборот, оставляем —
+ * FormTree рисует их битыми, и это полезный сигнал «в иерархии форма есть, а в
+ * проекте нет». Дубли режем: одна форма в двух ветках путает и рендер, и drag-n-drop
+ * (extractNode берёт первое вхождение).
+ */
+function normalizeTree(nodes, seen = new Set(), depth = 0) {
+  if (!Array.isArray(nodes) || depth > TREE_DEPTH_MAX) return []
+  const out = []
+  for (const n of nodes) {
+    const node = n && typeof n === 'object' ? n : null
+    const children = normalizeTree(node?.children, seen, depth + 1)
+    const raw = typeof node?.id === 'string' || typeof node?.id === 'number' ? String(node.id) : ''
+    const id = raw.trim()
+    if (!id || seen.has(id)) {
+      out.push(...children)
+      continue
+    }
+    seen.add(id)
+    out.push({ id, children })
+  }
+  return out
 }
 // Удаляем узел, поднимая его детей на место узла (форма-родитель удалена, но
 // дочерние формы существуют — не теряем их из дерева).
@@ -129,8 +162,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    * компонент собирает в группу «Без иерархии».
    */
   function setFormTree(tree) {
-    formTree.value =
-      tree && tree.length ? normalizeTree(tree) : formIds.value.map((id) => ({ id, children: [] }))
+    // Пусто ПОСЛЕ нормализации (файла нет, либо в нём одни мусорные узлы) → плоский
+    // список: проект обязан открыться, иерархия — необязательная надстройка.
+    const normalized = normalizeTree(tree)
+    formTree.value = normalized.length
+      ? normalized
+      : formIds.value.map((id) => ({ id, children: [] }))
   }
 
   /** Массовое заполнение (restore из IndexedDB / импорт проекта). formTree —

@@ -1,5 +1,5 @@
 <script setup>
-import { watch } from 'vue'
+import { watch, defineAsyncComponent } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import Toast from 'primevue/toast'
 import ConfirmPopup from 'primevue/confirmpopup'
@@ -10,7 +10,10 @@ import TagListControl from './components/TagListControl.vue'
 import FormTree from './components/FormTree.vue'
 import PalettePane from './components/PalettePane.vue'
 import CanvasPane from './components/CanvasPane.vue'
-import StencilEditor from './components/StencilEditor.vue'
+// Редактор символов — отдельным чанком: он тянет interactjs (~96 kB) и сам весит
+// больше тысячи строк, а нужен только когда его открыли. Схему в основном сценарии
+// (открыть проект, править холст) он не касается.
+const StencilEditor = defineAsyncComponent(() => import('./components/StencilEditor.vue'))
 import InspectorPane from './components/InspectorPane.vue'
 import HelpDialog from './components/HelpDialog.vue'
 
