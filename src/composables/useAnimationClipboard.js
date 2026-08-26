@@ -15,7 +15,7 @@ const hasRange = computed(() => !!rangeClip.value)
 
 /**
  * Булев буфер → новый tms (null = цель несовместима, вызывающий считает пропуском).
- * Группы — любому не-static элементу, свой тег `onoff` — только стенсилу с булевым
+ * Группы — любому не-static элементу, свой тег `onoff` — только символу с булевым
  * слотом. Вставка заменяет блок целиком, поэтому пустой буфер снимает boolSource.
  */
 export function applyBoolClip(tms, clip, { isStatic = false, hasBoolSlot = false } = {}) {

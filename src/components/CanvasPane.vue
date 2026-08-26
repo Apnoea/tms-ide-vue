@@ -6,7 +6,7 @@ import ContextMenu from 'primevue/contextmenu'
 import Tag from 'primevue/tag'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
-import { normalizeLinkZ, attachLinkTools } from '../stencils/linkDefaults'
+import { normalizeLinkZ, attachLinkTools, syncLinkEndMarkers } from '../stencils/linkDefaults'
 import { getStencilById } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
 import {
@@ -146,7 +146,7 @@ const { copySelection, pasteClipboard, duplicateSelection, hasClipboard } = useC
 // палитре (drop), и здесь — жестам с уже стоящими ячейками.
 const busSnap = useBusSnap()
 const { syncBusAttachment, detachFromBus, followBus, releaseBus } = busSnap
-// Drag стенсила из палитры (превью + создание ячейки + врезка в провод + присоединение
+// Drag символа из палитры (превью + создание ячейки + врезка в провод + присоединение
 // к шине) — целиком в usePaletteDrag. wireSplice/busSnap нужны только ему, прокидываем
 // напрямую. Цепляет свои document-листенеры сам.
 const { previewVisible, previewStyle, draggingStencilSvg } = usePaletteDrag(
@@ -408,6 +408,9 @@ onMounted(async () => {
     graph,
     isSelected: (id) => canvas.isSelected(id),
     background: workspace.activeFormBg || CANVAS_BG_DEFAULT,
+    // Функцией, а не значением: настройки инструмента меняются в инспекторе, а paper
+    // создаётся один раз.
+    wireStyle: () => workspace.wireStyle,
   })
 
   // ─── Клик по пустому месту ───
@@ -552,7 +555,12 @@ onMounted(async () => {
 
   // Реконнект конца провода (arrowheadMove) меняет source/target — кладём в undo.
   // scheduleSnapshot сам пропускает во время restore, лишних снимков на загрузке нет.
-  graph.on('change:source change:target', () => scheduleSnapshot())
+  // Заодно пересобираем маркеры концов: точка свободного конца обязана появиться при
+  // отцеплении и уйти при привязке к порту (см. endMarker).
+  graph.on('change:source change:target', (link) => {
+    syncLinkEndMarkers(link)
+    scheduleSnapshot()
+  })
 
   // Снап ручных изломов (linkTools.Vertices) к сетке: тул кладёт vertex в сырых
   // координатах, а линию gridRightAngleRouter держит на сетке — без снапа хэндл
@@ -1099,7 +1107,7 @@ function performClearCanvas(count) {
         class="absolute pointer-events-none border-2 border-dashed border-primary-500 bg-primary-500/10 rounded transition-opacity"
         :style="previewStyle"
       >
-        <!-- Миниатюра стенсила внутри preview-рамки — то же SVG, что в палитре.
+        <!-- Миниатюра символа внутри preview-рамки — то же SVG, что в палитре.
  stencil-thumb-классом подхватываем правило (w/h 100%, block) из style.css. -->
         <div
           v-if="draggingStencilSvg"
@@ -1122,7 +1130,7 @@ function performClearCanvas(count) {
         @keydown.esc.prevent="cancelTextEdit"
       />
 
-      <!-- Hover-tooltip над ячейкой: лейбл стенсила + «В группе (N)» у сгруппированной.
+      <!-- Hover-tooltip над ячейкой: лейбл символа + «В группе (N)» у сгруппированной.
  pointer-events отключены чтобы tooltip не перехватывал клики/hover,
  иначе после mouseenter он бы сам ловил mouseleave при выходе из cell-bbox.
  Fade на исчезновение делает выход с ячейки мягче: появление с задержкой
@@ -1315,8 +1323,8 @@ function performClearCanvas(count) {
       </svg>
 
       <!-- Empty canvas hint — показываем когда нет ячеек и не идёт drag.
- Двухшаговый чек-лист: tag-list → стенсил. Первый шаг отмечается ✓
- когда теги загружены (без tag-list'а анимации стенсилов не работают). -->
+ Двухшаговый чек-лист: tag-list → символ. Первый шаг отмечается ✓
+ когда теги загружены (без tag-list'а анимации символов не работают). -->
       <div
         v-if="canvas.cellsCount.value === 0 && !ui.dragging"
         class="absolute inset-0 flex items-center justify-center pointer-events-none"

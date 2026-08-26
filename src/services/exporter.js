@@ -12,7 +12,7 @@ import {
   valueTextColor,
 } from '../stencils/valueCell'
 import { buildNodeExportSvg } from '../stencils/nodeCell'
-import { LINK_Z, arrowExportSvg } from '../stencils/linkDefaults'
+import { LINK_Z, arrowExportSvg, dotExportSvg } from '../stencils/linkDefaults'
 import { isBackgroundZ } from '../utils/zOrder'
 import {
   CLASS_OFF,
@@ -76,8 +76,26 @@ function endpointMeta(end) {
   return null
 }
 
-/** Абсолютная позиция конца линка. linkPinning=false → ждём { id, port } или { id }. */
+/**
+ * Разметка конца провода: наконечник, а если его нет и конец не привязан к символу —
+ * точка свободного конца (она заменила символ «точка соединения», см. endMarker).
+ */
+function endMarkSvg(kind, end, ref, width, color) {
+  return (
+    arrowExportSvg(kind, end?.point, end?.angle, width, color) ||
+    (ref?.id ? '' : dotExportSvg(end?.point, width, color))
+  )
+}
+
+/**
+ * Абсолютная позиция конца линка: привязка (`{ id, port }` / `{ id }`) либо свободная
+ * точка (`{ x, y }`) — конец, оставленный на холсте, помечается точкой и обязан
+ * попадать в экспорт наравне с привязанным.
+ */
 function getEndpointPos(end, graph, warnings) {
+  if (!end?.id) {
+    return Number.isFinite(end?.x) && Number.isFinite(end?.y) ? { x: end.x, y: end.y } : null
+  }
   const cell = graph.getCell(end.id)
   if (!cell) return null
 
@@ -145,10 +163,10 @@ export function exportProject(graph, paper = null) {
   let maxX = -Infinity
   let maxY = -Infinity
 
-  // ─── Ячейки (стенсилы) ───
+  // ─── Ячейки (символы) ───
   for (const cell of elements) {
     const tms = cell.get('tms')
-    // Фигура-разметка: без стенсила, слотов и анимаций — в SVG уезжает статичной
+    // Фигура-разметка: без символа, слотов и анимаций — в SVG уезжает статичной
     // геометрией. Кладём в общий список, чтобы document order (= порядок z) не
     // сломался: подложка обязана остаться под символами.
     if (isShapeCell(cell)) {
@@ -179,7 +197,7 @@ export function exportProject(graph, paper = null) {
 
     const stencil = getStencilById(tms.stencilId)
     if (!stencil) {
-      const msg = `символ "${tms.stencilId}" не найден в реестре — символ выпал из view.svg`
+      const msg = `символ "${tms.stencilId}" не найден в реестре — он выпал из view.svg`
       warnings.push(msg)
       console.warn(`[Exporter] ${msg}`)
       continue
@@ -223,7 +241,7 @@ export function exportProject(graph, paper = null) {
     }
     usedOuterKeys.add(outerKeyFor(tms.stencilId, animId))
 
-    // Программные стенсилы (шина, текст, значение) рендерятся по реальному размеру
+    // Программные символы (шина, текст, значение) рендерятся по реальному размеру
     // и без редактор-only декораций; остальные — svgText шаблона + bindings.
     // Разметка экземпляра: у программных символов (шина, подпись, значение, узел)
     // её строит билдер СТРОКОЙ по фактическому размеру, у остальных — клон
@@ -274,7 +292,7 @@ export function exportProject(graph, paper = null) {
     } else {
       // parser.instantiate сделает интерполяцию {slot.X} → tms.slots[X] в
       // bindings и соберёт SVG с id="animation-{stencilId}-{animId}{suffix}".
-      // Передаём КОРОТКИЙ animId — id стенсильных карточек короткие
+      // Передаём КОРОТКИЙ animId — id символьных карточек короткие
       // (например animation-cell_qw-c1.true).
       const inst = instantiate(stencil, animId, tms.slots || {})
       // DOM-клон, а не строка: детей сериализуем ниже, одним проходом.
@@ -485,7 +503,7 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── Диапазоны / булевы источники ───
-  // Карточка на outer-id ячейки (+ merge во внутренние shape-карточки стенсила)
+  // Карточка на outer-id ячейки (+ merge во внутренние shape-карточки символа)
   // либо на wire-id линка. needsMulti-цели получают одну `multi` (диапазоны +
   // булево + quality слоями); остальные — shape (диапазоны + булево).
   // Единый список целей: ячейки (с stencilId/animId для inner-merge) и линки.
@@ -504,7 +522,7 @@ export function exportProject(graph, paper = null) {
     if (needsMulti(t.src)) animations[t.key] = buildMultiCard(t.src)
   }
 
-  // Кладёт shape-карточку на key + (для ячеек) мержит во внутренние стенсильные.
+  // Кладёт shape-карточку на key + (для ячеек) мержит во внутренние символьные.
   const addShapeCard = (t, card) => {
     assignOrMergeAnimation(animations, t.key, card)
     if (t.stencilId) mergeBindingsIntoStencilCards(animations, t.stencilId, t.animId, t.key, card)
@@ -541,7 +559,7 @@ export function exportProject(graph, paper = null) {
     console.warn(`[Exporter] ${msg}`)
   }
 
-  // ─── State-color: перекрас всего символа по состоянию (stateColors стенсила) ───
+  // ─── State-color: перекрас всего символа по состоянию (stateColors символа) ───
   // Слой на outer (assignOrMerge уживается с диапазонами/булевым/quality); на потомков
   // цвет каскадит через CSS. Работает и для needsMulti-целей (мержится в их multi).
   for (const c of cellExports) {
@@ -615,7 +633,7 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── Quality (OPC DA): non-good → animation-off ───
-  // quality тега: 192-255 = good, 64-191 = uncertain, 0-63 = bad. Стенсилы с
+  // quality тега: 192-255 = good, 64-191 = uncertain, 0-63 = bad. Символы с
   // флагом `quality: true` в stencil.json (cell_qk/qr/qf) получают range-кейс
   // [0, 191] → addClass: animation-off — cell станет серым, если данные
   // ненадёжны. WebScada сравнивает inclusive (>=min && <=max), поэтому
@@ -623,7 +641,7 @@ export function exportProject(graph, paper = null) {
   //
   // Биндинги кладём ТОЛЬКО на outer-карточку — оттуда CSS-каскад
   // `.animation-off *:not(text) { stroke }` затемняет ВСЕ stroke-элементы
-  // стенсила. На inner-карточках (.true / .false) серым стал бы только
+  // символа. На inner-карточках (.true / .false) серым стал бы только
   // текущий видимый рычаг — остальной корпус остался бы чёрным.
   //
   // Outer-карточку создаём если её ещё нет (аналогично navigation-логике
@@ -689,8 +707,8 @@ export function exportProject(graph, paper = null) {
       const width = l.strokeWidth ?? 2
       const lineAttrs = `d="${escapeAttr(l.d)}" stroke="${color}" stroke-width="${width}" fill="none" ${ATTR_META}="${metaAttr}"`
       const arrows = [
-        arrowExportSvg(l.arrowStart, l.ends?.start?.point, l.ends?.start?.angle, width, color),
-        arrowExportSvg(l.arrowEnd, l.ends?.end?.point, l.ends?.end?.angle, width, color),
+        endMarkSvg(l.arrowStart, l.ends?.start, l.source, width, color),
+        endMarkSvg(l.arrowEnd, l.ends?.end, l.target, width, color),
       ].filter(Boolean)
       // Без наконечников структура прежняя (один <path> с id) — уже выгруженные схемы
       // не переписываются. Со наконечниками id переезжает на группу: рантайм вешает

@@ -102,7 +102,7 @@ export function useBoolGroups({ details, mutateSelectedTms, openPicker }) {
   /**
    * Picker вернул тег. groupIdx=null → новая группа [tag]; иначе add (tagIdx=null)
    * или replace (tagIdx=число) внутри группы gi. Дубли ВНУТРИ группы игнорируем
-   * (между группами тег повторяется свободно). Основной тег стенсила (slot.onoff)
+   * (между группами тег повторяется свободно). Основной тег символа (slot.onoff)
    * в зависимости не допускаем.
    */
   function onPickBoolTag(tag) {

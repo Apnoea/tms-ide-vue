@@ -13,7 +13,7 @@ import { materializeShape } from '../stencils/shapeElement'
 const mockToast = { add: vi.fn() }
 vi.mock('primevue/usetoast', () => ({ useToast: () => mockToast }))
 
-// Фейковый стенсил для getStencilById — materializeStencil сверяется с наличием
+// Фейковый символ для getStencilById — materializeStencil сверяется с наличием
 // объекта + ports. 'unknown' → null чтобы триггерить skipped-ветку в pasteSnapshots.
 vi.mock('../stencils/registry', () => ({
   getStencilById: vi.fn((id) => {
@@ -392,7 +392,7 @@ describe('useClipboard', () => {
     )
   })
 
-  // У фигуры-разметки нет стенсила, поэтому прежний путь (getStencilById +
+  // У фигуры-разметки нет символа, поэтому прежний путь (getStencilById +
   // materializeStencil) её пропускал: копирование проходило, а вставка давала
   // «не удалось вставить» и ноль копий.
   describe('фигуры-разметка', () => {

@@ -1,5 +1,5 @@
 /**
- * Стенсил + контекст ячейки (cellId + slots) → карточки animations.json и SVG с
+ * Символ + контекст ячейки (cellId + slots) → карточки animations.json и SVG с
  * финальными id (из `data-anim-suffix`, см. constants/ids).
  *
  * Слот без выбранного тега (`{slot.KEY}` не разрешился) убивает биндинг, а пустой
@@ -40,7 +40,7 @@ function hasUnresolved(node) {
 }
 
 /**
- * Шаблон стенсила + слоты ячейки → карточки `{ animation-<stencilId>-<cellId>[.suffix]: card }`.
+ * Шаблон символа + слоты ячейки → карточки `{ animation-<stencilId>-<cellId>[.suffix]: card }`.
  *
  * @param {object} stencil
  * @param {string} cellId
@@ -74,7 +74,7 @@ function generateAnimations(stencil, cellId, slots) {
  * разбор XML на каждый экземпляр стоил бы сотню парсов на форму при каждом
  * переключении формы, undo и прогоне формы в экспорте.
  *
- * Ключ — сам объект стенсила: реестр на каждую правку кладёт НОВЫЙ объект
+ * Ключ — сам объект символа: реестр на каждую правку кладёт НОВЫЙ объект
  * (`registerStencil`), поэтому WeakMap инвалидируется сам, а удалённый символ уходит
  * вместе со своим шаблоном.
  */

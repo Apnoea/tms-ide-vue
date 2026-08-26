@@ -18,7 +18,7 @@ describe('collectUsedStencilIds', () => {
 })
 
 describe('projectZip', () => {
-  it('round-trip: восстанавливает формы / стенсилы / теги / иерархию', async () => {
+  it('round-trip: восстанавливает формы / символы / теги / иерархию', async () => {
     const bundle = {
       forms: [
         { id: 'main', viewSvg: '<svg>main</svg>', animationsJson: '{"a":1}' },
@@ -59,7 +59,7 @@ describe('projectZip', () => {
     ).toThrow(/Недопустимый id символа/)
   })
 
-  it('минимальный бандл (только формы) → нет стенсилов/тегов/иерархии', async () => {
+  it('минимальный бандл (только формы) → нет символов/тегов/иерархии', async () => {
     const blob = buildProjectZipBlob({
       forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],
     })

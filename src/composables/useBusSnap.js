@@ -49,7 +49,7 @@ export function useBusSnap() {
     return best
   }
 
-  /** Раскладка для ячейки этого стенсила: угол + позиция на шине. */
+  /** Раскладка для ячейки этого символа: угол + позиция на шине. */
   function placementFor(bus, stencilId, cellSize, point) {
     const stencil = getStencilById(stencilId)
     if (!stencil) return null
@@ -72,7 +72,7 @@ export function useBusSnap() {
    * Кладёт символ на шину и закрепляет. z поднимаем при необходимости: символ обязан
    * лежать ПОВЕРХ тела шины, а перетащить на неё могли и тот, что был ниже по порядку.
    *
-   * @returns {boolean} лёг ли (false — неизвестный стенсил)
+   * @returns {boolean} лёг ли (false — неизвестный символ)
    */
   function attachToBus(bus, cell, point) {
     const tms = cell.get('tms') || {}

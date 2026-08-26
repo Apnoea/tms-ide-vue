@@ -63,8 +63,8 @@ export const ATTR_STENCIL = 'data-tms-stencil'
 export const ATTR_SUFFIX = 'data-anim-suffix'
 
 /**
- * Допустимый id стенсила. Не косметика: id уезжает в `data-tms-stencil` и в
- * CSS-селектор внутри `<![CDATA[…]]>` экспорта, а стенсилы приходят из чужого
+ * Допустимый id символа. Не косметика: id уезжает в `data-tms-stencil` и в
+ * CSS-селектор внутри `<![CDATA[…]]>` экспорта, а символы приходят из чужого
  * .zip — кавычка или `]]>` в id сломала бы стиль или дала инъекцию. Реестр
  * отсекает нарушителей (см. stencils/registry), поэтому дальше по конвейеру id
  * безопасен по инварианту.
@@ -207,7 +207,7 @@ export function previewOuterKey(stencilId, cellId, valueTag) {
   return outerKey(stencilId, animId)
 }
 
-/** Inner-key стенсильной карточки (outer + suffix из data-anim-suffix). */
+/** Inner-key символьной карточки (outer + suffix из data-anim-suffix). */
 export function innerKey(stencilId, animId, suffix) {
   return `${outerKey(stencilId, animId)}${suffix || ''}`
 }

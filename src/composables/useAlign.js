@@ -128,7 +128,7 @@ export function useAlign() {
   const canAlign = computed(() => cellCount.value >= 2)
   const canDistribute = computed(() => cellCount.value >= 3)
 
-  // Рамки с учётом поворота (см. rotatedAabb) — иначе развёрнутый стенсил считается
+  // Рамки с учётом поворота (см. rotatedAabb) — иначе развёрнутый символ считается
   // по исходным габаритам.
   const cellBoxes = (cells) =>
     cells.map((c) => rotatedAabb(c.get('position'), c.get('size'), c.angle?.() || 0))

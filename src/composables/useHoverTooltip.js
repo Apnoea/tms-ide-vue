@@ -8,7 +8,7 @@ import { projectToScreen } from '../utils/paperGeom'
 const HOVER_DELAY_MS = 400
 
 /**
- * Hover-tooltip над ячейкой: HTML-плашка с лейблом стенсила и (если ячейка
+ * Hover-tooltip над ячейкой: HTML-плашка с лейблом символа и (если ячейка
  * сгруппирована) числом членов группы. `suppress()` — предикат «сейчас идёт
  * взаимодействие» (pan / drag / resize / edit-in-place), при котором плашку не
  * показываем. showCellTooltip/hideCellTooltip навешиваются на paper-события в

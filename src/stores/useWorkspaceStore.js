@@ -125,6 +125,43 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   const activeFormBg = computed(() => formBg.value[activeFormId.value] ?? null)
 
+  /**
+   * Вид НОВОГО провода — «липкие» настройки инструмента: нарисовал один цветным и
+   * толстым, следующие такие же. Иначе серию однотипных проводов приходится править
+   * по одному после каждого рисования.
+   *
+   * Живёт в мете проекта (переживает reload), но НЕ уезжает в архив: это настройка
+   * рисования, а не свойство схемы — в `view.svg` стиль каждого провода записан у
+   * него самого. Пустой объект = дефолты `LINK_DEFAULTS` (чёрный, 2px, без стрелок).
+   */
+  const wireStyle = ref({})
+
+  /** Патч настроек нового провода; `null`-значение убирает поле (вернуть дефолт). */
+  function setWireStyle(patch) {
+    const next = { ...wireStyle.value }
+    for (const [k, v] of Object.entries(patch || {})) {
+      if (v === null || v === undefined) delete next[k]
+      else next[k] = v
+    }
+    if (JSON.stringify(next) === JSON.stringify(wireStyle.value)) return false
+    wireStyle.value = next
+    return true
+  }
+
+  /** Загрузка из меты: чужие ключи отбрасываем, цвет валидируем. */
+  function loadWireStyle(raw) {
+    const src = raw && typeof raw === 'object' ? raw : {}
+    const next = {}
+    const width = Number(src.strokeWidth)
+    if (Number.isFinite(width) && width > 0 && width <= 20) next.strokeWidth = width
+    const color = cssColor(src.strokeColor)
+    if (color) next.strokeColor = color
+    for (const key of ['arrowStart', 'arrowEnd']) {
+      if (src[key] === 'solid' || src[key] === 'open') next[key] = src[key]
+    }
+    wireStyle.value = next
+  }
+
   /** Фон формы. `null`/дефолт — снять запись (не копим значения, равные дефолту). */
   function setFormBg(id, color) {
     if (!forms.has(id)) return false
@@ -281,6 +318,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeFormBg,
     setFormBg,
     loadFormBg,
+    wireStyle,
+    setWireStyle,
+    loadWireStyle,
     setProjectName,
     setFormTree,
     moveNode,

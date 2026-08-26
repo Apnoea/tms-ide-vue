@@ -110,7 +110,7 @@ export async function readProjectZipFile(file) {
   }
   const text = (path) => (entries[path] ? strFromU8(entries[path]) : null)
 
-  // Id форм/стенсилов достаём из путей — порядок в архиве не гарантирован.
+  // Id форм/символов достаём из путей — порядок в архиве не гарантирован.
   const formIds = new Set()
   const stencilIds = new Set()
   for (const path of Object.keys(entries)) {

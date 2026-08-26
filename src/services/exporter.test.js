@@ -80,7 +80,7 @@ describe('exportProject', () => {
     expect(cross.when?.cases?.false?.apply?.addClass).toBe('animation-hidden')
 
     // Outer-wrapper есть ради detailTags, но своего animation-off нет: серость
-    // (де-энергизация) задаётся на холсте (boolSource), а не в стенсиле.
+    // (де-энергизация) задаётся на холсте (boolSource), а не в символе.
     expect(anims).toHaveProperty('animation-cell_qw-c1')
     const anyOff = Object.values(anims).some((card) =>
       (card.bindings || []).some((b) => b.when?.cases?.false?.apply?.addClass === 'animation-off')
@@ -169,16 +169,17 @@ describe('exportProject', () => {
     })
   })
 
-  it('cell_node: цвет и диаметр точки переживают round-trip', () => {
+  it('cell_node прошлого формата: экспорт рисует точку, импорт её растворяет', () => {
+    // Точка соединения перестала быть символом — теперь ею помечает себя свободный
+    // конец провода (см. linkDefaults.endMarker). Экспорт старых узлов по-прежнему
+    // рисует кружок, а загрузка убирает ячейку (см. legacyFormat.dissolveNodeCells).
     const graph = mockGraph([
       mockCell({ id: 'n1', stencilId: 'cell_node', w: 20, h: 20, color: '#ff8800', dotSize: 8 }),
     ])
     const exported = exportProject(graph)
     expect(exported.svgText).toContain('r="4"')
-    const cell = parseSvgProject(exported.svgText).cells.find((c) => c.id === 'n1')
-    expect(cell.tms).toMatchObject({ color: '#ff8800', dotSize: 8 })
-    // Габарит ячейки от диаметра не зависит — на нём держатся hit-area и порт.
-    expect(cell.size).toMatchObject({ width: 20, height: 20 })
+    const parsed = parseSvgProject(exported.svgText)
+    expect(parsed.cells.find((c) => c.id === 'n1')).toBeUndefined()
   })
 
   it('наконечники: провод уезжает группой, стрелки внутри неё', () => {
@@ -208,6 +209,37 @@ describe('exportProject', () => {
     // поэтому его разворачивают на 180° — остриё остаётся в точке соединения, тело
     // уходит назад по линии. Экспорт считает это сам, без JointJS-маркеров.
     expect(svg).toContain('rotate(180)')
+  })
+
+  it('свободный конец провода помечается точкой в группе провода', () => {
+    // Точка заменила символ «точка соединения»: рисуется тем же приёмом, что
+    // наконечник (внутри группы), поэтому классы анимации достают и её.
+    const graph = mockGraph(
+      [mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 })],
+      [mockLink({ id: 'l1', source: { id: 'c1' }, target: { x: 100, y: 60 }, tms: {} })]
+    )
+    const svg = exportProject(graph).svgText
+    expect(svg).toMatch(/<g id="animation-wire-l1">/)
+    // Радиус от толщины: 2.5×2 / 2 = 2.5. Привязанный конец точки не получает.
+    expect(svg).toContain('<circle class="tms-range-fill"')
+    expect(svg).toContain('r="2.5"')
+    expect(svg.match(/<circle/g)).toHaveLength(1)
+  })
+
+  it('выбранный наконечник вытесняет точку на свободном конце', () => {
+    const graph = mockGraph(
+      [mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 })],
+      [
+        mockLink({
+          id: 'l1',
+          source: { id: 'c1' },
+          target: { x: 100, y: 60 },
+          tms: { arrowEnd: 'open' },
+        }),
+      ]
+    )
+    const svg = exportProject(graph).svgText
+    expect(svg).not.toContain('<circle')
   })
 
   it('без наконечников структура прежняя — один <path> с id', () => {
@@ -316,7 +348,7 @@ describe('exportProject', () => {
     expect(parsed.cells.find((c) => c.id === 'v2').tms.decimals).toBeUndefined()
   })
 
-  it('rangeSource на ячейке → карточка outer + merge в стенсильные', () => {
+  it('rangeSource на ячейке → карточка outer + merge в символьные', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
@@ -334,7 +366,7 @@ describe('exportProject', () => {
     const anims = exportProject(graph).animations.animations
     expect(anims).toHaveProperty('animation-cell_qw-c1')
     expect(anims['animation-cell_qw-c1'].bindings[0].tag).toBe('PS031.UA')
-    // range-биндинг МЕРЖИТСЯ в стенсильную .true
+    // range-биндинг МЕРЖИТСЯ в символьную .true
     const vkBindings = anims['animation-cell_qw-c1.true'].bindings
     expect(vkBindings.some((b) => b.tag === 'PS031.UA')).toBe(true)
   })
@@ -752,13 +784,13 @@ describe('exportProject', () => {
     }
   })
 
-  it('quality: cell_qk без тегов (голый стенсил) — outer-карточка не создаётся', () => {
+  it('quality: cell_qk без тегов (голый символ) — outer-карточка не создаётся', () => {
     const graph = mockGraph([mockCell({ id: 'c1', stencilId: 'cell_qk' })])
     const anims = exportProject(graph).animations.animations
     expect(anims['animation-cell_qk-c1']).toBeUndefined()
   })
 
-  it('quality: остальные стенсилы (cell_qw и т.п.) quality-биндингов НЕ получают', () => {
+  it('quality: остальные символы (cell_qw и т.п.) quality-биндингов НЕ получают', () => {
     const graph = mockGraph([
       mockCell({
         id: 'c1',
@@ -853,7 +885,7 @@ describe('exportProject', () => {
   it('short-id collision: две ячейки с одинаковым первым сегментом UUID получают разные animation-keys', () => {
     // Контрфактический сценарий: два UUID с совпадающим первым сегментом.
     // Без uniqueShortId оба свернулись бы в animId='abc12345' и слили бы свои
-    // bindings (LOCAL.A и LOCAL.B, живут в стенсильной .true) + дубль id в SVG.
+    // bindings (LOCAL.A и LOCAL.B, живут в символьной .true) + дубль id в SVG.
     const graph = mockGraph([
       mockCell({
         id: 'abc12345-1111-1111-1111-111111111111',
@@ -1183,7 +1215,7 @@ describe('exportProject', () => {
 })
 
 describe('exportProject: фигуры-разметка', () => {
-  // Фигура — ячейка без стенсила: у неё нет карточек анимации и id, в SVG уезжает
+  // Фигура — ячейка без символа: у неё нет карточек анимации и id, в SVG уезжает
   // статичная геометрия + data-tms-meta для round-trip'а.
   function shapeCell({ id, shape, x = 0, y = 0, w = 40, h = 20, z, angle = 0, ...extra }) {
     const tms = { shape, ...extra }

@@ -52,7 +52,7 @@ export function useClipboard({ scheduleSnapshot }) {
     const size = c.get('size')
     return {
       oldId: c.id,
-      // Фигура-разметка вместо стенсила несёт свою геометрию: у неё нет ни
+      // Фигура-разметка вместо символа несёт свою геометрию: у неё нет ни
       // stencilId, ни портов, поэтому и создаётся она иначе (см. pasteSnapshots).
       isShape: isShapeCell(c),
       stencilId: tms.stencilId,
@@ -165,7 +165,7 @@ export function useClipboard({ scheduleSnapshot }) {
       }
 
       // tms копируется полностью включая slots — paste должен сохранять привязки
-      // тегов (две копии одного стенсила могут указывать на один и тот же объект,
+      // тегов (две копии одного символа могут указывать на один и тот же объект,
       // это нормально для мнемосхем где много визуализаций одного агрегата).
       // flip-порты берутся из tmsCopy внутри materializeStencil.
       const cell = materializeStencil(graph, paper, stencil, {
@@ -179,7 +179,7 @@ export function useClipboard({ scheduleSnapshot }) {
     }
 
     // Восстанавливаем bridge-линии: id ячеек перевешиваем через oldToNew,
-    // port-id'ы остаются те же (новые ячейки того же стенсила имеют такие же
+    // port-id'ы остаются те же (новые ячейки того же символа имеют такие же
     // порты). Конструируем явно через new shapes.standard.Link(LINK_DEFAULTS) —
     // иначе graph.addCell(jsonSpec) теряет router/connector/attrs (factory
     // defaultLink на JSON-path не применяется), и линки получаются «голые».
@@ -203,7 +203,10 @@ export function useClipboard({ scheduleSnapshot }) {
         z: normalizeLinkZ(linkSnap.z),
         // Стиль линии (толщина/цвет) живёт в tms — дублируем в attrs.line, иначе
         // копия рисуется дефолтной (см. linkStyleAttrs).
-        ...(linkStyleAttrs(linkSnap.tms) ? { attrs: linkStyleAttrs(linkSnap.tms) } : {}),
+        ...(() => {
+          const attrs = linkStyleAttrs(linkSnap.tms, { id: newSrcId }, { id: newTgtId })
+          return attrs ? { attrs } : {}
+        })(),
       })
       graph.addCell(linkModel)
       newLinkItems.push({ kind: 'link', id: linkModel.id })
@@ -273,7 +276,7 @@ export function useClipboard({ scheduleSnapshot }) {
     if (result.added) {
       notify.success(successLabel, describePasted(result.added, result.linksAdded, result.skipped))
     } else {
-      notify.warn(failLabel, 'Не удалось создать копии — стенсилы не найдены в реестре')
+      notify.warn(failLabel, 'Не удалось создать копии — символы не найдены в реестре')
     }
     return result
   }

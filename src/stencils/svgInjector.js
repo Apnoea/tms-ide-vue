@@ -1,10 +1,10 @@
-// Мост «модель JointJS → DOM cellView»: порты, отражение, инъекция SVG стенсила
-// и переинъекция после fromJSON. Разметку программных стенсилов (bus/text/value/node)
+// Мост «модель JointJS → DOM cellView»: порты, отражение, инъекция SVG символа
+// и переинъекция после fromJSON. Разметку программных символов (bus/text/value/node)
 // строят busCell/textCell/valueCell/nodeCell — здесь только выбор нужного билдера.
 import { instantiate } from './parser'
 import { getStencilById } from './registry'
 import { TMSStencil } from './tmsStencil'
-import { normalizeLinkZ } from './linkDefaults'
+import { normalizeLinkZ, syncLinkEndMarkers } from './linkDefaults'
 import { svgEl } from '../utils/xml'
 import { snapToGrid } from '../utils/grid'
 import { portPointAt } from '../utils/portGeom'
@@ -16,7 +16,7 @@ import { buildValueContent } from './valueCell'
 import { buildNodeContent } from './nodeCell'
 
 /**
- * Порты стенсила не описаны в определении, а вычисляются по размеру экземпляра
+ * Порты символа не описаны в определении, а вычисляются по размеру экземпляра
  * (шина: слот каждые BUS_PORT_SPACING). Сверка с реестром такие НЕ трогает: набор
  * держит `useBusResize.syncBusPorts`, а «нет в определении» там не значит «порт
  * удалили» — иначе на загрузке формы отцепились бы все линии шины.
@@ -173,7 +173,7 @@ function round3(v) {
 }
 
 /**
- * Разметка стенсила → body-группа cellView'а. Старое содержимое чистим, поэтому
+ * Разметка символа → body-группа cellView'а. Старое содержимое чистим, поэтому
  * функция годится и для первого рендера, и для перерисовки (правка слотов, undo,
  * загрузка формы).
  *
@@ -260,7 +260,7 @@ export function injectStencilSvg(cellView, stencil) {
 }
 
 /**
- * Ячейка-стенсил в графе: порты с учётом flip, модель, инъекция SVG. Единая точка
+ * Ячейка-символ в графе: порты с учётом flip, модель, инъекция SVG. Единая точка
  * для drop'а из палитры и paste — иначе flip-порты и подобное забывались бы в одном
  * из путей. Позицию/размер/tms/angle готовит вызывающий (там своя специфика:
  * автосайз текста, defaults, remap groupId).
@@ -356,7 +356,7 @@ export function applyStencilScale(cell, paper, scale, { position } = {}) {
 
 /**
  * Правка символа в редакторе → расставленные экземпляры на холсте. Обновляет то,
- * что задаёт стенсил: набор и позиции портов, габарит, рисунок. Провода следуют за
+ * что задаёт символ: набор и позиции портов, габарит, рисунок. Провода следуют за
  * портом сами (ссылка по имени), поэтому «сдвинул порт» не требует ничего.
  *
  * Порт, которого в новой версии нет, оставил бы провод на несуществующей ссылке —
@@ -436,7 +436,7 @@ export function syncStencilInstances(graph, paper, stencil, prev = null) {
 
 /**
  * После `fromJSON` (restore, undo/redo, смена формы) cellView'ы пустые — JointJS не
- * знает наших стенсилов. Проходим элементы с `tms` и инъектим SVG заново; angle
+ * знает наших символов. Проходим элементы с `tms` и инъектим SVG заново; angle
  * восстанавливать не нужно, его JointJS держит на outer-`<g>`.
  *
  * Провода приводим к их полосе z: `fromJSON` шлёт `reset`, add-хендлер молчит, а у
@@ -485,6 +485,11 @@ export function reinjectAllStencils(graph, paper, { sync = false } = {}) {
   for (const link of graph.getLinks()) {
     const z = normalizeLinkZ(link.get('z'))
     if (link.get('z') !== z) link.set('z', z)
+    // Маркеры концов — по фактической привязке: `attrs` приезжают из сохранённого
+    // graphJson (или из архива), а точка свободного конца выводится из source/target,
+    // поэтому пересобираем её здесь. Иначе на загруженной форме точка появлялась бы
+    // только после того, как конец тронули.
+    syncLinkEndMarkers(link)
   }
   return report
 }

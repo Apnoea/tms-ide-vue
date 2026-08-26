@@ -115,6 +115,26 @@ describe('наконечники провода', () => {
     expect(line.targetMarker.d).toBe(arrowMarker('solid', { strokeWidth: 2 }).d)
   })
 
+  it('свободный конец получает точку, привязанный — нет', () => {
+    // Точка заменила символ «точка соединения»: она выводится из привязки конца, а не
+    // хранится полем, поэтому в инспекторе её и не выбирают.
+    const line = linkStyleAttrs({}, { id: 'cell-a', port: 'top' }, { x: 200, y: 100 }).line
+    expect(line.sourceMarker).toEqual({ type: 'none' })
+    expect(line.targetMarker).toMatchObject({ type: 'circle', fill: '#000' })
+    // Радиус — от толщины провода, как раствор наконечника.
+    expect(line.targetMarker.r).toBe(arrowSize(2).len / 2)
+  })
+
+  it('выбранный наконечник приоритетнее точки', () => {
+    const line = linkStyleAttrs({ arrowEnd: 'solid' }, { id: 'a' }, { x: 0, y: 0 }).line
+    expect(line.targetMarker.type).toBe('path')
+  })
+
+  it('без данных о концах точку не додумываем', () => {
+    // Вызывающий, который не знает привязки (старый путь), не должен получить точки.
+    expect(linkStyleAttrs({ arrowEnd: 'solid' }).line.sourceMarker).toEqual({ type: 'none' })
+  })
+
   it('стиль линии несёт маркеры только для заданных концов', () => {
     expect(linkStyleAttrs({ arrowEnd: 'solid' }).line.targetMarker).toMatchObject({
       type: 'path',

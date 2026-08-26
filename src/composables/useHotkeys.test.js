@@ -88,6 +88,25 @@ describe('useHotkeys — гейт мутирующих хоткеев по proje
     expect(deps.copySelection).toHaveBeenCalled()
   })
 
+  it('выделен текст вне холста → Ctrl+C отдаём браузеру', () => {
+    // Иначе копирование id символа или тега из инспектора отвечало бы тостом
+    // «Нечего копировать» вместо копирования текста.
+    const node = document.createElement('div')
+    node.textContent = 'cell_qw'
+    document.body.appendChild(node)
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
+
+    key('KeyC', { ctrlKey: true })
+    expect(deps.copySelection).not.toHaveBeenCalled()
+
+    sel.removeAllRanges()
+    node.remove()
+  })
+
   it('busy=true → порядок наложения подавлен', () => {
     projectBusy.value = true
     key('BracketRight', { ctrlKey: true })

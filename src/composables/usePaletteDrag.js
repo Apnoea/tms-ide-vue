@@ -8,7 +8,7 @@ import { textCellSize } from '../stencils/textCell'
 import { snapToGrid } from '../utils/grid'
 
 /**
- * Drag стенсила из палитры на холст: pointer-events (не нативный HTML5 DnD) →
+ * Drag символа из палитры на холст: pointer-events (не нативный HTML5 DnD) →
  * превью липнет к курсору на полной частоте. PalettePane ставит ui.dragging на
  * pointerdown; здесь реактивный `dragListenerTarget` цепляет document-листенеры
  * на время drag'а, превью снапится к сетке (или к проводу в режиме врезки), а на
@@ -96,7 +96,7 @@ export function usePaletteDrag(paperContainer, wireSplice, busSnap) {
   })
 
   /**
-   * Создаёт ячейку из стенсила в точке (paper-координаты центра). Слоты и теги при
+   * Создаёт ячейку из символа в точке (paper-координаты центра). Слоты и теги при
    * drop'е из палитры пусты — юзер заполнит в инспекторе (нет привязки = нет анимации).
    */
   function createStencilAt(stencilId, x, y) {
@@ -106,7 +106,7 @@ export function usePaletteDrag(paperContainer, wireSplice, busSnap) {
 
     const stencil = getStencilById(stencilId)
     if (!stencil) {
-      console.warn(`[Canvas] Стенсил"${stencilId}" не найден в реестре`)
+      console.warn(`[Canvas] Символ"${stencilId}" не найден в реестре`)
       return
     }
 
@@ -115,7 +115,7 @@ export function usePaletteDrag(paperContainer, wireSplice, busSnap) {
     const finalX = snapToGrid(x - stencil.width / 2, g)
     const finalY = snapToGrid(y - stencil.height / 2, g)
     const tms = { stencilId }
-    // Стенсильные дефолты (`defaults` в stencil.json). structuredClone — иначе
+    // Символьные дефолты (`defaults` в stencil.json). structuredClone — иначе
     // вложенные объекты зашарили бы ссылку из реестра между ячейками.
     if (stencil.defaults) Object.assign(tms, structuredClone(stencil.defaults))
 
@@ -134,7 +134,7 @@ export function usePaletteDrag(paperContainer, wireSplice, busSnap) {
   }
 
   /**
-   * Размещает стенсил в точке. Стенсил с ≥2 портами, брошенный на провод, врезается
+   * Размещает символ в точке. Символ с ≥2 портами, брошенный на провод, врезается
    * в него (split); иначе просто создаётся. Тег никто по пути не спрашивает —
    * привязка живёт в инспекторе, одинаково для всех символов.
    */

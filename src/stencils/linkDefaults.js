@@ -119,6 +119,28 @@ export const LINK_DEFAULTS = {
 }
 
 /**
+ * Дефолтный вид провода — ЕДИНЫЙ источник для полей инспектора и для решения «писать
+ * ли значение в meta»: дефолты в `tms` не пишутся, а крестик-сброса у них нет.
+ * Цвет шестизначный: `<input type="color">` короткую форму из `attrs.line` не понимает
+ * и молча показывает чёрный, из-за чего своё значение читалось бы как дефолтное.
+ */
+export const WIRE_STYLE_DEFAULTS = {
+  strokeWidth: LINK_DEFAULTS.attrs.line.strokeWidth,
+  strokeColor: '#000000',
+  arrowStart: null,
+  arrowEnd: null,
+}
+
+/** Значение равно дефолту. `undefined` («разные» у мульти-выделения) — нет. */
+export function isDefaultWireValue(key, value) {
+  if (value === undefined) return false
+  if (key === 'strokeColor') {
+    return value === WIRE_STYLE_DEFAULTS.strokeColor || value === LINK_DEFAULTS.attrs.line.stroke
+  }
+  return value === WIRE_STYLE_DEFAULTS[key]
+}
+
+/**
  * Полоса z проводов — ниже символов (у тех дно 0), иначе линия перекрыла бы порты.
  * Внутри полосы порядок значим: `jumpover` рисует мостик на том, кто в коллекции
  * позже (она отсортирована по z), т.е. больший z = «этот провод сверху».
@@ -194,6 +216,15 @@ export function arrowExportSvg(kind, point, angle, strokeWidth, color) {
   return `<path d="${d}" transform="${transform}" ${paint}/>`
 }
 
+/** Точка свободного конца для экспортного SVG — тем же приёмом, что наконечник. */
+export function dotExportSvg(point, strokeWidth, color) {
+  if (!point) return ''
+  return (
+    `<circle class="${RANGE_FILL_CLASS}" cx="${point.x}" cy="${point.y}" ` +
+    `r="${dotRadius(strokeWidth)}" fill="${color}" stroke="none"/>`
+  )
+}
+
 /**
  * JointJS-описание маркера конца, `null` — наконечник не задан. Экспортируется, потому
  * что инспектор ставит маркеры точечным `link.attr('line/sourceMarker', …)`: замена
@@ -208,13 +239,45 @@ export function arrowMarker(kind, tms) {
 }
 
 /**
+ * Радиус точки на СВОБОДНОМ конце провода — от толщины линии, как раствор наконечника
+ * (см. arrowSize): на толстом проводе точка обязана остаться соразмерной.
+ */
+function dotRadius(strokeWidth) {
+  return arrowSize(strokeWidth).len / 2
+}
+
+/**
+ * Маркер свободного конца: провод, законченный на холсте, помечается точкой — она и
+ * заменила символ «точка соединения» (`cell_node`).
+ *
+ * Точку НЕ храним в модели: она однозначно выводится из привязки конца (нет `id` —
+ * значит свободен), поэтому в `data-tms-meta` нового поля не появляется, а в
+ * инспекторе — нового контрола. Выбранный автором наконечник приоритетнее: он
+ * осознанное решение, точка — лишь метка «здесь провод кончается».
+ */
+function endMarker(kind, tms, endRef) {
+  const arrow = arrowMarker(kind, tms)
+  if (arrow) return arrow
+  // Точку ставим, только когда про конец ТОЧНО известно, что он свободен. Вызывающий
+  // без данных о концах (`undefined`) получает пустой маркер: додумывать за него
+  // «наверное, свободен» значило бы рисовать точки на ровном месте.
+  if (!endRef || endRef.id) return null
+  return {
+    type: 'circle',
+    r: dotRadius(tms?.strokeWidth),
+    fill: tms?.strokeColor || LINK_DEFAULTS.attrs.line.stroke,
+    stroke: 'none',
+  }
+}
+
+/**
  * tms-стиль (толщина/цвет) → `attrs.line`. Источник правды — tms, но рисует JointJS
  * по attrs, поэтому дублируем при КАЖДОМ создании модели (paste, load): иначе копия
  * выглядит дефолтной, а после экспорта «внезапно» становится толстой/цветной.
  * null = стиль дефолтный. Всегда новый объект — LINK_DEFAULTS.attrs общий на все
  * провода, мутировать нельзя.
  */
-export function linkStyleAttrs(tms) {
+export function linkStyleAttrs(tms, source, target) {
   const lineAttrs = {}
   for (const f of LINK_META_FIELDS) {
     const v = tms?.[f.key]
@@ -225,12 +288,27 @@ export function linkStyleAttrs(tms) {
   // @joint/core), то есть внутрь линии у обоих смотрит +X — как в дефолтном маркере
   // `M 10 -5 0 0 10 5 z`. Зеркальный путь для конца увёл бы наконечник ЗА точку
   // соединения, под символ.
-  const start = arrowMarker(tms?.arrowStart, tms)
-  const end = arrowMarker(tms?.arrowEnd, tms)
+  const start = endMarker(tms?.arrowStart, tms, source)
+  const end = endMarker(tms?.arrowEnd, tms, target)
   if (start) lineAttrs.sourceMarker = start
   if (end) lineAttrs.targetMarker = end
   if (!Object.keys(lineAttrs).length) return null
   return { line: { ...LINK_DEFAULTS.attrs.line, ...lineAttrs } }
+}
+
+/**
+ * Маркеры концов ЖИВОГО линка → в attrs. Точечным `attr()`, а не заменой всего
+ * `attrs`: у standard.Link там ещё `wrapper` (хитбокс), и подмена объекта целиком его
+ * сносит. Зовётся и при смене наконечника/стиля из инспектора, и на перецепке конца —
+ * точка свободного конца обязана появляться и исчезать вместе с привязкой.
+ */
+export function syncLinkEndMarkers(link) {
+  if (!link?.attr) return
+  const tms = link.get('tms') || {}
+  const source = endMarker(tms.arrowStart, tms, link.get('source'))
+  const target = endMarker(tms.arrowEnd, tms, link.get('target'))
+  link.attr('line/sourceMarker', source || { type: 'none' })
+  link.attr('line/targetMarker', target || { type: 'none' })
 }
 
 // Ручки концов: кружок размером с порт, но контрастный. Живут в слое инструментов

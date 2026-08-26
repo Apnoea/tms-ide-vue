@@ -13,10 +13,10 @@ export const useUiStore = defineStore('ui', () => {
   // Видимость SearchBar (Ctrl+F). Состояние поиска (query, matches) — в useCanvas.
   const searchOpen = ref(false)
 
-  // Открыт ли редактор стенсилов (оверлей поверх холста). Пока открыт — глобальные
+  // Открыт ли редактор символов (оверлей поверх холста). Пока открыт — глобальные
   // хоткеи холста гейтятся (см. useHotkeys), у редактора своя обработка клавиш.
   const stencilEditorOpen = ref(false)
-  // id стенсила, открытого на правку (null = создание нового). Редактор читает
+  // id символа, открытого на правку (null = создание нового). Редактор читает
   // при монтировании и префиллит модель через loadStencil.
   const stencilEditorTargetId = ref(null)
 

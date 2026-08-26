@@ -41,6 +41,17 @@ describe('reinjectAllStencils: z проводов', () => {
     expect(JSON.stringify(graph.toJSON())).toBe(before)
   })
 
+  it('маркеры концов пересобираются: свободный конец получает точку на загрузке', () => {
+    // `attrs` приезжают из сохранённого graphJson, а точка выводится из привязки
+    // конца — без пересборки она появлялась бы только после того, как конец тронули.
+    const graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    const free = new shapes.standard.Link({ source: { id: 'c1' }, target: { x: 40, y: 40 } })
+    graph.addCell(free)
+    reinjectAllStencils(graph, paper)
+    expect(free.attr('line/targetMarker')).toMatchObject({ type: 'circle' })
+    expect(free.attr('line/sourceMarker')).toEqual({ type: 'none' })
+  })
+
   it('провода уходят под символы (LINK_Z ниже дефолтного z ячеек)', () => {
     const { graph } = graphWithLinks()
     reinjectAllStencils(graph, paper)

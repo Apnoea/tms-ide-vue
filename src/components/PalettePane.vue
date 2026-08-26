@@ -13,6 +13,7 @@ import AccordionContent from 'primevue/accordioncontent'
 import { useConfirm } from 'primevue/useconfirm'
 import {
   getAllStencils,
+  isHiddenStencil,
   getCategories,
   registryVersion,
   unregisterStencil,
@@ -60,7 +61,7 @@ function toggleSearch() {
 }
 
 // registryVersion читаем во всех computed'ах, зависящих от реестра — чтобы
-// список пересобрался сразу после создания/удаления стенсила (без reload).
+// список пересобрался сразу после создания/удаления символа (без reload).
 const allCategories = computed(() => {
   void registryVersion.value
   return getCategories()
@@ -79,9 +80,9 @@ const stencilsByCategory = computed(() => {
   const map = new Map()
   for (const cat of allCategories.value) map.set(cat, [])
   for (const stencil of getAllStencils()) {
-    // `hidden` — символ остался в реестре только чтобы открывать прошлые формы
-    // (подпись теперь рисуется инструментом разметки), в палитре его не показываем.
-    if (stencil.hidden || !matchesSearch(stencil)) continue
+    // Символ прошлого формата (см. LEGACY_HIDDEN_IDS) остался в реестре только чтобы
+    // открывать прошлые формы — рисовать им больше не предлагаем.
+    if (isHiddenStencil(stencil) || !matchesSearch(stencil)) continue
     map.get(stencil.category)?.push(stencil)
   }
   for (const list of map.values()) {
@@ -136,14 +137,14 @@ function onStencilPointerDown(event, stencil) {
 
 /**
  * Tooltip: только увеличенное превью SVG. id юзер видит прямо в строке
- * стенсила (под label), поэтому в tooltip его не дублируем.
+ * символа (под label), поэтому в tooltip его не дублируем.
  */
 function stencilTooltip(stencil) {
   const value = `<div class="tms-stencil-zoom">${stencil.svgText || ''}</div>`
   return { value, escape: false, showDelay: 400 }
 }
 
-// Где используется стенсил: живой граф активной формы (правки могли не уехать
+// Где используется символ: живой граф активной формы (правки могли не уехать
 // в стор) + сохранённые графы остальных форм. → { count, formIds }.
 function stencilUsage(id) {
   const activeId = workspace.activeFormId
@@ -165,7 +166,7 @@ function stencilUsage(id) {
   return { count, formIds: forms }
 }
 
-// Удаление стенсила из палитры: если он где-то расставлен — отказываем (иначе
+// Удаление символа из палитры: если он где-то расставлен — отказываем (иначе
 // осиротим ячейки на схемах), сообщаем где. Иначе попап-подтверждение якорится
 // на кнопку, снимаем из рантайм-реестра (мгновенно пропадает) и сносим с диска.
 function confirmDeleteStencil(event, stencil) {
@@ -187,7 +188,7 @@ function confirmDeleteStencil(event, stencil) {
 }
 async function removeStencil(id) {
   unregisterStencil(id)
-  await removeStencilOverride(id) // снять IDB-оверрайд, иначе он вернул бы стенсил на reload
+  await removeStencilOverride(id) // снять IDB-оверрайд, иначе он вернул бы символ на reload
   canvas.markDirty() // состав library/ в .zip изменился → проект разошёлся с экспортом
   const ok = await deleteStencilFromDisk(id)
   if (ok) notify.success('Символ удалён', id)
@@ -352,7 +353,7 @@ async function removeStencil(id) {
 </template>
 
 <style>
-/* Увеличенное превью SVG стенсила в hover-tooltip'е (см. stencilTooltip).
+/* Увеличенное превью SVG символа в hover-tooltip'е (см. stencilTooltip).
  PrimeVue tooltip монтируется в body — стили не должны быть scoped. Белый
  фон чтобы чёрные обводки SVG читались на тёмной плашке tooltip'а. */
 .tms-stencil-zoom {

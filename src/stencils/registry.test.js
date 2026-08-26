@@ -6,6 +6,7 @@ import {
   unregisterStencil,
   getStencilById,
   registryVersion,
+  isHiddenStencil,
 } from './registry'
 
 // Минимальный валидный stencil — все required-поля. Используем как baseline,
@@ -151,7 +152,7 @@ describe('validateStencilJson', () => {
 })
 
 describe('registerStencil', () => {
-  it('добавляет стенсил в реестр со встроенным svgText (доступен через getStencilById)', () => {
+  it('добавляет символ в реестр со встроенным svgText (доступен через getStencilById)', () => {
     const id = 'cell_runtime_test'
     expect(getStencilById(id)).toBeUndefined()
     registerStencil({ id, label: 'RT', category: 'Тест', width: 20, height: 20 }, '<g/>')
@@ -193,7 +194,7 @@ describe('registerStencil', () => {
 })
 
 describe('unregisterStencil', () => {
-  it('удаляет стенсил из реестра и бампает версию', () => {
+  it('удаляет символ из реестра и бампает версию', () => {
     const id = 'cell_unreg_test'
     registerStencil({ id, label: 'U', category: 'Т', width: 20, height: 20 }, '<g/>')
     const before = registryVersion.value
@@ -231,6 +232,35 @@ describe('декл-флаги через registerStencil', () => {
     ).toBe(true)
     expect(getStencilById(id).noRotate).toBe(true)
     unregisterStencil(id)
+  })
+})
+
+describe('символы прошлого формата скрыты из палитры', () => {
+  it('cell_node скрыт, даже когда чужой архив принёс своё определение', () => {
+    // Проект приносит `library/cell_node/stencil.json` без наших флагов, и он
+    // перекрывает встроенный — поэтому скрытость держится списком в коде, а не полем
+    // в json: иначе символ возвращался бы в палитру после каждого импорта.
+    expect(isHiddenStencil(getStencilById('cell_node'))).toBe(true)
+    registerStencil(
+      {
+        id: 'cell_node',
+        label: 'Точка соединения',
+        category: 'Разметка и значения',
+        width: 20,
+        height: 20,
+        shapeFile: 'shape.svg',
+      },
+      '<svg xmlns="http://www.w3.org/2000/svg"><g></g></svg>'
+    )
+    expect(isHiddenStencil(getStencilById('cell_node'))).toBe(true)
+  })
+
+  it('cell_text скрыт по той же причине — подпись стала фигурой-разметкой', () => {
+    expect(isHiddenStencil(getStencilById('cell_text'))).toBe(true)
+  })
+
+  it('обычный символ остаётся видимым', () => {
+    expect(isHiddenStencil(getStencilById('cell_qw'))).toBe(false)
   })
 })
 

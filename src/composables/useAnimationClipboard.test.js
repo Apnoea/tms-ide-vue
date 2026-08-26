@@ -61,7 +61,7 @@ describe('applyBoolClip', () => {
     expect(next.slots).toEqual({ onoff: 'X' })
   })
 
-  it('null для статичного стенсила и пустого буфера', () => {
+  it('null для статичного символа и пустого буфера', () => {
     expect(applyBoolClip({}, { onoffTag: 'A', groups: [] }, { isStatic: true })).toBeNull()
     expect(applyBoolClip({}, null, {})).toBeNull()
   })
@@ -87,7 +87,7 @@ describe('applyRangeClip', () => {
     expect(a.rangeSource).not.toBe(b.rangeSource)
   })
 
-  it('null для статичного стенсила и пустого буфера', () => {
+  it('null для статичного символа и пустого буфера', () => {
     expect(applyRangeClip({}, { tag: 'PT', ranges: [] }, { isStatic: true })).toBeNull()
     expect(applyRangeClip({}, null, {})).toBeNull()
   })

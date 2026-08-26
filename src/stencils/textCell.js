@@ -1,10 +1,10 @@
-// Текстовая подпись (cell_text) — программный стенсил: содержимое и размер живут
+// Текстовая подпись (cell_text) — программный символ: содержимое и размер живут
 // в tms, а не в shape.svg. Метрики (textCellWidth/Height) общие для автосайза
 // ячейки, inline-редактора и экспорта — иначе hit-area разъезжается с текстом.
 import { SVG_NS, escapeXml, escapeAttr, svgEl } from '../utils/xml'
 import { measureTextWidth, normalizeFont } from '../utils/textMetrics'
 
-/** Параметры рендера текстового стенсила (общие для редактора и экспорта). */
+/** Параметры рендера текстового символа (общие для редактора и экспорта). */
 export const TEXT_FONT_SIZE = 14 // дефолт размера шрифта (pt)
 export const TEXT_PADDING_X = 4
 
@@ -78,7 +78,7 @@ export function buildTextExportSvg(
   return `<svg xmlns="${SVG_NS}"><text x="${TEXT_PADDING_X}" y="${y}" dominant-baseline="central" font-size="${fontSize}" font-family="${normalizeFont(font)}"${weight}${fit} fill="${escapeAttr(color || '#000')}">${escapeXml(text)}</text></svg>`
 }
 
-/** Контент на холсте: одна <text>-нода из tms.text. Стенсил статичный. */
+/** Контент на холсте: одна <text>-нода из tms.text. Символ статичный. */
 export function buildTextContent(cellView) {
   const { height } = cellView.model.size()
   const tms = cellView.model.get('tms') || {}

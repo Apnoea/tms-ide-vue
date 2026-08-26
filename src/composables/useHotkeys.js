@@ -3,9 +3,25 @@ import { useEventListener } from '@vueuse/core'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from './useCanvas'
 import { nplural } from '../utils/plural'
+import { isFreeEnd } from '../utils/bridgeLinks'
 
 function isFocusInInput(t) {
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+}
+
+/**
+ * Выделен текст ВНЕ холста — например id символа или тег в инспекторе. Такой Ctrl+C
+ * принадлежит браузеру: копировать надо текст, а не выделение на схеме.
+ *
+ * Выделение внутри paper'а не считаем: подписи на схеме — это `<text>` в SVG, их
+ * легко зацепить мышью, и тогда Ctrl+C перестал бы копировать символы.
+ */
+function hasTextSelectionOutsideCanvas() {
+  const sel = typeof window !== 'undefined' ? window.getSelection?.() : null
+  if (!sel || sel.isCollapsed || !String(sel).trim()) return false
+  const node = sel.anchorNode
+  const el = node?.nodeType === 1 ? node : node?.parentElement
+  return !el?.closest?.('.joint-paper')
 }
 
 /**
@@ -47,7 +63,7 @@ export function useHotkeys({
   const ui = useUiStore()
 
   function onKeyDown(event) {
-    // Открыт редактор стенсилов (оверлей поверх холста) — все хоткеи холста
+    // Открыт редактор символов (оверлей поверх холста) — все хоткеи холста
     // молчат: холст под оверлеем не виден, а undo/delete/paste писали бы в
     // невидимый граф. У редактора своя обработка клавиш.
     if (ui.stencilEditorOpen) return
@@ -131,6 +147,10 @@ export function useHotkeys({
         return
       }
       if (code === 'KeyC' && !event.shiftKey) {
+        // Выделен ТЕКСТ вне холста (id символа в инспекторе, подпись в панели) — это
+        // штатное копирование браузером: перехват отдавал бы Ctrl+C нашему буферу и
+        // отвечал тостом «Нечего копировать» вместо копирования выделенного текста.
+        if (hasTextSelectionOutsideCanvas()) return
         event.preventDefault()
         event.stopPropagation()
         copySelection() // read-only, безопасно под busy
@@ -178,7 +198,7 @@ export function useHotkeys({
     }
 
     // R / Shift+R — поворот выделенных ячеек. Без cmd: Ctrl+R отдаём браузеру
-    // (перезагрузка). rotateSelected сам фильтрует noRotate-стенсилы и снапшотит.
+    // (перезагрузка). rotateSelected сам фильтрует noRotate-символы и снапшотит.
     if (code === 'KeyR' && !cmd && !event.altKey) {
       if (inInput || projectBusy.value) return
       event.preventDefault()
@@ -189,7 +209,7 @@ export function useHotkeys({
 
     // Shift+H / Shift+V — отразить выделенные ячейки по горизонтали / вертикали.
     // Без cmd (Ctrl+H — браузерная история). flipSelected сам фильтрует
-    // noRotate/locked-стенсилы и снапшотит.
+    // noRotate/locked-символы и снапшотит.
     if ((code === 'KeyH' || code === 'KeyV') && event.shiftKey && !cmd && !event.altKey) {
       if (inInput || projectBusy.value) return
       event.preventDefault()
@@ -220,6 +240,17 @@ export function useHotkeys({
       for (const item of cellSel) {
         const c = graph.getCell(item.id)
         if (c && !c.get('tms')?.locked) c.translate(dx, dy, { uiNudge: true })
+      }
+      // Свободные концы выделенных проводов (точки на холсте) ни за чем не следуют —
+      // сдвигаем их тем же шагом, иначе провод растянулся бы, а точка осталась.
+      for (const item of canvas.selection.value) {
+        if (item.kind !== 'link') continue
+        const link = graph.getCell(item.id)
+        if (!link) continue
+        for (const key of ['source', 'target']) {
+          const end = link.get(key)
+          if (isFreeEnd(end)) link.set(key, { x: end.x + dx, y: end.y + dy }, { uiNudge: true })
+        }
       }
       scheduleSnapshot()
       return

@@ -1,4 +1,4 @@
-// Аналоговое значение (cell_value) — программный стенсил «карточка с полоской».
+// Аналоговое значение (cell_value) — программный символ «карточка с полоской».
 // Геометрия и цвета одни для экспорта (buildValueExportSvg) и редактора
 // (buildValueContent), иначе превью расходится с view.svg.
 import { valueTextKey } from '../constants/ids'

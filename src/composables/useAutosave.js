@@ -1,3 +1,4 @@
+import { watch, onBeforeUnmount } from 'vue'
 import { reinjectAllStencils } from '../stencils/svgInjector'
 import { withPaperFrozen } from '../utils/paperBatch'
 import { registerStencil } from '../stencils/registry'
@@ -51,7 +52,7 @@ export function useAutosave({ restoringHistory }) {
     const paper = canvas.paperRef.value
     if (!graph || !paper) return 0
 
-    // Оверрайды стенсилов (правки заливки/анимации, новые стенсилы) — в реестр ДО
+    // Оверрайды символов (правки заливки/анимации, новые символы) — в реестр ДО
     // отрисовки форм, иначе ячейки нарисуются встроенной версией и правки «слетят».
     // Переживают reload без dev-плагина (см. stencilOverrides).
     for (const s of await loadStencilOverrides()) registerStencil(s.stencilJson, s.shapeSvg)
@@ -92,6 +93,7 @@ export function useAutosave({ restoringHistory }) {
       workspace.setFormTree(meta.hierarchy) // null у старых проектов → плоский
       workspace.setProjectName(meta.projectName ?? null) // старые проекты → без имени
       workspace.loadFormBg(meta.formBg) // старые проекты → дефолтный фон у всех форм
+      workspace.loadWireStyle(meta.wireStyle)
       // Мета протухла (activeFormId не из formIds) → loadForms скорректировал
       // активную на первую; перезапишем мету, чтобы IDB не расходился со стором.
       if (workspace.activeFormId !== meta.activeFormId) await persistMeta()
@@ -129,6 +131,7 @@ export function useAutosave({ restoringHistory }) {
         hierarchy: workspace.formTree, // дерево форм (иерархия) — переживает reload
         projectName: workspace.projectName, // имя проекта — переживает reload
         formBg: workspace.formBg, // фон холста по формам — свойство проекта, не браузера
+        wireStyle: workspace.wireStyle, // вид нового провода (липкие настройки инструмента)
       })
     )
   }
@@ -233,6 +236,20 @@ export function useAutosave({ restoringHistory }) {
     if (lastSaved?.id === id) lastSaved = null
     return idbDel(formKey(id))
   }
+
+  // Липкие настройки провода живут в мете, но её пишут только операции с формами —
+  // без своего вотчера настройка терялась на перезагрузке. Отложенно: пикер цвета
+  // сыплет событиями на каждое движение курсора, а мета мелкая и пишется целиком.
+  // Глубокого сравнения не нужно: `setWireStyle` собирает новый объект целиком.
+  let metaTimer = null
+  watch(
+    () => workspace.wireStyle,
+    () => {
+      clearTimeout(metaTimer)
+      metaTimer = setTimeout(persistMeta, 300)
+    }
+  )
+  onBeforeUnmount(() => clearTimeout(metaTimer))
 
   return {
     restoreProject,

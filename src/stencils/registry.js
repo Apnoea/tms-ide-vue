@@ -1,6 +1,6 @@
 /**
- * Реестр стенсилов: определения из `definitions/<id>/` (stencil.json + shape.svg)
- * подхватываются Vite-глобом — добавили папку, стенсил в палитре. Плюс
+ * Реестр символов: определения из `definitions/<id>/` (stencil.json + shape.svg)
+ * подхватываются Vite-глобом — добавили папку, символ в палитре. Плюс
  * рантайм-регистрация (импорт бандла, редактор) и валидация json.
  */
 
@@ -43,11 +43,11 @@ export function validateStencilJson(path, json, svgText) {
   }
 
   if (json.id != null && !STENCIL_ID_RE.test(String(json.id))) {
-    issues.push(`[stencils] ${path}: id "${json.id}" вне маски [a-z0-9_] — стенсил не загружен`)
+    issues.push(`[stencils] ${path}: id "${json.id}" вне маски [a-z0-9_] — символ не загружен`)
   }
 
   // Декларативные флаги (quality/static/noRotate) — источник правды о спец-поведении
-  // стенсила: exporter/инспектор/холст читают их из json, хардкод-Set'ов в коде нет.
+  // символа: exporter/инспектор/холст читают их из json, хардкод-Set'ов в коде нет.
   const known = new Set([
     'id',
     'label',
@@ -68,6 +68,9 @@ export function validateStencilJson(path, json, svgText) {
     'noFlip',
     'defaults',
     'locked',
+    // Поле прошлых версий: скрытие символа из палитры теперь держит
+    // LEGACY_HIDDEN_IDS. В known оставлено, чтобы архивы, записанные с этим полем,
+    // не сыпали предупреждением о неизвестном поле на каждом импорте.
     'hidden',
   ])
   for (const key of Object.keys(json)) {
@@ -108,9 +111,9 @@ export function validateStencilJson(path, json, svgText) {
 }
 
 /**
- * Единственный вход id стенсила в приложение: дальше он попадает в
+ * Единственный вход id символа в приложение: дальше он попадает в
  * `data-tms-stencil`, в CSS-классы состояний и в селекторы внутри CDATA
- * экспорта, а стенсилы приходят из чужого .zip. Отсекаем здесь — тогда все
+ * экспорта, а символы приходят из чужого .zip. Отсекаем здесь — тогда все
  * писатели SVG-строк могут считать id безопасным (см. STENCIL_ID_RE).
  */
 function isValidStencilId(id) {
@@ -132,7 +135,7 @@ function cleanSvg(id, svgText) {
 }
 
 /**
- * Собранный реестр: id → объект стенсила со встроенным svgText.
+ * Собранный реестр: id → объект символа со встроенным svgText.
  */
 const registry = (() => {
   const out = new Map()
@@ -150,13 +153,13 @@ const registry = (() => {
     const svgText = svgModules[svgPath]
 
     if (!svgText) {
-      console.warn(`[stencils] У стенсила "${json.id}" не найден shape.svg по пути ${svgPath}`)
+      console.warn(`[stencils] У символа "${json.id}" не найден shape.svg по пути ${svgPath}`)
     }
 
     // svgText в validate'е — для cross-check idSuffix ↔ data-anim-suffix.
     for (const issue of validateStencilJson(path, json, svgText)) console.warn(issue)
 
-    // Два стенсила с одинаковым id — второй молча затёр бы первый. Сигналим.
+    // Два символа с одинаковым id — второй молча затёр бы первый. Сигналим.
     if (out.has(json.id)) {
       console.warn(`[stencils] Дубль id "${json.id}" (${path}) — предыдущее определение перетёрто`)
     }
@@ -170,6 +173,25 @@ const registry = (() => {
   return out
 })()
 
+/**
+ * Символы прошлого формата: реестр их держит, чтобы открывать старые формы, но в
+ * палитре им места нет — рисовать ими больше не предлагаем.
+ *
+ * Список в КОДЕ, а не полем в `stencil.json`: чужой архив приносит свою версию
+ * определения (`library/<id>/stencil.json`), она перекрывает встроенную — и поле
+ * вместе с ней терялось бы, символ снова появлялся в палитре после каждого импорта.
+ *
+ * `cell_text` — подпись стала фигурой-разметкой; `cell_node` — точку рисует сам
+ * свободный конец провода (см. linkDefaults). Старые ячейки обоих переводит
+ * legacyFormat, а определения нужны, пока такие формы существуют.
+ */
+const LEGACY_HIDDEN_IDS = new Set(['cell_text', 'cell_node'])
+
+/** Скрыт ли символ из палитры. */
+export function isHiddenStencil(stencil) {
+  return !!stencil && LEGACY_HIDDEN_IDS.has(stencil.id)
+}
+
 export function getAllStencils() {
   return Array.from(registry.values())
 }
@@ -179,17 +201,17 @@ export function getStencilById(id) {
 }
 
 /**
- * Регистрация в рантайме, минуя glob. Нужна при импорте проекта: стенсилы из
+ * Регистрация в рантайме, минуя glob. Нужна при импорте проекта: символы из
  * library/ должны быть в реестре ДО parseSvgProject, иначе их ячейки выкинутся как
  * нераспознанные. Персистентность — за оверрайдами в IDB / файлами в definitions/.
  *
- * Возвращает успех: `false` — id вне маски, стенсил НЕ зарегистрирован (его
+ * Возвращает успех: `false` — id вне маски, символ НЕ зарегистрирован (его
  * ячейки при импорте выкинутся как нераспознанные), вызывающий обязан сказать
  * это вслух. Разметка не отклоняется, а чистится (cleanSvg).
  */
 export function registerStencil(json, svgText) {
   if (!isValidStencilId(json?.id)) {
-    if (json?.id) console.warn(`[stencils] id "${json.id}" вне маски — стенсил отклонён`)
+    if (json?.id) console.warn(`[stencils] id "${json.id}" вне маски — символ отклонён`)
     return false
   }
   registry.set(json.id, { ...json, svgText: cleanSvg(json.id, svgText).svg })
@@ -207,7 +229,7 @@ export function unregisterStencil(id) {
 const PINNED_FIRST_CATEGORIES = ['Разметка и значения']
 
 /**
- * Булев слот-драйвер (`onoff`) — единый ключ всех булевых стенсилов. Инспектор
+ * Булев слот-драйвер (`onoff`) — единый ключ всех булевых символов. Инспектор
  * рендерит его первой строкой «Булево значение» и исключает из boolSource.
  */
 export function hasBoolSlot(stencil) {
@@ -217,7 +239,7 @@ export function hasBoolSlot(stencil) {
 export function getCategories() {
   const cats = new Set()
   for (const stencil of registry.values()) {
-    if (stencil.hidden) continue
+    if (isHiddenStencil(stencil)) continue
     cats.add(stencil.category)
   }
   const pinned = PINNED_FIRST_CATEGORIES.filter((c) => cats.has(c))

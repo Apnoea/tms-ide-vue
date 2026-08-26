@@ -187,6 +187,7 @@ describe('useAutosave', () => {
         hierarchy: [{ id: 'main', children: [] }],
         projectName: null,
         formBg: {},
+        wireStyle: {}, // вид нового провода — липкая настройка инструмента
       })
       expect(idbStore.get(formKey('main'))).toEqual({ cells: [] })
     })
@@ -292,6 +293,23 @@ describe('useAutosave', () => {
         hierarchy: [],
         projectName: null,
         formBg: {},
+        wireStyle: {}, // вид нового провода — липкая настройка инструмента
+      })
+    })
+
+    it('правка вида нового провода сама уходит в мету (переживает reload)', async () => {
+      // Мету пишут только операции с формами, поэтому у липкой настройки свой
+      // отложенный вотчер: без него вид нового провода терялся на перезагрузке.
+      vi.useFakeTimers()
+      const ws = useWorkspaceStore()
+      ws.loadForms([{ id: 'main', graphJson: { cells: [] } }], 'main')
+      setup()
+      ws.setWireStyle({ strokeColor: '#ff0000', strokeWidth: 4 })
+      await vi.advanceTimersByTimeAsync(400)
+      vi.useRealTimers()
+      expect(idbStore.get(META_KEY).wireStyle).toEqual({
+        strokeColor: '#ff0000',
+        strokeWidth: 4,
       })
     })
   })
@@ -325,6 +343,7 @@ describe('useAutosave', () => {
         ],
         projectName: null,
         formBg: {},
+        wireStyle: {}, // вид нового провода — липкая настройка инструмента
       })
       expect(idbStore.get('project:tags')).toBe('TAG1;Bool')
       expect(useWorkspaceStore().activeFormId).toBe('a')

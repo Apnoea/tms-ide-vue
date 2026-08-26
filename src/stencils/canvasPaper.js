@@ -1,6 +1,6 @@
 import { dia, shapes, anchors, connectionPoints, routers } from '@joint/core'
 import { tmsNamespace } from './tmsStencil'
-import { LINK_DEFAULTS, gridRightAngleRouter } from './linkDefaults'
+import { LINK_DEFAULTS, gridRightAngleRouter, linkStyleAttrs } from './linkDefaults'
 
 const GRID_COLOR_ON_LIGHT = '#e2e8f0' // slate-200
 const GRID_COLOR_ON_DARK = '#334155' // slate-700
@@ -76,7 +76,13 @@ export function createCanvasGraph() {
  * @param {(id: string) => boolean} opts.isSelected — выделен ли элемент (для
  *        interactive: концы тащим только у выделенного провода)
  */
-export function createCanvasPaper({ el, graph, isSelected, background = CANVAS_BG_DEFAULT }) {
+export function createCanvasPaper({
+  el,
+  graph,
+  isSelected,
+  background = CANVAS_BG_DEFAULT,
+  wireStyle = () => ({}),
+}) {
   return new dia.Paper({
     el,
     model: graph,
@@ -96,8 +102,9 @@ export function createCanvasPaper({ el, graph, isSelected, background = CANVAS_B
     // правила в style.css его НЕ перебивают, иначе выбор пользователя не применился бы.
     background: { color: background },
     cellViewNamespace: tmsNamespace,
-    // У провода тащим только концы и только у выделенного: маршрут строит роутер,
-    // а конец держат на валидном порту validateConnection + linkPinning:false.
+    // У провода тащим только концы и только у выделенного: маршрут строит роутер, а
+    // валидность соединения держит validateConnection (конец можно и оставить на
+    // холсте — см. linkPinning).
     interactive: (cellView) => {
       const m = cellView.model
       if (m.isLink?.()) {
@@ -118,7 +125,9 @@ export function createCanvasPaper({ el, graph, isSelected, background = CANVAS_B
     // draft-линию (мусор в undo).
     clickThreshold: 5,
     magnetThreshold: 4,
-    linkPinning: false, // линии не болтаются в воздухе
+    // Конец провода можно оставить на холсте: свободный конец помечается точкой
+    // (см. endMarker) — она заменила символ «точка соединения».
+    linkPinning: true,
     // Не заставляем целиться в кружок порта — бросок рядом подтягивается сам.
     snapLinks: { radius: 30 },
     // Конец линии — в позиции anchor'а порта, не на boundary магнита (иначе
@@ -143,7 +152,18 @@ export function createCanvasPaper({ el, graph, isSelected, background = CANVAS_B
       const fn = stencilId === 'cell_node' ? anchors.midSide : anchors.center
       return fn.apply(this, arguments)
     },
-    defaultLink: () => new shapes.standard.Link(LINK_DEFAULTS),
+    // Новый провод рождается в «липких» настройках инструмента (см.
+    // workspace.wireStyle): рисуя серию однотипных линий, автор задаёт вид один раз.
+    // Стиль пишем и в tms (round-trip), и в attrs (рисует JointJS).
+    defaultLink: () => {
+      const tms = wireStyle() || {}
+      const attrs = linkStyleAttrs(tms)
+      return new shapes.standard.Link({
+        ...LINK_DEFAULTS,
+        ...(Object.keys(tms).length ? { tms: { ...tms } } : {}),
+        ...(attrs ? { attrs } : {}),
+      })
+    },
     validateConnection: (sourceView, sourceMagnet, targetView, targetMagnet, _end, linkView) => {
       // «на себя» и в воздух
       if (sourceView === targetView) return false

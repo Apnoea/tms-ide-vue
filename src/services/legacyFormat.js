@@ -149,6 +149,60 @@ function recolorRanges(cell) {
 }
 
 /**
+ * Символ «точка соединения» (`cell_node`) → точка на свободном конце провода.
+ *
+ * Точка перестала быть оборудованием: конец провода, оставленный на холсте, помечает
+ * себя сам (см. linkDefaults.endMarker), поэтому отдельная ячейка с портом больше не
+ * нужна. Узел с 0 или 1 проводом растворяем: конец провода встаёт в центр узла
+ * свободной точкой, ячейка уходит.
+ *
+ * Узел с ДВУМЯ и более проводами оставляем ячейкой: там он держит соединение, а
+ * растворение дало бы несколько свободных концов в одной точке (несколько точек друг
+ * на друге). Такие узлы на практике не встречались, поэтому сращивать провода не
+ * пытаемся — только сообщаем вызывающему их число.
+ *
+ * @returns {{ cells: Array, changed: boolean, kept: number }}
+ */
+export function dissolveNodeCells(cells) {
+  if (!Array.isArray(cells)) return { cells, changed: false, kept: 0 }
+  const centers = new Map()
+  for (const c of cells) {
+    if (c?.tms?.stencilId !== 'cell_node') continue
+    const p = c.position || { x: 0, y: 0 }
+    const s = c.size || { width: 0, height: 0 }
+    centers.set(c.id, { x: p.x + s.width / 2, y: p.y + s.height / 2 })
+  }
+  if (!centers.size) return { cells, changed: false, kept: 0 }
+
+  const uses = new Map([...centers.keys()].map((id) => [id, 0]))
+  for (const c of cells) {
+    for (const end of [c?.source, c?.target]) {
+      if (end?.id && uses.has(end.id)) uses.set(end.id, uses.get(end.id) + 1)
+    }
+  }
+  const dissolved = new Set([...uses].filter(([, n]) => n <= 1).map(([id]) => id))
+  const kept = uses.size - dissolved.size
+  if (!dissolved.size) return { cells, changed: false, kept }
+
+  const next = []
+  for (const c of cells) {
+    if (dissolved.has(c.id)) continue
+    const src = c?.source?.id && dissolved.has(c.source.id) ? centers.get(c.source.id) : null
+    const tgt = c?.target?.id && dissolved.has(c.target.id) ? centers.get(c.target.id) : null
+    if (!src && !tgt) {
+      next.push(c)
+      continue
+    }
+    next.push({
+      ...c,
+      ...(src ? { source: { x: src.x, y: src.y } } : {}),
+      ...(tgt ? { target: { x: tgt.x, y: tgt.y } } : {}),
+    })
+  }
+  return { cells: next, changed: true, kept }
+}
+
+/**
  * graphJson формы (из IndexedDB) → `{ json, changed }`. `changed: false` отдаёт
  * исходный объект без копирования — вызывающий по этому флагу решает, нужна ли
  * перезапись в IDB.
@@ -172,5 +226,10 @@ export function migrateGraphJson(json) {
     changed = true
     return recolored || migrated
   })
-  return changed ? { json: { ...json, cells: next }, changed: true } : { json, changed: false }
+  // Точки соединения растворяем на набор целиком: нужны и ячейки, и линки.
+  const nodes = dissolveNodeCells(next)
+  if (nodes.changed) changed = true
+  return changed
+    ? { json: { ...json, cells: nodes.cells }, changed: true }
+    : { json, changed: false }
 }

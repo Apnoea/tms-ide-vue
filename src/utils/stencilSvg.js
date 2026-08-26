@@ -4,7 +4,7 @@
  *   • buildStencilJson(meta, ports) → stencil.json
  *
  * Чистые функции: модель своя (примитивы + порты), координаты уже в системе
- * стенсила и снапнуты к сетке — здесь только рендер.
+ * символа и снапнуты к сетке — здесь только рендер.
  *
  * Примитивы: rect, line, circle, polyline, text. Анимация состояния — фигуры
  * группируются по state в <g data-anim-suffix=".<ключ>">, оттуда же строится
@@ -419,8 +419,8 @@ export function shapesBounds(shapes, ports = []) {
 /**
  * Обрезка пустых полей: считаем bbox фигур + портов, расширяем до кратных grid
  * границ (min — вниз, max — вверх, чтобы контент не срезался), сдвигаем всё в
- * (0,0). Итоговый стенсил = ровно контент, размеры кратны grid. Обводку в bbox
- * не учитываем — как в рукописных стенсилах (rect x=0 со stroke срезается вьюбоксом).
+ * (0,0). Итоговый символ = ровно контент, размеры кратны grid. Обводку в bbox
+ * не учитываем — как в рукописных символах (rect x=0 со stroke срезается вьюбоксом).
  *
  * @returns {{shapes:Array, ports:Array, width:number, height:number}}
  */
@@ -465,14 +465,14 @@ function stateKeys(meta) {
 
 /**
  * Модель → строка shape.svg. viewBox/width/height берём из meta (кратны шагу сетки).
- * Фигуры оборачиваем в `<g>` — единый формат с рукописными стенсилами (у них
+ * Фигуры оборачиваем в `<g>` — единый формат с рукописными символами (у них
  * всё в группе); на группу состояния вешается data-anim-suffix.
  */
 export function serializeSvg(shapes, meta) {
   const w = num(meta.width)
   const h = num(meta.height)
   const all = shapes || []
-  // Метку tms-state-fill ставим только у stateful-стенсилов (иначе перекрашивать
+  // Метку tms-state-fill ставим только у stateful-символов (иначе перекрашивать
   // по состоянию нечего — см. fillClassAttr).
   const markFill = !!meta?.stateful
   let groups
@@ -621,7 +621,7 @@ function elementToShape(el) {
 }
 
 // Собирает фигуры рекурсивно: заходит внутрь `<g>` (наш формат и рукописные
-// стенсилы держат примитивы в группе). Порядок — DFS в порядке документа.
+// символы держат примитивы в группе). Порядок — DFS в порядке документа.
 function collectShapes(parent, out, state = 'always') {
   for (const el of Array.from(parent.children)) {
     if (el.tagName.toLowerCase() === 'g') {
@@ -712,11 +712,11 @@ export function portSeqFrom(ports) {
 }
 
 /**
- * Модель → объект stencil.json. ports включаем только непустыми — стенсил без
+ * Модель → объект stencil.json. ports включаем только непустыми — символ без
  * портов валиден (декор). Анимация состояния (при `stateful`) — по режиму:
  * булев (slot onoff + карточки `.true`/`.false`) либо «по значению» (slot value +
  * `states` + карточки `.<ключ>`), см. buildBooleanState/buildValueState. Иначе
- * стенсил статичен (разреженный json). Метку редактируемости НЕ пишем: по
+ * символ статичен (разреженный json). Метку редактируемости НЕ пишем: по
  * умолчанию редактируем/удаляем, нередактируемые — `locked: true` в definitions.
  */
 export function buildStencilJson(meta, ports, shapes = []) {
@@ -751,7 +751,7 @@ export function buildStencilJson(meta, ports, shapes = []) {
     else buildBooleanState(json, meta, shapes)
     // Цвета состояний (перекрас всего символа) — непустые, только для объявленных
     // состояний. Компактно: только контур → строка; есть заливка → объект
-    // { stroke?, fill }. Заливку пишем лишь когда в стенсиле есть заливаемые фигуры
+    // { stroke?, fill }. Заливку пишем лишь когда в символе есть заливаемые фигуры
     // (иначе fill-цвет некуда применить — маркера tms-state-fill нет).
     const keys =
       meta.stateMode === 'value' ? (meta.states || []).map((s) => s.key) : ['true', 'false']

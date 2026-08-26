@@ -94,7 +94,7 @@ export function useSimulation() {
     // исключениями для живого DOM редактора:
     // [joint-selector="wrapper"] — широкий невидимый hit-path standard.Link
     // (без exclusion красится и толстеет); .tms-hit-area — наш
-    // прозрачный rect-хитбокс ячейки (иначе зелёная «рамка» у стенсилов без
+    // прозрачный rect-хитбокс ячейки (иначе зелёная «рамка» у символов без
     // своей rect-обёртки). animation-hidden гасим отдельно (в экспорте — без !important).
     const strokeExtra = ':not([joint-selector="wrapper"]):not(.tms-hit-area)'
     simCssKey = colors.join('|')
@@ -127,7 +127,7 @@ export function useSimulation() {
         }
       }
       // animation-off от boolSource висит на outer-g (затемнение всей ячейки),
-      // от стенсильного template — на внутренних элементах. Чистим оба места.
+      // от символьного template — на внутренних элементах. Чистим оба места.
       view.el.classList.remove(CLASS_OFF)
       for (const el of view.el.querySelectorAll(`.${CLASS_HIDDEN}, .${CLASS_OFF}`)) {
         el.classList.remove(CLASS_HIDDEN)
@@ -188,7 +188,7 @@ export function useSimulation() {
       paper.findViewByModel(cell)?.el?.classList.add(cls)
     }
 
-    // Bool-биндинги стенсильного template: для КАЖДОГО binding'а резолвим тег
+    // Bool-биндинги символьного template: для КАЖДОГО binding'а резолвим тег
     // ({slot.X} → tms.slots[X]), смотрим фазу тега и применяем класс
     // соответствующего case'а (true или false). Несколько биндингов на одном
     // теге (например .true у cell_qw или .true + .false у
@@ -215,7 +215,7 @@ export function useSimulation() {
       }
     }
     // State-color БУЛЕВ: класс перекраса по активной bool-фазе (согласовано с
-    // видимостью выше). Value-стенсилы обрабатываются циклом ниже.
+    // видимостью выше). Value-символы обрабатываются циклом ниже.
     for (const cell of graph.getElements()) {
       const tms = cell.get('tms') || {}
       const stencil = getStencilById(tms.stencilId)
@@ -232,7 +232,7 @@ export function useSimulation() {
 
     // Value-состояния: ЦИКЛИЧЕСКАЯ смена (видимость групп + цвет). Активное =
     // states[simTick % N] — автор видит каждое состояние по кругу; ячейки одного
-    // стенсила синхронны (общий tick). Прячем не-активные группы (animation-hidden),
+    // символа синхронны (общий tick). Прячем не-активные группы (animation-hidden),
     // на outer вешаем цвет активного. Гейт по привязанному тегу слота value: без
     // тега рантайм значения не имеет и показал бы все группы — эмулируем так же.
     for (const cell of graph.getElements()) {

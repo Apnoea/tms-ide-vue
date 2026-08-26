@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { stencilSignature } from './stencilOverrides'
 
-// stencilSignature решает, «изменился ли стенсил» при импорте. Должна быть
+// stencilSignature решает, «изменился ли символ» при импорте. Должна быть
 // устойчива к порядку ключей (glob-модуль против JSON.parse дают разный порядок),
 // но чувствительна к реальным правкам json/svg и к порядку в массивах.
 describe('stencilSignature', () => {

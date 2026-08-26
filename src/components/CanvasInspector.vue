@@ -22,6 +22,7 @@ import { useValueRanges } from '../composables/useValueRanges'
 import { useTextCellProps, ALIGN_OPTIONS, BOLD_OPTIONS } from '../composables/useTextCellProps'
 import { useNavigationField } from '../composables/useNavigationField'
 import { useProjectStore } from '../stores/useProjectStore'
+import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { getStencilById, hasBoolSlot } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
 import { isShapeCell, shapeTypeLabel, applyShapePatch } from '../stencils/shapeElement'
@@ -38,10 +39,15 @@ import TagPickerDialog from './TagPickerDialog.vue'
 import TagField from './TagField.vue'
 import RangeBlock from './RangeBlock.vue'
 import BooleanBlock from './BooleanBlock.vue'
+import WireStyleFields from './WireStyleFields.vue'
 import { previewOuterKey } from '../constants/ids'
-import { arrowMarker } from '../stencils/linkDefaults'
+import {
+  isDefaultWireValue,
+  syncLinkEndMarkers,
+  WIRE_STYLE_DEFAULTS,
+} from '../stencils/linkDefaults'
 
-// Ячейки без анимаций: статичные стенсилы (флаг `static: true` в stencil.json —
+// Ячейки без анимаций: статичные символы (флаг `static: true` в stencil.json —
 // нет визуальной реакции на animation-классы) и фигуры-разметка (у них анимаций нет
 // вовсе). Диапазоны/булев источник на них бессмысленны, в multi-select пропускаем.
 function isStatic(tms) {
@@ -151,6 +157,7 @@ const ALIGN_ROWS = [
   },
 ]
 const project = useProjectStore()
+const workspace = useWorkspaceStore()
 const notify = useNotify()
 
 // Computed-и читают canvas.graphVersion, чтобы пересчитываться при изменениях графа
@@ -164,7 +171,7 @@ const details = computed(() => {
   if (!cell) return null
 
   if (sel.kind === 'cell' && isShapeCell(cell)) {
-    // Фигура-разметка: ни стенсила, ни портов, ни анимаций — только вид и (у
+    // Фигура-разметка: ни символа, ни портов, ни анимаций — только вид и (у
     // подписи) содержимое. Геометрия правится жестами на холсте, не полями.
     const shape = cell.get('tms')?.shape || {}
     return {
@@ -225,14 +232,14 @@ const details = computed(() => {
       valueUnit: tms.valueUnit ?? '',
       // id outer-карточки в animations.json/SVG (тот же, что эмитит exporter).
       exportId: previewOuterKey(tms.stencilId, cell.id, tms.valueTag),
-      // Стенсилы с булевым слотом-драйвером (key onoff — см. hasBoolSlot; это
+      // Символы с булевым слотом-драйвером (key onoff — см. hasBoolSlot; это
       // cell_qw/qr/qk/qf, cell_alr, пользовательские) рендерят его через BooleanBlock
       // первой строкой (основной тег) вместе с зависимостями boolSource.
       hasBoolSlot: hasBoolSlot(stencil),
       // Тег основного булева слота (slot.onoff) — для исключения из boolSource.
       // Из payload (tms.slots.onoff), как и multi-select; не по индексу slots[0].
       onoffTag: slotValues.onoff || '',
-      // Слоты для UI: декларация из стенсила + текущее значение из tms.slots.
+      // Слоты для UI: декларация из символа + текущее значение из tms.slots.
       // Нужны BooleanBlock (slots[0]) и slot-picker'у; type — тип тега.
       slots: slotsDef.map((s) => ({
         key: s.key,
@@ -263,9 +270,9 @@ const details = computed(() => {
   return null
 })
 
-// Слот-драйвер стенсила «по значению»: любой не-onoff слот (onoff рисует
+// Слот-драйвер символа «по значению»: любой не-onoff слот (onoff рисует
 // BooleanBlock). Значение сигнала выбирает активное состояние; на холсте нужна
-// одна строка — привязать тег (сами состояния/вид уже в стенсиле).
+// одна строка — привязать тег (сами состояния/вид уже в символе).
 const valueStateSlot = computed(() => {
   const d = details.value
   if (!d || d.kind !== 'cell') return null
@@ -342,7 +349,7 @@ function patchSlotTag(key, tag) {
   )
 }
 
-// ─── Редактирование текста (стенсил cell_text) ───
+// ─── Редактирование текста (символ cell_text) ───
 // Секция целиком в useTextCellProps (patch + ресайз под текст; ALIGN/BOLD-опции там же).
 const { applyText, applyFontSize, applyBold, applyColor, applyAlign, applyFontFamily } =
   useTextCellProps({
@@ -468,56 +475,68 @@ const ARROW_ENDS = [
   { key: 'arrowEnd', label: 'Стрелки в конце' },
 ]
 
-// ─── Провод: стиль линии (толщина/цвет) ───
-// Пишем в JointJS-attr (мгновенная отрисовка) + в tms[tmsKey] (round-trip через
-// data-tms-meta + автосейв). Дефолт в tms не держим — meta пишет только
-// нестандартное значение (как align='left'). isDefault решает, дефолт ли значение.
-function applyLinkStyle(attrPath, tmsKey, isDefault, value) {
+// ─── Провод: стиль линии (толщина / цвет / наконечники) ───
+//
+// Один блок обслуживает два случая: выделен один провод и выделено несколько. Правка
+// запоминается как «липкая» (workspace.wireStyle) и достаётся следующему нарисованному
+// проводу — иначе серию однотипных линий приходилось бы править по одной.
+// Толщина и цвет живут ещё и в attrs (их рисует JointJS), наконечники — только в tms
+// (маркеры пересобирает syncLinkEndMarkers).
+const LINK_STYLE_ATTR = { strokeWidth: 'line/strokeWidth', strokeColor: 'line/stroke' }
+
+/** Выделенные провода (заблокированные не правим — замок read-only). */
+const linkTargets = computed(() => {
+  canvas.graphVersion.value
   const graph = canvas.graphRef.value
-  const d = details.value
-  if (!graph || d?.kind !== 'link' || value == null) return
-  const link = graph.getCell(d.id)
-  if (!link) return
-  link.attr(attrPath, value)
-  const tms = link.get('tms') || {}
-  const next = { ...tms }
-  if (isDefault(value)) delete next[tmsKey]
-  else next[tmsKey] = value
-  link.set('tms', next)
-  // Наконечник зависит от толщины и цвета линии — пересобираем его тем же билдером.
-  syncArrows(link, next)
-  canvas.bumpVersion()
-  canvas.requestSnapshot()
-}
-const applyStrokeWidth = (v) => applyLinkStyle('line/strokeWidth', 'strokeWidth', (x) => x === 2, v)
-const applyStrokeColor = (c) =>
-  applyLinkStyle('line/stroke', 'strokeColor', (x) => x === '#000000' || x === '#000', c)
+  if (!graph) return []
+  return canvas
+    .writableItems(canvas.selection.value.filter((s) => s.kind === 'link'))
+    .map((s) => graph.getCell(s.id))
+    .filter(Boolean)
+})
+
+/** Блок стиля показываем, когда в выделении нет символов: иначе непонятно, к чему он. */
+const linkStyleVisible = computed(() => {
+  const sel = canvas.selection.value
+  return sel.length > 0 && sel.every((s) => s.kind === 'link')
+})
+
+/** Значения для полей: общее у всех целей либо `undefined` при расхождении («разные»). */
+const linkStyle = computed(() => {
+  const out = {}
+  const targets = linkTargets.value
+  for (const key of Object.keys(WIRE_STYLE_DEFAULTS)) {
+    const values = targets.map((l) => l.get('tms')?.[key] ?? WIRE_STYLE_DEFAULTS[key])
+    out[key] = values.every((v) => v === values[0]) ? values[0] : undefined
+  }
+  return out
+})
 
 /**
- * Наконечники провода из его `tms` → в attrs. Точечным `attr()`, а не заменой всего
- * `attrs`: у standard.Link там ещё `wrapper` (хитбокс), и подмена объекта целиком его
- * сносит, а маркеры при этом не перерисовываются.
- *
- * Зовётся и при смене толщины/цвета: размер наконечника считается от толщины, цвет
- * берётся от линии — иначе стрелка осталась бы прежней.
+ * Патч стиля: применяется ко ВСЕМ выделенным проводам (или к настройкам нового, если
+ * выделения нет) и запоминается как «липкий» — следующий нарисованный провод получит
+ * тот же вид.
  */
-function syncArrows(link, tms) {
-  link.attr('line/sourceMarker', arrowMarker(tms.arrowStart, tms) || { type: 'none' })
-  link.attr('line/targetMarker', arrowMarker(tms.arrowEnd, tms) || { type: 'none' })
-}
-
-/** Наконечник на конце провода; пустое значение снимает его. */
-function applyArrow(endKey, kind) {
-  const graph = canvas.graphRef.value
-  const d = details.value
-  if (!graph || d?.kind !== 'link') return
-  const link = graph.getCell(d.id)
-  if (!link) return
-  const next = { ...(link.get('tms') || {}) }
-  if (kind) next[endKey] = kind
-  else delete next[endKey]
-  link.set('tms', next)
-  syncArrows(link, next)
+function applyLinkStyle(key, value) {
+  // У наконечников `null` — штатное значение «нет стрелки»; у толщины и цвета пустой
+  // ввод игнорируем (InputNumber отдаёт null при очистке поля).
+  const isArrow = key === 'arrowStart' || key === 'arrowEnd'
+  if (value == null && !isArrow) return
+  const isDefault = isDefaultWireValue(key, value)
+  workspace.setWireStyle({ [key]: isDefault ? null : value })
+  const targets = linkTargets.value
+  if (!targets.length) return
+  for (const link of targets) {
+    const attrPath = LINK_STYLE_ATTR[key]
+    if (attrPath) link.attr(attrPath, value)
+    const next = { ...(link.get('tms') || {}) }
+    if (isDefault) delete next[key]
+    else next[key] = value
+    link.set('tms', next)
+    // Наконечник зависит от толщины и цвета линии, а точка — от привязки конца:
+    // пересобираем маркеры тем же билдером, что и при загрузке формы.
+    syncLinkEndMarkers(link)
+  }
   canvas.bumpVersion()
   canvas.requestSnapshot()
 }
@@ -744,7 +763,7 @@ function onPickMultiBoolTag(tag) {
       skipped++
       continue
     }
-    // Свитчи (стенсилы с slot.onoff) не должны зависеть от своего же тега —
+    // Свитчи (символы с slot.onoff) не должны зависеть от своего же тега —
     // slot.onoff уже отвечает за переключение, дубль в boolSource бессмыслен.
     if (hasBoolSlot(getStencilById(tms.stencilId)) && tms.slots?.onoff === tag) {
       skipped++
@@ -798,8 +817,8 @@ function copyRange() {
 /**
  * Вставить булев блок из буфера на всё текущее выделение. Группы-зависимости
  * (boolSource) раздаём любому не-static элементу/проводу; свой булев тег
- * (onoff) — только стенсилам с булевым слотом (иначе некуда его писать). Статичные
- * стенсилы (текст/значение) пропускаем со счётчиком.
+ * (onoff) — только символам с булевым слотом (иначе некуда его писать). Статичные
+ * символы (текст/значение) пропускаем со счётчиком.
  */
 function pasteBool() {
   const clip = animClip.boolClip.value
@@ -818,7 +837,7 @@ function pasteBool() {
 }
 
 /** Вставить диапазоны из буфера на всё текущее выделение (rangeSource целиком,
- *  свежий клон на ячейку). Статичные стенсилы пропускаем. */
+ *  свежий клон на ячейку). Статичные символы пропускаем. */
 function pasteRange() {
   pasteClip(animClip.rangeClip.value, (tms) =>
     applyRangeClip(tms, animClip.rangeClip.value, { isStatic: isStatic(tms) })
@@ -912,14 +931,21 @@ const {
                 · {{ selectionSummary.locked }} заблокировано
               </span>
             </div>
-            <p class="text-[11px] text-surface-500 mt-2">
-              {{
-                multiGroup.ungroup
-                  ? 'Группа ведёт себя как один символ. Анимации применяются ко всем членам.'
-                  : 'Символы можно тащить группой, удалить клавишей Del. Анимации ниже применяются ко всему выделению; остальные свойства — при одном выделенном.'
-              }}
+            <p v-if="multiGroup.ungroup" class="text-[11px] text-surface-500 mt-2">
+              Группа ведёт себя как один символ. Анимации применяются ко всем членам.
             </p>
           </div>
+
+          <!-- Вид проводов правится на ВСЁ выделение (как анимации ниже): выделил
+               серию линий — задал цвет и толщину один раз. Показываем, только когда
+               в выделении нет символов, иначе непонятно, к чему относятся поля. -->
+          <WireStyleFields
+            v-if="linkStyleVisible"
+            :values="linkStyle"
+            :arrow-options="ARROW_OPTIONS"
+            :arrow-ends="ARROW_ENDS"
+            @apply="applyLinkStyle"
+          />
 
           <!-- Группировка: объединить выделенное в группу (клик по члену выделяет
                всю группу) либо разгруппировать. -->
@@ -1514,77 +1540,12 @@ const {
                 <div class="font-medium text-surface-900">Провод</div>
               </div>
 
-              <div class="space-y-2.5">
-                <!-- Цвет линии — строка «подпись слева / пикер справа» (как цвет текста). -->
-                <div class="flex items-center gap-3">
-                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                    Цвет
-                  </span>
-                  <input
-                    type="color"
-                    :value="details.strokeColor"
-                    class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                    @input="applyStrokeColor($event.target.value)"
-                  />
-                </div>
-
-                <!-- Толщина линии — строка «подпись слева / контрол справа» (как размер
-                     текста); InputNumber со степперами, как толщина линии в редакторе. -->
-                <div class="flex items-center gap-3">
-                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                    Толщина, px
-                  </span>
-                  <InputNumber
-                    :model-value="details.strokeWidth"
-                    :min="0.5"
-                    :max="20"
-                    :step="0.5"
-                    show-buttons
-                    button-layout="horizontal"
-                    size="small"
-                    input-class="w-12! text-center"
-                    class="ml-auto"
-                    @update:model-value="applyStrokeWidth"
-                  />
-                </div>
-
-                <!-- Наконечники смотрят В точку соединения, размер — от толщины линии.
-                     Концы независимы: бывает и один, и оба. -->
-                <div v-for="end in ARROW_ENDS" :key="end.key" class="flex items-center gap-3">
-                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                    {{ end.label }}
-                  </span>
-                  <SelectButton
-                    :model-value="details[end.key] || 'none'"
-                    :options="ARROW_OPTIONS"
-                    option-value="value"
-                    :allow-empty="false"
-                    size="small"
-                    class="ml-auto"
-                    @update:model-value="(v) => applyArrow(end.key, v === 'none' ? null : v)"
-                  >
-                    <template #option="{ option }">
-                      <svg
-                        v-tooltip.bottom="option.tip"
-                        viewBox="0 0 16 16"
-                        class="h-4 w-4"
-                        aria-hidden="true"
-                      >
-                        <path
-                          v-for="(el, i) in option.glyph"
-                          :key="i"
-                          :d="el.d"
-                          :fill="el.mode === 'fill' ? 'currentColor' : 'none'"
-                          :stroke="el.mode === 'stroke' ? 'currentColor' : 'none'"
-                          stroke-width="1.6"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        />
-                      </svg>
-                    </template>
-                  </SelectButton>
-                </div>
-              </div>
+              <WireStyleFields
+                :values="linkStyle"
+                :arrow-options="ARROW_OPTIONS"
+                :arrow-ends="ARROW_ENDS"
+                @apply="applyLinkStyle"
+              />
             </div>
           </template>
 
@@ -1593,8 +1554,8 @@ const {
           <div v-if="!details.isText && !details.isValue && !details.isShape" class="space-y-2">
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
 
-            <!-- Стенсил «по значению»: привязка тега сигнала (состояния и их вид
-                 запечены в стенсиле, здесь только тег-драйвер). -->
+            <!-- Символ «по значению»: привязка тега сигнала (состояния и их вид
+                 запечены в символе, здесь только тег-драйвер). -->
             <div v-if="valueStateSlot" class="border border-surface-200 rounded p-3 bg-surface-0">
               <div class="flex items-center gap-2 mb-2 min-h-6">
                 <i class="pi pi-sitemap text-purple-500" />
@@ -1613,7 +1574,7 @@ const {
               />
             </div>
 
-            <!-- Булево значение — виден ВСЕГДА. У стенсила с булевым слотом
+            <!-- Булево значение — виден ВСЕГДА. У символа с булевым слотом
                  (onoff, в т.ч. cell_alr) первой строкой идёт этот слот (основной
                  тег), ниже — зависимости boolSource. Теги пишутся лениво через
                  «Добавить»; × очищает (boolRemovable). -->

@@ -2,8 +2,8 @@ import { dia, shapes } from '@joint/core'
 
 /**
  * JointJS shape: контейнер-группа `body`, в которую инжектится shape.svg
- * стенсила (см. svgInjector.injectStencilSvg). Один shape-класс на все
- * стенсилы реестра — разница между cell_bus / cell_qw / cell_alr / ... живёт
+ * символа (см. svgInjector.injectStencilSvg). Один shape-класс на все
+ * символы реестра — разница между cell_bus / cell_qw / cell_alr / ... живёт
  * в `tms.stencilId` и SVG, не в JointJS-define'ах.
  *
  * Селектор 'root' зарезервирован JointJS, поэтому используем 'body'.
@@ -40,7 +40,7 @@ export const TMSStencil = dia.Element.define(
 )
 
 /**
- * Фигура-разметка холста: ни стенсила, ни портов, ни анимаций — только геометрия в
+ * Фигура-разметка холста: ни символа, ни портов, ни анимаций — только геометрия в
  * `tms.shape` (редакторский формат) и её отрисовка в ту же body-группу. Рендер и
  * операции — в [shapeElement.js](shapeElement.js); тип объявлен здесь, рядом с
  * namespace, иначе `fromJSON` не собрал бы фигуры при загрузке формы.

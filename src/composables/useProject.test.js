@@ -12,7 +12,7 @@ import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 vi.mock('../stencils/svgInjector', () => ({
   reinjectAllStencils: vi.fn(() => ({ changed: 0, detached: [] })),
 }))
-// registerStencil возвращает успех: false = id стенсила вне маски (реальный
+// registerStencil возвращает успех: false = id символа вне маски (реальный
 // реестр отклоняет такие), поэтому по умолчанию true.
 vi.mock('../stencils/registry', () => ({
   getStencilById: vi.fn(() => null),
@@ -33,7 +33,7 @@ vi.mock('../services/projectZip', () => ({
 // Запись файлов в definitions/ — dev-плагин по HTTP; в тесте только факт вызова.
 vi.mock('../services/stencilLibrary', () => ({ persistStencilsToDisk: vi.fn(async () => true) }))
 
-// stencilOverrides — IDB-персист правок стенсилов; в тесте детерминируем.
+// stencilOverrides — IDB-персист правок символов; в тесте детерминируем.
 // stencilSignature — упрощённая, но чувствительная к json+svg (для ветки changed).
 vi.mock('../services/stencilOverrides', () => ({
   replaceStencilOverrides: vi.fn(async () => {}),
@@ -338,7 +338,7 @@ describe('useProject', () => {
       expect(deps.autosave.replaceProject).not.toHaveBeenCalled()
     })
 
-    it('неполная запись в IDB → error и НЕ шлём стенсилы (нет POST, нет reload)', async () => {
+    it('неполная запись в IDB → error и НЕ шлём символы (нет POST, нет reload)', async () => {
       bundle([{ id: 'f1', svgText: 'x' }], {
         stencils: [{ id: 'cell_new', stencilJson: {}, shapeSvg: '' }],
       })
@@ -353,7 +353,7 @@ describe('useProject', () => {
       expect(global.fetch).not.toHaveBeenCalled()
     })
 
-    it('изменённый существующий стенсил регистрируется и уходит в оверрайды', async () => {
+    it('изменённый существующий символ регистрируется и уходит в оверрайды', async () => {
       bundle([{ id: 'f1', svgText: 'x' }], {
         stencils: [
           {
@@ -378,10 +378,10 @@ describe('useProject', () => {
       expect(savedOverrides.map((s) => s.id)).toEqual(['cell_qw'])
     })
 
-    // id вне маски реестр не принимает: такой стенсил не должен попасть ни в
+    // id вне маски реестр не принимает: такой символ не должен попасть ни в
     // оверрайды IDB, ни на диск — иначе он вернулся бы после reload и уехал в
     // экспортный SVG/CSS. Пользователю говорим прямо, что символ пропущен.
-    it('стенсил с отклонённым id не уходит в оверрайды, о нём предупреждаем', async () => {
+    it('символ с отклонённым id не уходит в оверрайды, о нём предупреждаем', async () => {
       bundle([{ id: 'f1', svgText: 'x' }], {
         stencils: [
           { id: 'cell_ok', stencilJson: { id: 'cell_ok' }, shapeSvg: 'A' },
@@ -424,7 +424,7 @@ describe('useProject', () => {
       expect(persistStencilsToDisk.mock.calls.at(-1)[0].map((s) => s.id)).toEqual(['cell_new'])
     })
 
-    it('неизменённый существующий стенсил НЕ перерегистрируется', async () => {
+    it('неизменённый существующий символ НЕ перерегистрируется', async () => {
       bundle([{ id: 'f1', svgText: 'x' }], {
         stencils: [{ id: 'cell_qw', stencilJson: { id: 'cell_qw' }, shapeSvg: 'SAME' }],
       })

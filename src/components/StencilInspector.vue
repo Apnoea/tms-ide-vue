@@ -1,6 +1,6 @@
 <script setup>
 /**
- * Свойства стенсила — контент правой панели в режиме редактора. Секции:
+ * Свойства символа — контент правой панели в режиме редактора. Секции:
  * идентификация (название/id/категория), поведение (флаги),
  * анимация состояния (свитч Выкл/Булево/По значению + список состояний) и
  * фигура (свойства выделенного элемента + его видимость по состоянию).
@@ -119,7 +119,7 @@ function setTextFont(v) {
   commit()
 }
 
-// Заливку по состоянию (state-color) показываем, только когда в стенсиле есть
+// Заливку по состоянию (state-color) показываем, только когда в символе есть
 // заливаемые фигуры (замкнутые примитивы) — иначе цвет заливки некуда применить.
 const hasFillableShapes = computed(() => shapes.value.some(isFillableShape))
 // Контур/заливка для ключа состояния из stateColors (строка или { stroke, fill }).
@@ -256,7 +256,7 @@ function clearStateColor(key, which) {
 
 <template>
   <aside class="h-full flex flex-col bg-surface-50">
-    <!-- Плашка «Стенсил»: свойства документа (идентификация/поведение/анимация) -->
+    <!-- Плашка «Символ»: свойства документа (идентификация/поведение/анимация) -->
     <div class="flex-1 min-h-0 flex flex-col">
       <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
         <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Символ</h2>

@@ -1,7 +1,7 @@
 // Компонентные тесты инспектора холста. Юнит-тесты композаблов эти регрессии НЕ
 // ловили: `.value` на Pinia-getter (пустые tag-picker'ы), commitNav по blur (запись
 // в чужую ячейку), счётчики выделения. Поэтому проверяем через смонтированный
-// компонент: реальные useCanvas (singleton) + Pinia, мокаем только реестр стенсилов
+// компонент: реальные useCanvas (singleton) + Pinia, мокаем только реестр символов
 // и DOM-инъекцию SVG.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { dia, shapes } from '@joint/core'
@@ -39,6 +39,8 @@ import BooleanBlock from './BooleanBlock.vue'
 import { useCanvas } from '../composables/useCanvas'
 import { materializeShape } from '../stencils/shapeElement'
 import { useProjectStore } from '../stores/useProjectStore'
+import { useWorkspaceStore } from '../stores/useWorkspaceStore'
+import { createPinia, setActivePinia } from 'pinia'
 
 const TAGS = [
   { name: 'BR1.ONOFF', type: 'Boolean' },
@@ -254,5 +256,119 @@ describe('CanvasInspector: фигура-разметка', () => {
     expect(wrapper.text()).toContain('Текст')
     expect(wrapper.text()).toContain('Шрифт')
     expect(wrapper.text()).not.toContain('Толщина')
+  })
+})
+
+// Стиль провода правится на ВСЁ выделение, а при пустом выделении — как настройки
+// нового провода («липкие»): серию однотипных линий настраивают один раз.
+describe('CanvasInspector: стиль провода', () => {
+  let canvas
+  let graph
+  let wrapper
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    canvas = useCanvas()
+    graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    canvas.setCanvasRefs(graph, {
+      id: 'paper',
+      options: { gridSize: 5 },
+      findViewByModel: () => null,
+    })
+    canvas.clearSelection()
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+  })
+
+  function twoLinks() {
+    const a = new shapes.standard.Link({ source: { x: 0, y: 0 }, target: { x: 40, y: 0 } })
+    const b = new shapes.standard.Link({ source: { x: 0, y: 20 }, target: { x: 40, y: 20 } })
+    graph.addCells([a, b])
+    return [a, b]
+  }
+
+  function mount() {
+    wrapper = mountWithApp(CanvasInspector, { global: { stubs: { TagPickerDialog: true } } })
+    return wrapper
+  }
+
+  it('цвет применяется ко всем выделенным проводам', async () => {
+    const [a, b] = twoLinks()
+    canvas.setSelection([
+      { kind: 'link', id: a.id },
+      { kind: 'link', id: b.id },
+    ])
+    mount()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('2 провода')
+
+    const color = wrapper.find('input[type="color"]')
+    color.element.value = '#ff0000'
+    await color.trigger('input')
+    expect(a.get('tms').strokeColor).toBe('#ff0000')
+    expect(b.get('tms').strokeColor).toBe('#ff0000')
+  })
+
+  it('расхождение показывается как «разные», а не подменяется значением первого', async () => {
+    const [a, b] = twoLinks()
+    a.set('tms', { strokeColor: '#ff0000' })
+    b.set('tms', { strokeColor: '#00ff00' })
+    canvas.setSelection([
+      { kind: 'link', id: a.id },
+      { kind: 'link', id: b.id },
+    ])
+    mount()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('разные')
+  })
+
+  it('заблокированный провод не правим', async () => {
+    const [a, b] = twoLinks()
+    b.set('tms', { locked: true })
+    canvas.setSelection([
+      { kind: 'link', id: a.id },
+      { kind: 'link', id: b.id },
+    ])
+    mount()
+    await wrapper.vm.$nextTick()
+    const color = wrapper.find('input[type="color"]')
+    color.element.value = '#ff0000'
+    await color.trigger('input')
+    expect(a.get('tms').strokeColor).toBe('#ff0000')
+    expect(b.get('tms').strokeColor).toBeUndefined()
+  })
+
+  it('правка запоминается как вид НОВОГО провода', async () => {
+    const [a] = twoLinks()
+    canvas.setSelection([{ kind: 'link', id: a.id }])
+    mount()
+    await wrapper.vm.$nextTick()
+    const color = wrapper.find('input[type="color"]')
+    color.element.value = '#123456'
+    await color.trigger('input')
+    expect(useWorkspaceStore().wireStyle.strokeColor).toBe('#123456')
+  })
+
+  it('при пустом выделении блока стиля нет — прежняя заглушка', async () => {
+    canvas.clearSelection()
+    mount()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Ничего не выделено')
+    expect(wrapper.find('input[type="color"]').exists()).toBe(false)
+  })
+
+  it('дефолтное значение снимает поле, а не пишет его в tms', async () => {
+    const [a] = twoLinks()
+    a.set('tms', { strokeColor: '#ff0000' })
+    canvas.setSelection([{ kind: 'link', id: a.id }])
+    mount()
+    await wrapper.vm.$nextTick()
+    const color = wrapper.find('input[type="color"]')
+    color.element.value = '#000000'
+    await color.trigger('input')
+    expect(a.get('tms').strokeColor).toBeUndefined()
+    expect(useWorkspaceStore().wireStyle.strokeColor).toBeUndefined()
   })
 })

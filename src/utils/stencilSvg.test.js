@@ -80,7 +80,7 @@ describe('serializeSvg', () => {
     expect(svg).not.toContain('tms-state-fill')
   })
 
-  it('НЕ-stateful стенсил — без class tms-state-fill даже у заливаемых фигур', () => {
+  it('НЕ-stateful символ — без class tms-state-fill даже у заливаемых фигур', () => {
     const svg = serializeSvg([{ type: 'rect', x: 0, y: 0, w: 20, h: 20, fill: '#ff0000' }], {
       width: 20,
       height: 20,
@@ -534,7 +534,7 @@ describe('stateColors (перекрас символа по состоянию)'
     expect(json.stateColors).toEqual({ on: { fill: '#222' } })
   })
 
-  it('fill отбрасывается, если в стенсиле нет заливаемых фигур', () => {
+  it('fill отбрасывается, если в символе нет заливаемых фигур', () => {
     // shapes — только линии (fill некуда применить) → остаётся лишь stroke-строка.
     const json = buildStencilJson(
       { ...valueMeta, stateColors: { on: { stroke: '#111', fill: '#222' } } },
@@ -600,7 +600,7 @@ describe('cropToContent', () => {
 })
 
 // Общий габарит фигуры: на нём стоят и обрезка холста, и хит-тест лассо —
-// разойдутся, и рамка начнёт ловить не то, что попадёт в границы стенсила.
+// разойдутся, и рамка начнёт ловить не то, что попадёт в границы символа.
 describe('shapeBounds', () => {
   it('rect / circle / line / polyline', () => {
     expect(shapeBounds({ type: 'rect', x: 5, y: 6, w: 10, h: 4 })).toEqual({
@@ -915,7 +915,7 @@ describe('parseStencilSvg (инверсия serializeSvg)', () => {
     expect(svg).toMatch(/<g>[\s\S]*<rect[\s\S]*<\/g>/)
   })
 
-  it('рекурсит в <g> — читает фигуры внутри группы (формат рукописных стенсилов)', () => {
+  it('рекурсит в <g> — читает фигуры внутри группы (формат рукописных символов)', () => {
     const svg =
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 40">' +
       '<g><line x1="10" y1="0" x2="10" y2="6" stroke="#000" stroke-width="2"/>' +

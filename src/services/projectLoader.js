@@ -9,7 +9,7 @@ import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 import { sanitizeShape } from '../stencils/shapeElement'
 import { isBackgroundZ, BACKGROUND_Z_BOUNDS } from '../utils/zOrder'
 import { portPoints } from '../utils/portGeom'
-import { textCellToShape, legacyBusPortId } from './legacyFormat'
+import { textCellToShape, legacyBusPortId, dissolveNodeCells } from './legacyFormat'
 
 /**
  * Первая и последняя точки пути провода. Нужны как ПОСЛЕДНЯЯ линия обороны: если в
@@ -60,7 +60,7 @@ function indexPorts(index, cellJson, byCellPoint) {
  *  - cells: массив JointJS-совместимых cell-JSON
  *  - errors: массив warning-строк (для toast'а пользователю)
  *  - stencilIds: все stencilId, встреченные в meta (включая выкинутые из-за
- *    незарегистрированного стенсила) — для подсчёта недостающих стенсилов
+ *    незарегистрированного символа) — для подсчёта недостающих символов
  */
 export function parseSvgProject(svgText) {
   if (!svgText || !svgText.trim()) {
@@ -94,7 +94,7 @@ export function parseSvgProject(svgText) {
     try {
       const meta = JSON.parse(g.getAttribute(ATTR_META))
 
-      // Фигура-разметка (`kind: 'shape'`): своя ветка — у неё нет ни стенсила, ни
+      // Фигура-разметка (`kind: 'shape'`): своя ветка — у неё нет ни символа, ни
       // портов, ни анимаций, а геометрия лежит в meta и приходит из чужого архива,
       // поэтому проходит через sanitizeShape.
       if (meta.kind === 'shape') {
@@ -293,7 +293,7 @@ export function parseSvgProject(svgText) {
         link.tms[f.key] = v
       }
       // Стиль линии из tms → attrs.line (иначе провод нарисуется дефолтным).
-      const styleAttrs = linkStyleAttrs(link.tms)
+      const styleAttrs = linkStyleAttrs(link.tms, source, target)
       if (styleAttrs) link.attrs = styleAttrs
       cells.push(link)
     } catch (e) {
@@ -302,7 +302,7 @@ export function parseSvgProject(svgText) {
   }
 
   // Закрепление на шине переживает экспорт полем `busId`, но шина могла в архив не
-  // попасть (не зарегистрирован стенсил, битый transform). Ссылку в пустоту снимаем:
+  // попасть (не зарегистрирован символ, битый transform). Ссылку в пустоту снимаем:
   // иначе символ считался бы прикреплённым и не ездил бы ни за чем.
   for (const cell of cells) {
     const busId = cell.tms?.busId
@@ -312,6 +312,15 @@ export function parseSvgProject(svgText) {
     errors.push(`Символ ${cell.id}: шина ${busId} не найдена — закрепление снято`)
   }
 
+  // Точки соединения прошлого формата растворяем в свободные концы проводов — тем же
+  // конвертером, что чинит формы в IDB (см. legacyFormat.dissolveNodeCells).
+  const nodes = dissolveNodeCells(cells)
+  if (nodes.kept) {
+    errors.push(
+      `Точек соединения с 2+ проводами: ${nodes.kept} — оставлены символами, остальные стали точками проводов`
+    )
+  }
+
   // ok = SVG распарсился (см. docstring). Пустой cells — валидная пустая форма.
-  return { ok: true, cells, errors, stencilIds: [...stencilIds] }
+  return { ok: true, cells: nodes.cells, errors, stencilIds: [...stencilIds] }
 }

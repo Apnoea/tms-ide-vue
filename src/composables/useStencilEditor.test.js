@@ -335,7 +335,7 @@ describe('useStencilEditor', () => {
     expect(moved).toMatchObject({ x: 40, y: 15 })
   })
 
-  it('снап зажимает координаты в bbox стенсила', () => {
+  it('снап зажимает координаты в bbox символа', () => {
     const ed = createStencilEditor()
     ed.meta.width = 40
     ed.meta.height = 40
@@ -488,7 +488,7 @@ describe('useStencilEditor', () => {
     expect(svg).toContain('<rect x="0" y="0" width="20" height="20"')
   })
 
-  it('loadStencil грузит стенсил на правку (editingId, shapes, ports, чистая история)', () => {
+  it('loadStencil грузит символ на правку (editingId, shapes, ports, чистая история)', () => {
     const ed = createStencilEditor()
     ed.loadStencil({
       id: 'cell_edit',
@@ -581,7 +581,7 @@ describe('useStencilEditor', () => {
     expect(svg).toContain('data-anim-suffix=".true"')
   })
 
-  it('loadStencil включает stateful и читает слот из animationTemplate-стенсила', () => {
+  it('loadStencil включает stateful и читает слот из animationTemplate-символа', () => {
     const ed = createStencilEditor()
     ed.loadStencil({
       id: 'cell_state',

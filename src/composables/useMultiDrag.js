@@ -1,4 +1,5 @@
 import { useCanvas } from './useCanvas'
+import { isFreeEnd } from '../utils/bridgeLinks'
 
 /**
  * Multi-drag: JointJS двигает только ячейку, за которую взялись, поэтому остальных
@@ -38,13 +39,23 @@ export function useMultiDrag() {
     // Изломы выделенных проводов между двигаемыми ячейками (оба конца в наборе) —
     // сдвинутся жёстко вместе с группой. Если конец у неподвижной ячейки — не трогаем
     // (провод перестроится сам за портом).
+    //
+    // Свободный конец (точка на холсте) ни за чем не следует, поэтому его двигаем
+    // сами: иначе перетаскивание выделения растягивало бы провод, а точка оставалась
+    // на месте.
     for (const item of canvas.selection.value) {
       if (item.kind !== 'link') continue
       const l = graph?.getCell(item.id)
-      const verts = l?.get('vertices')
-      if (!verts?.length) continue
-      if (cellIds.has(l.get('source')?.id) && cellIds.has(l.get('target')?.id)) {
-        dragLinkSnapshot[item.id] = verts.map((v) => ({ x: v.x, y: v.y }))
+      if (!l) continue
+      const source = l.get('source')
+      const target = l.get('target')
+      const moves = (end) => (end?.id ? cellIds.has(end.id) : isFreeEnd(end))
+      if (!moves(source) || !moves(target)) continue
+      const verts = l.get('vertices')
+      dragLinkSnapshot[item.id] = {
+        vertices: (verts || []).map((v) => ({ x: v.x, y: v.y })),
+        source: isFreeEnd(source) ? { x: source.x, y: source.y } : null,
+        target: isFreeEnd(target) ? { x: target.x, y: target.y } : null,
       }
     }
   }
@@ -68,13 +79,22 @@ export function useMultiDrag() {
         other.set('position', { x: startPos.x + dx, y: startPos.y + dy }, { multiDrag: true })
       }
     }
-    // Изломы проводов между двигаемыми ячейками — тем же delta (от исходных, без
-    // дрейфа). vertexSnap гасит снап-хендлер: delta кратен сетке (края на сетке).
+    // Изломы и свободные концы проводов, целиком принадлежащих группе — тем же delta
+    // (от исходных, без дрейфа). vertexSnap гасит снап-хендлер: delta кратен сетке.
     for (const linkId in dragLinkSnapshot) {
       const link = graph.getCell(linkId)
       if (!link) continue
-      const shifted = dragLinkSnapshot[linkId].map((v) => ({ x: v.x + dx, y: v.y + dy }))
-      link.vertices(shifted, { vertexSnap: true })
+      const snap = dragLinkSnapshot[linkId]
+      if (snap.vertices.length) {
+        link.vertices(
+          snap.vertices.map((v) => ({ x: v.x + dx, y: v.y + dy })),
+          { vertexSnap: true }
+        )
+      }
+      for (const end of ['source', 'target']) {
+        const start = snap[end]
+        if (start) link.set(end, { x: start.x + dx, y: start.y + dy }, { multiDrag: true })
+      }
     }
   }
 

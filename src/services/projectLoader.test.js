@@ -6,7 +6,7 @@ import { parseSvgProject } from './projectLoader'
 // (включая links) пригодную для graph.fromJSON.
 
 const attr = (o) => JSON.stringify(o).replace(/"/g, '&quot;')
-// <g>-ячейка с зарегистрированным стенсилом (endpoint для провода в тестах).
+// <g>-ячейка с зарегистрированным символом (endpoint для провода в тестах).
 const cellG = (id) =>
   `<g transform="translate(0,0)" data-tms-meta='${attr({ id, stencilId: 'cell_qw', width: 20, height: 20 })}'/>`
 
@@ -145,7 +145,7 @@ describe('parseSvgProject', () => {
   })
 
   it('конец на несобранной ячейке становится точкой из геометрии (провод не теряем)', () => {
-    // Ячейка 'b' пропущена (незарегистрированный стенсил) → конец провода привязать
+    // Ячейка 'b' пропущена (незарегистрированный символ) → конец провода привязать
     // некуда. Раньше линию выбрасывали целиком: ссылка на отсутствующую ячейку валит
     // fromJSON. Теперь конец превращается в свободную точку из `d` — схема сохраняет
     // линию, а автор видит предупреждение и перецепит её сам.
@@ -270,7 +270,7 @@ describe('parseSvgProject', () => {
     expect(out.errors.length).toBeGreaterThan(0)
   })
 
-  it('пропускает ячейку с неизвестным стенсилом, накапливает warning', () => {
+  it('пропускает ячейку с неизвестным символом, накапливает warning', () => {
     const meta = {
       id: 'c1',
       stencilId: 'cell_nonexistent',
@@ -285,7 +285,7 @@ describe('parseSvgProject', () => {
     expect(out.errors.length).toBeGreaterThan(0)
     expect(out.errors[0]).toMatch(/cell_nonexistent/)
     // stencilId выкинутой ячейки всё равно попадает в stencilIds — иначе импорт
-    // не смог бы предупредить о недостающем стенсиле.
+    // не смог бы предупредить о недостающем символе.
     expect(out.stencilIds).toContain('cell_nonexistent')
   })
 
