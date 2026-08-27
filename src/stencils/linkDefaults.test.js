@@ -8,6 +8,9 @@ import {
   arrowMarker,
   arrowExportSvg,
   linkStyleAttrs,
+  isFreeEnd,
+  endPoint,
+  normalizeWireStyle,
 } from './linkDefaults'
 
 // Порт шины стоит в СЕРЕДИНЕ толщины, и дефолт роутера (MAGNET_SIDE = ближайшая
@@ -172,5 +175,56 @@ describe('isInsideBBox', () => {
   it('без точки или bbox — нет (концы без привязки)', () => {
     expect(isInsideBBox(null, bbox)).toBe(false)
     expect(isInsideBBox({ x: 1, y: 1 }, null)).toBe(false)
+  })
+})
+
+// Понятие «конец провода свободен» — ОДНО на весь проект: выделение, маркер точки,
+// экспорт меты и загрузчик обязаны решать одинаково.
+describe('isFreeEnd / endPoint', () => {
+  it('точка на холсте — свободный конец, привязка к ячейке — нет', () => {
+    expect(isFreeEnd({ x: 10, y: 20 })).toBe(true)
+    expect(isFreeEnd({ id: 'a' })).toBe(false)
+    expect(isFreeEnd({ id: 'a', port: 'top' })).toBe(false)
+  })
+
+  it('ни привязки, ни координат — свободным НЕ считаем (точку рисовать негде)', () => {
+    expect(isFreeEnd({})).toBe(false)
+    expect(isFreeEnd({ x: NaN, y: 0 })).toBe(false)
+    expect(isFreeEnd(null)).toBe(false)
+    expect(isFreeEnd(undefined)).toBe(false)
+  })
+
+  it('endPoint отдаёт координаты только свободного конца', () => {
+    expect(endPoint({ x: 5, y: 6 })).toEqual({ x: 5, y: 6 })
+    expect(endPoint({ id: 'a', x: 5, y: 6 })).toBeNull()
+    expect(endPoint({})).toBeNull()
+  })
+
+  it('маркер конца без координат не ставится (раньше просил точку в никуда)', () => {
+    // Конец без id и без координат: у endMarker он раньше проходил как «свободен».
+    expect(linkStyleAttrs({}, { id: 'a' }, {})).toBeNull()
+    expect(linkStyleAttrs({}, { id: 'a' }, { x: 10, y: 10 }).line.targetMarker.type).toBe('circle')
+  })
+})
+
+// Допуски вида провода: одна проверка на правку из инспектора и на чтение меты.
+describe('normalizeWireStyle', () => {
+  it('оставляет годные значения', () => {
+    expect(
+      normalizeWireStyle({ strokeWidth: 4, strokeColor: '#ff0000', arrowEnd: 'solid' })
+    ).toEqual({ strokeWidth: 4, strokeColor: '#ff0000', arrowEnd: 'solid' })
+  })
+
+  it('толщина вне 0.5..20, чужой цвет и неизвестный наконечник отбрасываются', () => {
+    expect(normalizeWireStyle({ strokeWidth: 30 })).toEqual({})
+    expect(normalizeWireStyle({ strokeWidth: 0.1 })).toEqual({})
+    expect(normalizeWireStyle({ strokeWidth: '4' })).toEqual({ strokeWidth: 4 })
+    expect(normalizeWireStyle({ strokeColor: 'url(evil)' })).toEqual({})
+    expect(normalizeWireStyle({ arrowStart: 'dot' })).toEqual({})
+  })
+
+  it('не объект → пусто', () => {
+    expect(normalizeWireStyle(null)).toEqual({})
+    expect(normalizeWireStyle('solid')).toEqual({})
   })
 })

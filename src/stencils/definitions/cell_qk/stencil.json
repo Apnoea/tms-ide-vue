@@ -2,6 +2,7 @@
   "id": "cell_qk",
   "label": "Короткозамыкатель",
   "category": "Коммутация",
+  "domains": ["energy"],
   "shapeFile": "shape.svg",
   "width": 20,
   "height": 40,

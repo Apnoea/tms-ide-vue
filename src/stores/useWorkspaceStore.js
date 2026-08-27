@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { subtreeIds } from '../utils/formTreeDnd'
 import { cssColor } from '../constants/animation'
 import { CANVAS_BG_DEFAULT } from '../stencils/canvasPaper'
+import { normalizeWireStyle } from '../stencils/linkDefaults'
 
 /**
  * Проектный слой: формы (схемы) и активная форма. Хранит только ДАННЫЕ —
@@ -136,30 +137,26 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    */
   const wireStyle = ref({})
 
-  /** Патч настроек нового провода; `null`-значение убирает поле (вернуть дефолт). */
+  /**
+   * Патч настроек нового провода; `null`-значение убирает поле (вернуть дефолт).
+   * Значения проходят ту же нормализацию, что и чтение меты: раньше валидировал
+   * только вход из меты, и второй писатель протащил бы в неё что угодно.
+   */
   function setWireStyle(patch) {
     const next = { ...wireStyle.value }
-    for (const [k, v] of Object.entries(patch || {})) {
-      if (v === null || v === undefined) delete next[k]
-      else next[k] = v
+    const clean = normalizeWireStyle(patch)
+    for (const key of Object.keys(patch || {})) {
+      if (clean[key] === undefined) delete next[key]
+      else next[key] = clean[key]
     }
     if (JSON.stringify(next) === JSON.stringify(wireStyle.value)) return false
     wireStyle.value = next
     return true
   }
 
-  /** Загрузка из меты: чужие ключи отбрасываем, цвет валидируем. */
+  /** Загрузка из меты: чужие ключи и значения вне допусков отбрасываем. */
   function loadWireStyle(raw) {
-    const src = raw && typeof raw === 'object' ? raw : {}
-    const next = {}
-    const width = Number(src.strokeWidth)
-    if (Number.isFinite(width) && width > 0 && width <= 20) next.strokeWidth = width
-    const color = cssColor(src.strokeColor)
-    if (color) next.strokeColor = color
-    for (const key of ['arrowStart', 'arrowEnd']) {
-      if (src[key] === 'solid' || src[key] === 'open') next[key] = src[key]
-    }
-    wireStyle.value = next
+    wireStyle.value = normalizeWireStyle(raw)
   }
 
   /** Фон формы. `null`/дефолт — снять запись (не копим значения, равные дефолту). */

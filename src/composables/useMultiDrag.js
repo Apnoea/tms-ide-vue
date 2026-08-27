@@ -1,5 +1,5 @@
 import { useCanvas } from './useCanvas'
-import { isFreeEnd } from '../utils/bridgeLinks'
+import { isFreeEnd } from '../stencils/linkDefaults'
 
 /**
  * Multi-drag: JointJS двигает только ячейку, за которую взялись, поэтому остальных

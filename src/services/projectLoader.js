@@ -4,7 +4,13 @@
 
 import { getStencilById } from '../stencils/registry'
 import { buildPortItems } from '../stencils/svgInjector'
-import { LINK_DEFAULTS, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkDefaults'
+import {
+  LINK_DEFAULTS,
+  endPoint,
+  isFreeEnd,
+  linkStyleAttrs,
+  normalizeLinkZ,
+} from '../stencils/linkDefaults'
 import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 import { sanitizeShape } from '../stencils/shapeElement'
 import { isBackgroundZ, BACKGROUND_Z_BOUNDS } from '../utils/zOrder'
@@ -233,8 +239,9 @@ export function parseSvgProject(svgText) {
         if (end?.id && elementIds.has(end.id) && !portMissing) {
           return wanted && wanted !== end.port ? { ...end, port: wanted } : end
         }
-        const point =
-          Number.isFinite(end?.x) && Number.isFinite(end?.y) ? { x: end.x, y: end.y } : fallback
+        // Точка конца: своя, если в meta она есть (общий предикат — см. isFreeEnd),
+        // иначе взятая из геометрии пути.
+        const point = endPoint({ ...end, id: undefined }) || fallback
         // Точка совпала с портом — привязку возвращаем: это не угадывание, а
         // восстановление (порт стоит ровно там, где кончается линия). Сначала ищем
         // порт СВОЕЙ ячейки, потом любой в этой точке.
@@ -255,7 +262,8 @@ export function parseSvgProject(svgText) {
         }
         if (!point) return null
         if (hit) return { ...hit }
-        if (end?.id || !Number.isFinite(end?.x)) {
+        // Свободный конец, приехавший из архива точкой, — штатное состояние: молчим.
+        if (!isFreeEnd(end)) {
           errors.push(
             `Провод ${meta.id}: ${which} не привязан к символу — восстановлен по геометрии`
           )

@@ -338,11 +338,18 @@ export function useCanvas() {
       }
       selection.value = []
     },
-    /** Выделить все ячейки на холсте + bridge-линии между ними. */
+    /**
+     * Выделить все ячейки на холсте + bridge-линии между ними.
+     *
+     * Заблокированные (`tms.locked`) НЕ берём — как их не берёт лассо: замок для того
+     * и ставят (на подложку, рамку схемы), чтобы объект не попадал в массовые
+     * операции. Иначе `Ctrl+A` набирал в выделение то, что потом молча не двигается и
+     * не удаляется, а счётчики обещали больше, чем произойдёт.
+     */
     selectAllCells() {
       const graph = graphRef.value
       if (!graph) return
-      const cells = graph.getElements()
+      const cells = graph.getElements().filter((c) => !c.get('tms')?.locked)
       const cellItems = cells.map((c) => ({ kind: 'cell', id: c.id }))
       const bridges = computeBridgeLinks(
         graph,

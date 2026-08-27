@@ -6,6 +6,7 @@
 
 import { ref } from 'vue'
 import { ATTR_SUFFIX, STENCIL_ID_RE } from '../constants/ids'
+import { isValidDomain } from '../constants/domains'
 import { sanitizeSvgMarkup } from '../utils/sanitizeSvg'
 
 // Сам Map не реактивен, поэтому палитра читает этот счётчик в computed'ах —
@@ -68,6 +69,7 @@ export function validateStencilJson(path, json, svgText) {
     'noFlip',
     'defaults',
     'locked',
+    'domains',
     // Поле прошлых версий: скрытие символа из палитры теперь держит
     // LEGACY_HIDDEN_IDS. В known оставлено, чтобы архивы, записанные с этим полем,
     // не сыпали предупреждением о неизвестном поле на каждом импорте.
@@ -76,6 +78,20 @@ export function validateStencilJson(path, json, svgText) {
   for (const key of Object.keys(json)) {
     if (!known.has(key)) {
       issues.push(`[stencils] ${path}: неизвестное поле "${key}" (опечатка?)`)
+    }
+  }
+
+  // Области применения — фиксированный список (см. constants/domains): чужой ключ
+  // попал бы в фильтр палитры, а убрать его оттуда нечем.
+  if (json.domains !== undefined) {
+    if (!Array.isArray(json.domains)) {
+      issues.push(`[stencils] ${path}: "domains" должен быть массивом`)
+    } else {
+      for (const key of json.domains) {
+        if (!isValidDomain(key)) {
+          issues.push(`[stencils] ${path}: неизвестная область применения "${key}" — отброшена`)
+        }
+      }
     }
   }
 

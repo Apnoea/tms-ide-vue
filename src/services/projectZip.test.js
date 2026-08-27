@@ -1,6 +1,15 @@
 // Round-trip ZIP-архива проекта: buildProjectZipBlob ↔ readProjectZipFile.
-import { describe, it, expect } from 'vitest'
-import { buildProjectZipBlob, readProjectZipFile, collectUsedStencilIds } from './projectZip'
+import { describe, it, expect, vi } from 'vitest'
+
+vi.mock('./fileSystem', () => ({ pickFile: vi.fn() }))
+
+import {
+  buildProjectZipBlob,
+  readProjectZipFile,
+  collectUsedStencilIds,
+  pickProjectArchive,
+} from './projectZip'
+import { pickFile } from './fileSystem'
 
 describe('collectUsedStencilIds', () => {
   it('собирает уникальные stencilId из форм, игнорит линки и без stencilId', () => {
@@ -72,5 +81,25 @@ describe('projectZip', () => {
   it('битый файл (не ZIP) → внятная ошибка', async () => {
     const bad = new Blob([new Uint8Array([1, 2, 3, 4])])
     await expect(readProjectZipFile(bad)).rejects.toThrow(/архив/)
+  })
+})
+
+// Открытие проекта не требует File System Access API — иначе в Brave (FSA отключён
+// по умолчанию) кнопка «Открыть» отвечала ошибкой и проект было нечем загрузить.
+describe('pickProjectArchive', () => {
+  it('отдаёт файл, полученный общим пикером (handle архиву не нужен)', async () => {
+    const file = new File([''], 'project.zip')
+    pickFile.mockResolvedValue({ file, handle: null })
+    expect(await pickProjectArchive()).toBe(file)
+    expect(pickFile).toHaveBeenCalledWith({
+      extensions: ['.zip'],
+      mime: 'application/zip',
+      description: 'ZIP-архив проекта',
+    })
+  })
+
+  it('отмена диалога → null', async () => {
+    pickFile.mockResolvedValue(null)
+    expect(await pickProjectArchive()).toBeNull()
   })
 })

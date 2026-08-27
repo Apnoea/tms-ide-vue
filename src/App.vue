@@ -69,7 +69,17 @@ useEventListener(window, 'keydown', (event) => {
           {{ workspace.projectName || 'Без названия' }}
         </span>
       </div>
-      <div class="flex-1 min-w-0 flex items-center gap-2 px-2">
+      <!-- Действия проекта гейтим по тем же двум условиям, что область редактирования
+           ниже: пока открыт редактор символов (импорт заменил бы формы под оверлеем, а
+           экспорт прогонял бы их через невидимый холст, оставив несохранённый черновик
+           символа висеть над чужим проектом) и на время проектной операции (иначе
+           загрузка tag-list'а пишет `project:tags` в гонке с `replaceProject`
+           импорта). Имя проекта и статус — read-only, их не гасим. -->
+      <div
+        class="flex-1 min-w-0 flex items-center gap-2 px-2 transition-opacity"
+        :class="{ 'opacity-60': ui.stencilEditorOpen || ui.projectBusy }"
+        :inert="ui.stencilEditorOpen || ui.projectBusy"
+      >
         <ProjectActions />
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
         <TagListControl />

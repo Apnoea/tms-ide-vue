@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import { dia, shapes } from '@joint/core'
 import { tmsNamespace, TMSStencil } from '../stencils/tmsStencil'
-import { computeBridgeLinks, isFreeEnd } from './bridgeLinks'
+import { computeBridgeLinks } from './bridgeLinks'
 
 function setup(links) {
   const graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
@@ -39,16 +39,5 @@ describe('computeBridgeLinks', () => {
   it('свободный конец + конец на ячейке ВНЕ набора — не берём', () => {
     const graph = setup([{ source: { id: 'c' }, target: { x: 200, y: 100 } }])
     expect(computeBridgeLinks(graph, ['a', 'b'])).toEqual([])
-  })
-})
-
-describe('isFreeEnd', () => {
-  it('точка на холсте — свободный конец, привязка к ячейке — нет', () => {
-    expect(isFreeEnd({ x: 10, y: 20 })).toBe(true)
-    expect(isFreeEnd({ id: 'a' })).toBe(false)
-    expect(isFreeEnd({ id: 'a', port: 'top' })).toBe(false)
-    // Ни привязки, ни координат (битые данные) — свободным не считаем.
-    expect(isFreeEnd({})).toBe(false)
-    expect(isFreeEnd(null)).toBe(false)
   })
 })

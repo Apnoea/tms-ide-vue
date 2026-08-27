@@ -208,6 +208,15 @@ describe('buildStencilJson', () => {
     })
   })
 
+  it('области применения: непустые пишет, чужие отбрасывает, пустое поле не создаёт', () => {
+    const base = { id: 'cell_x', label: 'X', category: 'Прочее', width: 20, height: 20 }
+    expect(buildStencilJson({ ...base, domains: ['network', 'bogus'] }, []).domains).toEqual([
+      'network',
+    ])
+    expect(buildStencilJson({ ...base, domains: [] }, []).domains).toBeUndefined()
+    expect(buildStencilJson(base, []).domains).toBeUndefined()
+  })
+
   it('добавляет ports только когда они есть', () => {
     const json = buildStencilJson(
       { id: 'cell_x', label: 'X', category: 'Прочее', width: 20, height: 20 },

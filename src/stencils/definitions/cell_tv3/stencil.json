@@ -2,6 +2,7 @@
   "id": "cell_tv3",
   "label": "Трансформатор (3об)",
   "category": "Трансформаторы",
+  "domains": ["energy"],
   "shapeFile": "shape.svg",
   "width": 30,
   "height": 30,

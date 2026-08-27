@@ -1,3 +1,5 @@
+import { isFreeEnd } from '../stencils/linkDefaults'
+
 /**
  * «Мостовые» линии — провода, целиком принадлежащие набору ячеек: КАЖДЫЙ конец либо
  * привязан к ячейке из `cellIds`, либо свободен (оставлен на холсте точкой), и хотя
@@ -10,6 +12,9 @@
  *   • при multi-select ячеек (lasso, Ctrl-клик, Ctrl+A) автоматически включаются в
  *     выделение;
  *   • при copy/paste — копируются вместе с ячейками со сменой source/target id.
+ *
+ * Предикат «конец свободен» — общий с маркерами и экспортом (см. linkDefaults):
+ * понятие одно, и расходиться его проверки не должны.
  *
  * @param {dia.Graph} graph
  * @param {Iterable<string>|Set<string>} cellIds — id'ы ячеек
@@ -29,9 +34,4 @@ export function computeBridgeLinks(graph, cellIds) {
     if (belongs(s) && belongs(t)) out.push({ kind: 'link', id: link.id })
   }
   return out
-}
-
-/** Конец «на холсте»: не привязка к ячейке, а точка с координатами. */
-export function isFreeEnd(end) {
-  return !end?.id && Number.isFinite(end?.x) && Number.isFinite(end?.y)
 }

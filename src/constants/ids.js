@@ -10,6 +10,7 @@
 
 import { SVG_FONT, normalizeFont } from '../utils/textMetrics'
 import { cssColor, rangeRowColor } from './animation'
+import { ARROW_KINDS, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from './wire'
 
 /**
  * Санитайзеры значений meta. `normalize` в дескрипторе применяется на ОБОИХ концах
@@ -179,14 +180,14 @@ export const LINK_META_FIELDS = [
     key: 'strokeWidth',
     keep: Boolean,
     attr: 'strokeWidth',
-    normalize: clampNumber(0.5, 40, undefined),
+    normalize: clampNumber(WIRE_STROKE_MIN, WIRE_STROKE_MAX, undefined),
   },
   { key: 'strokeColor', keep: Boolean, attr: 'stroke' },
   // Наконечники на концах провода: `solid` — треугольник, `open` — две линии под 45°.
   // Смотрят В точку соединения. Без `attr`: маркер — объект, который зависит ещё и от
   // толщины/цвета линии, поэтому его собирает linkStyleAttrs.
-  { key: 'arrowStart', keep: Boolean, normalize: oneOf(['solid', 'open'], undefined) },
-  { key: 'arrowEnd', keep: Boolean, normalize: oneOf(['solid', 'open'], undefined) },
+  { key: 'arrowStart', keep: Boolean, normalize: oneOf(ARROW_KINDS, undefined) },
+  { key: 'arrowEnd', keep: Boolean, normalize: oneOf(ARROW_KINDS, undefined) },
 ]
 
 // ─── ID-генераторы ──────────────────────────────────────────────────────────

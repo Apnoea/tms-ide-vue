@@ -8,7 +8,7 @@ import { useProjectStore } from '../stores/useProjectStore'
 import * as fs from '../services/fileSystem'
 import { parseTagList } from '../services/parsers'
 import { nplural } from '../utils/plural'
-import { idbGet, idbSet } from '../utils/idb'
+import { idbDel, idbGet, idbSet } from '../utils/idb'
 
 /** Ключ file-handle'а в IndexedDB — по нему tag-list освежается на старте. */
 const TAG_LIST_HANDLE_KEY = 'tagListHandle'
@@ -19,16 +19,8 @@ export function useTagList() {
   const canvas = useCanvas()
   const notify = useNotify()
 
-  async function loadParsedTagsFromHandle(handle) {
-    const perm = await handle.queryPermission?.({ mode: 'read' })
-    if (perm && perm !== 'granted') {
-      const next = await handle.requestPermission({ mode: 'read' })
-      if (next !== 'granted') {
-        notify.warn('Нет доступа к файлу', 'Браузер отозвал разрешение, выберите файл заново')
-        return null
-      }
-    }
-    const content = await fs.getFileContentFromHandle(handle)
+  async function readParsedTags(file) {
+    const content = await file.text().catch(() => null)
     if (!content) {
       notify.error('Tag-list', 'Не удалось прочитать файл', TOAST_LIFE.NORMAL)
       return null
@@ -41,19 +33,26 @@ export function useTagList() {
     return { parsed, content }
   }
 
-  /** Диалог выбора файла + разбор + персист. Вернул `true` — теги в сторе. */
+  /**
+   * Диалог выбора файла + разбор + персист. Вернул `true` — теги в сторе.
+   *
+   * `handle` приходит только там, где есть File System Access API; без него теги
+   * работают ровно так же, но освежать файл на старте нечем — прежний handle тогда
+   * снимаем, иначе restore тянул бы ДРУГОЙ, устаревший файл.
+   */
   async function pickTagList() {
     try {
-      const fileHandle = await fs.selectFile(ui.lastTagListPickerStartIn)
-      if (!fileHandle) return false
-      const loaded = await loadParsedTagsFromHandle(fileHandle)
+      const picked = await fs.pickFile({ startInHandle: ui.lastTagListPickerStartIn })
+      if (!picked) return false
+      const { file, handle } = picked
+      const loaded = await readParsedTags(file)
       if (!loaded) return false
 
       project.setTags(loaded.parsed)
-      await idbSet(TAG_LIST_HANDLE_KEY, fileHandle)
+      await (handle ? idbSet(TAG_LIST_HANDLE_KEY, handle) : idbDel(TAG_LIST_HANDLE_KEY))
       // Сырой текст — с проектом (бандл на экспорте + переживает reload).
       const tagsSaved = await idbSet('project:tags', loaded.content)
-      ui.setLastTagListPickerStartIn(fileHandle)
+      ui.setLastTagListPickerStartIn(handle)
       // taglist.csv уходит в .zip → проект разошёлся с последним экспортом.
       canvas.markDirty()
       // Запись не прошла (квота / приватный режим): теги живут только в памяти —
@@ -63,7 +62,7 @@ export function useTagList() {
       notify[tagsSaved ? 'success' : 'warn'](
         'Tag-list загружен',
         tagsSaved
-          ? `${nplural(loaded.parsed.length, 'тег', 'тега', 'тегов')} из ${fileHandle.name}`
+          ? `${nplural(loaded.parsed.length, 'тег', 'тега', 'тегов')} из ${file.name}`
           : `${nplural(loaded.parsed.length, 'тег', 'тега', 'тегов')} — не сохранено локально, после перезагрузки вернутся прежние`,
         TOAST_LIFE.NORMAL
       )

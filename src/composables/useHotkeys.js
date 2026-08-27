@@ -3,7 +3,7 @@ import { useEventListener } from '@vueuse/core'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from './useCanvas'
 import { nplural } from '../utils/plural'
-import { isFreeEnd } from '../utils/bridgeLinks'
+import { isFreeEnd } from '../stencils/linkDefaults'
 
 function isFocusInInput(t) {
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)

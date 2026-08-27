@@ -16,6 +16,7 @@
 
 import { ATTR_SUFFIX, STENCIL_ID_RE } from '../constants/ids'
 import { STATE_FILL_CLASS, normalizeStateColor } from '../constants/animation'
+import { normalizeDomains } from '../constants/domains'
 import { escapeXml } from './xml'
 import { measureTextWidth, normalizeFont } from './textMetrics'
 
@@ -728,6 +729,10 @@ export function buildStencilJson(meta, ports, shapes = []) {
     width: meta.width,
     height: meta.height,
   }
+  // Области применения — только известные ключи и только непустым списком: пустой
+  // домен и так означает «виден при любом фильтре», поле-пустышка была бы шумом.
+  const domains = normalizeDomains(meta.domains)
+  if (domains.length) json.domains = domains
   // Декл-флаги пишем только когда включены (json чище; отсутствие = false).
   // `static` в редакторе не задаётся (только у встроенных text/value в их json).
   if (meta.noRotate) json.noRotate = true

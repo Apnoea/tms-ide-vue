@@ -225,6 +225,47 @@ describe('useClipboard', () => {
     expect(newLink.get('vertices')).toEqual([{ x: 70, y: 50 }])
   })
 
+  it('paste: провод со СВОБОДНЫМ концом копируется, точка едет на тот же вектор', () => {
+    // Такой провод попадает в выделение вместе с символом (computeBridgeLinks), и
+    // копироваться обязан: до появления свободных концов на этом месте стояла ячейка
+    // `cell_node`, которая копировалась сама.
+    const a = makeCell({ x: 0 })
+    const link = new shapes.standard.Link({
+      source: { id: a.id, port: 'p1' },
+      target: { x: 100, y: 40 },
+    })
+    graph.addCells([a, link])
+    mockCanvas.selection.value = [
+      { kind: 'cell', id: a.id },
+      { kind: 'link', id: link.id },
+    ]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard() // первый paste → offset = 20
+
+    const newLink = graph.getLinks().find((l) => l.id !== link.id)
+    expect(newLink).toBeTruthy()
+    expect(newLink.get('source').id).not.toBe(a.id) // сел на копию символа
+    expect(newLink.get('target')).toEqual({ x: 120, y: 60 })
+  })
+
+  it('paste: провод с обоими свободными концами к набору ячеек не относится', () => {
+    const a = makeCell({ x: 0 })
+    const loose = new shapes.standard.Link({
+      source: { x: 200, y: 200 },
+      target: { x: 260, y: 200 },
+    })
+    graph.addCells([a, loose])
+    mockCanvas.selection.value = [{ kind: 'cell', id: a.id }]
+
+    const { copySelection, pasteClipboard } = setup()
+    copySelection()
+    pasteClipboard()
+
+    expect(graph.getLinks()).toHaveLength(1) // копии не появилось
+  })
+
   it('paste: место bridge-провода в полосе z сохраняется', () => {
     // Провод поднимают ради мостика над соседом (jumpover рисует его тому, кто в
     // коллекции позже). Копия обязана огибать так же, иначе «поднял и продублировал»

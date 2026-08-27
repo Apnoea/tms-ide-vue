@@ -10,6 +10,7 @@
 import InputNumber from 'primevue/inputnumber'
 import SelectButton from 'primevue/selectbutton'
 import { isDefaultWireValue, WIRE_STYLE_DEFAULTS } from '../stencils/linkDefaults'
+import { WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire'
 
 const props = defineProps({
   /**
@@ -69,8 +70,8 @@ const isCustom = (key) =>
       <span class="relative ml-auto inline-flex">
         <InputNumber
           :model-value="values.strokeWidth ?? null"
-          :min="0.5"
-          :max="20"
+          :min="WIRE_STROKE_MIN"
+          :max="WIRE_STROKE_MAX"
           :step="0.5"
           :max-fraction-digits="1"
           show-buttons

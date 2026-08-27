@@ -4,7 +4,7 @@ import { getStencilById } from '../stencils/registry'
 import { materializeStencil } from '../stencils/svgInjector'
 import { isShapeCell, materializeShape } from '../stencils/shapeElement'
 import { translateShape } from '../utils/stencilSvg'
-import { LINK_DEFAULTS, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkDefaults'
+import { LINK_DEFAULTS, isFreeEnd, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkDefaults'
 import { isBackgroundZ } from '../utils/zOrder'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
@@ -66,23 +66,38 @@ export function useClipboard({ scheduleSnapshot }) {
     }
   }
 
-  /** Собирает снимки всех bridge-линий между cellIds (оба конца внутри набора). */
+  /**
+   * Снимок конца провода: привязка к ячейке (id переписывается на paste'е) либо
+   * свободная точка — её копия сдвигается тем же вектором, что ячейки.
+   */
+  function endSnap(end) {
+    if (end?.id) return { cellId: end.id, port: end.port || undefined }
+    return { point: { x: end.x, y: end.y } }
+  }
+
+  /**
+   * Собирает снимки всех bridge-линий набора cellIds — тем же правилом, что
+   * `computeBridgeLinks` (оно решает, что попадёт в выделение): каждый конец либо в
+   * наборе, либо свободен, и хотя бы один привязан. Свободный конец обязан
+   * копироваться: иначе провод, у которого он есть, выделяется вместе с символом, но
+   * молча не вставляется — а до появления свободных концов на его месте была ячейка
+   * `cell_node`, и копия работала.
+   */
   function collectBridgeLinkSnaps(cellIds) {
     const graph = canvas.graphRef.value
     if (!graph) return []
     const set = new Set(cellIds)
+    const belongs = (end) => (end?.id ? set.has(end.id) : isFreeEnd(end))
     const out = []
     for (const link of graph.getLinks()) {
       const src = link.get('source')
       const tgt = link.get('target')
-      if (!src?.id || !tgt?.id || !set.has(src.id) || !set.has(tgt.id)) continue
+      if (!src?.id && !tgt?.id) continue
+      if (!belongs(src) || !belongs(tgt)) continue
       out.push({
-        // Только port — сами cell-id'ы переписываются на paste'е через oldToNew.
         // tms (rangeSource/boolSource) переносим.
-        sourcePort: src.port || undefined,
-        targetPort: tgt.port || undefined,
-        sourceCellId: src.id,
-        targetCellId: tgt.id,
+        source: endSnap(src),
+        target: endSnap(tgt),
         // Ручные изломы — иначе выправленный маршрут спрямился бы на paste'е.
         vertices: (link.get('vertices') || []).map((v) => ({ x: v.x, y: v.y })),
         // Место в полосе проводов. В отличие от ячеек (там копия ложится сверху)
@@ -185,14 +200,22 @@ export function useClipboard({ scheduleSnapshot }) {
     // defaultLink на JSON-path не применяется), и линки получаются «голые».
     let linksAdded = 0
     const newLinkItems = []
+    // Конец копии: привязанный садится на новую ячейку (порт тот же — у копии того же
+    // символа порты называются так же), свободный уезжает на вектор вставки. Ячейка
+    // не скопировалась (нет в oldToNew) — провод пропускаем, иначе конец повис бы.
+    const pasteEnd = (snap) => {
+      if (snap?.point) return { x: snap.point.x + dx, y: snap.point.y + dy }
+      const id = oldToNew.get(snap?.cellId)
+      return id ? { id, ...(snap.port ? { port: snap.port } : {}) } : null
+    }
     for (const linkSnap of snaps.links) {
-      const newSrcId = oldToNew.get(linkSnap.sourceCellId)
-      const newTgtId = oldToNew.get(linkSnap.targetCellId)
-      if (!newSrcId || !newTgtId) continue
+      const source = pasteEnd(linkSnap.source)
+      const target = pasteEnd(linkSnap.target)
+      if (!source || !target) continue
       const linkModel = new shapes.standard.Link({
         ...LINK_DEFAULTS,
-        source: { id: newSrcId, ...(linkSnap.sourcePort ? { port: linkSnap.sourcePort } : {}) },
-        target: { id: newTgtId, ...(linkSnap.targetPort ? { port: linkSnap.targetPort } : {}) },
+        source,
+        target,
         // Изломы сдвигаем на тот же вектор, что и ячейки — маршрут сохраняет форму.
         ...(linkSnap.vertices?.length
           ? { vertices: linkSnap.vertices.map((v) => ({ x: v.x + dx, y: v.y + dy })) }
@@ -202,9 +225,9 @@ export function useClipboard({ scheduleSnapshot }) {
         // из полосы как есть, всё прочее уводит на дно.
         z: normalizeLinkZ(linkSnap.z),
         // Стиль линии (толщина/цвет) живёт в tms — дублируем в attrs.line, иначе
-        // копия рисуется дефолтной (см. linkStyleAttrs).
+        // копия рисуется дефолтной; концы нужны, чтобы у свободного появилась точка.
         ...(() => {
-          const attrs = linkStyleAttrs(linkSnap.tms, { id: newSrcId }, { id: newTgtId })
+          const attrs = linkStyleAttrs(linkSnap.tms, source, target)
           return attrs ? { attrs } : {}
         })(),
       })

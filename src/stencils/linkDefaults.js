@@ -5,7 +5,8 @@
 
 import { dia, routers, linkTools } from '@joint/core'
 import { LINK_META_FIELDS } from '../constants/ids'
-import { RANGE_FILL_CLASS } from '../constants/animation'
+import { RANGE_FILL_CLASS, cssColor } from '../constants/animation'
+import { ARROW_KINDS, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire'
 
 const { Directions } = routers.rightAngle
 
@@ -141,6 +142,41 @@ export function isDefaultWireValue(key, value) {
 }
 
 /**
+ * Чужой/произвольный вид провода → только годные поля. ОДНА проверка на оба входа
+ * «липких» настроек: правку из инспектора и чтение меты проекта. Раньше валидировало
+ * только чтение, и второй писатель протащил бы в мету что угодно.
+ */
+export function normalizeWireStyle(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {}
+  const out = {}
+  const width = Number(src.strokeWidth)
+  if (Number.isFinite(width) && width >= WIRE_STROKE_MIN && width <= WIRE_STROKE_MAX) {
+    out.strokeWidth = width
+  }
+  const color = cssColor(src.strokeColor)
+  if (color) out.strokeColor = color
+  for (const key of ['arrowStart', 'arrowEnd']) {
+    if (ARROW_KINDS.includes(src[key])) out[key] = src[key]
+  }
+  return out
+}
+
+/**
+ * Конец провода «на холсте»: не привязка к ячейке, а точка с координатами. ЕДИНЫЙ
+ * предикат — раньше это понятие проверяли пятью способами (выделение, маркер конца,
+ * экспорт меты, позиция для экспорта, загрузчик), и семантика разошлась: маркер счёл
+ * бы свободным конец `{}` вообще без координат и попросил бы точку в никуда.
+ */
+export function isFreeEnd(end) {
+  return !end?.id && Number.isFinite(end?.x) && Number.isFinite(end?.y)
+}
+
+/** Координаты свободного конца либо `null` (привязка к ячейке / мусор). */
+export function endPoint(end) {
+  return isFreeEnd(end) ? { x: end.x, y: end.y } : null
+}
+
+/**
  * Полоса z проводов — ниже символов (у тех дно 0), иначе линия перекрыла бы порты.
  * Внутри полосы порядок значим: `jumpover` рисует мостик на том, кто в коллекции
  * позже (она отсортирована по z), т.е. больший z = «этот провод сверху».
@@ -258,10 +294,11 @@ function dotRadius(strokeWidth) {
 function endMarker(kind, tms, endRef) {
   const arrow = arrowMarker(kind, tms)
   if (arrow) return arrow
-  // Точку ставим, только когда про конец ТОЧНО известно, что он свободен. Вызывающий
-  // без данных о концах (`undefined`) получает пустой маркер: додумывать за него
-  // «наверное, свободен» значило бы рисовать точки на ровном месте.
-  if (!endRef || endRef.id) return null
+  // Точку ставим, только когда про конец ТОЧНО известно, что он свободен, — то есть
+  // у него есть координаты. Вызывающий без данных о концах (`undefined`) получает
+  // пустой маркер: додумывать за него «наверное, свободен» значило бы рисовать точки
+  // на ровном месте.
+  if (!isFreeEnd(endRef)) return null
   return {
     type: 'circle',
     r: dotRadius(tms?.strokeWidth),

@@ -12,7 +12,7 @@ import {
   valueTextColor,
 } from '../stencils/valueCell'
 import { buildNodeExportSvg } from '../stencils/nodeCell'
-import { LINK_Z, arrowExportSvg, dotExportSvg } from '../stencils/linkDefaults'
+import { LINK_Z, arrowExportSvg, dotExportSvg, endPoint } from '../stencils/linkDefaults'
 import { isBackgroundZ } from '../utils/zOrder'
 import {
   CLASS_OFF,
@@ -72,8 +72,7 @@ function uniqueShortId(fullId, isTaken) {
 function endpointMeta(end) {
   if (!end) return null
   if (end.id) return { id: end.id, port: end.port }
-  if (Number.isFinite(end.x) && Number.isFinite(end.y)) return { x: end.x, y: end.y }
-  return null
+  return endPoint(end)
 }
 
 /**
@@ -93,9 +92,7 @@ function endMarkSvg(kind, end, ref, width, color) {
  * попадать в экспорт наравне с привязанным.
  */
 function getEndpointPos(end, graph, warnings) {
-  if (!end?.id) {
-    return Number.isFinite(end?.x) && Number.isFinite(end?.y) ? { x: end.x, y: end.y } : null
-  }
+  if (!end?.id) return endPoint(end)
   const cell = graph.getCell(end.id)
   if (!cell) return null
 

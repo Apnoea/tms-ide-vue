@@ -74,6 +74,22 @@ describe('validateStencilJson', () => {
     expect(issues.some((s) => s.includes('неизвестное поле "slts"'))).toBe(true)
   })
 
+  it('область применения: известная — молча, чужая и не-массив → issue', () => {
+    // Ключ уезжает в фильтр палитры, а json приходит из чужого .zip: свободные
+    // значения нанесли бы туда мусор, который нечем убрать.
+    expect(validateStencilJson(PATH, validStencil({ domains: ['energy'] }))).toEqual([])
+    expect(
+      validateStencilJson(PATH, validStencil({ domains: ['plumbing'] })).some((s) =>
+        s.includes('неизвестная область применения "plumbing"')
+      )
+    ).toBe(true)
+    expect(
+      validateStencilJson(PATH, validStencil({ domains: 'energy' })).some((s) =>
+        s.includes('"domains" должен быть массивом')
+      )
+    ).toBe(true)
+  })
+
   it('slot без key → issue', () => {
     const issues = validateStencilJson(PATH, validStencil({ slots: [{ label: 'X' }] }))
     expect(issues.some((s) => s.includes('slots[0] без "key"'))).toBe(true)

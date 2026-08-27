@@ -17,6 +17,7 @@ import Button from 'primevue/button'
 import { getCategories, registryVersion } from '../stencils/registry'
 import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor'
 import { normalizeStateColor } from '../constants/animation'
+import { STENCIL_DOMAINS } from '../constants/domains'
 import { ALIGN_OPTIONS } from '../composables/useTextCellProps'
 import { isFillableShape, TEXT_SHAPE_SIZE } from '../utils/stencilSvg'
 import { FONT_FAMILIES, normalizeFont } from '../utils/textMetrics'
@@ -74,6 +75,14 @@ function setText(v) {
   const next = v ?? ''
   textDraft.value = next
   if (next && selectedShape.value) updateShape(selectedShape.value.id, { text: next })
+}
+
+// Чип области применения: тогл + шаг истории (мета символа входит в undo-снимок).
+function toggleDomain(key) {
+  const next = new Set(meta.domains)
+  if (!next.delete(key)) next.add(key)
+  meta.domains = [...next]
+  commit()
 }
 
 function commitText() {
@@ -300,6 +309,30 @@ function clearStateColor(key, which) {
             @change="commit"
           />
         </label>
+
+        <!-- Область применения: фильтр палитры, а не вторая категория — символ может
+             годиться сразу нескольким областям. Пусто = виден при любом фильтре. -->
+        <div>
+          <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
+            Область применения
+          </div>
+          <div class="flex flex-wrap gap-1">
+            <button
+              v-for="d in STENCIL_DOMAINS"
+              :key="d.key"
+              type="button"
+              class="cursor-pointer rounded-full border px-2 py-0.5 text-[11px] transition-colors"
+              :class="
+                meta.domains.includes(d.key)
+                  ? 'border-primary-500 bg-primary-50 text-primary-700'
+                  : 'border-surface-300 text-surface-500 hover:text-surface-800'
+              "
+              @click="toggleDomain(d.key)"
+            >
+              {{ d.label }}
+            </button>
+          </div>
+        </div>
 
         <!-- Флаги поведения — прямо после категории, без отдельной секции. Поворот и
              отражение раздельно: карточке значения, например, поворот нужен (её ставят

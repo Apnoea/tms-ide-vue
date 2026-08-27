@@ -54,6 +54,29 @@ describe('useCanvas: замок в массовых операциях', () => {
     expect(out).toHaveLength(2)
   })
 
+  it('Ctrl+A (selectAllCells) не берёт заблокированные — как их не берёт лассо', () => {
+    // Замок ставят на подложку и рамку схемы именно чтобы они не попадали в массовые
+    // операции: в выделении такая ячейка потом молча не двигалась и не удалялась, а
+    // счётчики обещали больше, чем произойдёт.
+    const free = cell()
+    const locked = cell({ locked: true })
+    graph.addCells([free, locked])
+    canvas.selectAllCells()
+    expect(canvas.selection.value).toEqual([{ kind: 'cell', id: free.id }])
+  })
+
+  it('Ctrl+A берёт провода между свободными ячейками, но не мостики к запертым', () => {
+    const a = cell()
+    const b = cell()
+    const locked = cell({ locked: true })
+    const ab = new shapes.standard.Link({ source: { id: a.id }, target: { id: b.id } })
+    const toLocked = new shapes.standard.Link({ source: { id: a.id }, target: { id: locked.id } })
+    graph.addCells([a, b, locked, ab, toLocked])
+    canvas.selectAllCells()
+    const links = canvas.selection.value.filter((i) => i.kind === 'link')
+    expect(links).toEqual([{ kind: 'link', id: ab.id }])
+  })
+
   it('ungroupCells не снимает groupId с заблокированной ячейки', () => {
     const free = cell({ groupId: 'grp-1' })
     const locked = cell({ groupId: 'grp-1', locked: true })

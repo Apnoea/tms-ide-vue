@@ -29,6 +29,7 @@ import {
   portSeqFrom,
 } from '../utils/stencilSvg'
 import { normalizeStateColor } from '../constants/animation'
+import { normalizeDomains } from '../constants/domains'
 
 export const SHAPE_GRID = 1
 export const PORT_GRID = 5
@@ -80,6 +81,8 @@ export function createStencilEditor() {
     id: '',
     label: '',
     category: '',
+    // Области применения (см. constants/domains) — фильтр палитры, не подкатегории.
+    domains: [],
     width: 40,
     height: 40,
     noRotate: false,
@@ -611,6 +614,7 @@ export function createStencilEditor() {
     meta.id = def.id
     meta.label = def.label || ''
     meta.category = def.category || ''
+    meta.domains = normalizeDomains(def.domains)
     meta.width = def.width || 40
     meta.height = def.height || 40
     meta.noRotate = !!def.noRotate
@@ -649,6 +653,7 @@ export function createStencilEditor() {
     meta.id = ''
     meta.label = ''
     meta.category = ''
+    meta.domains = []
     meta.width = 40
     meta.height = 40
     meta.noRotate = false

@@ -5,6 +5,7 @@
   "shapeFile": "shape.svg",
   "width": 30,
   "height": 30,
+  "domains": ["energy"],
   "slots": [
     {
       "key": "onoff",

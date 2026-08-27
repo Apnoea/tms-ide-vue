@@ -24,6 +24,7 @@ import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { useUiStore } from '../stores/useUiStore'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
+import { STENCIL_DOMAINS, matchesDomains } from '../constants/domains'
 import { nplural } from '../utils/plural'
 import { confirmDanger } from '../utils/confirmDanger'
 
@@ -73,6 +74,21 @@ function matchesSearch(stencil) {
   return stencil.label.toLowerCase().includes(q) || stencil.id.toLowerCase().includes(q)
 }
 
+// Фильтр по области применения (энергетика / технология / сети) — чипы над списком.
+// UI-префа, а не свойство проекта: живёт в localStorage рядом с раскрытыми
+// категориями. Пустой набор = показываем всё (снял все чипы — вернулся полный список).
+const domainFilter = useLocalStorage('tms-ide:palette-domains:v1', [], { deep: true })
+
+function toggleDomain(key) {
+  const next = new Set(domainFilter.value)
+  if (!next.delete(key)) next.add(key)
+  domainFilter.value = [...next]
+}
+
+// При поиске фильтр НЕ применяем: «я знаю, что символ есть, но не нахожу» —
+// худший из возможных исходов поиска. Строка-подсказка об этом сообщает.
+const domainFilterActive = computed(() => domainFilter.value.length > 0 && !search.value.trim())
+
 // Внутри категории сортируем по label (то, что видит юзер в палитре),
 // ru-локаль для корректной А-Я сортировки.
 const stencilsByCategory = computed(() => {
@@ -83,6 +99,7 @@ const stencilsByCategory = computed(() => {
     // Символ прошлого формата (см. LEGACY_HIDDEN_IDS) остался в реестре только чтобы
     // открывать прошлые формы — рисовать им больше не предлагаем.
     if (isHiddenStencil(stencil) || !matchesSearch(stencil)) continue
+    if (domainFilterActive.value && !matchesDomains(stencil, domainFilter.value)) continue
     map.get(stencil.category)?.push(stencil)
   }
   for (const list of map.values()) {
@@ -91,13 +108,15 @@ const stencilsByCategory = computed(() => {
   return map
 })
 
-// При активном поиске показываем только непустые категории.
+// При активном поиске или фильтре показываем только непустые категории.
 const categories = computed(() => {
-  if (!search.value.trim()) return allCategories.value
+  if (!search.value.trim() && !domainFilterActive.value) return allCategories.value
   return allCategories.value.filter((c) => (stencilsByCategory.value.get(c)?.length || 0) > 0)
 })
 
-const noResults = computed(() => !!search.value.trim() && categories.value.length === 0)
+const noResults = computed(
+  () => (!!search.value.trim() || domainFilterActive.value) && categories.value.length === 0
+)
 
 // Активные (раскрытые) категории — persist в localStorage чтобы UI не
 // сбрасывался после F5. Дефолт — все категории раскрыты.
@@ -264,6 +283,32 @@ async function removeStencil(id) {
           </div>
         </div>
       </div>
+
+      <!-- Область применения: фильтр-чипы, а не подкатегории. Символ может годиться
+           сразу нескольким областям, а в дереве лежал бы только в одной. Ни один чип
+           не выбран = показываем всё. -->
+      <div class="px-3 py-2 border-b border-surface-200 bg-surface-0 flex flex-wrap gap-1">
+        <button
+          v-for="d in STENCIL_DOMAINS"
+          :key="d.key"
+          type="button"
+          class="cursor-pointer rounded-full border px-2 py-0.5 text-[11px] transition-colors"
+          :class="
+            domainFilter.includes(d.key)
+              ? 'border-primary-500 bg-primary-50 text-primary-700'
+              : 'border-surface-300 text-surface-500 hover:text-surface-800'
+          "
+          @click="toggleDomain(d.key)"
+        >
+          {{ d.label }}
+        </button>
+        <span
+          v-if="domainFilter.length && search.trim()"
+          class="text-[11px] text-surface-400 py-0.5"
+        >
+          поиск по всем областям
+        </span>
+      </div>
     </div>
 
     <div class="flex-1 p-2 overflow-auto">
@@ -278,7 +323,8 @@ async function removeStencil(id) {
       <template v-else-if="noResults">
         <div class="flex flex-col items-center text-center text-surface-400 py-8">
           <i class="pi pi-search text-2xl mb-2 opacity-60" />
-          <div class="text-xs">Ничего не нашлось по «{{ search }}»</div>
+          <div v-if="search.trim()" class="text-xs">Ничего не нашлось по «{{ search }}»</div>
+          <div v-else class="text-xs">В выбранных областях символов нет</div>
         </div>
       </template>
 

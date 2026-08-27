@@ -1,9 +1,11 @@
 // Проект ↔ ZIP-архив — единственный формат ввода-вывода проекта. Раскладка внутри
 // архива: forms/<id>/{view.svg,animations.json}, library/<id>/{stencil.json,
 // shape.svg}, taglist.csv, hierarchy.json, project.json (редакторная мета). Экспорт → скачивание Blob, импорт →
-// выбор .zip (FSA-picker) → распаковка в структуру для оркестрации (useProject).
+// выбор .zip (pickFile: FSA либо `<input type="file">`) → распаковка в структуру для
+// оркестрации (useProject).
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 import { FORM_ID_RE, FORM_ID_MAX } from '../constants/ids'
+import { pickFile } from './fileSystem'
 
 /** Id, из которого строится путь внутри архива. Нарушитель = баг, а не данные. */
 function assertPathSafeId(id, what) {
@@ -70,22 +72,17 @@ export function downloadBlob(blob, filename) {
 }
 
 /**
- * Picker .zip (FSA). null при отмене. Возвращает File — вызывать из user-gesture.
+ * Picker .zip. null при отмене. Возвращает File — вызывать из user-gesture.
+ * Handle архива не нужен: перезаписывать открытый файл мы не умеем, выгрузка идёт
+ * скачиванием.
  */
 export async function pickProjectArchive() {
-  if (typeof window === 'undefined' || typeof window.showOpenFilePicker !== 'function')
-    throw new Error('Браузер не поддерживает File System Access API')
-  let handle
-  try {
-    ;[handle] = await window.showOpenFilePicker({
-      types: [{ description: 'ZIP-архив проекта', accept: { 'application/zip': ['.zip'] } }],
-      multiple: false,
-    })
-  } catch (e) {
-    if (e?.name === 'AbortError') return null
-    throw e
-  }
-  return handle.getFile()
+  const picked = await pickFile({
+    extensions: ['.zip'],
+    mime: 'application/zip',
+    description: 'ZIP-архив проекта',
+  })
+  return picked?.file || null
 }
 
 /**
