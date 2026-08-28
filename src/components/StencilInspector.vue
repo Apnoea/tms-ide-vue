@@ -42,20 +42,19 @@ const {
   applyPositionPreset,
 } = useStencilEditor()
 
-// Свойства фигуры правятся сразу по ВСЕМУ выделению (рамкой выделяют именно чтобы
-// задать общий цвет/толщину); поля геометрии и подписи — только когда выделена
-// одна (selectedShape). Расхождение значений показываем, а не прячем: см. *Mixed.
+// Свойства фигуры правятся сразу по ВСЕМУ выделению; поля геометрии и подписи — только
+// при одной выделенной (selectedShape). Расхождение значений показывается, см. *Mixed.
 const selectedShape = computed(() => shapes.value.find((s) => s.id === selectedId.value) || null)
 const multiCount = computed(() => selectedIds.value.length)
 
-// Применимость по типу примитива: у линии нет заливки, у круга — скругления, у
-// подписи ни того ни другого (но видимость по состоянию у неё есть). Цвет есть у
-// всех — у подписи это цвет глифов (поле `stroke`, см. ShapePrimitive).
+// Применимость по типу примитива: у линии нет заливки, у круга — скругления, у подписи
+// ни того ни другого (видимость по состоянию есть). Цвет есть у всех — у подписи это
+// цвет глифов в поле `stroke`.
 const FILLABLE = (s) => s.type !== 'line' && s.type !== 'text'
 const ROUNDABLE = (s) => s.type !== 'circle' && s.type !== 'text'
 const NOT_TEXT = (s) => s.type !== 'text'
 
-// Контрол показываем, если свойство применимо хоть к одной выделенной фигуре.
+// Контрол показывается, если свойство применимо хоть к одной выделенной фигуре.
 const hasFill = computed(() => selectedFor(FILLABLE).length > 0)
 const hasStrokeWidth = computed(() => selectedFor(NOT_TEXT).length > 0)
 
@@ -110,8 +109,8 @@ function setTextBold(on) {
   updateShape(selectedShape.value.id, { bold: !!on })
   commit()
 }
-// Выравнивание — якорь роста подписи; у фигуры без поля это центр (старые символы
-// рисуются как раньше), у новых редактор ставит левый край.
+// Выравнивание — якорь роста подписи: у фигуры без поля это центр, новым редактор
+// ставит левый край.
 const textAlign = computed(() => selectedShape.value?.align || 'center')
 function setTextAlign(v) {
   if (!selectedShape.value || !v) return

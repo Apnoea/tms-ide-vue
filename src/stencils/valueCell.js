@@ -1,6 +1,6 @@
 // Аналоговое значение (cell_value) — программный символ «карточка с полоской».
-// Геометрия и цвета одни для экспорта (buildValueExportSvg) и редактора
-// (buildValueContent), иначе превью расходится с view.svg.
+// Геометрия и цвета одни для экспорта (buildValueExportSvg) и холста
+// (buildValueContent).
 import { valueTextKey } from '../constants/ids'
 import { cssColor } from '../constants/animation'
 import { SVG_NS, escapeXml, escapeAttr, svgEl } from '../utils/xml'
@@ -8,8 +8,8 @@ import { SVG_FONT } from '../utils/textMetrics'
 
 /**
  * Подпись и единица карточки — только то, что вписал автор (`tms.valueLabel` /
- * `valueUnit`). Ни справочника величин, ни угадывания по суффиксу тега: имена
- * тегов в проектах конвенции не следуют, а подсказка мимо смысла хуже пустоты.
+ * `valueUnit`): справочника величин и угадывания по суффиксу тега нет, имена тегов
+ * в проектах конвенции не следуют.
  */
 export function resolveValueDisplay(tms = null) {
   return { label: tms?.valueLabel || '', unit: tms?.valueUnit || '' }
@@ -17,8 +17,7 @@ export function resolveValueDisplay(tms = null) {
 
 /**
  * Знаков после запятой — уезжает в `output.decimals` карточки, формат считает
- * рантайм (FormatEngine.toFixed). Дефолт пишем ВСЕГДА: без поля рантайм берёт
- * свои 4 знака, и уже нарисованные схемы сменили бы вид.
+ * рантайм. Дефолт пишется ВСЕГДА: без поля рантайм берёт свои 4 знака.
  */
 export const VALUE_DECIMALS_DEFAULT = 2
 
@@ -27,10 +26,8 @@ export function resolveValueDecimals(tms = null) {
 }
 
 /**
- * Цвет ЗНАЧЕНИЯ на карточке: своё `tms.color` либо дефолт. Красим только значение —
- * подпись и единица служебные (серые), и перекрашивать их вместе с ним значит терять
- * различимость. Чистим здесь же: цвет уходит в атрибут `fill` экспортного SVG, а в
- * модель он мог попасть из чужого архива (см. busColor — тот же приём).
+ * Цвет ЗНАЧЕНИЯ на карточке: своё `tms.color` либо дефолт. Подпись и единица остаются
+ * служебно-серыми. Цвет чистится здесь: он уходит в атрибут `fill` экспортного SVG.
  */
 export function valueTextColor(tms = null) {
   return cssColor(tms?.color) || VALUE_TEXT_COLOR
@@ -48,8 +45,8 @@ const VALUE_PAD_LEFT = 8 // label-start от левого края
 const VALUE_UNIT_RIGHT_PAD = 5 // unit-end от правого края
 const VALUE_UNIT_ZONE = 32 // зарезервировано на unit + gap до value
 const VALUE_BASELINE_PAD = 5 // расстояние от пола ячейки до общей baseline
-// Незаполненная карточка (тег не выбран): в рантайме останется прочерком, поэтому
-// помечаем её на холсте. Амбер — предупреждение, как у проблемного тега в TagField.
+// Незаполненная карточка (тег не выбран) в рантайме останется прочерком — помечаем её
+// на холсте амбером, как проблемный тег в TagField.
 const VALUE_EMPTY_MARK_COLOR = '#f59e0b' // amber-500
 
 /**
@@ -63,8 +60,8 @@ export function buildValueExportSvg(animId, width = 100, height = 20, display = 
   const stripe = `<rect x="0" y="0" width="${VALUE_STRIPE_W}" height="${height}" fill="${VALUE_STRIPE_COLOR}"/>`
   const bg = `<rect x="${VALUE_STRIPE_W}" y="0" width="${Math.max(0, width - VALUE_STRIPE_W)}" height="${height}" fill="${VALUE_BG_COLOR}"/>`
   const labelText = `<text x="${VALUE_PAD_LEFT}" y="${by}" font-size="10" font-family="${SVG_FONT}" fill="${VALUE_LABEL_COLOR}">${escapeXml(label)}</text>`
-  // animId для cell_value = tms.valueTag, может содержать ", &, < — escapeAttr
-  // обязателен, иначе невалидный XML и упадёт round-trip projectLoader'ом.
+  // animId для cell_value = tms.valueTag и может содержать ", &, < — escapeAttr
+  // обязателен, иначе XML невалиден.
   const valueText = `<text id="${escapeAttr(valueTextKey(animId))}" x="${width - VALUE_UNIT_ZONE}" y="${by}" text-anchor="end" font-size="12" font-family="${SVG_FONT}" font-weight="bold" fill="${color}">--</text>`
   const unitText = unit
     ? `<text x="${width - VALUE_UNIT_RIGHT_PAD}" y="${by}" text-anchor="end" font-size="9" font-family="${SVG_FONT}" fill="${VALUE_UNIT_COLOR}">${escapeXml(unit)}</text>`
@@ -80,7 +77,7 @@ export function buildValueContent(cellView, box = null) {
   const tms = cellView.model.get('tms') || {}
   const { label, unit } = resolveValueDisplay(tms)
   // Размер приходит от вызывающего: карточка рисуется в координатах ОПРЕДЕЛЕНИЯ, а
-  // увеличенный экземпляр растягивает contentTransform (иначе масштаб лёг бы дважды).
+  // увеличенный экземпляр растягивает contentTransform.
   const { width, height } = box || cellView.model.size()
   // Общая baseline «по полу»; PAD взят с запасом под descender'ы (φ в cosφ).
   const by = height - VALUE_BASELINE_PAD
@@ -124,8 +121,7 @@ export function buildValueContent(cellView, box = null) {
     ),
   ]
 
-  // Тег не выбран — рамка-предупреждение. В экспорт не идёт: в view.svg такой
-  // пометки быть не должно, это подсказка автору схемы.
+  // Тег не выбран — рамка-предупреждение, только на холсте (в view.svg её нет).
   if (!tms.valueTag) {
     out.push(
       svgEl('rect', {

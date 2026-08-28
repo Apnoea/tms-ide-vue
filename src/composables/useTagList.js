@@ -1,6 +1,5 @@
-// Загрузка tag-list'а из файла. Вынесено из TagListControl, потому что кнопку
-// «Загрузить tag-list» показывает ещё и пустой tag-picker: иначе пользователю
-// пришлось бы закрыть диалог, найти контрол в тулбаре и открыть picker заново.
+// Загрузка tag-list'а из файла. Отдельно от TagListControl, потому что кнопку
+// «Загрузить tag-list» показывает ещё и пустой tag-picker.
 import { useNotify, TOAST_LIFE } from './useNotify'
 import { useCanvas } from './useCanvas'
 import { useUiStore } from '../stores/useUiStore'
@@ -36,9 +35,9 @@ export function useTagList() {
   /**
    * Диалог выбора файла + разбор + персист. Вернул `true` — теги в сторе.
    *
-   * `handle` приходит только там, где есть File System Access API; без него теги
-   * работают ровно так же, но освежать файл на старте нечем — прежний handle тогда
-   * снимаем, иначе restore тянул бы ДРУГОЙ, устаревший файл.
+   * `handle` приходит только там, где есть File System Access API. Без него теги
+   * работают так же, но освежать файл на старте нечем, поэтому прежний handle
+   * снимается — иначе restore подтянул бы ДРУГОЙ файл.
    */
   async function pickTagList() {
     try {
@@ -50,10 +49,10 @@ export function useTagList() {
 
       project.setTags(loaded.parsed)
       await (handle ? idbSet(TAG_LIST_HANDLE_KEY, handle) : idbDel(TAG_LIST_HANDLE_KEY))
-      // Сырой текст — с проектом (бандл на экспорте + переживает reload).
+      // Сырой текст хранится с проектом: уходит в бандл и переживает reload.
       const tagsSaved = await idbSet('project:tags', loaded.content)
       ui.setLastTagListPickerStartIn(handle)
-      // taglist.csv уходит в .zip → проект разошёлся с последним экспортом.
+      // taglist.csv уходит в .zip — проект разошёлся с последним экспортом.
       canvas.markDirty()
       // Запись не прошла (квота / приватный режим): теги живут только в памяти —
       // после reload вернутся прежние. Молчать нельзя.

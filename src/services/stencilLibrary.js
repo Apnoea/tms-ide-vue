@@ -1,12 +1,11 @@
 /**
- * Персист символов на диск через dev-эндпоинт (см. stencilWritePlugin в
- * vite.config.js): браузер писать в src/stencils/definitions/ не может, поэтому
- * dev-сервер делает это за него, а Vite-вотчер триггерит reload → glob реестра
- * подхватывает файлы навсегда.
+ * Персист символов на диск через dev-эндпоинт (stencilWritePlugin в vite.config.js):
+ * браузер в src/stencils/definitions/ писать не может, это делает dev-сервер, а
+ * Vite-вотчер триггерит reload, и glob реестра подхватывает файлы.
  *
- * Контракт: POST /__stencils/import, тело [{ id, stencilJson, shapeSvg }].
- * В проде плагина нет (apply: 'serve') → fetch падает/404 → возвращаем false;
- * caller решает (символ всё равно в рантайм-реестре и уедет в library/ проекта).
+ * Контракт: POST /__stencils/import, тело [{ id, stencilJson, shapeSvg }]. В проде
+ * плагина нет (apply: 'serve') → false; символ остаётся в рантайм-реестре и уедет в
+ * library/ проекта.
  *
  * @param {Array<{id:string, stencilJson:object, shapeSvg:string}>} items
  * @returns {Promise<boolean>} успех записи на диск

@@ -14,33 +14,25 @@ import { useNotify, TOAST_LIFE } from './useNotify'
 /**
  * Copy / Paste / Duplicate для cell-выделения + bridge-провода.
  *
- * Внутренний буфер: { cells: [...], links: [...] }. Не уходит в нативный
- * clipboard (не вставится в другую вкладку), теряется на F5. Достаточно для
- * «продублировал кусок схемы внутри одного сеанса».
+ * Внутренний буфер: { cells: [...], links: [...] } — в нативный clipboard не уходит и
+ * теряется на F5.
  *
- * Bridge-провода — линии, у которых ОБА конца лежат в копируемом наборе ячеек.
- * Их source/target id'ы на paste'е перевешиваются на новые ячейки через
- * oldId → newId маппинг.
+ * Bridge-провода (см. computeBridgeLinks) копируются вместе с ячейками: их привязки
+ * перевешиваются на новые id через маппинг oldId → newId.
  *
- * Зависит от `scheduleSnapshot` — после paste'а snapshot в undo-stack.
- *
- * Возвращает: `copySelection`, `pasteClipboard`, `duplicateSelection`,
- * `hasClipboard()` (для disabled-state UI).
+ * После вставки `scheduleSnapshot` кладёт шаг в undo.
  */
 export function useClipboard({ scheduleSnapshot }) {
   const canvas = useCanvas()
   const notify = useNotify()
-  // shallowRef — а не обычная let-переменная — нужен для реактивности `hasClipboard()`.
-  // Если буфер не reactive, computed-зависимости (например `ctxItems` в CanvasPane,
-  // решающий показывать ли «Вставить» в context-menu) не пересчитываются на копирование.
+  // shallowRef, а не let: от буфера зависит `hasClipboard()`, по которому
+  // контекст-меню решает, показывать ли «Вставить».
   const clipboard = shallowRef({ cells: [], links: [] })
   // Шаг сдвига копии от того, к чему она цепляется, — иначе копии легли бы стопкой.
   const PASTE_STEP = 20
-  // Ячейки ПОСЛЕДНЕЙ вставки: следующий Ctrl+V считает сдвиг от них в ИХ ТЕКУЩЕМ
-  // месте, а не от снимка в буфере — иначе, отвезя копию в сторону, вторая вставка
-  // легла бы рядом с её прежним местом. Сброс на copy; нет живых копий (удалили,
-  // сменили форму) — отсчёт снова от оригинала. Duplicate буфер не трогает: он берёт
-  // свежий снимок выделения, а выделением после дубля становится сама копия.
+  // Ячейки ПОСЛЕДНЕЙ вставки: следующий Ctrl+V считает сдвиг от них в их ТЕКУЩЕМ
+  // месте, а не от снимка в буфере. Сброс на copy; нет живых копий (удалили, сменили
+  // форму) — отсчёт снова от оригинала. Duplicate буфер не трогает.
   let pasteAnchorIds = null
 
   function snapshotCell(item) {
@@ -52,8 +44,8 @@ export function useClipboard({ scheduleSnapshot }) {
     const size = c.get('size')
     return {
       oldId: c.id,
-      // Фигура-разметка вместо символа несёт свою геометрию: у неё нет ни
-      // stencilId, ни портов, поэтому и создаётся она иначе (см. pasteSnapshots).
+      // Фигура-разметка несёт свою геометрию: ни stencilId, ни портов у неё нет,
+      // поэтому и создаётся она иначе (pasteSnapshots).
       isShape: isShapeCell(c),
       stencilId: tms.stencilId,
       tms: { ...tms },
@@ -61,7 +53,7 @@ export function useClipboard({ scheduleSnapshot }) {
       size: { width: size.width, height: size.height },
       angle: c.angle() || 0,
       // Не абсолютный z (вставка ложится сверху), а порядок материализации: addCell
-      // даёт z = max+1, поэтому наложение копий = порядок обхода.
+      // даёт z = max+1, поэтому наложение копий повторяет порядок обхода.
       z: c.get('z') ?? 0,
     }
   }

@@ -47,9 +47,8 @@ import {
   WIRE_STYLE_DEFAULTS,
 } from '../stencils/linkDefaults'
 
-// Ячейки без анимаций: статичные символы (флаг `static: true` в stencil.json —
-// нет визуальной реакции на animation-классы) и фигуры-разметка (у них анимаций нет
-// вовсе). Диапазоны/булев источник на них бессмысленны, в multi-select пропускаем.
+// Ячейки без анимаций: статичные символы (`static: true` в stencil.json) и
+// фигуры-разметка. Диапазоны и булев источник к ним не применяются.
 function isStatic(tms) {
   return !!tms?.shape || !!getStencilById(tms?.stencilId)?.static
 }
@@ -59,10 +58,10 @@ const animClip = useAnimationClipboard()
 // Выравнивание + распределение выделенных ячеек (секция «Выравнивание» в мульти-режиме).
 const { canAlign, canDistribute, alignCells, distributeCells } = useAlign()
 
-// Тулбар выравнивания/распределения (мульти-режим). Кнопки различаются лишь
-// подсказкой, операцией и координатами прямоугольников иконки (viewBox 16×16) —
-// держим конфигом, а не копипастом разметки. В rects: ось выравнивания (без
-// opacity) + два «элемента» (o:0.8); у распределения — три равных столбца.
+// Тулбар выравнивания и распределения (мульти-режим): кнопки отличаются подсказкой,
+// операцией и координатами прямоугольников иконки (viewBox 16×16), поэтому заданы
+// конфигом. В rects — ось выравнивания и два «элемента» (o:0.8), у распределения три
+// равных столбца.
 const ALIGN_ROWS = [
   {
     label: 'По горизонтали',
@@ -160,8 +159,8 @@ const project = useProjectStore()
 const workspace = useWorkspaceStore()
 const notify = useNotify()
 
-// Computed-и читают canvas.graphVersion, чтобы пересчитываться при изменениях графа
-// (JointJS-модели не Vue-reactive, ловим через явный version-tick).
+// Computed'ы читают canvas.graphVersion: JointJS-модели не Vue-reactive, изменения
+// ловятся явным version-тиком.
 const details = computed(() => {
   canvas.graphVersion.value // touch для reactive-зависимости
   const sel = canvas.singleSelection.value // мульти-режим обрабатывается отдельно
@@ -171,8 +170,8 @@ const details = computed(() => {
   if (!cell) return null
 
   if (sel.kind === 'cell' && isShapeCell(cell)) {
-    // Фигура-разметка: ни символа, ни портов, ни анимаций — только вид и (у
-    // подписи) содержимое. Геометрия правится жестами на холсте, не полями.
+    // Фигура-разметка: ни символа, ни портов, ни анимаций — только вид и содержимое
+    // подписи. Геометрия правится жестами на холсте.
     const shape = cell.get('tms')?.shape || {}
     return {
       kind: 'cell',
@@ -183,7 +182,7 @@ const details = computed(() => {
       locked: !!cell.get('tms')?.locked,
       stroke: shape.stroke || '#000000',
       strokeWidth: shape.strokeWidth ?? 2,
-      // Заливать нечего у линии и подписи (у неё цвет живёт в stroke).
+      // У линии и подписи заливки нет (у подписи цвет живёт в stroke).
       isShapeFillable: shape.type !== 'line' && shape.type !== 'text',
       fill: shape.fill && shape.fill !== 'none' ? shape.fill : '',
       isShapeText: shape.type === 'text',
@@ -216,8 +215,8 @@ const details = computed(() => {
       color: tms.color || '',
       isBus: tms.stencilId === 'cell_bus',
       isNode: tms.stencilId === 'cell_node',
-      // Толщина: у шины это высота ячейки, у точки — диаметр в tms (габарит ячейки
-      // держит hit-area и порт, менять его нельзя).
+      // Толщина: у шины это высота ячейки, у точки — диаметр в tms (габарит держит
+      // hit-area и порт).
       thickness:
         tms.stencilId === 'cell_node'
           ? (tms.dotSize ?? NODE_SIZE_DEFAULT)
@@ -226,21 +225,19 @@ const details = computed(() => {
       thicknessMax: tms.stencilId === 'cell_node' ? NODE_SIZE_MAX : BUS_THICKNESS_MAX,
       isValue: tms.stencilId === 'cell_value',
       valueTag: tms.valueTag ?? '',
-      // Явно выбранная пара «подпись + единица» (перебивает пресет по суффиксу).
+      // Явно выбранная пара «подпись + единица».
       valueLabel: tms.valueLabel ?? '',
       decimals: Number.isFinite(tms.decimals) ? tms.decimals : null,
       valueUnit: tms.valueUnit ?? '',
       // id outer-карточки в animations.json/SVG (тот же, что эмитит exporter).
       exportId: previewOuterKey(tms.stencilId, cell.id, tms.valueTag),
-      // Символы с булевым слотом-драйвером (key onoff — см. hasBoolSlot; это
-      // cell_qw/qr/qk/qf, cell_alr, пользовательские) рендерят его через BooleanBlock
-      // первой строкой (основной тег) вместе с зависимостями boolSource.
+      // Символы с булевым слотом-драйвером (`onoff`, см. hasBoolSlot) рендерят его
+      // первой строкой BooleanBlock вместе с зависимостями boolSource.
       hasBoolSlot: hasBoolSlot(stencil),
-      // Тег основного булева слота (slot.onoff) — для исключения из boolSource.
-      // Из payload (tms.slots.onoff), как и multi-select; не по индексу slots[0].
+      // Тег основного булева слота (slot.onoff) — чтобы исключить его из boolSource.
+      // Берётся из payload, а не по индексу slots[0].
       onoffTag: slotValues.onoff || '',
-      // Слоты для UI: декларация из символа + текущее значение из tms.slots.
-      // Нужны BooleanBlock (slots[0]) и slot-picker'у; type — тип тега.
+      // Слоты для UI: декларация из символа плюс текущее значение из tms.slots.
       slots: slotsDef.map((s) => ({
         key: s.key,
         type: s.type,
@@ -257,7 +254,7 @@ const details = computed(() => {
     return {
       kind: 'link',
       id: cell.id,
-      // Толщина/цвет линии — из JointJS-attr (реально отрисованные); дефолты 2 / #000.
+      // Толщина и цвет линии — из JointJS-attr, то есть реально отрисованные.
       strokeWidth: cell.attr('line/strokeWidth') ?? 2,
       strokeColor: cell.attr('line/stroke') || '#000000',
       arrowStart: cell.get('tms')?.arrowStart || null,
@@ -270,9 +267,8 @@ const details = computed(() => {
   return null
 })
 
-// Слот-драйвер символа «по значению»: любой не-onoff слот (onoff рисует
-// BooleanBlock). Значение сигнала выбирает активное состояние; на холсте нужна
-// одна строка — привязать тег (сами состояния/вид уже в символе).
+// Слот-драйвер символа «по значению»: любой не-onoff слот (onoff рисует BooleanBlock).
+// На холсте нужна одна строка — привязать тег, состояния и вид заданы в символе.
 const valueStateSlot = computed(() => {
   const d = details.value
   if (!d || d.kind !== 'cell') return null
@@ -285,9 +281,9 @@ function onDelete() {
 }
 
 // ─── Единый tag-picker ───
-// Один диалог на все места: `openPicker(config)`, где selected/header снимаются при
-// открытии, а `tags` — ГЕТТЕР (пустой picker сам грузит tag-list, список должен
-// наполниться не закрывая диалог). picker=null → закрыт.
+// Один диалог на все места: `openPicker(config)` снимает selected и header при
+// открытии, а `tags` передаётся ГЕТТЕРОМ — пустой picker сам грузит tag-list, и список
+// должен наполниться, не закрывая диалог. picker=null — закрыт.
 const picker = ref(null)
 const pickerTags = computed(() => picker.value?.tags?.() ?? [])
 
@@ -313,11 +309,10 @@ function openSlotPicker(slot) {
 }
 
 /**
- * Каркас правки выделенной ЯЧЕЙКИ (не линка): резолвит cell + её stencil и
- * отдаёт { cell, stencil, tms, d } в fn. fn сам мутирует cell (cell.set('tms',…),
- * при нужде resize). Вернул false → выходим без перерисовки и snapshot'а (нечего
- * менять). reinject:true — перерисовать SVG ячейки (новые bindings) после fn.
- * Финал — bumpVersion + requestSnapshot один раз.
+ * Каркас правки выделенной ЯЧЕЙКИ (не линка): резолвит cell и её stencil, отдаёт
+ * { cell, stencil, tms, d } в fn, а мутирует cell сама fn. Вернула false — выходим без
+ * перерисовки и снимка. reinject:true — перерисовать SVG ячейки после fn. В конце один
+ * bumpVersion и requestSnapshot.
  */
 function withSelectedCell(fn, { reinject = false } = {}) {
   const graph = canvas.graphRef.value
@@ -336,7 +331,7 @@ function withSelectedCell(fn, { reinject = false } = {}) {
   canvas.requestSnapshot()
 }
 
-/** Записывает тег в слот ячейки + перерисовывает SVG (новые bindings). */
+/** Записывает тег в слот ячейки и перерисовывает её SVG (новые bindings). */
 function patchSlotTag(key, tag) {
   withSelectedCell(
     ({ cell, tms }) => {
@@ -357,9 +352,8 @@ const { applyText, applyFontSize, applyBold, applyColor, applyAlign, applyFontFa
   })
 
 // ─── Фигура-разметка: вид и содержимое подписи ───
-// Патч уходит в `tms.shape` через applyShapePatch — он же пересчитывает габарит
-// ячейки (у подписи он зависит от текста и шрифта). Правка идёт на ВСЁ выделение
-// фигур: инспектор одиночной ячейки и мульти-режим ведут себя одинаково.
+// Патч уходит в `tms.shape` через applyShapePatch, он же пересчитывает габарит ячейки
+// (у подписи он зависит от текста и шрифта). Правка идёт на ВСЁ выделение фигур.
 function patchShape(patch) {
   const graph = canvas.graphRef.value
   const paper = canvas.paperRef.value
@@ -374,14 +368,14 @@ function patchShape(patch) {
 }
 
 /**
- * Толщина тела: у шины — высота ячейки (нижние порты едут следом, см. busCell), у
- * точки соединения — диаметр в tms.
+ * Толщина тела: у шины — высота ячейки (порты едут следом, busCell), у точки
+ * соединения — диаметр в tms.
  */
 function applyThickness(v) {
   if (!Number.isFinite(v)) return
   withSelectedCell(
     ({ cell, stencil, tms, d }) => {
-      // Точка: диаметр живёт в tms, дефолт не пишем — отсутствие поля и есть он.
+      // У точки диаметр живёт в tms; дефолт не пишем — отсутствие поля и есть он.
       if (d.isNode) {
         const next = { ...tms }
         if (v !== NODE_SIZE_DEFAULT) next.dotSize = v
@@ -403,8 +397,8 @@ function applyBodyColor(value) {
     ({ cell, tms, d }) => {
       if (!d.isBus && !d.isNode && !d.isValue) return false
       const next = { ...tms }
-      // Дефолт зависит от символа: у карточки значения это цвет текста, у шины и точки
-      // — цвет тела. Совпал с дефолтом — поля не держим (отсутствие и есть дефолт).
+      // Дефолт зависит от символа: у карточки значения это цвет текста, у шины и точки —
+      // цвет тела. Значение, равное дефолту, в tms не пишем.
       const fallback = d.isValue ? VALUE_TEXT_COLOR : BUS_COLOR_DEFAULT
       if (value && value !== fallback) next.color = value
       else delete next.color
@@ -415,8 +409,8 @@ function applyBodyColor(value) {
   )
 }
 
-// Текст подписи-разметки: непустое пишем живьём (видно сразу), пустое держим только
-// в поле — фигуру без текста не найти на холсте, поэтому по коммиту она удаляется.
+// Текст подписи-разметки: непустое пишется живьём, пустое держится только в поле —
+// фигуру без текста на холсте не найти, поэтому по коммиту она удаляется.
 const shapeTextDraft = ref(null)
 const shapeText = computed(() => shapeTextDraft.value ?? details.value?.text ?? '')
 
@@ -426,7 +420,7 @@ function onShapeTextInput(v) {
   if (next) patchShape({ text: next })
 }
 
-// Смена выделения (клавишами, лассо) не должна тащить черновик на другую фигуру.
+// Смена выделения не должна тащить черновик текста на другую фигуру.
 watch(
   () => details.value?.id,
   () => (shapeTextDraft.value = null)
@@ -446,24 +440,23 @@ function toggleShapeFill(on) {
 }
 
 // Свитч наконечника (`solid` — треугольник, `open` — две линии под 45°, нет поля —
-// без стрелки): миниатюра вместо подписи, выбор одним кликом. Глиф в том же формате,
-// что иконки инструментов холста: [{ d, mode }] в системе 16×16.
-// `'none'` в значении, а не null: SelectButton сравнивает значения, и null конфликтует
-// с «ничего не выбрано» — в tms он превращается обратно в отсутствие поля.
+// без стрелки): миниатюра вместо подписи, глиф в формате иконок холста ([{ d, mode }] в
+// системе 16×16). В значении `'none'`, а не null: SelectButton сравнивает значения, и
+// null конфликтует с «ничего не выбрано»; в tms он снова становится отсутствием поля.
 const ARROW_OPTIONS = [
-  // У «нет» — просто линия; у остальных короткий хвост и крупный наконечник.
+  // У «нет» просто линия, у остальных короткий хвост и крупный наконечник.
   { value: 'none', tip: 'Без стрелки', glyph: [{ d: 'M 3 8 L 13 8', mode: 'stroke' }] },
   {
     value: 'open',
     tip: 'Стрелка линиями',
-    // Раствор 90°, как у настоящего наконечника (arrowSize): длина равна полуширине.
-    // Хвост доводим до ВЕРШИНЫ, иначе между ними остаётся разрыв.
+    // Раствор 90°, как у настоящего наконечника (arrowSize): длина равна полуширине,
+    // хвост доводится до вершины — иначе между ними разрыв.
     glyph: [{ d: 'M 3 8 L 14 8 M 8 2.5 L 14 8 L 8 13.5', mode: 'stroke' }],
   },
   {
     value: 'solid',
     tip: 'Стрелка треугольником',
-    // Тот же раствор 90°: миниатюра обязана показывать то, что получится на схеме.
+    // Тот же раствор 90°: миниатюра показывает то, что получится на схеме.
     glyph: [
       { d: 'M 3 8 L 8 8', mode: 'stroke' },
       { d: 'M 14 8 L 8 2 L 8 14 Z', mode: 'fill' },
@@ -477,11 +470,10 @@ const ARROW_ENDS = [
 
 // ─── Провод: стиль линии (толщина / цвет / наконечники) ───
 //
-// Один блок обслуживает два случая: выделен один провод и выделено несколько. Правка
+// Один блок на два случая: выделен один провод и выделено несколько. Правка
 // запоминается как «липкая» (workspace.wireStyle) и достаётся следующему нарисованному
-// проводу — иначе серию однотипных линий приходилось бы править по одной.
-// Толщина и цвет живут ещё и в attrs (их рисует JointJS), наконечники — только в tms
-// (маркеры пересобирает syncLinkEndMarkers).
+// проводу. Толщина и цвет живут ещё и в attrs (по ним рисует JointJS), наконечники —
+// только в tms, маркеры пересобирает syncLinkEndMarkers.
 const LINK_STYLE_ATTR = { strokeWidth: 'line/strokeWidth', strokeColor: 'line/stroke' }
 
 /** Выделенные провода (заблокированные не правим — замок read-only). */
@@ -513,13 +505,12 @@ const linkStyle = computed(() => {
 })
 
 /**
- * Патч стиля: применяется ко ВСЕМ выделенным проводам (или к настройкам нового, если
- * выделения нет) и запоминается как «липкий» — следующий нарисованный провод получит
- * тот же вид.
+ * Патч стиля применяется ко ВСЕМ выделенным проводам и запоминается как «липкий»:
+ * следующий нарисованный провод получит тот же вид.
  */
 function applyLinkStyle(key, value) {
-  // У наконечников `null` — штатное значение «нет стрелки»; у толщины и цвета пустой
-  // ввод игнорируем (InputNumber отдаёт null при очистке поля).
+  // У наконечников `null` — штатное «нет стрелки»; у толщины и цвета пустой ввод
+  // игнорируется (InputNumber отдаёт null при очистке поля).
   const isArrow = key === 'arrowStart' || key === 'arrowEnd'
   if (value == null && !isArrow) return
   const isDefault = isDefaultWireValue(key, value)
@@ -534,7 +525,7 @@ function applyLinkStyle(key, value) {
     else next[key] = value
     link.set('tms', next)
     // Наконечник зависит от толщины и цвета линии, а точка — от привязки конца:
-    // пересобираем маркеры тем же билдером, что и при загрузке формы.
+    // маркеры пересобираются тем же билдером, что и при загрузке формы.
     syncLinkEndMarkers(link)
   }
   canvas.bumpVersion()
@@ -548,8 +539,8 @@ function applyLockToggle() {
   canvas.toggleLocked([{ kind: 'cell', id: d.id }])
 }
 
-// Замок для ЦЕЛЬНОЙ группы (не произвольного мультивыделения — там замка нет).
-// Тумблер «включён» = все члены группы locked; клик лочит/снимает всю группу.
+// Замок для ЦЕЛЬНОЙ группы (у произвольного мультивыделения его нет): тумблер включён,
+// когда все члены группы locked, клик блокирует или снимает всю группу.
 const multiLock = computed(() => {
   canvas.graphVersion.value
   const graph = canvas.graphRef.value
@@ -565,11 +556,9 @@ function applyMultiLockToggle() {
   canvas.toggleLocked(canvas.selection.value)
 }
 
-// Состав выделения: символы и провода СЧИТАЕМ РАЗДЕЛЬНО. В выделение авто-попадают
-// мостовые провода (selectCellsWithBridges), поэтому `selection.length` называть
-// «символами» нельзя — лассо по двум связанным символам дало бы «3 символа».
-// `deletable` — сколько реально удалится (замок не даёт удалить), чтобы кнопка
-// «Удалить (N)» не обещала больше, чем сделает.
+// Состав выделения: символы и провода считаются РАЗДЕЛЬНО — в выделение авто-попадают
+// мостовые провода, и лассо по двум связанным символам дало бы «3 символа».
+// `deletable` — сколько реально удалится, чтобы кнопка «Удалить (N)» не обещала больше.
 const selectionSummary = computed(() => {
   canvas.graphVersion.value
   const sel = canvas.selection.value
@@ -584,7 +573,7 @@ const selectionSummary = computed(() => {
   if (links.length) parts.push(nplural(links.length, 'провод', 'провода', 'проводов'))
   return {
     label: parts.join(' + ') || 'ничего',
-    // Тот же фильтр, что у deleteItems и пункта «Удалить» в контекст-меню.
+    // Тот же фильтр, что у deleteItems и пункта «Удалить» контекст-меню.
     deletable: canvas.writableItems(sel).length,
     locked: lockedCells,
   }

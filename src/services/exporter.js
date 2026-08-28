@@ -48,9 +48,9 @@ import { getCellTagsFromTms } from '../utils/cellSearch'
 import { boolSourceTags } from '../utils/boolSource'
 
 /**
- * Короткий id из UUID: первый сегмент, при коллизии добираем следующие — иначе две
- * ячейки с общим префиксом слились бы в одну карточку. Round-trip держится на
- * полном UUID в data-tms-meta.
+ * Короткий id из UUID: первый сегмент, при коллизии добираются следующие (две ячейки
+ * с общим префиксом слились бы в одну карточку). Round-trip держится на полном UUID в
+ * data-tms-meta.
  *
  * @param {string} fullId — JointJS UUID
  * @param {(candidate: string) => boolean} isTaken
@@ -65,9 +65,9 @@ function uniqueShortId(fullId, isTaken) {
 }
 
 /**
- * Конец линка для `data-tms-meta`: либо привязка к ячейке (`{ id, port }`), либо
- * свободная точка (`{ x, y }`). Оба вида обязаны доехать до архива — иначе провод с
- * отцепленным концом не восстановится при импорте и связь исчезнет.
+ * Конец линка для `data-tms-meta`: привязка к ячейке (`{ id, port }`) либо свободная
+ * точка (`{ x, y }`). Оба вида обязаны доехать до архива, иначе провод с отцепленным
+ * концом при импорте не восстановится.
  */
 function endpointMeta(end) {
   if (!end) return null
@@ -77,7 +77,7 @@ function endpointMeta(end) {
 
 /**
  * Разметка конца провода: наконечник, а если его нет и конец не привязан к символу —
- * точка свободного конца (она заменила символ «точка соединения», см. endMarker).
+ * точка свободного конца (endMarker).
  */
 function endMarkSvg(kind, end, ref, width, color) {
   return (
@@ -88,8 +88,7 @@ function endMarkSvg(kind, end, ref, width, color) {
 
 /**
  * Абсолютная позиция конца линка: привязка (`{ id, port }` / `{ id }`) либо свободная
- * точка (`{ x, y }`) — конец, оставленный на холсте, помечается точкой и обязан
- * попадать в экспорт наравне с привязанным.
+ * точка (`{ x, y }`).
  */
 function getEndpointPos(end, graph, warnings) {
   if (!end?.id) return endPoint(end)
@@ -108,8 +107,8 @@ function getEndpointPos(end, graph, warnings) {
         y: pos.y + (port.args?.y ?? 0),
       }
     }
-    // Порт не найден (рассинхрон после ресайза шины) — уходим в центр, но сигналим
-    // пользователю: тихий сдвиг провода заметить трудно.
+    // Порт не найден (рассинхрон после ресайза шины) — центр ячейки + предупреждение:
+    // тихий сдвиг провода заметить трудно.
     const msg = `Провод: порт "${end.port}" у символа ${end.id} не найден — конец уехал в центр`
     console.warn(`[Export] ${msg}`)
     warnings?.push(msg)
@@ -123,8 +122,7 @@ function getEndpointPos(end, graph, warnings) {
   }
 }
 
-// Алиас: ниже в нескольких блоках объявляется локальная `outerKey`, которая
-// перекрыла бы импорт.
+// Алиас: ниже объявляется локальная `outerKey`, которая перекрыла бы импорт.
 const outerKeyFor = outerKey
 
 /**
@@ -150,9 +148,9 @@ export function exportProject(graph, paper = null) {
   const cellExports = []
   const linkExports = []
   const animations = {}
-  // Один Set на ячейки и провода: их префиксы не пересекаются, но два Set'а незачем.
+  // Один Set на ячейки и провода — их префиксы не пересекаются.
   const usedOuterKeys = new Set()
-  // Предупреждения уходят в toast: в консоли инженер их не увидит.
+  // Предупреждения уходят в toast (в консоли их не увидят).
   const warnings = []
 
   let minX = Infinity
@@ -163,9 +161,8 @@ export function exportProject(graph, paper = null) {
   // ─── Ячейки (символы) ───
   for (const cell of elements) {
     const tms = cell.get('tms')
-    // Фигура-разметка: без символа, слотов и анимаций — в SVG уезжает статичной
-    // геометрией. Кладём в общий список, чтобы document order (= порядок z) не
-    // сломался: подложка обязана остаться под символами.
+    // Фигура-разметка: без символа, слотов и анимаций, в SVG уезжает статичной
+    // геометрией. Идёт в общий список, чтобы document order (= порядок z) не сломался.
     if (isShapeCell(cell)) {
       const shape = tms?.shape
       if (!shape) continue
@@ -203,15 +200,14 @@ export function exportProject(graph, paper = null) {
     const pos = cell.get('position')
     const size = cell.get('size')
 
-    // У cell_value animId = сам тег: рантайм находит text-узел по id == тег.
-    // Остальным — short-id из UUID. Дубль valueTag получает суффикс (id в SVG
-    // обязаны быть уникальны), но по «чистому» тегу рантайм обновит только первый.
+    // У cell_value animId = сам тег (рантайм находит text-узел по id == тег),
+    // остальным — short-id из UUID. Дубль valueTag получает суффикс, но по «чистому»
+    // тегу рантайм обновит только первый.
     let animId
     if (tms.stencilId === 'cell_value' && tms.valueTag) {
-      // Пробел в теге сделал бы id невалидным (рантайм ищет узел через
-      // getElementById) — в id он заменяется, в binding.tag тег идёт как есть.
-      // Предупреждаем всё равно: чаще это опечатка в tag-list'е, и тогда данные
-      // не придут по самой подписке, а не только в DOM.
+      // Пробел делает id невалидным (рантайм ищет узел через getElementById): в id он
+      // заменяется, в binding.tag тег идёт как есть. Предупреждение всё равно нужно —
+      // чаще это опечатка в tag-list'е, и данные не придут по подписке.
       animId = idSafeTag(tms.valueTag)
       if (animId !== tms.valueTag) {
         const msg = `cell_value: пробел в теге "${tms.valueTag}" — id узла записан как "${animId}", проверь tag-list`
@@ -227,8 +223,8 @@ export function exportProject(graph, paper = null) {
         animId = `${animId}__${n}`
       }
     } else {
-      // Карточка значения без тега уедет в архив прочерком и никогда не обновится:
-      // рантайму нечего подписывать. Молчать нельзя — на схеме она выглядит рабочей.
+      // Карточка значения без тега уедет в архив прочерком: рантайму нечего
+      // подписывать, а на схеме она выглядит рабочей.
       if (tms.stencilId === 'cell_value') {
         const msg = 'cell_value: тег не выбран — карточка останется прочерком в рантайме'
         warnings.push(msg)
@@ -238,15 +234,13 @@ export function exportProject(graph, paper = null) {
     }
     usedOuterKeys.add(outerKeyFor(tms.stencilId, animId))
 
-    // Программные символы (шина, текст, значение) рендерятся по реальному размеру
-    // и без редактор-only декораций; остальные — svgText шаблона + bindings.
-    // Разметка экземпляра: у программных символов (шина, подпись, значение, узел)
-    // её строит билдер СТРОКОЙ по фактическому размеру, у остальных — клон
-    // разобранного `shape.svg` (DOM). Держим оба вида и сериализуем в одном месте.
+    // Разметка экземпляра: у программных символов (шина, подпись, значение, узел) её
+    // строит билдер СТРОКОЙ по фактическому размеру и без редактор-декораций, у
+    // остальных это клон разобранного `shape.svg` (DOM). Оба вида сериализуются ниже.
     let cellSvg
     let cellSvgRoot = null
     if (tms.stencilId === 'cell_bus') {
-      // Маркеры занятых слотов — тем же сборщиком, что рисует холст (см. busCell).
+      // Маркеры занятых слотов — тем же сборщиком, что рисует холст (busCell).
       cellSvg = buildBusExportSvg(
         size.width,
         size.height,
@@ -263,15 +257,14 @@ export function exportProject(graph, paper = null) {
     } else if (tms.stencilId === 'cell_node') {
       cellSvg = buildNodeExportSvg(size.width, size.height, tms)
     } else if (tms.stencilId === 'cell_value') {
-      // Базовый размер: масштаб экземпляра накладывает contentTransform (см. ниже).
+      // Базовый размер: масштаб экземпляра накладывает contentTransform.
       cellSvg = buildValueExportSvg(animId, stencil.width, stencil.height, {
         ...resolveValueDisplay(tms),
         color: valueTextColor(tms),
       })
       if (tms.valueTag) {
-        // text-id = animation-{animId}; animId дедуплицирован выше → ключ уникален
-        // даже при двух cell_value с одним valueTag. Конвенция WebScada-рантайма:
-        // пустой output.text = «взять значение из binding.tag» (того же тега).
+        // text-id = animation-{animId} (animId дедуплицирован выше). Конвенция
+        // рантайма: пустой output.text = «взять значение из binding.tag».
         animations[valueTextKey(animId)] = {
           animation: 'text',
           bindings: [
@@ -287,12 +280,10 @@ export function exportProject(graph, paper = null) {
         }
       }
     } else {
-      // parser.instantiate сделает интерполяцию {slot.X} → tms.slots[X] в
-      // bindings и соберёт SVG с id="animation-{stencilId}-{animId}{suffix}".
-      // Передаём КОРОТКИЙ animId — id символьных карточек короткие
-      // (например animation-cell_qw-c1.true).
+      // parser.instantiate интерполирует {slot.X} → tms.slots[X] в bindings и собирает
+      // SVG с id="animation-{stencilId}-{animId}{suffix}"; animId — короткий.
       const inst = instantiate(stencil, animId, tms.slots || {})
-      // DOM-клон, а не строка: детей сериализуем ниже, одним проходом.
+      // DOM-клон, а не строка: дети сериализуются ниже одним проходом.
       cellSvgRoot = inst.root
       Object.assign(animations, inst.animations)
     }
@@ -305,11 +296,11 @@ export function exportProject(graph, paper = null) {
       height: size.height,
       stencilId: tms.stencilId,
       // База масштаба контента: размер определения у обычных символов, фактический —
-      // у программных (их билдеры уже нарисовали по нему, см. contentScales).
+      // у программных (их билдеры уже нарисовали по нему).
       baseWidth: contentScales(stencil) ? stencil.width : size.width,
       baseHeight: contentScales(stencil) ? stencil.height : size.height,
-      // Масштаб экземпляра: сам размер уже в width/height, но при загрузке габарит
-      // выводится из множителя (см. syncStencilInstances), поэтому он нужен в meta.
+      // Масштаб экземпляра: размер уже в width/height, но при загрузке габарит
+      // выводится из множителя (syncStencilInstances), поэтому он нужен в meta.
       scale: tms.scale,
       animId,
       svgContent: cellSvg,
@@ -317,47 +308,40 @@ export function exportProject(graph, paper = null) {
       slots: tms.slots || null,
       rangeSource: tms.rangeSource || null,
       boolSource: tms.boolSource || null,
-      // navigation — имя другой view, на которую переходит рантайм при клике
-      // (см. handler ниже: пишется в animation-entry как поле navigation).
+      // navigation — имя view, на которую рантайм переходит по клику.
       navigation: tms.navigation || null,
-      // Cтенсило-специфичные поля для round-trip восстановления редактором
+      // Поля символа для round-trip восстановления редактором
       text: tms.text,
       fontSize: tms.fontSize,
       bold: tms.bold,
       color: tms.color,
-      // Шрифт подписи: габарит ячейки посчитан им, без round-trip'а замер
-      // разошёлся бы с рисунком после reload.
+      // Шрифт подписи: габарит ячейки посчитан им, без round-trip'а замер разойдётся.
       fontFamily: tms.fontFamily,
-      // align (якорь роста текста) влияет только на позицию блока в редакторе —
-      // сама позиция уже в c.x/c.y; поле нужно, чтобы после reload правки текста
-      // блок продолжал расти от того же края.
+      // align — якорь роста текста: позиция уже в c.x/c.y, а поле задаёт, от какого
+      // края блок растёт при следующей правке.
       align: tms.align,
-      // locked — «замок» ячейки на холсте (read-only до снятия). Round-trip,
-      // чтобы блокировка переживала экспорт/импорт.
+      // locked — «замок» ячейки: read-only на холсте, переживает экспорт/импорт.
       locked: tms.locked,
-      // groupId — метка логической группы (общий id у членов). Round-trip, чтобы
-      // группировка переживала экспорт/импорт.
+      // groupId — метка логической группы (общий id у членов).
       groupId: tms.groupId,
-      // busId — закрепление на шине (символ едет за ней). Round-trip, иначе после
-      // реимпорта символы на шине молча перестали бы за ней ездить.
+      // busId — закрепление на шине: без round-trip'а символ перестал бы за ней ездить.
       busId: tms.busId,
       valueTag: tms.valueTag,
-      // Явно выбранная величина и точность cell_value. Без них round-trip терял
-      // выбор автора: пара «подпись + единица» откатывалась к пресету по суффиксу
-      // тега, а точность — к дефолтной.
+      // Величина и точность cell_value, выбранные автором: без них round-trip
+      // откатил бы их к дефолтам.
       valueLabel: tms.valueLabel,
       valueUnit: tms.valueUnit,
       decimals: tms.decimals,
       // Диаметр точки соединения (cell_node) — вид, заданный автором.
       dotSize: tms.dotSize,
-      // Геометрический трансформ — для round-trip. angle применяется в SVG
-      // как rotate вокруг центра ячейки на outer-`<g>`.
+      // Геометрический трансформ для round-trip: angle применяется как rotate вокруг
+      // центра ячейки на outer-`<g>`.
       angle: cell.angle ? cell.angle() : 0,
-      // z-index (порядок наложения): document order SVG и так z-упорядочен, но
-      // храним явно — точный z переживает round-trip, toFront/toBack имеют базу.
+      // z-index: document order SVG уже упорядочен, но точное значение нужно
+      // round-trip'у и командам порядка наложения.
       z: cell.get('z'),
-      // Отражение символа (flip) — визуал через transform на внутренней группе,
-      // позиции портов уже отражены в живом paper (buildPortItems).
+      // Отражение (flip): визуал — transform на внутренней группе, позиции портов уже
+      // отражены в живом paper (buildPortItems).
       flipH: tms.flipH,
       flipV: tms.flipV,
     })
@@ -371,15 +355,13 @@ export function exportProject(graph, paper = null) {
   // ─── Линии (links) ───
   for (const link of links) {
     let pathD = null
-    // Концы пути с направлением — для наконечников. Наконечник смотрит В точку
-    // соединения, поэтому у начала берём тангенс задом наперёд.
+    // Концы пути с направлением — для наконечников: они смотрят В точку соединения,
+    // поэтому у начала тангенс берётся задом наперёд.
     let ends = null
 
-    // Если есть paper — забираем реальный путь, как он отрисовался на холсте
-    // (с учётом rightAngle-роутинга и изломов). JointJS 4 standard.Link
-    // имеет два <path> — wrapper (хитбокс) и line (видимая линия), оба с
-    // одинаковым `d`. Берём именно line по `joint-selector="line"` — контракт,
-    // не «по совпадению» (querySelector('path') вернул бы wrapper).
+    // С paper'ом путь берётся таким, как отрисован на холсте (роутинг + изломы). У
+    // standard.Link два <path> с одинаковым `d` — wrapper (хитбокс) и line: выбираем
+    // line по `joint-selector="line"`, querySelector('path') вернул бы wrapper.
     if (paper) {
       const linkView = paper.findViewByModel(link)
       if (linkView?.el) {
@@ -399,15 +381,15 @@ export function exportProject(graph, paper = null) {
             // ignore
           }
         }
-        // Геометрию концов берём у JointJS, а не парсим `d`: у мостиков (jumpover)
+        // Геометрия концов — от JointJS, а не парсингом `d`: у мостиков (jumpover)
         // в пути есть дуги, и «две последние координаты» уже не задают направление.
         try {
           const conn = linkView?.getConnection?.()
           if (conn?.length) {
             const first = conn.tangentAtLength(0)
             const last = conn.tangentAtLength(conn.length())
-            // Тело наконечника рисуется в +X (см. arrowPath), поэтому поворачиваем
-            // его ВДОЛЬ линии внутрь: у начала это направление пути, у конца — обратное.
+            // Тело наконечника рисуется в +X (arrowPath), поэтому поворачивается вдоль
+            // линии внутрь: у начала это направление пути, у конца — обратное.
             ends = {
               start: { point: first.start, angle: first.angle() },
               end: { point: last.end, angle: last.angle() + 180 },
@@ -443,10 +425,9 @@ export function exportProject(graph, paper = null) {
       maxY = Math.max(maxY, source.y, target.y)
     }
 
-    // id провода — `animation-wire-{short}`. Стабильный short-id из link.id
-    // (тот же UUID между save/load); round-trip держится на data-tms-meta.id
-    // (полный JointJS-uuid линка). uniqueShortId защищает от тихого слияния
-    // двух линков с одинаковым первым сегментом UUID.
+    // id провода — `animation-wire-{short}` из link.id (UUID стабилен между
+    // save/load); round-trip держится на полном id в data-tms-meta. uniqueShortId
+    // защищает от слияния двух линков с общим первым сегментом UUID.
     const wireShort = uniqueShortId(link.id, (id) => usedOuterKeys.has(wireKey(id)))
     const wireId = wireKey(wireShort)
     usedOuterKeys.add(wireId)
@@ -462,24 +443,21 @@ export function exportProject(graph, paper = null) {
       d: pathD,
       rangeSource: linkTms.rangeSource || null,
       boolSource: linkTms.boolSource || null,
-      // Толщина/цвет линии. Дефолты (2 / #000) не тащим — meta пишет только нестандартные.
+      // Толщина и цвет линии: дефолты (2 / #000) в meta не пишутся.
       strokeWidth: linkTms.strokeWidth || null,
       strokeColor: linkTms.strokeColor || null,
-      // Endpoint-references для редактора: какие именно ячейки/порты соединены.
-      // Эти данные ИЗ source/target в JointJS-модели, не из геометрии пути.
-      // Свободный конец (провод отцепили от порта) — это точка `{x, y}`, и её надо
-      // записать именно точкой: `{ id: undefined }` импорт трактовал как «провод без
-      // source/target» и ВЫБРАСЫВАЛ линию, то есть выгрузка теряла связи молча.
+      // Привязки концов для редактора — из source/target модели, а не из геометрии
+      // пути. Свободный конец записывается ТОЧКОЙ `{x, y}`: `{ id: undefined }` импорт
+      // читает как «провод без source/target» и выбрасывает линию.
       source: endpointMeta(sourceRef),
       target: endpointMeta(targetRef),
-      // Ручные изломы — иначе round-trip перерисовал бы провод по дефолтному
-      // маршруту (геометрия пути в `d` рантайму, изломы редактору).
+      // Ручные изломы: геометрия пути в `d` нужна рантайму, изломы — редактору.
       vertices: vertices.length ? vertices.map((v) => ({ x: v.x, y: v.y })) : null,
-      // Наконечники + геометрия концов: рисуются в группе провода (см. arrowExportSvg).
+      // Наконечники + геометрия концов: рисуются в группе провода (arrowExportSvg).
       arrowStart: linkTms.arrowStart || null,
       arrowEnd: linkTms.arrowEnd || null,
       ends,
-      // Порядок в полосе проводов (кто кого огибает). Дно полосы не пишем — шум.
+      // Порядок в полосе проводов (кто кого огибает); дно полосы не пишем.
       z: link.get('z') !== LINK_Z ? link.get('z') : null,
     })
   }
@@ -500,10 +478,9 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── Диапазоны / булевы источники ───
-  // Карточка на outer-id ячейки (+ merge во внутренние shape-карточки символа)
-  // либо на wire-id линка. needsMulti-цели получают одну `multi` (диапазоны +
-  // булево + quality слоями); остальные — shape (диапазоны + булево).
-  // Единый список целей: ячейки (с stencilId/animId для inner-merge) и линки.
+  // Карточка на outer-id ячейки (+ merge во внутренние shape-карточки символа) либо
+  // на wire-id линка. needsMulti-цели получают одну `multi` (диапазоны + булево +
+  // quality слоями), остальные — shape.
   const bindingTargets = [
     ...cellExports.map((c) => ({
       src: c,
@@ -524,8 +501,8 @@ export function exportProject(graph, paper = null) {
     assignOrMergeAnimation(animations, t.key, card)
     if (t.stencilId) mergeBindingsIntoStencilCards(animations, t.stencilId, t.animId, t.key, card)
   }
-  // Не-multi shape-источники. диапазоны (range → класс) + switch (плоский список,
-  // любой false → серый). needsMulti-цели пропускаем — их эффекты уже в multi.
+  // Не-multi источники: диапазоны (range → класс) + булево (любой false → серый).
+  // needsMulti-цели пропускаются — их эффекты уже в multi.
   const shapeSources = [
     {
       has: (s) => !!s.rangeSource?.tag && s.rangeSource.ranges?.length > 0,
@@ -544,8 +521,7 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── Проверка источника значения ───
-  // Строка без порогов в карточку не попадает, хотя в инспекторе выглядит рабочей
-  // настройкой — молчать нельзя.
+  // Строка без порогов в карточку не попадает, хотя в инспекторе выглядит настроенной.
   for (const t of bindingTargets) {
     const vs = t.src.rangeSource
     if (!vs?.tag || !vs.ranges?.length) continue
@@ -557,17 +533,16 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── State-color: перекрас всего символа по состоянию (stateColors символа) ───
-  // Слой на outer (assignOrMerge уживается с диапазонами/булевым/quality); на потомков
-  // цвет каскадит через CSS. Работает и для needsMulti-целей (мержится в их multi).
+  // Слой на outer (уживается с диапазонами, булевым и quality), на потомков цвет
+  // каскадит через CSS. Для needsMulti-целей мержится в их multi.
   for (const c of cellExports) {
     const card = buildStateColorCard(c)
     if (card) assignOrMergeAnimation(animations, outerKeyFor(c.stencilId, c.animId), card)
   }
 
   // ─── cell_node наследует диапазоны от соединённого провода ───
-  // Если у точки соединения нет своего rangeSource — берём первый connected
-  // wire с диапазонами. Узел получает ту же range-карточку → визуально перекрасится
-  // в тот же цвет что и провод в рантайме.
+  // Без своего rangeSource узел берёт первый соединённый провод с диапазонами и ту же
+  // range-карточку — в рантайме перекрасится в цвет провода.
   for (const c of cellExports) {
     if (needsMulti(c)) continue
     if (c.stencilId !== 'cell_node') continue
@@ -582,8 +557,8 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── Navigation ───
-  // Поле navigation в animation-entry outer wrapper'а. Если у ячейки нет
-  // других анимаций — создаём пустую shape-карточку (рантайму нужна запись).
+  // Поле navigation в карточке outer-обёртки. Без других анимаций создаётся пустая
+  // shape-карточка: рантайму нужна запись для click-handler'а.
   for (const c of cellExports) {
     if (!c.navigation) continue
     const outerKey = outerKeyFor(c.stencilId, c.animId)
@@ -594,12 +569,9 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── detailTags на outer-wrapper / wire-card ───
-  // Рантайм открывает popup с подробностями при клике, читая detailTags
-  // карточки внешней обёртки. У cell_value detailTags ставится на text-карточку
-  // (`animation-{valueTag}`) — рантайм-конвенция (text-handler находит элемент
-  // по id равному тегу). Для всех остальных собираем все привязанные теги
-  // (slots, rangeSource.tag, boolSource) и кладём на outer-карточку
-  // (см. outerKeyFor) / wire.
+  // Рантайм открывает popup с подробностями по клику, читая detailTags карточки
+  // внешней обёртки. У cell_value они ставятся на text-карточку
+  // (`animation-{valueTag}`) — конвенция рантайма; у остальных на outer или wire.
   function attachDetailTags(key, tags) {
     if (!tags.length) return
     if (!animations[key]) {
@@ -618,9 +590,8 @@ export function exportProject(graph, paper = null) {
       animations[key].detailTags = [...existing, ...additions]
     }
   }
-  // cellExports / linkExports structurally совместимы с tms-payload
-  // (`slots`, `rangeSource`, `boolSource` на верхнем уровне), так что
-  // тот же getCellTagsFromTms что и для поиска — без дубля сборки тегов.
+  // cellExports / linkExports по структуре совпадают с tms-payload, поэтому теги
+  // собирает тот же getCellTagsFromTms, что и поиск.
   for (const c of cellExports) {
     if (getStencilById(c.stencilId)?.static) continue
     attachDetailTags(outerKeyFor(c.stencilId, c.animId), getCellTagsFromTms(c))
@@ -697,9 +668,8 @@ export function exportProject(graph, paper = null) {
       if (l.vertices) meta.vertices = l.vertices
       if (l.z != null) meta.z = l.z
       const metaAttr = escapeAttr(JSON.stringify(meta))
-      // l.id и l.d сейчас составляются из UUID-производных и сгенерированных
-      // path-данных — symbol-safe, но escapeAttr держит инвариант на случай
-      // если JointJS-расширение когда-то засунет туда что-то экзотическое.
+      // l.id и l.d составляются из UUID-производных и сгенерированных path-данных,
+      // то есть symbol-safe; escapeAttr держит инвариант на любой вход.
       const color = escapeAttr(l.strokeColor || '#000')
       const width = l.strokeWidth ?? 2
       const lineAttrs = `d="${escapeAttr(l.d)}" stroke="${color}" stroke-width="${width}" fill="none" ${ATTR_META}="${metaAttr}"`

@@ -3,9 +3,9 @@ import { toPlain } from '../utils/plain'
 
 /**
  * Буфер настроек анимаций на сессию (singleton, как useCanvas): переживает смену
- * выделения и формы — копируем с одного элемента, вставляем на другой, в т.ч. на
- * другой форме. Два слота копируются раздельно, кнопками своего блока инспектора.
- * Payload кладём уже plain: reactive-прокси делили бы ссылки между целями вставки.
+ * выделения и формы, поэтому копировать можно с одного элемента, а вставлять на другой
+ * и на другой форме. Слоты копируются раздельно, кнопками своих блоков инспектора.
+ * Payload кладётся уже plain — reactive-прокси делили бы ссылки между целями.
  */
 const boolClip = ref(null) // { onoffTag: string|null, groups: string[][] } | null
 const rangeClip = ref(null) // { tag: string, ranges: Array<{min,max,class}> } | null
@@ -14,9 +14,9 @@ const hasBool = computed(() => !!boolClip.value)
 const hasRange = computed(() => !!rangeClip.value)
 
 /**
- * Булев буфер → новый tms (null = цель несовместима, вызывающий считает пропуском).
- * Группы — любому не-static элементу, свой тег `onoff` — только символу с булевым
- * слотом. Вставка заменяет блок целиком, поэтому пустой буфер снимает boolSource.
+ * Булев буфер → новый tms (null = цель несовместима, вызывающий считает это
+ * пропуском). Группы применимы к любому не-static элементу, свой тег `onoff` — только
+ * к символу с булевым слотом. Вставка заменяет блок целиком.
  */
 export function applyBoolClip(tms, clip, { isStatic = false, hasBoolSlot = false } = {}) {
   if (!clip || isStatic) return null

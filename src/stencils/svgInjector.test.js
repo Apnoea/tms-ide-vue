@@ -176,9 +176,8 @@ describe('syncStencilInstances', () => {
     const next = { ...PREV, ports: [...PREV.ports, { name: 'p3', x: 20, y: 0 }] }
     syncStencilInstances(graph, paper, next, PREV)
     expect(cell.getPorts().map((p) => p.id)).toEqual(['p1', 'p2', 'p3'])
-    // `set('ports', {items})` заменил бы объект целиком и снёс `groups` из
-    // defaults TMSStencil: порт остался бы в items, но JointJS падал бы на
-    // расчёте позиций (нет layout-колбэка группы) — порты не рисуются.
+    // `set('ports', {items})` заменил бы объект целиком и снёс `groups` из defaults
+    // TMSStencil, а без layout-колбэка группы JointJS не считает позиции портов.
     expect(Object.keys(cell.get('ports').groups || {})).toEqual(['port'])
     expect(cell.getPortsPositions('port')).toMatchObject({
       p1: { x: 0, y: 10 },

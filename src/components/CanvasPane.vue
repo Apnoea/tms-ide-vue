@@ -57,8 +57,8 @@ const canvas = useCanvas()
 const notify = useNotify()
 const confirm = useConfirm()
 
-// Общий флаг «идёт восстановление графа» (useAutosave + useUndoRedo): иначе
-// snapshot → save → restore зациклится. Взводится и на массовых правках графа.
+// Общий флаг «идёт восстановление графа» (useAutosave + useUndoRedo): без него
+// snapshot → save → restore зацикливается. Взводится и на массовых правках графа.
 const restoringHistory = ref(false)
 const {
   restoreProject,
@@ -78,8 +78,8 @@ const { initHistory, snapshot, scheduleSnapshot, undo, redo, cancelPendingSnapsh
 const bus = useBusResize({ scheduleSnapshot })
 
 // ─── Vue refs / JointJS state ───
-// Объявляем до listeners-блока: useEventListener читает paperContainer как
-// зависимость, а у `const`-ref'а нет hoisting'а (TDZ).
+// Объявления идут ДО блока listeners: useEventListener читает paperContainer как
+// зависимость, а у `const` нет hoisting'а (TDZ).
 const paperContainer = ref(null)
 // Скрытый <input type="color"> пикера фона: кнопка тулбара открывает его click()'ом.
 const bgInput = ref(null)
@@ -87,26 +87,25 @@ let paper = null
 let graph = null
 
 // ─── Zoom / viewport ───
-// zoomPercent живёт в singleton useCanvas — читается без prop-drilling; механика
-// (колесо, кнопки ±, fit) — в useCanvasZoom. Объявляем ДО listeners-блока: onWheel
-// уходит туда значением, а у `const` нет hoisting'а.
+// zoomPercent живёт в синглтоне useCanvas, механика (колесо, кнопки ±, fit) — в
+// useCanvasZoom. Объявление ДО блока listeners: onWheel уходит туда значением.
 const zoomPercent = canvas.zoomPercent
 const { onWheel, zoomByStep, fitToContent, centerOnCell } = useCanvasZoom(paperContainer)
 // Подсветки по тегу и результатам поиска (CSS-классы на view'ах) — в композабле;
-// clearCellClass переиспользуем для `.tms-selected` ниже.
+// clearCellClass используется ниже и для `.tms-selected`.
 const { clearCellClass } = useCellHighlight({ centerOnCell })
-// Pan — в usePan (свои document move/up). onPanStart дёргаем из capture-mousedown
+// Pan — в usePan (свои document move/up); onPanStart зовётся из capture-mousedown
 // ниже (средняя кнопка или Space+ЛКМ).
 const { onPanStart, isPanning } = usePan()
 
-// useEventListener авто-снимает всё на unmount. Значения из композаблов (`const`)
-// можно ссылать только после объявления, hoisted-функции — до.
+// useEventListener снимает всё на unmount. Значения из композаблов (`const`) можно
+// ссылать только после объявления, hoisted-функции — до.
 useEventListener(paperContainer, 'wheel', onWheel, { passive: false })
 useEventListener(paperContainer, 'mousemove', onCanvasMouseMove)
 useEventListener(paperContainer, 'mouseenter', onCanvasEnter)
 useEventListener(paperContainer, 'mouseleave', onCanvasMouseLeave)
-// Capture-фаза: ресайз шины и pan должны перехватить mousedown раньше JointJS,
-// иначе он начнёт свой drag.
+// Capture-фаза: ресайз шины и pan перехватывают mousedown раньше JointJS, иначе он
+// начнёт свой drag.
 useEventListener(paperContainer, 'mousedown', bus.onMaybeStartResize, true)
 useEventListener(paperContainer, 'mousedown', onPanMouseDown, true)
 useEventListener(document, 'mouseup', onPanMouseUp)
@@ -114,19 +113,19 @@ useEventListener(window, 'keydown', onSpaceDown)
 useEventListener(window, 'keyup', onSpaceUp)
 // Свои document/window-события pan/lasso/palette-drag слушают сами.
 
-// Ресайз окна → пересчёт paper'а. В синхронном setup-скоупе: из async onMounted
-// vueuse не зацепит scope-dispose и observer утечёт.
+// Ресайз окна → пересчёт paper'а. Регистрируется в синхронном setup-скоупе: из async
+// onMounted vueuse не зацепит scope-dispose, и observer утечёт.
 useResizeObserver(paperContainer, () => {
   if (!paper || !paperContainer.value) return
   paper.setDimensions(paperContainer.value.clientWidth, paperContainer.value.clientHeight)
 })
 
-// JointJS шлёт change:position ~60 раз/сек — bumpVersion гонял бы details и
-// overlayBtns на каждом mousemove. Подавляем в окне pointerdown → pointerup.
-// document-mouseup — fallback на отпускание вне холста.
+// JointJS шлёт change:position ~60 раз/сек, поэтому bumpVersion подавляется в окне
+// pointerdown → pointerup (иначе details и overlayBtns считаются на каждый mousemove).
+// document-mouseup — на случай отпускания вне холста.
 let isPointerDownOnCell = false
-// «Ячейку тащат» — взводится на первом change в окне pointer-down (реальный drag,
-// не клик). Пока true, overlay-кнопки скрыты: bumpVersion подавлен.
+// «Ячейку тащат» — взводится на первом change в окне pointer-down (drag, а не клик).
+// Пока true, overlay-кнопки скрыты: bumpVersion подавлен.
 const cellDragging = ref(false)
 function releasePointerDrag() {
   if (!isPointerDownOnCell) return
@@ -142,21 +141,21 @@ const { textEditing, textEditValue, textEditorRef, startTextEdit, commitTextEdit
 const { copySelection, pasteClipboard, duplicateSelection, hasClipboard } = useClipboard({
   scheduleSnapshot,
 })
-// Символ на шине: ложится на неё центром и едет за ней (см. useBusSnap). Нужен и
-// палитре (drop), и здесь — жестам с уже стоящими ячейками.
+// Символ на шине: ложится центром и едет за ней (useBusSnap). Нужен и палитре (drop),
+// и здесь — жестам с уже стоящими ячейками.
 const busSnap = useBusSnap()
 const { syncBusAttachment, detachFromBus, followBus, releaseBus } = busSnap
-// Drag символа из палитры (превью + создание ячейки + врезка в провод + присоединение
-// к шине) — целиком в usePaletteDrag. wireSplice/busSnap нужны только ему, прокидываем
-// напрямую. Цепляет свои document-листенеры сам.
+// Drag символа из палитры (превью, создание ячейки, врезка в провод, посадка на шину)
+// целиком в usePaletteDrag: wireSplice и busSnap нужны только ему, свои
+// document-листенеры он цепляет сам.
 const { previewVisible, previewStyle, draggingStencilSvg } = usePaletteDrag(
   paperContainer,
   useWireSplice(),
   busSnap
 )
 
-// Проектная оркестрация (переключение формы / импорт+экспорт .zip). Возвращает
-// уже обёрнутые в общий busy-флаг функции (взаимное исключение) + оверлей-флаг.
+// Проектная оркестрация (переключение формы, импорт и экспорт .zip): функции приходят
+// уже обёрнутыми в общий busy-флаг, плюс флаг оверлея.
 const {
   exportingProject,
   projectBusy,
@@ -184,7 +183,7 @@ const {
   textEditing,
 })
 
-// useHotkeys навешивает window-keydown listener (через useEventListener — auto-cleanup).
+// useHotkeys навешивает window-keydown через useEventListener (снимается сам).
 useHotkeys({
   undo,
   redo,
@@ -192,8 +191,8 @@ useHotkeys({
   copySelection,
   pasteClipboard,
   duplicateSelection,
-  // Обёртка (не прямая ссылка): rotateSelectedBy/flipSelected объявлены ниже —
-  // стрелка резолвит их лениво, на keydown (после mount), TDZ не задевает.
+  // Обёртка, а не прямая ссылка: rotateSelectedBy/flipSelected объявлены ниже, и
+  // стрелка резолвит их на keydown, минуя TDZ.
   rotateSelected: (deg) => rotateSelectedBy(deg),
   flipSelected: (axis) => flipSelected(axis),
   cancelDraw: () => cancelDraw(),
@@ -202,9 +201,8 @@ useHotkeys({
   notify,
 })
 
-// Кнопка-лупа в тулбаре тогглит панель поиска: открыта → закрыть (со сбросом
-// подсветки/матчей, как close в SearchBar), закрыта → открыть. Хоткей Ctrl+F
-// живёт отдельно (в useHotkeys) и всегда открывает/рефокусит.
+// Кнопка-лупа тоглит панель поиска: закрытие сбрасывает подсветку и матчи, как close
+// в SearchBar. Ctrl+F живёт в useHotkeys и всегда открывает или рефокусит.
 function toggleSearch() {
   if (ui.searchOpen) {
     canvas.clearSearch()
@@ -214,22 +212,21 @@ function toggleSearch() {
   }
 }
 
-// Multi-drag выделенных ячеек (+ изломов проводов между ними) — в useMultiDrag;
-// хендлеры цепляем на paper/graph в onMounted.
+// Multi-drag выделенных ячеек (и изломов проводов между ними) — в useMultiDrag,
+// хендлеры цепляются на paper/graph в onMounted.
 const { prepareMultiDrag, onPositionChange, endMultiDrag, isMultiDragging } = useMultiDrag()
 
 // ─── Overlay-фичи холста ───
-// overlay-кнопки выделенной ячейки, hover-tooltip и контекстное меню. Все читают
-// graph/paper через canvas.*-ref; tooltip получает suppress-предикат «идёт
-// взаимодействие» (pan/drag/resize/edit).
+// Кнопки выделенной ячейки, hover-tooltip и контекстное меню: все читают graph/paper
+// через canvas.*-ref, tooltip получает предикат «идёт взаимодействие».
 const { overlayBtns, rotateSelectedBy, flipSelected, onDeleteSelected, toggleLockSelected } =
   useSelectionOverlay({
     scheduleSnapshot,
     textEditing,
     dragging: cellDragging,
   })
-// Бейдж-замок в углу каждой заблокированной ячейки — иначе непонятно, почему она
-// read-only. Позиция — правый-верхний угол visual-AABB (с учётом поворота).
+// Бейдж-замок в углу заблокированной ячейки: правый верхний угол visual-AABB (с
+// учётом поворота).
 const lockedBadges = computed(() => {
   canvas.graphVersion.value
   canvas.paperViewTick.value
@@ -247,7 +244,7 @@ const lockedBadges = computed(() => {
     })
 })
 
-// Пунктирная рамка группы по ховеру — видно её границы до клика.
+// Пунктирная рамка группы по ховеру: границы видны до клика.
 const hoveredCellId = ref(null)
 const groupHoverRect = computed(() => {
   canvas.graphVersion.value
@@ -300,13 +297,13 @@ const { lassoRect, startLasso } = useLasso(paperContainer, { selectCellsWithBrid
 const { drawPreview, isDrawing, cancelDraw } = useCanvasDraw(paperContainer, {
   scheduleSnapshot,
 })
-// Ручки ресайза выделенного (фигура целиком, символ — по ширине; overlay, как
-// кнопки поворота) — прячем на время drag'а ячейки тем же флагом.
+// Ручки ресайза выделенного — overlay, как кнопки поворота; на время drag'а ячейки
+// скрываются тем же флагом.
 const { resizeHandles, onHandleDown } = useCanvasResize({
   scheduleSnapshot,
   dragging: cellDragging,
 })
-// Иконки повторяют тулбар редактора символов — жест и результат там те же.
+// Иконки те же, что в тулбаре редактора символов: жест и результат совпадают.
 const DRAW_TOOLS = [
   { key: 'line', icon: 'pi pi-minus', tip: 'Линия' },
   { key: 'rect', icon: 'pi pi-stop', tip: 'Прямоугольник' },
@@ -319,10 +316,10 @@ const DRAW_TOOLS = [
   { key: 'text', glyph: TEXT_ICON, tip: 'Подпись (текст правится в инспекторе)' },
 ]
 
-// ─── Pan-жесты (Figma-модель) ───────────────────────────────────────────────
-// Средняя кнопка или Space+ЛКМ панят холст; обычный ЛКМ по пустому — лассо.
-// Курсор: Space (наведён на холст) → grab, во время pan → grabbing, иначе обычный.
-// spaceHeld/overCanvas — модульные флаги (не reactive, читаются в raw-хендлерах).
+// ─── Pan-жесты ──────────────────────────────────────────────────────────────
+// Средняя кнопка или Space+ЛКМ панят холст, обычный ЛКМ по пустому — лассо.
+// Курсор: Space над холстом → grab, во время pan → grabbing. spaceHeld и overCanvas —
+// модульные флаги, не reactive: их читают raw-хендлеры.
 let spaceHeld = false
 let overCanvas = false
 
@@ -330,8 +327,8 @@ function setCursor(value) {
   if (paperContainer.value) paperContainer.value.style.cursor = value
 }
 
-// Space-pan включаем только когда курсор над холстом — иначе перехватывали бы
-// пробел в остальном UI (кнопки/скролл страницы).
+// Space-pan работает только когда курсор над холстом: иначе пробел перехватывался бы
+// в остальном UI.
 function onCanvasEnter() {
   overCanvas = true
 }
@@ -349,7 +346,7 @@ function onSpaceUp(event) {
   if (!isPanning()) setCursor('')
 }
 
-// Capture-phase: перехватываем ДО JointJS, чтобы MMB/Space+ЛКМ не начали drag
+// Capture-фаза: перехват ДО JointJS, чтобы средняя кнопка и Space+ЛКМ не начали drag
 // элемента и не всплыли в blank:pointerdown как лассо. preventDefault на средней
 // кнопке гасит autoscroll-кружок Windows.
 function onPanMouseDown(event) {
@@ -360,20 +357,19 @@ function onPanMouseDown(event) {
   onPanStart(event)
   setCursor('grabbing')
 }
-// После любого mouseup возвращаем курсор в покой: grab, если Space ещё зажат
-// (над холстом), иначе обычный. Отрабатывает конец pan'а во всех ветках.
+// После любого mouseup курсор возвращается в покой: grab, если Space ещё зажат над
+// холстом, иначе обычный.
 function onPanMouseUp() {
   setCursor(spaceHeld ? 'grab' : '')
 }
 
 /**
- * Заменяет выделение на cells + автодобавленные «мостовые» линии между ними.
- * computeBridgeLinks — в utils/bridgeLinks.js, общая логика c useCanvas.
+ * Заменяет выделение на cells + «мостовые» провода между ними (computeBridgeLinks —
+ * общая логика с useCanvas).
  *
- * keepLinks — провода, которые нужно сохранить в выделении (уже выделены вручную).
- * Нужен для toggle-веток (Ctrl+клик по ячейке, additive-лассо): без него любой
- * выделенный провод слетал бы, т.к. selection пересобирается из ячеек + мостов.
- * Дедуп по id — мост мог совпасть с уже выделённым проводом.
+ * keepLinks — провода, выделенные вручную: нужен для toggle-веток (Ctrl+клик,
+ * additive-лассо), иначе они слетали бы, ведь selection пересобирается из ячеек и
+ * мостов. Дедуп по id: мост мог совпасть с уже выделённым проводом.
  */
 function selectCellsWithBridges(cellItems, keepLinks = []) {
   const cellIds = cellItems.map((c) => c.id)
@@ -389,19 +385,19 @@ function selectCellsWithBridges(cellItems, keepLinks = []) {
   canvas.setSelection([...cellItems, ...links])
 }
 
-// ─── Resize шины (cell_bus), undo/redo, autosave — живут в composables.
-// onMaybeStartResize вешается на mousedown в onMounted; isResizing() читают
-// hover-tooltip и прочие места, которым нужно подавлять UI пока тянем edge.
+// ─── Resize шины (cell_bus), undo/redo, autosave — в композаблах.
+// onMaybeStartResize вешается на mousedown в onMounted, isResizing() читают те, кто
+// гасит свой UI на время жеста.
 
 onMounted(async () => {
   if (!paperContainer.value) return
 
-  // Ждём, пока flex-лейаут проставит размеры карточки — иначе clientWidth/Height
-  // окажутся слишком маленькими на момент создания paper'а.
+  // Ждём, пока flex-лейаут проставит размеры карточки: иначе clientWidth/Height на
+  // момент создания paper'а окажутся слишком малы.
   await nextTick()
 
-  // Конфиг graph/paper (интерактив, снап связей, anchor'ы, validateConnection) —
-  // в stencils/canvasPaper; здесь только подписка на события.
+  // Конфиг graph/paper (интерактив, снап связей, anchor'ы, validateConnection) — в
+  // stencils/canvasPaper, здесь только подписка на события.
   graph = createCanvasGraph()
   paper = createCanvasPaper({
     el: paperContainer.value,
@@ -416,26 +412,24 @@ onMounted(async () => {
   // ─── Клик по пустому месту ───
   paper.on('blank:pointerdown', (evt) => {
     hideCellTooltip()
-    // ЛКМ по пустому — лассо. Pan (MMB / Space+ЛКМ) перехватывается
-    // capture-mousedown'ом и сюда не доходит. Снятие выделения при клике без
-    // drag'а делает сам onLassoEnd (маленькая рамка). Активный инструмент рисования
-    // забирает жест себе (свой capture-pointerdown), рамку выделения не тянем.
+    // ЛКМ по пустому — лассо; pan перехватывает capture-mousedown и сюда не доходит.
+    // Снятие выделения при клике без drag'а делает onLassoEnd. Активный инструмент
+    // рисования забирает жест себе.
     if (isDrawing()) return
     startLasso(evt)
   })
 
   // ─── Selection ───
-  // Ctrl/Cmd+click — toggle (multi-select); plain click — replace selection.
-  // При multi-select ячеек автоматически добавляем линии между ними.
+  // Ctrl/Cmd+клик — тогл, обычный клик — замена выделения; провода между выделенными
+  // ячейками добавляются автоматически.
   paper.on('element:pointerdown', (elementView, evt) => {
     const cellId = elementView.model.id
-    // Клик по члену группы выделяет всю группу целиком (expandGroups). Одиночная
-    // ячейка → сама по себе.
+    // Клик по члену группы выделяет группу целиком (expandGroups).
     const groupItems = canvas.expandGroups([{ kind: 'cell', id: cellId }])
     const groupIds = groupItems.map((i) => i.id)
     if (evt.ctrlKey || evt.metaKey) {
-      // Toggle группы (или одиночки) в выделении + пересчёт «мостов». Ранее
-      // выделенные провода сохраняем (keepLinks) — иначе слетали бы при Ctrl+клике.
+      // Тогл группы (или одиночки) с пересчётом «мостов»; ранее выделенные провода
+      // сохраняются через keepLinks.
       const currentCells = canvas.selection.value.filter((i) => i.kind === 'cell')
       const currentLinks = canvas.selection.value.filter((i) => i.kind === 'link')
       const allIn = groupIds.every((id) => currentCells.some((c) => c.id === id))
@@ -448,8 +442,8 @@ onMounted(async () => {
       }
       selectCellsWithBridges(nextCells, currentLinks)
     } else {
-      // Plain-клик: группу — выделить целиком (если ещё не вся выделена); одиночку
-      // — выделить её одну. Уже полностью выделенное не трогаем — отдаём под multi-drag.
+      // Обычный клик: группу выделяем целиком, одиночку — её одну. Уже полностью
+      // выделенное не трогаем, оно уходит под multi-drag.
       const selIds = new Set(
         canvas.selection.value.filter((i) => i.kind === 'cell').map((i) => i.id)
       )
@@ -460,7 +454,7 @@ onMounted(async () => {
         canvas.selectOnly('cell', cellId)
       }
     }
-    // Если ячейка уже в выделении и нет Ctrl — оставляем как есть (multi-drag).
+    // Ячейка уже в выделении и нет Ctrl — оставляем как есть (multi-drag).
     prepareMultiDrag(cellId)
   })
   paper.on('link:pointerdown', (linkView, evt) => {
@@ -474,9 +468,8 @@ onMounted(async () => {
   graph.on('change:position', onPositionChange)
   paper.on('element:pointerup', endMultiDrag)
 
-  // Закрепление на шине: сдвинули шину — закреплённые символы едут за ней. Выделенных
-  // пропускаем: их уже сдвинул multi-drag, иначе уехали бы на двойную дельту.
-  // `busFollow` гасит реентри (наш же set('position') на закреплённом).
+  // Закрепление на шине: сдвинули шину — закреплённые символы едут за ней. Выделенные
+  // пропускаются (их уже сдвинул multi-drag), `busFollow` гасит реентри.
   graph.on('change:position', (cell, newPos, opt) => {
     if (opt?.busFollow || cell.get('tms')?.stencilId !== 'cell_bus') return
     const prev = cell.previous('position')
@@ -485,8 +478,8 @@ onMounted(async () => {
     followBus(cell, newPos.x - prev.x, newPos.y - prev.y, skip)
   })
 
-  // Толщина двигает линию шины (её середину) — закреплённые сидят на ней центром,
-  // поэтому едут на половину прироста, иначе съехали бы с шины.
+  // Толщина двигает линию шины (её середину), а закреплённые сидят на ней центром —
+  // поэтому едут на половину прироста.
   graph.on('change:size', (cell, newSize, opt) => {
     if (opt?.busFollow || cell.get('tms')?.stencilId !== 'cell_bus') return
     const prev = cell.previous('size')
@@ -495,7 +488,7 @@ onMounted(async () => {
     if (dy) followBus(cell, 0, dy)
   })
 
-  // Шину удалили — снимаем закрепление: иначе символы остались бы привязаны к пустоте.
+  // Шину удалили — снимаем закрепление, иначе символы привязаны к пустоте.
   graph.on('remove', (cell) => {
     if (cell.get?.('tms')?.stencilId === 'cell_bus') releaseBus(cell)
   })
@@ -509,8 +502,8 @@ onMounted(async () => {
     if (tms.stencilId === 'cell_text') startTextEdit(elementView.model.id)
   })
 
-  // Hover-tooltip: показываем над ячейкой при mouseenter, прячем при leave
-  // и element:pointerdown. blank:pointerdown сам скрывает tooltip выше.
+  // Hover-tooltip: показывается при mouseenter, скрывается при leave и
+  // element:pointerdown (blank:pointerdown гасит его выше).
   paper.on('element:mouseenter', (view) => {
     hoveredCellId.value = view.model.id // для пунктирной рамки группы
     showCellTooltip(view)
@@ -521,8 +514,8 @@ onMounted(async () => {
   })
   paper.on('element:pointerdown', hideCellTooltip)
 
-  // Context menu: правый клик по ячейке / проводу / пустому месту. JointJS
-  // сам подавляет нативный browser-контекстменю на своём paper-уровне.
+  // Контекстное меню: ПКМ по ячейке, проводу или пустому месту. Нативное меню
+  // браузера JointJS подавляет сам.
   paper.on('element:contextmenu', (view, evt) => {
     hideCellTooltip()
     showContextMenu({ kind: 'cell', id: view.model.id }, evt)
@@ -536,10 +529,10 @@ onMounted(async () => {
     showContextMenu(null, evt)
   })
 
-  // ─── Graph change tracking (для Inspector computed-ов) ───
-  // Окно подавления bumpVersion при drag'е ячейки: флаг isPointerDownOnCell,
-  // releasePointerDrag и document-mouseup fallback живут в синхронном setup-
-  // скоупе (см. выше). Здесь только paper-события — paper готов лишь в onMounted.
+  // ─── Отслеживание изменений графа (для computed'ов инспектора) ───
+  // Окно подавления bumpVersion при drag'е ячейки (isPointerDownOnCell,
+  // releasePointerDrag, document-mouseup) живёт в синхронном setup-скоупе выше; здесь
+  // только paper-события — paper готов лишь в onMounted.
   paper.on('cell:pointerdown', () => {
     isPointerDownOnCell = true
   })
@@ -553,21 +546,18 @@ onMounted(async () => {
     canvas.bumpVersion()
   })
 
-  // Реконнект конца провода (arrowheadMove) меняет source/target — кладём в undo.
-  // scheduleSnapshot сам пропускает во время restore, лишних снимков на загрузке нет.
-  // Заодно пересобираем маркеры концов: точка свободного конца обязана появиться при
-  // отцеплении и уйти при привязке к порту (см. endMarker).
+  // Реконнект конца провода меняет source/target — это шаг undo (во время restore
+  // scheduleSnapshot молчит сам). Заодно пересобираются маркеры концов: точка
+  // свободного конца появляется при отцеплении и уходит при привязке к порту.
   graph.on('change:source change:target', (link) => {
     syncLinkEndMarkers(link)
     scheduleSnapshot()
   })
 
-  // Снап ручных изломов (linkTools.Vertices) к сетке: тул кладёт vertex в сырых
-  // координатах, а линию gridRightAngleRouter держит на сетке — без снапа хэндл
-  // отрывался бы от линии. vertexSnap-флаг гасит реентри (наш же set → событие).
-  // + snapshot: linkTools.Vertices делает stopPropagation/undelegateEvents, поэтому
-  // cell:pointerup для линка НЕ эмитится — без явного scheduleSnapshot правка изломов
-  // (добавить/двигать/убрать) не попадала бы ни в undo, ни в autosave.
+  // Снап ручных изломов к сетке: тул кладёт vertex в сырых координатах, а линию
+  // роутер держит на сетке, и без снапа хэндл отрывается от линии; vertexSnap гасит
+  // реентри. Здесь же snapshot: linkTools.Vertices делает stopPropagation, поэтому
+  // cell:pointerup для линка не эмитится, и правка изломов иначе не попадёт в undo.
   graph.on('change:vertices', (link, vertices, opt) => {
     if (opt?.vertexSnap) return
     if (paper && vertices?.length) {
@@ -583,19 +573,18 @@ onMounted(async () => {
     scheduleSnapshot() // сам no-op во время restore (см. change:source/target выше)
   })
 
-  // Линии — всегда за ячейками, чтобы порты не перекрывались линией в точке anchor.
+  // Линии всегда за ячейками, иначе линия перекрывает порт в точке anchor.
   graph.on('add', (cell) => {
-    // Полоса проводов, а не `toBack()`: тот даёт min-1 и уводил бы z в дрейф.
-    // Через normalizeLinkZ, а не жёстким LINK_Z: у нарисованного мышью провода
-    // z авто-шный (вне полосы) и едет на дно, а осознанно заданный порядок
-    // (paste поднятого мостика) сохраняется — иначе копия падала бы под соседей.
+    // Полоса проводов, а не `toBack()` (тот даёт min-1 и уводит z в дрейф). Через
+    // normalizeLinkZ, а не жёсткий LINK_Z: авто-z нарисованного мышью провода вне
+    // полосы и едет на дно, а заданный автором порядок сохраняется.
     if (cell.isLink && cell.isLink()) cell.set('z', normalizeLinkZ(cell.get('z')))
   })
 
-  // Маркер «здесь подключён провод» рисует контент шины (слот стоит в середине
-  // толщины, конец провода уходит под тело). Занятость слотов живёт в графе, а не в
-  // модели ячейки — специально: portProp/attrs попали бы в graphJson и дрейфили бы
-  // между снимками undo. Значит перерисовку шины дёргаем на изменениях связей.
+  // Маркер «здесь подключён провод» рисует контент шины: слот стоит в середине
+  // толщины, и конец провода уходит под тело. Занятость слотов читается из графа, а не
+  // хранится в модели (portProp/attrs попали бы в graphJson и дрейфили между снимками
+  // undo), поэтому перерисовка шины дёргается на изменениях связей.
   const refreshBusMarks = (cell) => {
     if (!cell?.isLink?.()) return
     const ids = new Set()
@@ -613,15 +602,14 @@ onMounted(async () => {
   }
   graph.on('add remove change:source change:target', refreshBusMarks)
 
-  // Прокидываем graph/paper в composable ДО restoreProject — composable'ы
-  // useAutosave / useUndoRedo читают их через canvas.graphRef.value.
+  // graph/paper прокидываются ДО restoreProject: useAutosave и useUndoRedo читают их
+  // через canvas.graphRef.value.
   canvas.setCanvasRefs(graph, paper)
 
   // ─── Restore проекта из IndexedDB (активная форма → граф) ───
-  // try/catch обязателен: битый graphJson в IndexedDB → fromJSON бросает, и без
-  // перехвата onMounted оборвался бы ДО initHistory / graph.on — холст навсегда
-  // без истории и хоткеев, лечится только ручной чисткой IDB. Ловим → пустой
-  // холст + error-тост; остальные формы не тронуты, их можно открыть из дерева.
+  // try/catch обязателен: на битом graphJson fromJSON бросает, и без перехвата
+  // onMounted оборвётся ДО initHistory и graph.on — холст останется без истории и
+  // хоткеев. Ловим → пустой холст и error-тост, остальные формы не тронуты.
   let restored = 0
   try {
     restored = await restoreProject()
@@ -637,40 +625,40 @@ onMounted(async () => {
     )
   }
 
-  // ─── History: snapshot на «стабильных» событиях ───
-  // Только pointerup (после действия) + add/remove. На 'change' JointJS шлёт
-  // десятки событий во время draw'а линии — дебаунс не всегда схлопывает.
+  // ─── История: снимок на «стабильных» событиях ───
+  // Только pointerup (после действия) и add/remove: на 'change' JointJS шлёт десятки
+  // событий за один draw линии, и дебаунс не всегда их схлопывает.
   initHistory()
 
-  // Drop элемента из палитры (для линий ждём pointerup, т.к. add'ятся в начале draw'а)
+  // Drop элемента из палитры (у линий ждём pointerup: они добавляются в начале draw'а).
   graph.on('add', (cell) => {
     if (cell.isLink && cell.isLink()) return
     scheduleSnapshot()
   })
 
-  // Удаление любой ячейки/линии
+  // Удаление любой ячейки или провода.
   graph.on('remove', () => {
     scheduleSnapshot()
-    // Если hover-tooltip висел над удаляемой ячейкой, без явной зачистки
-    // он остаётся на холсте — сама ячейка пропала, mouseleave не приходит.
+    // Hover-tooltip над удаляемой ячейкой надо снять вручную: mouseleave уже не
+    // придёт.
     hideCellTooltip()
   })
 
-  // Pointerup на любой cell-view: конец drag'а ячейки, конец draw'а линии,
-  // конец редактирования link-tools.
+  // Pointerup на любом cell-view: конец drag'а ячейки, draw'а линии или правки
+  // link-tools.
   paper.on('cell:pointerup', () => scheduleSnapshot())
 
-  // Регистрируем проектные операции чтобы ProjectActions мог их триггерить.
-  // Переключение формы — панель форм дёргает через canvas.selectForm.
+  // Проектные операции регистрируются, чтобы их могли вызвать другие панели:
+  // переключение формы идёт через canvas.selectForm.
   canvas.setSelectFormFn(guardedSelectForm)
-  // Импорт из .zip + экспорт (.zip) — ProjectActions дёргает через canvas.*Archive.
+  // Импорт и экспорт .zip — ProjectActions зовёт через canvas.*Archive.
   canvas.setArchiveFns({
     importFromArchive: guardedImportArchive,
     exportToArchive: guardedExportArchive,
   })
-  // Вписать контент в область видимости — импорт дёргает через canvas.fitToContent.
+  // Вписать контент в область видимости — импорт зовёт canvas.fitToContent.
   canvas.setFitViewFn(fitToContent)
-  // CRUD форм + DnD-перенос — FormTree дёргает через canvas.createForm/…/moveFormNode.
+  // CRUD форм и DnD-перенос — FormTree зовёт canvas.createForm/…/moveFormNode.
   canvas.setFormCrudFns({
     createForm: guardedCreateForm,
     duplicateForm: guardedDuplicateForm,
@@ -692,12 +680,10 @@ onMounted(async () => {
 
   // Сообщаем о восстановлении уже после монтирования (toast service готов).
   //
-  // Только на ПЕРВОМ монтировании за загрузку страницы: в dev ни один наш `.js` не
-  // объявляет `import.meta.hot.accept`, поэтому правка любого из них поднимает
-  // hot-update до этого компонента, и он перемонтируется — тост с центрированием
-  // повторялись бы на каждое сохранение файла. `hot.data` Vite переносит из старой
-  // версии модуля в новую, так что флаг переживает hot-update; в проде `hot` нет и
-  // условие всегда истинно.
+  // Только на ПЕРВОМ монтировании за загрузку страницы: в dev правка любого нашего
+  // `.js` поднимает hot-update до этого компонента, он перемонтируется, и тост с
+  // центрированием повторялись бы на каждое сохранение файла. Флаг переживает
+  // hot-update через `hot.data`; в проде `hot` нет и условие всегда истинно.
   const firstMount = !import.meta.hot?.data.restoreShown
   if (import.meta.hot) import.meta.hot.data.restoreShown = true
   if (restored > 0) {

@@ -5,38 +5,33 @@ import { LINK_DEFAULTS, gridRightAngleRouter, linkStyleAttrs } from './linkDefau
 const GRID_COLOR_ON_LIGHT = '#e2e8f0' // slate-200
 const GRID_COLOR_ON_DARK = '#334155' // slate-700
 /**
- * Шаг сетки холста. Экспортируется, потому что от него зависят не только точки под
- * ячейками: к нему снапятся габарит и порты масштабированного символа (см.
- * svgInjector.scaledSize) — разъехавшись, эти два места дали бы порт между клетками.
+ * Шаг сетки холста: к нему снапятся и точки под ячейками, и габарит с портами
+ * масштабированного символа (svgInjector.scaledSize).
  */
 export const CANVAS_GRID = 5
 
-/** Фон холста по умолчанию (slate-50). Настройка окружения — см. `ui.canvasBg`. */
+/** Фон холста по умолчанию (slate-50). Свой цвет формы — `workspace.formBg`. */
 export const CANVAS_BG_DEFAULT = '#f8fafc'
 
 /**
- * Цвет точек сетки под цвет фона: slate-200 на тёмном фоне не видно, а второй
- * настройки «цвет сетки» не хочется — считаем яркость и берём один из двух вариантов.
- *
- * Разбираем только hex (пикер даёт именно его). CSS-имя или мусор из localStorage
- * яркостью не измерить — тогда светлый вариант, как было до настройки.
+ * Цвет точек сетки под цвет фона: на тёмном фоне slate-200 не видно, а отдельной
+ * настройки «цвет сетки» нет — берём один из двух вариантов по яркости фона.
+ * Разбирается только hex (пикер даёт его); прочее — светлый вариант.
  */
 export function gridColorFor(bg) {
   const hex = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(String(bg || ''))?.[1]
   if (!hex) return GRID_COLOR_ON_LIGHT
   const full = hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255)
-  // Relative luminance (sRGB-коэффициенты, без гамма-коррекции — для выбора из двух
-  // вариантов её точности хватает).
+  // Relative luminance (sRGB-коэффициенты, без гамма-коррекции).
   const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
   return lum < 0.5 ? GRID_COLOR_ON_DARK : GRID_COLOR_ON_LIGHT
 }
 
 /**
- * Уже есть такой же провод между этой парой портов? (в любом направлении)
- * Перебираем только линки, СВЯЗАННЫЕ с source-ячейкой — любой дубль обязан иметь
- * один конец на ней, поэтому полный перебор графа не нужен (иначе O(links) на
- * каждый mousemove протяжки).
+ * Уже есть такой же провод между этой парой портов (в любом направлении)? Перебираются
+ * только линки, связанные с source-ячейкой: полный обход графа шёл бы на каждый
+ * mousemove протяжки.
  */
 export function isDuplicateConnection(graph, sourceCell, { srcPort, tgtId, tgtPort, drawn }) {
   const srcId = sourceCell.id
@@ -66,9 +61,8 @@ export function createCanvasGraph() {
 }
 
 /**
- * Создаёт `dia.Paper` холста со всей проектной конфигурацией (интерактив, снап
- * связей, anchor'ы cell_node, валидация соединений). Вынесено из CanvasPane —
- * там остаётся подписка на события paper'а.
+ * Создаёт `dia.Paper` холста со всей проектной конфигурацией (интерактив, снап связей,
+ * anchor'ы cell_node, валидация соединений). Подписка на события — в CanvasPane.
  *
  * @param {object} opts
  * @param {HTMLElement} opts.el — контейнер холста
@@ -89,17 +83,16 @@ export function createCanvasPaper({
     width: '100%',
     height: '100%',
     gridSize: CANVAS_GRID,
-    // LinkView резолвит имя роутера через routerNamespace (не через опцию
-    // `routers`), поэтому спредим встроенные и добавляем свой: имя работает и в
-    // редакторе, и при загрузке из JSON/SVG.
+    // LinkView резолвит имя роутера через routerNamespace, а не через опцию `routers`:
+    // спредим встроенные и добавляем свой, чтобы имя работало и при загрузке из JSON.
     routerNamespace: { ...routers, gridRightAngle: gridRightAngleRouter },
     drawGrid: {
       name: 'dot',
       color: gridColorFor(background),
       thickness: 1,
     },
-    // Единственный источник цвета фона — эта опция (JointJS ставит её инлайном);
-    // правила в style.css его НЕ перебивают, иначе выбор пользователя не применился бы.
+    // Единственный источник цвета фона (JointJS ставит его инлайном) — правил в
+    // style.css на него нет.
     background: { color: background },
     cellViewNamespace: tmsNamespace,
     // У провода тащим только концы и только у выделенного: маршрут строит роутер, а
@@ -116,45 +109,41 @@ export function createCanvasPaper({
           linkMove: false,
         }
       }
-      // Замок = полная неинтерактивность. Выделение приходит своим
-      // element:pointerdown, поэтому замок остаётся снимаемым.
+      // Замок = полная неинтерактивность; выделение приходит своим
+      // element:pointerdown, поэтому замок можно снять.
       if (m.get('tms')?.locked) return false
       return true
     },
-    // Порог click vs drag: без него микро-движение на magnet'е рождает
-    // draft-линию (мусор в undo).
+    // Порог click vs drag: микро-движение на magnet'е иначе рождает draft-линию.
     clickThreshold: 5,
     magnetThreshold: 4,
     // Конец провода можно оставить на холсте: свободный конец помечается точкой
-    // (см. endMarker) — она заменила символ «точка соединения».
+    // (см. endMarker).
     linkPinning: true,
     // Не заставляем целиться в кружок порта — бросок рядом подтягивается сам.
     snapLinks: { radius: 30 },
-    // Конец линии — в позиции anchor'а порта, не на boundary магнита (иначе
-    // offset = portRadius). cell_node: anchor на стороне bbox (см. ниже), но
-    // визуально доводим до центра, где нарисована точка — иначе 10px зазор.
+    // Конец линии — в позиции anchor'а порта, а не на boundary магнита (там offset =
+    // portRadius). У cell_node anchor на стороне bbox (см. ниже), но линию доводим до
+    // центра, где нарисована точка.
     defaultConnectionPoint: function (line, view) {
       const stencilId = view?.model?.get?.('tms')?.stencilId
       if (stencilId === 'cell_node') return view.model.getBBox().center()
-      // Шина: слот стоит в СЕРЕДИНЕ толщины, и провод, доведённый до anchor'а, уходил
-      // внутрь тела — вместе с наконечником, который там и прятался. Заканчиваем линию
-      // на границе тела: соединение по-прежнему обозначает маркер на занятом слоте
-      // (см. collectBusMarks), а стрелка остаётся снаружи и видна.
+      // Шина: слот в СЕРЕДИНЕ толщины, поэтому линия заканчивается на границе тела —
+      // иначе она и наконечник уходят под тело. Соединение обозначает маркер на
+      // занятом слоте (collectBusMarks).
       if (stencilId === 'cell_bus') return connectionPoints.bbox.apply(this, arguments)
       return connectionPoints.anchor.apply(this, arguments)
     },
-    // Anchor — точка, от которой роутер строит путь. У cell_node порт в ЦЕНТРЕ
-    // bbox, и rightAngle с внутренним anchor'ом всегда заходил с одной стороны
-    // («провод приходит слева»); midSide берёт середину ближайшей стороны.
-    // `apply` — anchors.* ждут `this` = linkView (дёргают this.paper.findView).
+    // Anchor — точка, от которой роутер строит путь. У cell_node порт в ЦЕНТРЕ bbox, а
+    // rightAngle с внутренним anchor'ом заходит всегда с одной стороны, поэтому берём
+    // `midSide` — середину ближайшей стороны. `apply`: anchors.* ждут `this` = linkView.
     defaultAnchor: function (view) {
       const stencilId = view?.model?.get?.('tms')?.stencilId
       const fn = stencilId === 'cell_node' ? anchors.midSide : anchors.center
       return fn.apply(this, arguments)
     },
-    // Новый провод рождается в «липких» настройках инструмента (см.
-    // workspace.wireStyle): рисуя серию однотипных линий, автор задаёт вид один раз.
-    // Стиль пишем и в tms (round-trip), и в attrs (рисует JointJS).
+    // Новый провод рождается в «липких» настройках инструмента (workspace.wireStyle).
+    // Стиль пишется и в tms (round-trip), и в attrs (по ним рисует JointJS).
     defaultLink: () => {
       const tms = wireStyle() || {}
       const attrs = linkStyleAttrs(tms)

@@ -22,35 +22,32 @@ export function genGroupId() {
 /**
  * Shared singleton-доступ к JointJS-состоянию холста.
  *
- * CanvasPane при монтировании регистрирует graph/paper через setCanvasRefs,
- * остальные компоненты (Inspector, StatusBar) читают их через useCanvas().
+ * CanvasPane при монтировании регистрирует graph/paper через setCanvasRefs, остальные
+ * компоненты читают их через useCanvas().
  *
- * Selection — массив { kind: 'cell'|'link', id }. Пустой массив = ничего не выделено.
- * singleSelection — удобный computed для single-mode компонентов: возвращает item
- * если выделен ровно один, иначе null.
+ * Selection — массив { kind: 'cell'|'link', id }; singleSelection отдаёт item, только
+ * если выделен ровно один.
  */
 
 // graph/paper — нереактивные объекты JointJS, shallowRef достаточно
 const graphRef = shallowRef(null)
 const paperRef = shallowRef(null)
 
-// Переключение формы: панель форм (сосед по layout) дёргает selectForm(id), а
-// оркестрацию (сохранить текущую → загрузить выбранную + сброс undo) держит
-// useProject (смонтирован в CanvasPane, там graph/paper/undo).
+// Переключение формы: панель форм дёргает selectForm(id), оркестрацию (сохранить
+// текущую → загрузить выбранную + сброс undo) держит useProject.
 const selectFormFn = shallowRef(null)
 
-// Импорт из .zip + экспорт проекта в .zip (единственный формат ввода-вывода):
-// кнопки в ProjectActions дёргают эти fn, оркестрацию (распаковка / прогон форм
-// через paper → бандл → download) держит useProject (смонтирован в CanvasPane).
+// Импорт и экспорт .zip: кнопки в ProjectActions дёргают эти fn, оркестрацию
+// (распаковка, прогон форм через paper, бандл) держит useProject.
 const importArchiveFn = shallowRef(null)
 const exportArchiveFn = shallowRef(null)
 
-// Вписать контент в область видимости (fit-to-content). Реализация в CanvasPane
-// (у неё paper + размеры контейнера); зовётся после импорта/переключения.
+// Вписать контент в область видимости: реализация в CanvasPane (у неё paper и размеры
+// контейнера), зовётся после импорта и переключения формы.
 const fitViewFn = shallowRef(null)
 
-// CRUD форм + DnD-перенос узла дерева (панель форм дёргает). Оркестрацию (стор +
-// IDB + перезагрузка холста) держит useProject в CanvasPane.
+// CRUD форм и DnD-перенос узла дерева; оркестрацию (стор, IDB, перезагрузка холста)
+// держит useProject.
 const createFormFn = shallowRef(null)
 const duplicateFormFn = shallowRef(null)
 const deleteFormFn = shallowRef(null)
@@ -60,10 +57,9 @@ const moveFormFn = shallowRef(null)
 const selection = ref([]) // Array<{ kind, id }>
 
 const graphVersion = ref(0)
-// Тик paper-view: bump'ается на pan/zoom/fit. Нужен для overlay'ев, чьё
-// положение зависит от paper.translate()/scale() (кнопки выделенной ячейки —
-// useSelectionOverlay). Отделён от graphVersion чтобы не дёргать Inspector
-// и прочих consumer'ов graph-данных на каждый mousemove во время pan'а.
+// Тик paper-view: bump'ается на pan/zoom/fit — по нему пересчитываются overlay'и,
+// зависящие от paper.translate()/scale(). Отделён от graphVersion, чтобы не дёргать
+// инспектор на каждый mousemove во время pan'а.
 const paperViewTick = ref(0)
 
 // ─── Status-bar метрики ───
@@ -71,42 +67,33 @@ const zoomPercent = ref(100)
 // { x, y } в paper-локальных координатах либо null когда курсор вне холста
 const cursorLocal = ref(null)
 // saveError — последняя запись в IndexedDB упала (квота / приватный режим):
-// статус-полоса показывает «не сохранено», чтобы юзер не закрыл вкладку с потерей
-// данных. Успех автосейва отдельно не индицируем (это ожидаемое поведение).
+// статус-полоса показывает «не сохранено». Успех автосейва не индицируется.
 const saveError = ref(false)
 const canUndo = ref(false)
 const canRedo = ref(false)
 
-// Есть ли изменения, не попавшие в экспортированный .zip. Автосейв пишет только в
-// IndexedDB — файл проекта на диске при этом устаревает. Флаг разводит две модели:
-// «сохранено в браузере» ≠ «выгружено в .zip». true — любое изменение графа после
-// последнего экспорта/импорта; false — состояние совпадает с последним доставленным
-// архивом. Стартуем с false (свежая сессия = как в IDB, т.е. как последний импорт/экспорт).
+// Есть ли изменения, не попавшие в .zip: автосейв пишет только в IndexedDB, файл
+// проекта при этом устаревает. true — граф менялся после последнего экспорта или
+// импорта. Старт с false: свежая сессия совпадает с тем, что в IDB.
 const dirtySinceExport = ref(false)
 
-// Тик для внешних запросов snapshot'а (Inspector после правки слотов и т.п.).
-// CanvasPane watch'ит изменения и вызывает свой scheduleSnapshot.
+// Тик для внешних запросов snapshot'а (инспектор после правки слотов): CanvasPane
+// watch'ит его и зовёт свой scheduleSnapshot.
 const snapshotTick = ref(0)
 
-// Тег, по которому в данный момент подсвечены элементы. Матчит по любому
-// tag-полю (slots, rangeSource.tag, boolSource, valueTag —
-// см. cellHasTag), не только rangeSource. null = подсветки нет.
-// Кнопка «Подсветить на схеме» в RangeBlock / BooleanBlock
-// включает/выключает это значение через toggle: тот же тег второй раз
-// → снимает подсветку.
+// Тег, по которому подсвечены элементы: матч по любому tag-полю (cellHasTag), null =
+// подсветки нет. Кнопка «Подсветить на схеме» тоглит значение.
 const highlightedTag = ref(null)
 
 // ─── Ctrl+F поиск по схеме ───
-// searchQuery — что юзер набрал в SearchBar (lower-case-normalize при матчинге).
-// searchMatchIds — id'шники cells, у которых хоть одна tag-привязка содержит
-// query как substring. Сортировка по позиции (y, x) — стабильный порядок цикла.
-// searchCurrentIdx — индекс «текущего» match'а (на котором фокус, центрируется).
+// searchQuery — запрос из SearchBar (матчинг по lower-case). searchMatchIds — id
+// ячеек, у которых совпала хоть одна строка поиска; порядок по позиции (y, x).
+// searchCurrentIdx — индекс текущего совпадения (оно центрируется).
 const searchQuery = ref('')
 const searchMatchIds = ref([])
 const searchCurrentIdx = ref(0)
-// Debounce-задержка между keystroke и фактическим прогоном matcher'а.
-// 120ms — input ощущается мгновенным, но при rapid typing N getCells'ов
-// не запускаются на каждую букву.
+// Debounce между нажатием и прогоном matcher'а: 120ms ощущаются мгновенно, но обход
+// графа не идёт на каждую букву.
 const SEARCH_DEBOUNCE_MS = 120
 let searchDebounceTimer = null
 
@@ -124,8 +111,8 @@ function performSearchMatch(query) {
   for (const cell of graph.getCells()) {
     if (cellMatchesQuery(cell, q)) matched.push(cell)
   }
-  // bbox-кэш: comparator зовётся ~O(n log n) раз — без кэша N getBBox()
-  // на каждое сравнение (cell.getBBox() в JointJS тащит size+position+rotate).
+  // bbox-кэш: comparator зовётся ~O(n log n) раз, а getBBox() тащит
+  // size+position+rotate на каждый вызов.
   const withBBox = matched.map((c) => ({ id: c.id, bbox: c.getBBox() }))
   withBBox.sort((a, b) => {
     if (a.bbox.y !== b.bbox.y) return a.bbox.y - b.bbox.y
@@ -145,10 +132,10 @@ const linksCount = computed(() => {
   return graphRef.value?.getLinks().length || 0
 })
 
-// Когда выделен ровно один элемент — удобно для Inspector'а в single-mode
+// Ровно один выделенный элемент — для одиночного режима инспектора.
 const singleSelection = computed(() => (selection.value.length === 1 ? selection.value[0] : null))
 
-// Краткое описание выделения для info-bar canvas'а
+// Краткое описание выделения для статус-полосы.
 const selectionLabel = computed(() => {
   graphVersion.value // touch для reactive-зависимости
   const sel = selection.value
@@ -159,8 +146,8 @@ const selectionLabel = computed(() => {
   const cell = graph?.getCell(item.id)
   if (!cell) return null
   if (item.kind === 'cell') {
-    // В status-bar показываем первый заполненный slot как «идентификатор объекта».
-    // Если слотов нет / все пустые — просто «ячейка».
+    // Первый заполненный слот работает как идентификатор объекта; слотов нет —
+    // просто «символ».
     const tms = cell.get('tms') || {}
     const slots = tms.slots || {}
     const firstTag = Object.values(slots).find((v) => v)
@@ -244,11 +231,11 @@ export function useCanvas() {
     isSelected(id) {
       return selection.value.some((s) => s.id === id)
     },
-    // Заменяет выделение на один элемент
+    // Заменяет выделение одним элементом.
     selectOnly(kind, id) {
       selection.value = [{ kind, id }]
     },
-    // Toggle: добавляет если нет, убирает если есть
+    // Тогл: добавить, если нет; убрать, если есть.
     toggleInSelection(kind, id) {
       if (selection.value.some((s) => s.id === id)) {
         selection.value = selection.value.filter((s) => s.id !== id)
@@ -256,7 +243,7 @@ export function useCanvas() {
         selection.value = [...selection.value, { kind, id }]
       }
     },
-    // Полная замена массива items
+    // Полная замена набора выделенных.
     setSelection(items) {
       selection.value = items.slice()
     },
@@ -264,19 +251,16 @@ export function useCanvas() {
       selection.value = []
     },
     /**
-     * Удаляет items ({kind,id}) с холста. При удалении РОВНО одного символа-
-     * прохода (ровно 2 провода к 2 разным соседям) сращивает провода в один
-     * вместо разрыва: выживший линк перецеливается на дальний конец второго ДО
-     * удаления — иначе каскад JointJS снёс бы оба сегмента. В multi-select
-     * срастание не делаем: туда авто-попадают мостовые провода между ячейками
-     * (computeBridgeLinks), и сохранять нечего. Снапшот/версию дают graph-
-     * листенеры CanvasPane (один debounced шаг undo).
+     * Удаляет items ({kind,id}) с холста. При удалении РОВНО одного символа-прохода
+     * (ровно 2 провода к 2 разным соседям) провода сращиваются в один: выживший линк
+     * перецеливается на дальний конец второго ДО удаления, иначе каскад JointJS снёс бы
+     * оба. В мульти-выделении срастания нет — туда авто-попадают мостовые провода.
+     * Снимок и версию дают graph-листенеры CanvasPane.
      */
     deleteItems(items) {
       const graph = graphRef.value
       if (!graph || !items?.length) return
-      // Заблокированные ячейки (`tms.locked`) не удаляем — «замок» read-only.
-      // Их связанные провода тоже остаются (ячейка на месте). Тихо пропускаем.
+      // Заблокированные ячейки (`tms.locked`) не удаляются, их провода тоже остаются.
       items = items.filter((it) => it.kind !== 'cell' || !graph.getCell(it.id)?.get('tms')?.locked)
       if (!items.length) return
       if (items.length === 1 && items[0].kind === 'cell') {
@@ -293,33 +277,26 @@ export function useCanvas() {
           const survivor = graph.getCell(plan.survivorId)
           const dropped = graph.getCell(plan.dropId)
           if (survivor && dropped) {
-            // Сращиваем изломы обоих проводов: иначе выживший линк сохранил бы
-            // только свои, а изломы второго сегмента пропали бы (провод
-            // «спрямлялся» в новый маршрут). Считаем ДО перецеливания/удаления —
-            // пути сегментов ещё на месте. Центр элемента НЕ вставляем: при врезке
-            // элемент садится на ПРЯМОЙ участок (между изломами), его центр лежит
-            // на прямой → лишняя точка, и round-trip врезка→срастание ломался бы.
-            // Геометрическая последовательность a→b:
-            //  • a-сторона = изломы выжившего в порядке a→элемент (реверс, если
-            //    элемент был его source);
-            //  • b-сторона = изломы удаляемого в порядке элемент→b (реверс, если
-            //    элемент был его target).
+            // Изломы обоих проводов сшиваются в один список — считаем ДО перецеливания
+            // и удаления, пока пути сегментов на месте. Центр элемента не вставляем: он
+            // лежит на прямом участке, и round-trip врезка→срастание сломался бы.
+            // Последовательность a→b: сначала изломы выжившего в порядке a→элемент
+            // (реверс, если элемент был его source), потом изломы удаляемого в порядке
+            // элемент→b (реверс, если элемент был его target).
             const sv = survivor.vertices() || []
             const dv = dropped.vertices() || []
             const aSide = plan.survivorEnd === 'target' ? sv : [...sv].reverse()
             const dropElemEnd = dropped.get('source')?.id === items[0].id ? 'source' : 'target'
             const bSide = dropElemEnd === 'source' ? dv : [...dv].reverse()
             const seq = [...aSide, ...bSide].map((v) => ({ ...v }))
-            // Порядок vertices в линке — source→target. survivorEnd='target' даёт
-            // финальный source=a → последовательность как есть; 'source' даёт
-            // source=b → реверс.
+            // Порядок vertices в линке — source→target: при survivorEnd='target'
+            // финальный source=a (последовательность как есть), иначе реверс.
             survivor.vertices(plan.survivorEnd === 'target' ? seq : seq.reverse())
           }
           survivor?.set(plan.survivorEnd, plan.endpoint)
         }
       }
-      // Группы удаляемых — чтобы после remove снять `groupId` с одиночного
-      // остатка (группа из одной ячейки бессмысленна).
+      // Группы удаляемых: после remove с одиночного остатка снимается `groupId`.
       const affectedGroups = new Set(
         items
           .filter((it) => it.kind === 'cell')
@@ -341,10 +318,8 @@ export function useCanvas() {
     /**
      * Выделить все ячейки на холсте + bridge-линии между ними.
      *
-     * Заблокированные (`tms.locked`) НЕ берём — как их не берёт лассо: замок для того
-     * и ставят (на подложку, рамку схемы), чтобы объект не попадал в массовые
-     * операции. Иначе `Ctrl+A` набирал в выделение то, что потом молча не двигается и
-     * не удаляется, а счётчики обещали больше, чем произойдёт.
+     * Заблокированные (`tms.locked`) не берём — как их не берёт лассо: замок ставят,
+     * чтобы объект (подложка, рамка схемы) не попадал в массовые операции.
      */
     selectAllCells() {
       const graph = graphRef.value
@@ -384,14 +359,13 @@ export function useCanvas() {
     searchMatchIds,
     searchCurrentIdx,
     /**
-     * Прогнать query по всем cells графа. Перевычисляет matchIds и сбрасывает
-     * currentIdx в 0. Пустой/whitespace-only query даёт пустой результат (без
-     * подсветки). Порядок — top→bottom, left→right по bbox.
+     * Прогнать query по всем ячейкам графа: пересчитывает matchIds и сбрасывает
+     * currentIdx. Пустой запрос даёт пустой результат; порядок — сверху вниз, слева
+     * направо по bbox.
      */
     runSearch(query) {
-      // searchQuery обновляем мгновенно — input v-model видит изменения сразу.
-      // Фактический match-цикл по графу дебаунсим, чтобы не пускать его
-      // на каждую букву при быстром наборе.
+      // searchQuery обновляется мгновенно (его видит v-model), а обход графа
+      // дебаунсится.
       searchQuery.value = query
       clearTimeout(searchDebounceTimer)
       searchDebounceTimer = setTimeout(() => performSearchMatch(query), SEARCH_DEBOUNCE_MS)
@@ -403,7 +377,7 @@ export function useCanvas() {
       searchCurrentIdx.value = (searchCurrentIdx.value + dir + n) % n
     },
     clearSearch() {
-      // Гасим pending debounce — иначе он бы дописал результат поверх очистки.
+      // Pending debounce гасим: иначе он дописал бы результат поверх очистки.
       clearTimeout(searchDebounceTimer)
       searchDebounceTimer = null
       searchQuery.value = ''
@@ -421,10 +395,10 @@ export function useCanvas() {
       graphVersion.value++
     },
     /**
-     * Тоггл «замка» ячеек (`tms.locked`). Смешанное выделение → лочим все (если
-     * хоть одна свободна), иначе снимаем. Класс `tms-locked` на view.el правим
-     * точечно (индикатор/скрытие хэндлов); при пересборке DOM его восстановит
-     * injectStencilSvg. Провода/линки — без замка (нет геометрии для блокировки).
+     * Тогл «замка» ячеек (`tms.locked`): есть хоть одна свободная — блокируем все,
+     * иначе снимаем. Класс `tms-locked` на view.el правится точечно (индикатор и
+     * скрытие хэндлов), при пересборке DOM его вернёт injectStencilSvg. У проводов
+     * замка нет.
      */
     toggleLocked(items) {
       const graph = graphRef.value
@@ -448,9 +422,8 @@ export function useCanvas() {
       snapshotTick.value++
     },
     /**
-     * Дополняет список cell-items до ЦЕЛЫХ групп: если затронут член группы —
-     * добавляет всех её членов. Единая точка «выделять группу целиком» для клика
-     * и лассо. Линки/не-члены не трогает.
+     * Дополняет список cell-items до ЦЕЛЫХ групп: затронут член — добавляются все.
+     * Единая точка «выделять группу целиком» для клика и лассо.
      */
     expandGroups(cellItems) {
       const graph = graphRef.value
@@ -478,7 +451,7 @@ export function useCanvas() {
     groupCells(items) {
       const graph = graphRef.value
       if (!graph) return 0
-      // locked-ячейки не группируем — groupId это правка tms, а замок read-only.
+      // locked-ячейки не группируем: groupId — правка tms.
       const cells = (items || [])
         .filter((i) => i.kind === 'cell')
         .map((i) => graph.getCell(i.id))
@@ -491,9 +464,9 @@ export function useCanvas() {
       return cells.length
     },
     /**
-     * Модели выделения, доступные на ЗАПИСЬ: всё кроме заблокированных. Линки не
-     * отбрасываем — замка у них нет. Единая точка для массовых операций:
-     * `paper.interactive` замок не защищает, правки идут программно.
+     * Модели выделения, доступные на ЗАПИСЬ: всё кроме заблокированных (у линков замка
+     * нет). Единая точка для массовых операций: `paper.interactive` их не защищает,
+     * правки идут программно.
      */
     writableItems(items) {
       const graph = graphRef.value
@@ -509,7 +482,7 @@ export function useCanvas() {
         if (i.kind !== 'cell') continue
         const c = graph.getCell(i.id)
         const tms = c?.get('tms')
-        // locked не разгруппировываем — groupId это правка tms, а замок read-only.
+        // locked не разгруппировываем: groupId — правка tms.
         if (!tms?.groupId || tms.locked) continue
         const next = { ...tms }
         delete next.groupId
@@ -523,18 +496,17 @@ export function useCanvas() {
       return count
     },
     /**
-     * Порядок наложения (z): 'front' / 'back' / 'forward' / 'backward'. Слои со своими
-     * полосами (символы, провода, подложка), поэтому команда не перемешивает их между
-     * собой; каждая перенумеровывает свой слой целиком (utils/zOrder). У проводов
-     * порядок виден на пересечении: мостик рисует тот, кто выше.
+     * Порядок наложения (z): 'front' / 'back' / 'forward' / 'backward'. У слоёв
+     * (символы, провода, подложка) свои полосы, поэтому команда двигает только свой
+     * слой и перенумеровывает его целиком (utils/zOrder). У проводов порядок виден на
+     * пересечении: мостик рисует тот, кто выше.
      *
-     * РАЗМЕТКА — исключение: фигура может уйти в подложку, ниже проводов (залитая
-     * плашка иначе закрывает их). Отдельной команды для этого нет — те же четыре
-     * водят фигуру между слоями по краям: «на задний план» кладёт в подложку сразу,
-     * «ниже» — когда фигура уже на дне слоя символов, и симметрично наверх.
+     * РАЗМЕТКА — исключение: фигура может уйти в подложку, ниже проводов. Отдельной
+     * команды нет, те же четыре водят её между слоями по краям: «на задний план» кладёт
+     * в подложку сразу, «ниже» — когда фигура уже на дне слоя символов.
      *
-     * Одним батчем: `jumpover` пересчитывает пути по `batch:stop`, без него мостик
-     * залипает на прежнем проводе до следующего чужого обновления.
+     * Всё одним батчем: `jumpover` пересчитывает пути по `batch:stop`, иначе мостик
+     * залипает на прежнем проводе.
      */
     reorderCells(items, mode) {
       const graph = graphRef.value
@@ -546,8 +518,8 @@ export function useCanvas() {
 
       graph.startBatch('reorder')
 
-      // Переход между подложкой и слоем символов. Значения промежуточные — слои
-      // перенумеровываются ниже; важен только порядок, в который фигура встаёт.
+      // Переход между подложкой и слоем символов: значения промежуточные, слои
+      // перенумеровываются ниже.
       const crossed = new Set()
       const down = mode === 'back' || mode === 'backward'
       const up = mode === 'front' || mode === 'forward'

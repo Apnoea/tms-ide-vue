@@ -3,8 +3,8 @@ import { boolSourceTags } from './boolSource'
 /**
  * Все привязанные теги payload'а: слоты, rangeSource.tag, boolSource, valueTag
  * (text/navigation — не теги). Принимает СЫРОЙ tms, поэтому работает и с plain-
- * объектами exporter'а. Новое tag-поле добавлять здесь — поиск и detailTags
- * подхватят сразу.
+ * объектами exporter'а. Новое tag-поле добавляется здесь — поиск и detailTags
+ * читают отсюда.
  *
  * @param {object} tms
  * @returns {string[]}
@@ -35,11 +35,9 @@ export function cellHasTag(cell, tag) {
 }
 
 /**
- * Строки для Ctrl+F: теги + text (юзер помнит подпись на схеме, а не тег) +
- * navigation + подпись и единица cell_value (их вписывает автор от руки, и на
- * схеме видно именно их — искать «Ua» логичнее, чем помнить тег) + текст
- * подписи-разметки (`tms.shape.text`): на схеме это такая же надпись, и разница
- * «символ или фигура» для ищущего не существует.
+ * Строки для Ctrl+F: теги, navigation, подпись и единица cell_value, текст подписи —
+ * и у прошлого символа (`tms.text`), и у фигуры-разметки (`tms.shape.text`): на схеме
+ * это одна и та же надпись.
  */
 export function getCellSearchStrings(cell) {
   const tms = cell.get('tms') || {}

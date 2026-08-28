@@ -453,7 +453,7 @@ describe('useStencilEditor', () => {
     expect(ed.shapes.value[0].state).toBe('always')
     ed.undo()
     expect(ed.meta.stateMode).toBe('boolean')
-    expect(ed.shapes.value[0].state).toBe('true') // раньше режим оставался новым
+    expect(ed.shapes.value[0].state).toBe('true')
   })
 
   it('addState — дискретная операция, откатывается одним undo', () => {

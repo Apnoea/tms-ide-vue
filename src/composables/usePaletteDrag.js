@@ -8,11 +8,11 @@ import { textCellSize } from '../stencils/textCell'
 import { snapToGrid } from '../utils/grid'
 
 /**
- * Drag символа из палитры на холст: pointer-events (не нативный HTML5 DnD) →
+ * Drag символа из палитры на холст на pointer-events, а не на нативном HTML5 DnD:
  * превью липнет к курсору на полной частоте. PalettePane ставит ui.dragging на
- * pointerdown; здесь реактивный `dragListenerTarget` цепляет document-листенеры
- * на время drag'а, превью снапится к сетке (или к проводу в режиме врезки), а на
- * pointerup ячейка создаётся в точке дропа.
+ * pointerdown, здесь реактивный `dragListenerTarget` цепляет document-листенеры на
+ * время drag'а, превью снапится к сетке (или к проводу при врезке), а на pointerup
+ * ячейка создаётся в точке дропа.
  *
  * @param {import('vue').Ref<HTMLElement|null>} paperContainer
  * @param {{ splicePreview, findLinkAtPoint, spliceCellIntoLink, updateSplicePreview, clearSplicePreview }} wireSplice
@@ -46,16 +46,15 @@ export function usePaletteDrag(paperContainer, wireSplice, busSnap) {
   const previewStyle = computed(() => {
     if (!ui.dragging) return {}
     canvas.zoomPercent.value // reactive-touch: пересчёт превью при изменении зума
-    // Берём ТОЧНЫЙ scale из paper, а не округлённый zoomPercent — иначе при
-    // дробном зуме (177% = 1.7735…) ошибка cp·(точный−округлённый) растёт с
-    // координатой и превью уезжает с провода.
+    // Только ТОЧНЫЙ scale из paper: с округлённым zoomPercent ошибка растёт с
+    // координатой, и превью уезжает с провода.
     const p = canvas.paperRef.value
     const scale = p ? p.scale().sx : (canvas.zoomPercent.value || 100) / 100
     const w = ui.dragging.width * scale
     const h = ui.dragging.height * scale
 
-    // Врезка в провод и присоединение к шине: центр превью прилипает к точке снапа
-    // (точка на проводе / линия шины) и поворачивается под углом, с которым ляжет ячейка.
+    // Врезка в провод и посадка на шину: центр превью прилипает к точке снапа и
+    // поворачивается под углом, с которым ляжет ячейка.
     const sp = splicePreview.value || busSnapPreview.value
     if (sp && p) {
       const { tx, ty } = p.translate()

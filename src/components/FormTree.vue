@@ -1,11 +1,10 @@
 <script setup>
 /**
- * Дерево форм проекта (навигатор над палитрой). Иерархия — из `workspace.formTree`
- * (hierarchy.json). Клик открывает форму, кнопки строки — дублировать / rename /
- * удалить (удаление крайнее: деструктивное дальше всех от имени), drag-and-drop
- * переносит и вкладывает узлы. Клик по заголовку сворачивает секцию (состояние в
- * localStorage). Формы вне дерева → «Без иерархии», узлы на несуществующую форму
- * рисуются битыми.
+ * Дерево форм проекта (навигатор над палитрой); иерархия — из `workspace.formTree`.
+ * Клик открывает форму, кнопки строки дублируют, переименовывают и удаляют (удаление
+ * крайнее — деструктивное дальше всех от имени), drag-and-drop переносит и вкладывает
+ * узлы. Клик по заголовку сворачивает секцию (состояние в localStorage). Формы вне
+ * дерева попадают в «Без иерархии», узлы на несуществующую форму рисуются битыми.
  */
 import { computed, ref, nextTick, onBeforeUnmount } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
@@ -21,8 +20,8 @@ const canvas = useCanvas()
 const workspace = useWorkspaceStore()
 const confirm = useConfirm()
 
-// Свёрнута ли вся секция «Формы» (тело дерева спрятано, палитра забирает место).
-// Отдельно от collapsed-веток; persist в localStorage — как у аккордеона палитры.
+// Свёрнута ли вся секция «Формы» (тогда место забирает палитра). Отдельно от
+// свёрнутых ветвей, персист в localStorage — как у аккордеона палитры.
 const panelCollapsed = useLocalStorage('tms-ide:forms-collapsed:v1', false)
 
 // Свёрнутые ветки (по id). По умолчанию всё раскрыто.
@@ -89,9 +88,9 @@ function cancelRename() {
   editingId.value = null
 }
 
-// Клик кнопки × ДОЛЖЕН всплыть до document: ConfirmPopup выравнивается по
-// target только в своём document-click listener'е (первичного align в onEnter
-// нет) — с @click.stop попап падал в (0,0). Строка без @click, всплытие безопасно.
+// Клик кнопки × ДОЛЖЕН всплыть до document: ConfirmPopup выравнивается по target
+// только в своём document-click listener'е, и с @click.stop попап встаёт в (0,0). У
+// строки нет @click, поэтому всплытие безопасно.
 function confirmDelete(event, id) {
   confirmDanger(confirm, {
     target: event.currentTarget,

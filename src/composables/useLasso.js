@@ -3,16 +3,16 @@ import { useEventListener } from '@vueuse/core'
 import { useCanvas } from './useCanvas'
 
 /**
- * Lasso-выделение (ЛКМ-drag по пустому месту — Figma-стандарт). startLasso
- * вызывается из blank:pointerdown в CanvasPane; move/up слушаются на document
- * (drag уходит за пределы холста) — auto-cleanup через useEventListener. lassoRect
- * отдаём в шаблон для overlay-рамки. Ctrl/Cmd на старте → добавление к выделению.
+ * Lasso-выделение: ЛКМ-drag по пустому месту. startLasso зовётся из
+ * blank:pointerdown в CanvasPane, move/up слушаются на document (drag уходит за
+ * пределы холста), `lassoRect` рисует overlay-рамку. Ctrl/Cmd на старте — добавление
+ * к выделению.
  *
- * Клик по пустому без drag'а (рамка <3px) = снять выделение — этот кейс тоже
- * приходит сюда (pan ушёл на среднюю кнопку/Space, ЛКМ по пустому всегда лассо).
+ * Клик по пустому без drag'а (рамка <3px) снимает выделение: pan живёт на средней
+ * кнопке и Space, поэтому ЛКМ по пустому — всегда лассо.
  *
- * findModelsInArea ловит только ячейки; линии между ними добавляет
- * `selectCellsWithBridges` (общая логика выделения, живёт в CanvasPane).
+ * findModelsInArea ловит только ячейки, провода между ними добавляет
+ * `selectCellsWithBridges` в CanvasPane.
  *
  * @param {import('vue').Ref<HTMLElement|null>} paperContainer
  * @param {{ selectCellsWithBridges: (cellItems: Array) => void }} deps

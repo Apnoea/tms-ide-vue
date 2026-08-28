@@ -1,8 +1,7 @@
-// Компонентные тесты инспектора холста. Юнит-тесты композаблов эти регрессии НЕ
-// ловили: `.value` на Pinia-getter (пустые tag-picker'ы), commitNav по blur (запись
-// в чужую ячейку), счётчики выделения. Поэтому проверяем через смонтированный
-// компонент: реальные useCanvas (singleton) + Pinia, мокаем только реестр символов
-// и DOM-инъекцию SVG.
+// Компонентные тесты инспектора холста: проверяют стык компонент ↔ стор, который юнит
+// не достаёт — `.value` на Pinia-getter (пустые tag-picker'ы), коммит навигации по
+// blur, счётчики выделения. Монтируется реальный компонент с настоящими useCanvas и
+// Pinia; замокан только реестр символов и DOM-инъекция SVG.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { dia, shapes } from '@joint/core'
 import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'

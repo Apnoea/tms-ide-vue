@@ -5,10 +5,8 @@ export const isBooleanType = (type) => /^bool/i.test(type || '')
 export const isFloatType = (type) => /^float/i.test(type || '')
 
 /**
- * Парсит tag-list. Формат каждой строки: "TAG.NAME=Type;...".
- * Пропускает пустые строки и комментарии (начинаются с #) — в заголовке файла
- * обычно идёт пояснение формата + разделители из решёток, они нам не теги.
- * Возвращает массив { name, type }.
+ * Парсит tag-list: строки вида "TAG.NAME=Type;...". Пустые строки и комментарии (#)
+ * пропускаются — в заголовке файла обычно пояснение формата. → [{ name, type }].
  */
 export function parseTagList(text) {
   return text

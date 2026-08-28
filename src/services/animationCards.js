@@ -1,6 +1,6 @@
-// Билдеры карточек animations.json — чистые функции над tms-payload, без SVG и
-// графа. Отдельно от exporter'а: там оркестрация, здесь рантайм-протокол.
-// Что эмитим — см. «Раннтайм-протокол» в CLAUDE.md.
+// Билдеры карточек animations.json — чистые функции над tms-payload, без SVG и графа
+// (в exporter'е оркестрация, здесь рантайм-протокол). Формат карточек — «Раннтайм-
+// протокол» в CLAUDE.md.
 
 import { getStencilById } from '../stencils/registry'
 import { CLASS_OFF, rangeColorClass, rangeRowColor, stateColorClass } from '../constants/animation'
@@ -45,9 +45,9 @@ export function buildRangeCard(vs) {
 }
 
 /**
- * Shape-карточка булева источника: на каждый тег — bool-биндинг (false → animation-off).
- * Union биндингов = AND «любой false → серый». Для не-multi случая (чистая
- * цепочка / одиночный параллельный тег). Принимает плоский список тегов.
+ * Shape-карточка булева источника: на каждый тег — bool-биндинг (false →
+ * animation-off), объединение биндингов даёт «любой false → серый». Для не-multi
+ * случая; принимает плоский список тегов.
  */
 export function buildBoolCard(tags) {
   return {
@@ -63,9 +63,8 @@ export function buildBoolCard(tags) {
   }
 }
 
-/** Нужна ли multi-карточка: ≥2 групп boolSource (ИЛИ-агрегация невыразима
- *  union-биндингами shape-карточки). Одна группа (чистое И) / нет групп → дешёвый
- *  shape (buildBoolCard: любой тег группы false → animation-off). */
+/** Нужна ли multi-карточка: ≥2 групп boolSource (ИЛИ невыразимо биндингами
+ *  shape-карточки). Одна группа или ни одной → дешёвый shape (buildBoolCard). */
 export function needsMulti(c) {
   return normalizeBoolSource(c.boolSource).groups.length >= 2
 }
@@ -90,12 +89,9 @@ function singleMultiBinding(tag, source, when, addClass) {
 
 /**
  * Outer-карточка типа `multi` — рантайм-тип с булевым `expression` по нескольким
- * тегам (единственный способ выразить ИЛИ-агрегацию групп boolSource, где
- * union-биндинги дают только AND). Несёт ВСЕ outer-эффекты слоями (бинды
- * независимы, ActionApplier складывает классы): цвет по диапазонам, группы
- * boolSource, quality. Кладётся на outer-id; на потомков классы каскадят через
- * CSS, поэтому merge во внутренние shape-карточки не нужен. Генерируется напрямую
- * из tms — только здесь есть семантика «какие теги в какой группе».
+ * тегам: единственный способ выразить ИЛИ-агрегацию групп boolSource. Несёт все
+ * outer-эффекты слоями (цвет по диапазонам, группы boolSource, quality) и кладётся на
+ * outer-id — на потомков классы каскадят через CSS. Строится напрямую из tms.
  */
 export function buildMultiCard(c) {
   const stencil = getStencilById(c.stencilId)

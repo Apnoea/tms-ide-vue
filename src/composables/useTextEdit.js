@@ -7,15 +7,14 @@ import { normalizeFont } from '../utils/textMetrics'
 import { useCanvas } from './useCanvas'
 
 /**
- * Edit-in-place для cell_text: double-click открывает HTML-overlay поверх
- * SVG-text'а (тот прячется на время правки), ширина ячейки ресайзится под
- * печатаемый текст.
+ * Edit-in-place для cell_text: double-click открывает HTML-overlay поверх SVG-text'а
+ * (тот прячется на время правки), ширина ячейки ресайзится под печатаемый текст.
  *
- * Коммит на клик-вне ловим через `onClickOutside` — у <input> @blur не приходит
- * из-за JointJS preventDefault на pointerdown.
+ * Коммит по клику вне ловит `onClickOutside`: у <input> @blur не приходит из-за
+ * JointJS preventDefault на pointerdown.
  *
- * `textEditing` (null | { id, original, style }) читают и другие места, чтобы
- * подавить свой UI на время правки.
+ * `textEditing` (null | { id, original, style }) читают и другие места, чтобы гасить
+ * свой UI на время правки.
  */
 export function useTextEdit({ scheduleSnapshot }) {
   const canvas = useCanvas()
@@ -23,8 +22,8 @@ export function useTextEdit({ scheduleSnapshot }) {
   const textEditValue = ref('')
   const textEditorRef = ref(null)
 
-  // Live-resize ячейки пока юзер печатает. cell.resize не дёргает snapshot —
-  // финальный snapshot снимется на commit.
+  // Live-resize ячейки во время печати: cell.resize снимок не дёргает, он ставится
+  // на commit.
   watch(textEditValue, (val) => {
     const editing = textEditing.value
     const graph = canvas.graphRef.value

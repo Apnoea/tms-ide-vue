@@ -11,32 +11,25 @@ import { useCanvas } from './useCanvas'
 const SPLIT_HIT_RANGE = 10
 
 /**
- * Врезка символа в провод: drop символа с ≥2 портами на линию разбивает её на
- * два сегмента с проходом через элемент. Здесь — геометрия (хит-тест, локальное
- * направление сегмента, абсолютные позиции портов с учётом поворота), сам split
- * графа и живое превью при drag'е над проводом. Чистая топология/выбор пары
- * портов вынесены в `utils/wireSplice` (тестируемы без JointJS).
+ * Врезка символа в провод: drop символа с ≥2 портами на линию разбивает её на два
+ * сегмента с проходом через элемент. Здесь геометрия (хит-тест, локальное направление
+ * сегмента, абсолютные позиции портов с учётом поворота), сам split графа и превью при
+ * drag'е; чистая топология и выбор пары портов — в `utils/wireSplice`.
  *
- * Возвращает:
- *  • `splicePreview` — ref { angle, cx, cy } | null (paper-локальные коорд.):
- *    центр прилипает к точке провода, превью повёрнуто под угол врезки. CanvasPane
- *    читает его в previewStyle. null — обычное превью под курсором.
- *  • `findLinkAtPoint(point)` — провод под точкой (для гейта врезки в placeStencil).
- *  • `spliceCellIntoLink(link, cell, cursor)` — выполнить split графа.
- *  • `updateSplicePreview(stencilId, point)` — пересчитать превью под курсором.
- *  • `clearSplicePreview()` — сбросить превью (drop / отмена drag'а).
+ * Отдаёт `splicePreview` (ref { angle, cx, cy } в paper-координатах либо null),
+ * `findLinkAtPoint`, `spliceCellIntoLink`, `updateSplicePreview` и
+ * `clearSplicePreview`.
  */
 export function useWireSplice() {
   const canvas = useCanvas()
 
-  // Превью врезки: курсор над проводом символом с ≥2 портами. { angle, cx, cy }
-  // в paper-локальных координатах. null — обычное превью под курсором.
+  // Превью врезки: { angle, cx, cy } в paper-координатах; null — обычное превью под
+  // курсором.
   const splicePreview = ref(null)
 
   /**
-   * Провод под точкой (paper-local) в пределах SPLIT_HIT_RANGE. Возвращает null,
-   * если точка над элементом (там обычная укладка поверх, не врезка) или ни один
-   * линк не близко. Висячие концы (без source/target.id) пропускаем.
+   * Провод под точкой (paper-local) в пределах SPLIT_HIT_RANGE; null — точка над
+   * элементом (там обычная укладка) или рядом нет линка. Висячие концы пропускаются.
    */
   function findLinkAtPoint(point) {
     const paper = canvas.paperRef.value
@@ -59,8 +52,8 @@ export function useWireSplice() {
     return best
   }
 
-  // Локальное направление провода в точке (касательная) — по двум точкам на пути
-  // рядом с ближайшей. rightAngle-роутер гнёт провод, поэтому сегмент в точке
+  // Локальное направление провода в точке (касательная) — по двум точкам пути рядом с
+  // ближайшей. rightAngle-роутер гнёт провод, поэтому сегмент в точке
   // врезки может не совпадать с линией центров ячеек — берём именно сегмент.
   function wireDirAt(linkView, point) {
     if (!linkView?.getClosestPointLength || !linkView.getPointAtLength || !point) return null

@@ -167,7 +167,7 @@ describe('useProject', () => {
       const deps = makeDeps()
       const { selectForm } = useProject(deps)
       await selectForm('b')
-      // cancelPendingSnapshot вызван раньше saveActiveForm (первый await).
+      // cancelPendingSnapshot вызывается до первого await (saveActiveForm).
       expect(deps.undo.cancelPendingSnapshot.mock.invocationCallOrder[0]).toBeLessThan(
         deps.autosave.saveActiveForm.mock.invocationCallOrder[0]
       )

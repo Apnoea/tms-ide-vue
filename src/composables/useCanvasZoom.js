@@ -2,12 +2,14 @@ import { useCanvas } from './useCanvas'
 
 const MIN_ZOOM = 0.2
 const MAX_ZOOM = 4
+// Строка прокрутки в пикселях (deltaMode 1 у Firefox): ~высота строки интерфейса.
+const WHEEL_LINE_PX = 16
 // Шаг зума кнопками тулбара (крупнее колеса 0.9/1.1 — клик должен ощутимо двигать).
 export const ZOOM_STEP = 1.2
 
 /**
- * Зум холста: колесо (якорь — курсор), кнопки ± (якорь — центр вьюпорта),
- * fit-to-content и доводка ячейки в вид.
+ * Навигация по холсту: колесо (прокрутка / зум с Ctrl, якорь — курсор), кнопки ±
+ * (якорь — центр вьюпорта), fit-to-content и доводка ячейки в вид.
  *
  * @param {import('vue').Ref<HTMLElement|null>} paperContainer
  */
@@ -39,10 +41,49 @@ export function useCanvasZoom(paperContainer) {
     canvas.bumpPaperView()
   }
 
+  /** Сдвиг холста на экранные пиксели (колесо / трекпад), без смены масштаба. */
+  function panBy(dx, dy) {
+    const paper = canvas.paperRef.value
+    if (!paper || (!dx && !dy)) return
+    const { tx, ty } = paper.translate()
+    paper.translate(tx - dx, ty - dy)
+    canvas.bumpPaperView()
+  }
+
+  /**
+   * Шаг колеса в ПИКСЕЛЯХ: браузеры отдают дельту в строках (Firefox, deltaMode 1)
+   * или страницах (deltaMode 2), и без приведения прокрутка была бы то на 3 пикселя,
+   * то на пол-экрана.
+   */
+  function wheelPixels(delta, mode, pageSize) {
+    if (mode === 1) return delta * WHEEL_LINE_PX
+    if (mode === 2) return delta * (pageSize || WHEEL_LINE_PX * 20)
+    return delta
+  }
+
+  /**
+   * Колесо — как в Figma и схемных редакторах (Visio, draw.io, Inkscape):
+   * прокрутка, с Shift — горизонтальная, с Ctrl/Cmd — зум к курсору.
+   *
+   * Ctrl-ветка обслуживает и трекпад: pinch-zoom браузер отдаёт как `wheel` с
+   * `ctrlKey: true`, а двухпальцевый жест — обычными deltaX/deltaY. Поэтому одно
+   * условие даёт правильное поведение и мыши, и трекпаду: зум по «голому» колесу дал бы
+   * на трекпаде скачок масштаба при любой прокрутке.
+   */
   function onWheel(event) {
+    const el = paperContainer.value
     if (!canvas.paperRef.value) return
     event.preventDefault()
-    zoomAt(event.clientX, event.clientY, event.deltaY > 0 ? 0.9 : 1.1)
+    if (event.ctrlKey || event.metaKey) {
+      zoomAt(event.clientX, event.clientY, event.deltaY > 0 ? 0.9 : 1.1)
+      return
+    }
+    const dy = wheelPixels(event.deltaY, event.deltaMode, el?.clientHeight)
+    const dx = wheelPixels(event.deltaX, event.deltaMode, el?.clientWidth)
+    // Shift+колесо у мыши: часть браузеров сама переносит дельту в deltaX, часть
+    // оставляет в deltaY — поэтому переносим только когда deltaX пуст.
+    if (event.shiftKey && !dx) panBy(dy, 0)
+    else panBy(dx, dy)
   }
 
   /** Зум кнопками +/− из тулбара: якорь — геометрический центр контейнера. */

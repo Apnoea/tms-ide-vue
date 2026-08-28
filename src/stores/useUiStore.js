@@ -4,8 +4,8 @@ import { ref } from 'vue'
 export const useUiStore = defineStore('ui', () => {
   const lastTagListPickerStartIn = ref(null)
 
-  // Текущий drag из палитры. Заполняется в PalettePane на pointerdown,
-  // читается в CanvasPane для отрисовки preview-плейсхолдера.
+  // Текущий drag из палитры: пишет PalettePane на pointerdown, читает CanvasPane для
+  // preview-плейсхолдера.
   const dragging = ref(null)
 
   const helpOpen = ref(false)
@@ -13,17 +13,16 @@ export const useUiStore = defineStore('ui', () => {
   // Видимость SearchBar (Ctrl+F). Состояние поиска (query, matches) — в useCanvas.
   const searchOpen = ref(false)
 
-  // Открыт ли редактор символов (оверлей поверх холста). Пока открыт — глобальные
-  // хоткеи холста гейтятся (см. useHotkeys), у редактора своя обработка клавиш.
+  // Открыт ли редактор символов (оверлей поверх холста). Пока открыт, хоткеи холста
+  // гейтятся (useHotkeys) — у редактора своя обработка клавиш.
   const stencilEditorOpen = ref(false)
-  // id символа, открытого на правку (null = создание нового). Редактор читает
-  // при монтировании и префиллит модель через loadStencil.
+  // id символа, открытого на правку (null = создание нового): редактор читает его при
+  // монтировании и грузит модель через loadStencil.
   const stencilEditorTargetId = ref(null)
 
-  // Идёт проектная операция (экспорт/импорт/переключение формы/CRUD) — живой граф
-  // между await'ами держит ЧУЖУЮ форму, поэтому App гейтит всю область
-  // редактирования (`inert`), чтобы клики/правки не уехали под чужой ключ.
-  // Зеркалит `projectBusy` из useProject (там источник, тут — глобальный доступ).
+  // Идёт проектная операция (экспорт/импорт/переключение формы/CRUD): живой граф
+  // между await'ами держит ЧУЖУЮ форму, поэтому App гейтит область редактирования
+  // (`inert`). Зеркало `projectBusy` из useProject — там источник.
   const projectBusy = ref(false)
 
   function setLastTagListPickerStartIn(handle) {
@@ -68,9 +67,9 @@ export const useUiStore = defineStore('ui', () => {
     projectBusy.value = value
   }
 
-  // Активный инструмент рисования фигур ('select' = обычная работа с холстом).
-  // Тогл как в редакторе символов: повторный клик по кнопке возвращает 'select'.
-  // Пока инструмент активен, ЛКМ-drag по холсту рисует, а не тянет рамку выделения.
+  // Активный инструмент рисования фигур ('select' = обычная работа с холстом; тогл,
+  // как в редакторе символов). Пока инструмент активен, ЛКМ-drag рисует, а не тянет
+  // рамку выделения.
   const canvasTool = ref('select')
 
   function setCanvasTool(tool) {

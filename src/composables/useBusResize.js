@@ -16,8 +16,8 @@ import { useCanvas } from './useCanvas'
  * Ресайз шины: drag edge-хэндла меняет ширину, порты пересчитываются под новую
  * длину. Жест живёт на document-listener'ах параллельно JointJS.
  *
- * `onMaybeStartResize` цепляется в capture-фазе — до JointJS, иначе он начнёт свой
- * drag. `isResizing()` нужен тем, кто подавляет свой UI на время жеста.
+ * `onMaybeStartResize` цепляется в capture-фазе, до JointJS, иначе тот начнёт свой
+ * drag. `isResizing()` читают те, кто гасит свой UI на время жеста.
  */
 export function useBusResize({ scheduleSnapshot }) {
   const canvas = useCanvas()
@@ -36,7 +36,7 @@ export function useBusResize({ scheduleSnapshot }) {
     if (evt.button !== 0) return
     const edge = evt.target?.dataset?.edge
     if (!edge) return
-    // Находим DOM-узел JointJS cellView (у него атрибут model-id)
+    // DOM-узел cellView опознаётся по атрибуту model-id.
     const cellEl = evt.target.closest('[model-id]')
     const modelId = cellEl?.getAttribute('model-id')
     const graph = canvas.graphRef.value
@@ -53,8 +53,7 @@ export function useBusResize({ scheduleSnapshot }) {
     const paper = canvas.paperRef.value
     if (!cell || !paper) return
     const size = cell.get('size')
-    // Запоминаем paper-X курсора — delta считаем в paper-координатах
-    // (zoom-инвариантно, в отличие от client-px).
+    // paper-X курсора: delta считается в paper-координатах, они zoom-инвариантны.
     const local = paper.clientToLocalPoint(startClientX, 0)
     activeResize = {
       cellId: cell.id,
@@ -62,9 +61,8 @@ export function useBusResize({ scheduleSnapshot }) {
       startWidth: size.width,
       startHeight: size.height,
       startMouseX: local.x,
-      // Последняя применённая ширина — guard от полного re-render'а SVG на
-      // каждый mousemove, если ширина после snapToGrid та же что и в прошлом
-      // кадре (mouse дёргается в пределах одного grid-шага).
+      // Последняя применённая ширина — guard от re-render'а SVG на каждый mousemove,
+      // когда курсор дёргается в пределах одного шага сетки.
       lastWidth: size.width,
     }
     canvas.selectOnly('cell', cell.id)
@@ -85,23 +83,20 @@ export function useBusResize({ scheduleSnapshot }) {
     const dx = local.x - activeResize.startMouseX
     // Левый хэндл растёт при движении влево (dx<0), правый — вправо (dx>0).
     const delta = activeResize.edge === 'right' ? dx : -dx
-    // Снап к шагу портов (не к gridSize): один шаг ширины = ровно один слот, и
-    // при левом резайзе сдвиг индексов компенсирует сдвиг origin тютелька-в-тютельку.
+    // Снап к шагу портов, а не к gridSize: один шаг ширины = один слот, и при левом
+    // ресайзе сдвиг индексов ровно компенсирует сдвиг origin.
     const newWidth = Math.max(minW, snapToGrid(activeResize.startWidth + delta, BUS_PORT_SPACING))
 
-    // Width-guard: если шаг snapToGrid дал ту же ширину что в прошлый mousemove,
-    // resize/syncBusPorts/injectStencilSvg повторят ту же работу впустую.
-    // Особенно injectStencilSvg — он полностью перебирает DOM ячейки.
+    // Width-guard: та же ширина после снапа означала бы повторный resize,
+    // syncBusPorts и injectStencilSvg (последний перебирает весь DOM ячейки).
     if (newWidth === activeResize.lastWidth) return
 
-    // direction держит противоположный край на месте: 'right' → левый край
-    // фиксирован (рост вправо), 'left' → правый фиксирован (рост влево, позицию
-    // JointJS сдвигает сам — без ручного пересчёта X).
+    // direction держит противоположный край на месте: 'right' — фиксирован левый,
+    // 'left' — правый (позицию JointJS сдвигает сам).
     cell.resize(newWidth, activeResize.startHeight, { direction: activeResize.edge })
 
-    // При левом резайзе origin уезжает влево → канонические порты сместились бы
-    // вместе с ним и потащили подключённые провода. Сдвигаем порт-рефы линков на
-    // число добавленных/убранных слотов → провода остаются на месте.
+    // При левом ресайзе origin уезжает влево, и порты сместились бы вместе с ним,
+    // потащив провода: порт-рефы линков сдвигаются на число добавленных слотов.
     if (activeResize.edge === 'left') {
       // round — на случай шины с шириной не кратной шагу порта (первый кадр).
       const k = Math.round((newWidth - activeResize.lastWidth) / BUS_PORT_SPACING)

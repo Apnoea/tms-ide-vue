@@ -112,7 +112,7 @@ describe('ShapePrimitive', () => {
     expect(el.text()).toBe('Ввод')
   })
 
-  it('подпись без align центрируется — старые символы рисуются как раньше', () => {
+  it('подпись без align центрируется (дефолтный якорь)', () => {
     const w = mountShape({ id: 's10', type: 'text', x: 4, y: 12, text: 'Ввод' })
     expect(w.find('text').attributes('text-anchor')).toBe('middle')
   })

@@ -1,8 +1,7 @@
 /**
- * Глубокий plain-JSON клон. Снимает Vue reactive-прокси (ref/reactive) и любые
- * не-клонируемые поля — в отличие от `structuredClone`, который на Vue-прокси
- * бросает DataCloneError. Нужен там, где значение уходит в structured-clone
- * (IndexedDB.put) или клонируется под запись в чужой объект (JointJS cell).
- * Значение обязано быть JSON-сериализуемым (в проекте это всегда payload-данные).
+ * Глубокий plain-JSON клон: снимает Vue reactive-прокси, на которых
+ * `structuredClone` бросает DataCloneError. Нужен там, где значение уходит в
+ * IndexedDB или под запись в JointJS-ячейку. Значение обязано быть
+ * JSON-сериализуемым.
  */
 export const toPlain = (v) => JSON.parse(JSON.stringify(v))

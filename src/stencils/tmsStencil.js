@@ -21,9 +21,8 @@ export const TMSStencil = dia.Element.define(
             portBody: {
               r: 3,
               fill: '#ffffff',
-              // Обводка ЧЁРНАЯ, а не primary: cyan-заливка занята ручками ресайза
-              // («тянуть»), и порт в тех же цветах читался как их продолжение —
-              // белый кружок в чёрном контуре отличается от них с первого взгляда.
+              // Обводка ЧЁРНАЯ, а не primary: cyan занят ручками ресайза, и порт в
+              // тех же цветах читался бы как их продолжение.
               stroke: '#000000',
               strokeWidth: 1,
               magnet: 'active',
@@ -42,8 +41,8 @@ export const TMSStencil = dia.Element.define(
 /**
  * Фигура-разметка холста: ни символа, ни портов, ни анимаций — только геометрия в
  * `tms.shape` (редакторский формат) и её отрисовка в ту же body-группу. Рендер и
- * операции — в [shapeElement.js](shapeElement.js); тип объявлен здесь, рядом с
- * namespace, иначе `fromJSON` не собрал бы фигуры при загрузке формы.
+ * операции — в [shapeElement.js](shapeElement.js), тип объявлен здесь рядом с
+ * namespace: без него `fromJSON` не соберёт фигуры при загрузке формы.
  */
 export const TMSShape = dia.Element.define(
   'tms.Shape',

@@ -12,8 +12,8 @@ import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useCanvas } from './useCanvas'
 
-// Граф каждой формы — отдельным ключом: autosave переписывает только активную, а
-// не весь проект. Мета — порядок форм + активная, теги — сырой tag-list.
+// Граф каждой формы — отдельным ключом: autosave переписывает только активную. Мета —
+// порядок форм и активная, теги — сырой tag-list.
 const META_KEY = 'project:meta'
 const TAGS_KEY = 'project:tags'
 const formKey = (id) => `project:form:${id}`
@@ -26,15 +26,15 @@ const DEFAULT_FORM_ID = 'main'
  *
  * @param {object} opts
  * @param {import('vue').Ref<boolean>} opts.restoringHistory — общий флаг с
- *        useUndoRedo: пока идёт восстановление, не сохраняем, иначе
- *        snapshot → save → restore зациклится
+ *        useUndoRedo: пока идёт восстановление, не сохраняем (иначе
+ *        snapshot → save → restore зацикливается)
  */
 export function useAutosave({ restoringHistory }) {
   const canvas = useCanvas()
   const workspace = useWorkspaceStore()
   const project = useProjectStore()
 
-  // Чтение проекта на старте не удалось: в IDB данные целы, а в сторе пустышка —
+  // Чтение проекта на старте не удалось: в IDB данные целы, в сторе пустышка, поэтому
   // любая запись затёрла бы проект. Сессия read-only до перезагрузки.
   let storageUnreadable = false
   const readOnly = () => storageUnreadable
@@ -52,13 +52,12 @@ export function useAutosave({ restoringHistory }) {
     const paper = canvas.paperRef.value
     if (!graph || !paper) return 0
 
-    // Оверрайды символов (правки заливки/анимации, новые символы) — в реестр ДО
-    // отрисовки форм, иначе ячейки нарисуются встроенной версией и правки «слетят».
-    // Переживают reload без dev-плагина (см. stencilOverrides).
+    // Оверрайды символов — в реестр ДО отрисовки форм, иначе ячейки нарисуются
+    // встроенной версией. Они же дают правкам пережить reload без dev-плагина.
     for (const s of await loadStencilOverrides()) registerStencil(s.stencilJson, s.shapeSvg)
 
-    // Сбой чтения меты НЕ равен «проекта ещё нет»: иначе бутстрап ниже перезаписал
-    // бы существующий проект пустой формой.
+    // Сбой чтения меты не равен «проекта ещё нет»: бутстрап ниже перезаписал бы
+    // существующий проект пустой формой.
     const metaRead = await idbTryGet(META_KEY)
     if (!metaRead.ok) {
       storageUnreadable = true
@@ -76,15 +75,15 @@ export function useAutosave({ restoringHistory }) {
       const forms = []
       for (const id of meta.formIds) {
         const read = await idbTryGet(formKey(id))
-        // Форма не прочиталась: в IDB она цела, в сторе пусто — первый autosave
+        // Форма не прочиталась: в IDB она цела, в сторе пусто, и первый autosave
         // затёр бы её.
         if (!read.ok) {
           storageUnreadable = true
           canvas.setSaveError(true)
           return -1
         }
-        // Прошлый формат переписываем сразу: иначе он дожил бы до первой правки, а
-        // экспорт уже пишет новый вид — форма и архив разъехались бы.
+        // Прошлый формат переписывается сразу: экспорт уже пишет новый вид, и без
+        // перезаписи форма с архивом разъедутся.
         const { json: graphJson, changed } = migrateGraphJson(read.value || { cells: [] })
         if (changed) await idbSet(formKey(id), graphJson)
         forms.push({ id, graphJson })
@@ -94,8 +93,8 @@ export function useAutosave({ restoringHistory }) {
       workspace.setProjectName(meta.projectName ?? null) // старые проекты → без имени
       workspace.loadFormBg(meta.formBg) // старые проекты → дефолтный фон у всех форм
       workspace.loadWireStyle(meta.wireStyle)
-      // Мета протухла (activeFormId не из formIds) → loadForms скорректировал
-      // активную на первую; перезапишем мету, чтобы IDB не расходился со стором.
+      // Мета протухла (activeFormId не из formIds): loadForms взял первую форму,
+      // перезаписываем мету, чтобы IDB не расходился со стором.
       if (workspace.activeFormId !== meta.activeFormId) await persistMeta()
     }
 
@@ -106,20 +105,18 @@ export function useAutosave({ restoringHistory }) {
     const activeJson = workspace.getFormGraph(workspace.activeFormId) || { cells: [] }
     return withRestoreGuard(restoringHistory, () => {
       withPaperFrozen(paper, () => graph.fromJSON(activeJson))
-      // sync: порты/габарит экземпляров сверяем с реестром (символ мог быть правлен
-      // в прошлой сессии, а форма хранит порты той версии). Оверрайды символов
-      // подняты выше, поэтому реестр здесь уже актуален.
+      // sync: порты и габарит экземпляров сверяются с реестром — форма хранит порты
+      // той версии символа, что была при сохранении. Оверрайды подняты выше.
       reinjectAllStencils(graph, paper, { sync: true })
-      // fromJSON делает silent reset — 'add'/'remove' не летят, бампаем явно.
+      // fromJSON делает silent reset: 'add'/'remove' не летят, версию бампаем сами.
       canvas.bumpVersion()
       return graph.getElements().length
     })
   }
 
   /**
-   * Пишет мету проекта (порядок форм + активная) в IndexedDB. Зовётся после
-   * смены активной формы (selectForm) — чтобы перезагрузка открыла последнюю
-   * просматриваемую форму, а не первую.
+   * Пишет мету проекта (порядок форм + активная) в IndexedDB — после смены активной
+   * формы, чтобы перезагрузка открыла последнюю просматриваемую.
    */
   async function persistMeta() {
     if (readOnly()) return false
@@ -136,8 +133,8 @@ export function useAutosave({ restoringHistory }) {
     )
   }
 
-  // Что уже лежит в IDB под активной формой (`{ id, str }`): повторная запись того
-  // же графа — structuredClone блоба на сотни КБ. null = неизвестно, пишем.
+  // Что уже лежит в IDB под активной формой (`{ id, str }`): повторная запись того же
+  // графа — это structuredClone блоба на сотни КБ. null = неизвестно, пишем.
   let lastSaved = null
 
   /**
@@ -152,13 +149,13 @@ export function useAutosave({ restoringHistory }) {
     if (!graph || !id || restoringHistory.value || readOnly()) return
     const graphJson = json ?? graph.toJSON()
     workspace.updateActiveGraph(graphJson)
-    // Сами считаем только на редких путях (CRUD форм, переключение, экспорт).
+    // Сами считаем только на редких путях (CRUD форм, переключение формы, экспорт).
     const str = jsonStr ?? JSON.stringify(graphJson)
     if (lastSaved && lastSaved.id === id && lastSaved.str === str) return
     const ok = await idbSet(formKey(id), graphJson)
-    // Квота / приватный режим → статус-полоса скажет «не сохранено». Успех молчит.
+    // Квота или приватный режим — статус-полоса скажет «не сохранено».
     canvas.setSaveError(!ok)
-    // Неудачную запись не запоминаем — следующий сейв обязан попробовать снова.
+    // Неудачную запись не запоминаем: следующий сейв должен попробовать снова.
     lastSaved = ok ? { id, str } : null
   }
 
@@ -175,7 +172,7 @@ export function useAutosave({ restoringHistory }) {
    * трогает — это reload или вызывающий код.
    *
    * true = все записи прошли. При false стор загружен (сессия рабочая), но IDB
-   * неполон — caller обязан предупредить, иначе после reload часть форм пуста.
+   * неполон, и вызывающий обязан предупредить: после reload часть форм будет пуста.
    *
    * @param {{ id: string, graphJson: object }[]} forms
    * @param {string|null} [tagsText] — сырой текст tag-list'а проекта
@@ -190,10 +187,10 @@ export function useAutosave({ restoringHistory }) {
     projectName = null,
     projectMeta = null
   ) {
-    // Хранилище не читается → и не пишем: импорт молча потерял бы данные проекта.
+    // Хранилище не читается — не пишем: импорт потерял бы данные проекта.
     if (readOnly()) return false
-    // GC форм прежнего проекта: restore идёт по formIds меты, старые ключи копили
-    // бы мёртвые blob'ы до квоты. Чистим ДО записи новых.
+    // GC форм прежнего проекта: restore идёт по formIds меты, а старые ключи копили бы
+    // мёртвые блобы до квоты. Чистим ДО записи новых.
     lastSaved = null // проект меняется целиком — прежняя запись ни о чём не говорит
     const keep = new Set(forms.map((f) => formKey(f.id)))
     for (const key of await idbKeys()) {
@@ -204,12 +201,11 @@ export function useAutosave({ restoringHistory }) {
     workspace.loadForms(forms, forms[0]?.id ?? null)
     workspace.setFormTree(hierarchy)
     workspace.setProjectName(projectName) // до persistMeta — уедет в мету
-    // Фон форм — после loadForms: loadFormBg отбрасывает ключи форм, которых в
-    // проекте нет (архив мог принести мету от прежнего состава).
+    // Фон форм — после loadForms: loadFormBg отбрасывает ключи форм, которых в проекте
+    // нет.
     workspace.loadFormBg(projectMeta?.formBg)
     ok = (await persistMeta()) && ok
-    // Только если проект принёс теги. Иначе НЕ затираем project:tags в IDB
-    // (импорт проекта без taglist'а не должен стирать уже загруженные теги).
+    // Только если проект принёс теги: иначе project:tags в IDB не затираем.
     if (tagsText != null) {
       ok = (await idbSet(TAGS_KEY, tagsText)) && ok
       project.setTags(parseTagList(tagsText))
@@ -237,10 +233,10 @@ export function useAutosave({ restoringHistory }) {
     return idbDel(formKey(id))
   }
 
-  // Липкие настройки провода живут в мете, но её пишут только операции с формами —
-  // без своего вотчера настройка терялась на перезагрузке. Отложенно: пикер цвета
-  // сыплет событиями на каждое движение курсора, а мета мелкая и пишется целиком.
-  // Глубокого сравнения не нужно: `setWireStyle` собирает новый объект целиком.
+  // Липкие настройки провода живут в мете, а её пишут только операции с формами —
+  // поэтому свой вотчер. Отложенно: пикер цвета сыплет событиями на каждое движение
+  // курсора, а мета пишется целиком. Глубокое сравнение не нужно — `setWireStyle`
+  // собирает новый объект.
   let metaTimer = null
   watch(
     () => workspace.wireStyle,

@@ -12,21 +12,18 @@ import { injectStencilSvg, buildPortItems } from '../stencils/svgInjector'
 import { projectToScreen, rotatedAabb, overlayButtonPositions } from '../utils/paperGeom'
 
 /**
- * HTML-overlay одиночной выделенной ячейки: rotate/delete/lock по углам visual-AABB
- * и flip на серединах сторон. Не JointJS elementTools — те кэшируют bbox при
- * addTools и не следуют за resize. Что доступно — решают `canCellRotate` и
- * `canCellFlip` (замок, noRotate, а у фигур — меняет ли операция картинку).
+ * HTML-overlay одиночной выделенной ячейки: rotate/delete/lock по углам visual-AABB и
+ * flip на серединах сторон. Не JointJS elementTools: те кэшируют bbox при addTools и не
+ * следуют за resize. Доступность решают `canCellRotate` и `canCellFlip`.
  */
 export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging }) {
   const canvas = useCanvas()
 
   /**
-   * Поворот. Заблокированную (`tms.locked`) не вращаем, noRotate-символы — тоже.
-   * У фигуры-разметки поворачивается ГЕОМЕТРИЯ (`rotateShapeCells`), поэтому габарит
-   * остаётся в модельных осях и ручки ресайза продолжают работать; исключение —
-   * ПОДПИСЬ: её глифы горизонтальны, поворот геометрии дал бы просто перенос точки
-   * привязки, поэтому её вращает `angle` ячейки. Симметричной фигуре (круг, квадрат)
-   * кнопку не показываем — операция ничего не изменит.
+   * Поворот. Заблокированные (`tms.locked`) и noRotate-символы не вращаются. У
+   * фигуры-разметки поворачивается ГЕОМЕТРИЯ (`rotateShapeCells`), поэтому габарит
+   * остаётся в модельных осях; исключение — ПОДПИСЬ, её вращает `angle` ячейки
+   * (глифы горизонтальны). Симметричной фигуре кнопка не показывается.
    */
   function canCellRotate(cell) {
     if (!cell || cell.get('tms')?.locked) return false
@@ -37,9 +34,8 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
   }
 
   /**
-   * Отражение по оси. У символа оно зеркалит SVG и позиции портов (`tms.flipH/flipV`),
-   * у фигуры — саму геометрию, и там же решается, есть ли смысл: прямоугольник и
-   * ортогональная линия отражением не меняются.
+   * Отражение по оси: у символа зеркалит SVG и позиции портов (`tms.flipH/flipV`), у
+   * фигуры — саму геометрию. Прямоугольник и ортогональная линия им не меняются.
    */
   function canCellFlip(cell, axis) {
     if (!cell || cell.get('tms')?.locked) return false

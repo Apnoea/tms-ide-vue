@@ -1129,7 +1129,7 @@ describe('скругление (rounded)', () => {
 describe('выравнивание подписи (якорь роста)', () => {
   const text = { type: 'text', x: 100, y: 50, text: 'Подпись', fontSize: 14 }
 
-  it('без align — прежний middle (символы, нарисованные раньше, не едут)', () => {
+  it('без align — дефолтный middle', () => {
     expect(serializeSvg([text], { width: 200, height: 100 })).toContain('text-anchor="middle"')
     const box = shapeBounds(text)
     // Центр остаётся на точке привязки.

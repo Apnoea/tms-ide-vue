@@ -18,9 +18,8 @@ import { portPoints } from '../utils/portGeom'
 import { textCellToShape, legacyBusPortId, dissolveNodeCells } from './legacyFormat'
 
 /**
- * Первая и последняя точки пути провода. Нужны как ПОСЛЕДНЯЯ линия обороны: если в
- * meta конец не привязан и координат у него нет, линию всё равно можно восстановить —
- * `d` пишет реальную геометрию, как она была на холсте.
+ * Первая и последняя точки пути провода — последняя линия обороны: если в meta конец
+ * не привязан и координат у него нет, геометрию берём из `d`.
  */
 function pathEndpoints(d) {
   if (!d) return null
@@ -34,9 +33,8 @@ function pathEndpoints(d) {
 }
 
 /**
- * Индекс «точка холста → порт символа». Ключ округляем до пикселя: и порты, и
- * концы проводов стоят на сетке, а после float-арифметики совпадение может уехать
- * на сотые.
+ * Индекс «точка холста → порт символа». Ключ округляется до пикселя: после
+ * float-арифметики совпадение уезжает на сотые.
  */
 function portKey(x, y) {
   return `${Math.round(x)}:${Math.round(y)}`
@@ -44,13 +42,12 @@ function portKey(x, y) {
 
 function indexPorts(index, cellJson, byCellPoint) {
   // Позиции считает общая формула (utils/portGeom) — та же, что у отцепления конца
-  // провода и врезки символа в линию: разойдись копии, привязки поехали бы.
+  // провода и врезки символа в линию.
   for (const { id, x, y } of portPoints(cellJson)) {
     const key = portKey(x, y)
     index.set(key, { id: cellJson.id, port: id })
-    // Тот же индекс, но с привязкой к ячейке: когда чиним конец провода, порт
-    // СВОЕЙ ячейки предпочтительнее чужого в той же точке (у соприкасающихся
-    // символов порты совпадают, и общий индекс отдал бы соседа).
+    // Тот же индекс с привязкой к ячейке: при починке конца порт СВОЕЙ ячейки
+    // предпочтительнее чужого в той же точке (у соприкасающихся символов они совпадают).
     if (byCellPoint) byCellPoint.set(`${cellJson.id}@${key}`, id)
   }
 }
@@ -60,9 +57,8 @@ function indexPorts(index, cellJson, byCellPoint) {
  * готовый для graph.fromJSON.
  *
  * Возвращает { ok, cells, errors, stencilIds }.
- *  - ok: SVG успешно распарсился. Пустая форма (0 ячеек) — это ok=true: пустая
- *    схема ≠ битый файл, импорт обязан сохранить её (заготовка / цель навигации).
- *    ok=false только при реальном сбое парсинга (пустой ввод / parse error).
+ *  - ok: SVG распарсился. Пустая форма (0 ячеек) — ok=true (заготовка или цель
+ *    навигации); ok=false только при сбое парсинга.
  *  - cells: массив JointJS-совместимых cell-JSON
  *  - errors: массив warning-строк (для toast'а пользователю)
  *  - stencilIds: все stencilId, встреченные в meta (включая выкинутые из-за
@@ -88,10 +84,9 @@ export function parseSvgProject(svgText) {
   const elementIds = new Set() // id успешно собранных ячеек — для отсева висячих проводов
   const busIds = new Set() // id шин: только у них порт-рефы линков переводим на новую схему
   const portIndex = new Map() // точка холста → { id, port }: чинит потерянные привязки
-  // id ячейки → имена её портов: ловим провод, висящий на порту, которого у символа
-  // НЕТ (символ пересохранили с другими именами портов, форма приехала из среды с
-  // другой его версией). JointJS такую привязку не ругает — молча берёт центр ячейки,
-  // и провод с наконечником уезжает в середину символа. Чиним по геометрии.
+  // id ячейки → имена её портов: ловим провод на порту, которого у символа НЕТ (его
+  // пересохранили с другими именами). JointJS такую привязку молча заменяет центром
+  // ячейки, поэтому чиним по геометрии.
   const cellPorts = new Map()
   const portByCellPoint = new Map() // `${cellId}@${точка}` → порт этой же ячейки
 
@@ -100,9 +95,8 @@ export function parseSvgProject(svgText) {
     try {
       const meta = JSON.parse(g.getAttribute(ATTR_META))
 
-      // Фигура-разметка (`kind: 'shape'`): своя ветка — у неё нет ни символа, ни
-      // портов, ни анимаций, а геометрия лежит в meta и приходит из чужого архива,
-      // поэтому проходит через sanitizeShape.
+      // Фигура-разметка (`kind: 'shape'`): ни символа, ни портов, ни анимаций.
+      // Геометрия приходит из чужого архива, поэтому идёт через sanitizeShape.
       if (meta.kind === 'shape') {
         const tr = g.getAttribute('transform') || ''
         const m = tr.match(/translate\s*\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)\s*\)/)
@@ -124,8 +118,8 @@ export function parseSvgProject(svgText) {
           shapeJson.angle = ((shapeAngle % 360) + 360) % 360
         }
         const shapeZ = Number.parseFloat(meta.z)
-        // Разметка живёт и в подложке (ниже проводов), поэтому дно у неё своё —
-        // кламп нулём поднял бы залитую плашку поверх проводов после импорта.
+        // Разметка живёт и в подложке (ниже проводов), поэтому дно у неё своё: кламп
+        // нулём поднял бы залитую плашку поверх проводов.
         if (Number.isFinite(shapeZ)) {
           shapeJson.z = isBackgroundZ(shapeZ)
             ? Math.max(BACKGROUND_Z_BOUNDS.min, shapeZ)
@@ -161,23 +155,20 @@ export function parseSvgProject(svgText) {
       const width = meta.width ?? stencil.width
       const height = meta.height ?? stencil.height
 
-      // Порты отражаем под flip символа (позиции x'=W-x / y'=H-y), чтобы провода
-      // после загрузки сошлись с отражённым символом.
+      // Порты отражаются под flip символа (x'=W-x / y'=H-y), иначе провода не сойдутся.
       const portItems = buildPortItems(stencil, width, height, {
         flipH: !!meta.flipH,
         flipV: !!meta.flipV,
       })
 
-      // Собираем tms-payload по тому же дескриптору, что пишет exporter
-      // (CELL_META_FIELDS) — единый список, не плодим undefined.
+      // tms-payload по тому же дескриптору, что пишет exporter (CELL_META_FIELDS).
       const tms = { stencilId: meta.stencilId }
       for (const f of CELL_META_FIELDS) {
         const raw = meta[f.key]
         if (raw === undefined) continue
         const v = f.normalize ? f.normalize(raw) : raw
-        // normalize отдал undefined = значение не спасти (нечисловой размер шрифта,
-        // неизвестный якорь): ключ не пишем вовсе, иначе в tms поселился бы
-        // undefined и уехал в следующий экспорт как «поле есть, значения нет».
+        // normalize отдал undefined = значение не спасти: ключ не пишем вовсе, иначе
+        // в tms поселится undefined и уедет в следующий экспорт.
         if (v === undefined) continue
         tms[f.key] = f.clone ? { ...v } : v
       }
@@ -190,17 +181,16 @@ export function parseSvgProject(svgText) {
         tms,
         ports: { items: portItems },
       }
-      // JointJS пишет angle в верхнее поле cell.toJSON() — там же его и читает
-      // в fromJSON. Применится автоматически как transform на outer-`<g>`.
-      // Числа из чужого архива проверяем: NaN в z ломает сортировку коллекции,
-      // «1e9» в angle — бессмысленный поворот. angle приводим к 0..359, z клампим
-      // нулём снизу (отрицательный утащил бы символ под провода).
+      // angle и z — поля верхнего уровня cell.toJSON(); angle применяется как
+      // transform на outer-`<g>`. Значения из чужого архива проверяем: NaN в z ломает
+      // сортировку коллекции. angle приводится к 0..359, z клампится нулём снизу
+      // (отрицательный утащил бы символ под провода).
       const angle = Number.parseFloat(meta.angle)
       if (Number.isFinite(angle) && angle % 360 !== 0) cellJson.angle = ((angle % 360) + 360) % 360
       const z = Number.parseFloat(meta.z)
       if (Number.isFinite(z)) cellJson.z = Math.max(0, z)
-      // Подпись из прошлого формата (символ cell_text) сразу становится фигурой —
-      // тем же конвертером, что чинит формы в IDB (см. services/legacyFormat).
+      // Подпись прошлого формата (cell_text) сразу становится фигурой — тем же
+      // конвертером, что чинит формы в IDB (services/legacyFormat).
       const migrated = textCellToShape(cellJson)
       cells.push(migrated || cellJson)
       elementIds.add(meta.id)
@@ -218,23 +208,18 @@ export function parseSvgProject(svgText) {
   for (const p of doc.querySelectorAll(`path[${ATTR_META}]`)) {
     try {
       const meta = JSON.parse(p.getAttribute(ATTR_META))
-      // Конец провода — либо привязка к ячейке, либо свободная точка. Точку берём
-      // как есть; ссылку на несобранную ячейку заменяем точкой из геометрии пути, а
-      // не выбрасываем провод: линия на схеме нарисована, и терять её при импорте
-      // хуже, чем показать с отвязанным концом (архивы с `{ id: undefined }` у
-      // концов — след старой регрессии, они восстанавливаются именно так).
+      // Конец провода — либо привязка к ячейке, либо свободная точка. Ссылка на
+      // несобранную ячейку заменяется точкой из геометрии пути, а провод не
+      // выбрасывается: линия на схеме нарисована, терять её хуже.
       const pathEnds = pathEndpoints(p.getAttribute('d'))
       const resolveEnd = (end, fallback, which) => {
-        // Имя порта, на котором конец должен сидеть у собранной ячейки: у шины
-        // прошлой схемы порты переименованы (buildPortItems), без перевода конец
-        // повис бы на несуществующем `top_i` — экспорт увёл бы его в центр шины.
+        // Имя порта у собранной ячейки: у шины прошлой схемы порты переименованы
+        // (buildPortItems), без перевода конец повис бы на несуществующем `top_i`.
         const wanted =
           end?.id && busIds.has(end.id) ? legacyBusPortId(end.port) || end.port : end?.port
         const known = end?.id ? cellPorts.get(end.id) : null
-        // Порт, которого у символа нет: так бывает, когда символ пересохранили с
-        // другими именами портов. Мёртвую привязку не оставляем — JointJS молча
-        // уводит такой конец в центр символа (провод и наконечник уезжают в
-        // середину), поэтому чиним по геометрии, как потерянное имя порта.
+        // Порта у символа нет (его пересохранили с другими именами): мёртвую
+        // привязку не оставляем — JointJS молча уводит такой конец в центр символа.
         const portMissing = !!(wanted && known && !known.has(wanted))
         if (end?.id && elementIds.has(end.id) && !portMissing) {
           return wanted && wanted !== end.port ? { ...end, port: wanted } : end
@@ -242,9 +227,8 @@ export function parseSvgProject(svgText) {
         // Точка конца: своя, если в meta она есть (общий предикат — см. isFreeEnd),
         // иначе взятая из геометрии пути.
         const point = endPoint({ ...end, id: undefined }) || fallback
-        // Точка совпала с портом — привязку возвращаем: это не угадывание, а
-        // восстановление (порт стоит ровно там, где кончается линия). Сначала ищем
-        // порт СВОЕЙ ячейки, потом любой в этой точке.
+        // Точка совпала с портом — привязка возвращается (порт стоит ровно там, где
+        // кончается линия). Сначала порт СВОЕЙ ячейки, потом любой в этой точке.
         const key = point ? portKey(point.x, point.y) : null
         const ownPort = key && end?.id ? portByCellPoint.get(`${end.id}@${key}`) : null
         const hit = ownPort ? { id: end.id, port: ownPort } : key ? portIndex.get(key) : null
@@ -254,9 +238,8 @@ export function parseSvgProject(svgText) {
               ? `Провод ${meta.id}: ${which} висел на порту "${wanted}", которого у символа нет — привязка восстановлена по геометрии`
               : `Провод ${meta.id}: ${which} висел на порту "${wanted}", которого у символа нет — конец отвязан`
           )
-          // Геометрия не помогла, но ячейка есть: привязываем к символу целиком —
-          // связь сохраняется (символ поедет — провод потянется), а несуществующее
-          // имя порта не уедет в следующий экспорт.
+          // Геометрия не помогла, но ячейка есть: привязка к символу целиком —
+          // связь сохраняется, а несуществующее имя порта в экспорт не уедет.
           if (!hit) return elementIds.has(end.id) ? { id: end.id } : point
           return { ...hit }
         }
@@ -277,9 +260,8 @@ export function parseSvgProject(svgText) {
         continue
       }
 
-      // Конфиг визуала (router/connector/attrs без стрелок) — из общего модуля,
-      // тот же что у defaultLink в CanvasPane. Иначе восстановленный провод
-      // получил бы дефолты JointJS со стрелкой на target.
+      // Конфиг визуала (router/connector/attrs) — из общего модуля, тот же что у
+      // defaultLink: на дефолтах JointJS провод получил бы стрелку на target.
       const link = {
         ...LINK_DEFAULTS,
         type: 'standard.Link',
@@ -287,11 +269,10 @@ export function parseSvgProject(svgText) {
         source,
         target,
       }
-      // Ручные изломы: без них gridRightAngle-роутер перерисовал бы провод по
-      // дефолтному маршруту, потеряв правки пользователя.
+      // Ручные изломы: без них роутер перестроил бы маршрут по дефолту.
       if (Array.isArray(meta.vertices) && meta.vertices.length) link.vertices = meta.vertices
-      // Порядок в полосе проводов. Нормализуем: meta из чужого архива, значение
-      // вне полосы вынесло бы провод поверх символов.
+      // Порядок в полосе проводов: значение из чужого архива вне полосы вынесло бы
+      // провод поверх символов.
       if (meta.z != null) link.z = normalizeLinkZ(meta.z)
       // tms-поля провода по тому же дескриптору, что пишет exporter (LINK_META_FIELDS).
       for (const f of LINK_META_FIELDS) {

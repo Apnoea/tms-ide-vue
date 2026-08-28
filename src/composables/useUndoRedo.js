@@ -7,11 +7,11 @@ import { useCanvas } from './useCanvas'
 const HISTORY_LIMIT = 50
 
 /**
- * Undo/redo: стек снимков `graph.toJSON()`, значимое изменение → дебаунс 200мс →
- * snapshot. В open-source @joint/core нет CommandManager, поэтому свой full-graph
- * replay — для десятков ячеек достаточно. Снимки хранятся СТРОКАМИ: дедуп против
- * вершины — сравнение строк, а не два `JSON.stringify` графа на действие.
- * `initHistory()` зовём, когда graph готов — иначе стартовой позиции нет в стеке.
+ * Undo/redo: стек снимков `graph.toJSON()`, значимое изменение → дебаунс 200 мс →
+ * snapshot. CommandManager'а в open-source @joint/core нет, поэтому свой full-graph
+ * replay. Снимки хранятся СТРОКАМИ: дедуп против вершины — сравнение строк, а не два
+ * `JSON.stringify` на действие. `initHistory()` зовётся, когда graph готов, иначе в
+ * стеке нет стартовой позиции.
  *
  * @param {object} deps
  * @param {import('vue').Ref<boolean>} deps.restoringHistory — общий флаг с
@@ -43,11 +43,10 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
     if (restoringHistory.value || !graph) return
     const json = graph.toJSON()
     const str = JSON.stringify(json)
-    // Триггер мог не изменить граф (клик-выделение в модель не пишется). Пустышки
-    // вымывали бы HISTORY_LIMIT, Ctrl+Z «прожимался» бы впустую, а после серии undo
-    // такой снимок ещё и срезал бы redo.
+    // Триггер мог не изменить граф (клик-выделение в модель не пишется): пустой
+    // снимок вымывал бы HISTORY_LIMIT и срезал redo после серии undo.
     if (str === history[historyIndex]) return
-    // Если делаем новое действие после серии undo — отрезаем «будущее»
+    // Новое действие после серии undo отрезает «будущее».
     if (historyIndex < history.length - 1) {
       history = history.slice(0, historyIndex + 1)
     }
@@ -57,7 +56,7 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
       history.shift()
       historyIndex--
     }
-    // Autosave по тому же триггеру: оба отражают стабильное состояние после действия.
+    // Autosave по тому же триггеру: оба отражают состояние после действия.
     saveAutosave(json, str)
     // Реальное изменение графа → состояние разошлось с последним экспортом.
     canvas.markDirty()
@@ -74,9 +73,8 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
   }
 
   /**
-   * Фиксирует отложенный снимок перед навигацией по истории. Иначе Ctrl+Z в окне
-   * дебаунса съедал ДВА действия: pending-снимок отбрасывался и в стек не попадал,
-   * так что redo его не возвращал.
+   * Фиксирует отложенный снимок перед навигацией по истории: иначе Ctrl+Z в окне
+   * дебаунса съедает ДВА действия, а redo pending-снимок не возвращает.
    */
   function flushPendingSnapshot() {
     if (!snapshotTimer) return
@@ -92,7 +90,7 @@ export function useUndoRedo({ restoringHistory, saveAutosave }) {
   }
 
   function redo() {
-    // Незакоммиченное действие делает redo-хвост недействительным — флашим его
+    // Незакоммиченное действие делает redo-хвост недействительным — флашим.
     // (snapshot сам срежет «будущее»), иначе redo вернул бы состояние из ветки,
     // которой уже не существует.
     flushPendingSnapshot()

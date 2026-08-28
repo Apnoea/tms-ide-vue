@@ -1,8 +1,7 @@
-// Проект ↔ ZIP-архив — единственный формат ввода-вывода проекта. Раскладка внутри
-// архива: forms/<id>/{view.svg,animations.json}, library/<id>/{stencil.json,
-// shape.svg}, taglist.csv, hierarchy.json, project.json (редакторная мета). Экспорт → скачивание Blob, импорт →
-// выбор .zip (pickFile: FSA либо `<input type="file">`) → распаковка в структуру для
-// оркестрации (useProject).
+// Проект ↔ ZIP-архив — единственный формат ввода-вывода. Раскладка внутри архива:
+// forms/<id>/{view.svg,animations.json}, library/<id>/{stencil.json,shape.svg},
+// taglist.csv, hierarchy.json, project.json (редакторная мета). Экспорт — скачивание
+// Blob, импорт — выбор .zip (pickFile) и распаковка в структуру для useProject.
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 import { FORM_ID_RE, FORM_ID_MAX } from '../constants/ids'
 import { pickFile } from './fileSystem'
@@ -30,28 +29,25 @@ function assertPathSafeId(id, what) {
 export function buildProjectZipBlob({ forms, stencils, tagsText, hierarchy, project }) {
   const files = {}
   for (const f of forms) {
-    // Последний рубеж перед путём в архиве: id формы приходит из данных (проект в
-    // IDB, импортированный архив), а `..` или слэш в нём уводят файл за папку
-    // проекта при распаковке на объекте. Импорт такие имена уже чинит
-    // (utils/formIds), поэтому здесь это «невозможное состояние» — падаем, а не
-    // санируем молча: путь наружу не должен зависеть от проверки на входе.
+    // Последний рубеж перед путём в архиве: `..` или слэш в id формы увели бы файл
+    // за папку проекта при распаковке. Имена чинит импорт (utils/formIds), поэтому
+    // здесь падаем, а не санируем молча.
     assertPathSafeId(f.id, 'формы')
     files[`forms/${f.id}/view.svg`] = strToU8(f.viewSvg)
     files[`forms/${f.id}/animations.json`] = strToU8(f.animationsJson)
   }
   if (stencils?.length) {
     for (const s of stencils) {
-      // У символов id фильтрует реестр (STENCIL_ID_RE), но путь строится здесь —
-      // проверяем на общих правах.
+      // У символов id фильтрует реестр (STENCIL_ID_RE), но путь строится здесь.
       assertPathSafeId(s.id, 'символа')
       files[`library/${s.id}/stencil.json`] = strToU8(JSON.stringify(s.stencilJson, null, 2) + '\n')
       files[`library/${s.id}/shape.svg`] = strToU8(s.shapeSvg)
     }
   }
   if (tagsText != null) files['taglist.csv'] = strToU8(tagsText)
-  // project.json — редакторная мета проекта (сейчас фон холста по формам). Отдельным
-  // файлом, а не полем в hierarchy.json: тот массив-дерево, и менять его форму значило
-  // бы ломать чтение старых архивов. Пустую мету не пишем.
+  // project.json — редакторная мета проекта (фон холста по формам). Отдельным файлом,
+  // а не полем hierarchy.json: тот массив-дерево, менять его форму = ломать чтение
+  // старых архивов. Пустая мета не пишется.
   if (project && Object.keys(project).length)
     files['project.json'] = strToU8(JSON.stringify(project, null, 2) + '\n')
   if (hierarchy?.length)

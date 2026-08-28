@@ -1,6 +1,6 @@
-// Текстовая подпись (cell_text) — программный символ: содержимое и размер живут
-// в tms, а не в shape.svg. Метрики (textCellWidth/Height) общие для автосайза
-// ячейки, inline-редактора и экспорта — иначе hit-area разъезжается с текстом.
+// Текстовая подпись (cell_text) — программный символ прошлого формата: содержимое и
+// размер живут в tms, а не в shape.svg. Метрики общие для автосайза ячейки,
+// inline-редактора и экспорта, поэтому hit-area совпадает с текстом.
 import { SVG_NS, escapeXml, escapeAttr, svgEl } from '../utils/xml'
 import { measureTextWidth, normalizeFont } from '../utils/textMetrics'
 
@@ -14,9 +14,8 @@ function textCellHeight(fontSize) {
 }
 
 /**
- * Ширина ячейки под текст/шрифт/жирность (метрика — `utils/textMetrics`).
- * Минимум 24px: пустой текст не должен схлопываться в 0. Без canvas (SSR/jsdom)
- * отдаём 100 — ячейка остаётся кликабельной.
+ * Ширина ячейки под текст/шрифт/жирность (метрика — `utils/textMetrics`). Минимум
+ * 24px, без canvas (jsdom) — 100: ячейка должна остаться кликабельной.
  */
 function textCellWidth(text, fontSize, bold = false, font) {
   const w = measureTextWidth(text, fontSize, bold, -1, font)
@@ -59,10 +58,9 @@ export function resizeTextCell(cell, newW, newH, align = 'left') {
 /**
  * Экспортный SVG: текст по центру по вертикали, с отступом слева.
  *
- * `textLength` фиксирует ширину, посчитанную IDE: панель под generic-именем
- * может взять другую гарнитуру, и подпись наползла бы за габарит ячейки. При
- * совпадении гарнитур не меняет ничего. Без замера или на пустом тексте не
- * пишем — `textLength="0"` схлопнул бы строку.
+ * `textLength` фиксирует ширину, посчитанную IDE: панель под generic-именем может
+ * взять другую гарнитуру, и подпись наползла бы за габарит. Без замера и на пустом
+ * тексте не пишется (`textLength="0"` схлопнул бы строку).
  */
 export function buildTextExportSvg(
   text,
@@ -74,7 +72,7 @@ export function buildTextExportSvg(
   const measured = measureTextWidth(text, fontSize, bold, -1, font)
   const fit =
     measured > 0 ? ` textLength="${Math.ceil(measured)}" lengthAdjust="spacingAndGlyphs"` : ''
-  // Статичная подпись — цвет задаёт автор (tms.color), заливка по диапазонам тут не нужна.
+  // Статичная подпись: цвет задаёт автор (tms.color), заливки по диапазонам нет.
   return `<svg xmlns="${SVG_NS}"><text x="${TEXT_PADDING_X}" y="${y}" dominant-baseline="central" font-size="${fontSize}" font-family="${normalizeFont(font)}"${weight}${fit} fill="${escapeAttr(color || '#000')}">${escapeXml(text)}</text></svg>`
 }
 
