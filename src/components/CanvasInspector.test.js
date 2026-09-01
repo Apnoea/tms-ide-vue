@@ -10,18 +10,33 @@ import { mountWithApp } from '../composables/test-utils'
 vi.mock('../stencils/registry', () => ({
   // Булев символ: slot.onoff с `type: 'Boolean'` — именно по типу слота инспектор
   // фильтрует теги в picker'е (не по имени ключа), как в настоящем cell_qw.
-  getStencilById: vi.fn((id) =>
-    id
-      ? {
-          id,
-          label: 'Тест',
-          category: 'Тест',
-          width: 20,
-          height: 20,
-          slots: [{ key: 'onoff', type: 'Boolean' }],
-        }
-      : null
-  ),
+  getStencilById: vi.fn((id) => {
+    if (!id) return null
+    // Карточка значения: правимые подписи (params) + слот Text под тег значения.
+    if (id === 'cell_value') {
+      return {
+        id,
+        label: 'Значение тега',
+        category: 'Тест',
+        width: 100,
+        height: 20,
+        params: [
+          { key: 'p1', default: 'Величина' },
+          // Единица по умолчанию пустая: заголовка у поля не будет.
+          { key: 'p2', default: '' },
+        ],
+        slots: [{ key: 'value_text', type: 'Text' }],
+      }
+    }
+    return {
+      id,
+      label: 'Тест',
+      category: 'Тест',
+      width: 20,
+      height: 20,
+      slots: [{ key: 'onoff', type: 'Boolean' }],
+    }
+  }),
   hasBoolSlot: vi.fn((s) => !!s?.slots?.some((x) => x.key === 'onoff')),
 }))
 
@@ -135,20 +150,25 @@ describe('CanvasInspector', () => {
     expect(b.get('tms').navigation).toBeUndefined()
     expect(a.get('tms').navigation).toBeUndefined()
   })
-  it('cell_value: ввод подписи и единицы пишется в tms (без справочника величин)', async () => {
+  it('подписи-параметры: ввод пишется в tms.params, пустое возвращает текст символа', async () => {
     const cell = makeCell({ stencilId: 'cell_value' })
-    cell.set('tms', { stencilId: 'cell_value', valueTag: 'T1.UA' })
     graph.addCell(cell)
     canvas.selectOnly('cell', cell.id)
     setup()
     await wrapper.vm.$nextTick()
 
-    const inputs = wrapper.findAll('input[type="text"]')
-    await inputs.find((i) => i.attributes('placeholder') === 'Ua').setValue('Ua')
-    await inputs.find((i) => i.attributes('placeholder') === 'В').setValue('В')
+    const fields = wrapper.findAll('input[data-param-field]')
+    expect(fields).toHaveLength(2)
+    await fields[0].setValue('Ua')
+    await fields[1].setValue('кВ')
     await wrapper.vm.$nextTick()
+    expect(cell.get('tms').params).toEqual({ p1: 'Ua', p2: 'кВ' })
 
-    expect(cell.get('tms')).toMatchObject({ valueLabel: 'Ua', valueUnit: 'В' })
+    // Пустой ввод убирает ключ, а не пишет пустую строку: иначе вернуть текст из
+    // символа стало бы нечем.
+    await fields[0].setValue('')
+    await wrapper.vm.$nextTick()
+    expect(cell.get('tms').params).toEqual({ p2: 'кВ' })
   })
 })
 

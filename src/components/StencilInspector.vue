@@ -29,7 +29,6 @@ const {
   selectedId,
   selectedIds,
   updateShape,
-  removeShapes,
   selectedFor,
   commonValue,
   applyToSelected,
@@ -64,16 +63,16 @@ const hasStrokeWidth = computed(() => selectedFor(NOT_TEXT).length > 0)
 const isTextShape = computed(() => selectedShape.value?.type === 'text')
 const textSize = computed(() => selectedShape.value?.fontSize ?? TEXT_SHAPE_SIZE)
 
-// Текст подписи: непустое пишем живьём, пустое держим только в поле и по коммиту
-// удаляем фигуру — подпись без текста не видно на холсте символа, а в shape.svg она
-// уехала бы пустым `<text>`. Как на холсте (см. CanvasInspector).
+// Текст подписи пишется живьём, шаг истории — по коммиту (blur). Пустой текст
+// фигуру НЕ удаляет: подпись-параметр приходит с холста, а в редакторе её рисует
+// иконка (см. ShapePrimitive).
 const textDraft = ref(null)
 const textValue = computed(() => textDraft.value ?? selectedShape.value?.text ?? '')
 
 function setText(v) {
   const next = v ?? ''
   textDraft.value = next
-  if (next && selectedShape.value) updateShape(selectedShape.value.id, { text: next })
+  if (selectedShape.value) updateShape(selectedShape.value.id, { text: next })
 }
 
 // Чип области применения: тогл + шаг истории (мета символа входит в undo-снимок).
@@ -87,13 +86,7 @@ function toggleDomain(key) {
 function commitText() {
   const draft = textDraft.value
   textDraft.value = null
-  if (draft === null) return
-  if (draft) {
-    commit()
-    return
-  }
-  const id = selectedShape.value?.id
-  if (id) removeShapes([id])
+  if (draft !== null) commit()
 }
 
 // Черновик не должен переезжать на другую фигуру при смене выделения.
@@ -109,6 +102,51 @@ function setTextBold(on) {
   updateShape(selectedShape.value.id, { bold: !!on })
   commit()
 }
+
+// Текст из тега: слот и text-карточку по этому флагу собирает buildStencilJson.
+function setValueText(on) {
+  if (!selectedShape.value) return
+  updateShape(selectedShape.value.id, { valueText: !!on })
+  commit()
+}
+
+/**
+ * Параметр — подпись, которую правят у каждого экземпляра (текст фигуры остаётся
+ * значением по умолчанию и подписью поля в инспекторе холста). Ключ выдаём сами:
+ * автору он не нужен.
+ *
+ * Снятая галка ПОМНИТ ключ (`paramPrev`) и возвращает его при повторном включении:
+ * значения экземпляров лежат под ключом, и новый номер осиротил бы уже расставленные
+ * подписи по всем формам.
+ */
+function setParam(on) {
+  const shape = selectedShape.value
+  if (!shape) return
+  updateShape(
+    shape.id,
+    on
+      ? { param: shape.paramPrev || nextParamKey(), paramPrev: undefined }
+      : { param: undefined, paramPrev: shape.param }
+  )
+  commit()
+}
+
+// Номер — от максимума занятых, включая снятые: иначе освободившийся ключ достался бы
+// новой подписи, и в неё всплыл бы прежний текст экземпляра.
+function nextParamKey() {
+  const used = shapes.value
+    .flatMap((s) => [s.param, s.paramPrev])
+    .map((key) => /^p(\d+)$/.exec(key || '')?.[1])
+    .filter(Boolean)
+    .map(Number)
+  return `p${Math.max(0, ...used) + 1}`
+}
+
+// Флаг стоит у нескольких подписей: слот и суффикс один, поэтому в схему уехала бы
+// только одна из них.
+const valueTextConflict = computed(
+  () => shapes.value.filter((s) => s.type === 'text' && s.valueText).length > 1
+)
 // Выравнивание — якорь роста подписи: у фигуры без поля это центр, новым редактор
 // ставит левый край.
 const textAlign = computed(() => selectedShape.value?.align || 'center')
@@ -581,14 +619,15 @@ function clearStateColor(key, which) {
           <template v-if="isTextShape">
             <div>
               <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
-              <!-- Как у подписи на холсте (см. CanvasInspector): пустое поле удаляет
-                   фигуру по коммиту, Enter добавляет строку. -->
+              <!-- Пустая подпись остаётся фигурой и рисуется иконкой (её текст
+                   приходит с холста, если она помечена правимой); убрать её — Del,
+                   как любую другую. Enter добавляет строку. -->
               <Textarea
                 :model-value="textValue"
                 rows="3"
                 size="small"
                 class="w-full"
-                placeholder="Пустое поле удалит подпись"
+                placeholder="Текст подписи"
                 @update:model-value="setText"
                 @blur="commitText"
               />
@@ -651,6 +690,34 @@ function clearStateColor(key, which) {
                 @update:model-value="setTextBold"
               />
               <span class="text-surface-700">Жирный</span>
+            </label>
+            <!-- Текст из тега: содержимое подписи в рантайме заменяет значение
+                 сигнала. Сам текст в символе остаётся заглушкой (её видно в
+                 редакторе, на холсте и в схеме до прихода данных). -->
+            <label class="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                :model-value="!!selectedShape.valueText"
+                binary
+                input-id="se-text-value"
+                @update:model-value="setValueText"
+              />
+              <span class="text-surface-700">Показывает значение тега</span>
+            </label>
+            <p v-if="valueTextConflict" class="text-[11px] text-amber-600">
+              Значение тега может показывать только одна подпись — снимите флаг с остальных.
+            </p>
+            <!-- Параметр: текст правится у каждого экземпляра на холсте, а здешний
+                 остаётся значением по умолчанию и подписью поля в инспекторе. У
+                 подписи со значением тега его нет: содержимое приходит из рантайма,
+                 и правка на холсте всё равно была бы затёрта. -->
+            <label v-if="!selectedShape.valueText" class="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                :model-value="!!selectedShape.param"
+                binary
+                input-id="se-text-param"
+                @update:model-value="setParam"
+              />
+              <span class="text-surface-700">Правится на холсте</span>
             </label>
           </template>
           <label class="flex items-center justify-between cursor-pointer">

@@ -358,6 +358,100 @@ describe('внутренняя анимация (state)', () => {
     expect(onFalse.bindings[0].when.cases.true.apply.addClass).toBe('animation-hidden')
   })
 
+  it('текст со значением тега → слот Text + карточка text и метка на самом <text>', () => {
+    // Метка обязана стоять на <text>, а не на группе: рантайм пишет в textContent
+    // найденного узла, а группа отвечает за видимость по состоянию.
+    const base = { id: 'cell_x', label: 'X', category: 'C', width: 100, height: 20 }
+    const withValue = [
+      { type: 'rect', x: 0, y: 0, w: 100, h: 20 },
+      { type: 'text', x: 50, y: 15, text: '--', valueText: true },
+    ]
+    const json = buildStencilJson(base, [], withValue)
+    expect(json.slots).toEqual([{ key: 'value_text', type: 'Text' }])
+    expect(json.animationTemplate).toHaveLength(1)
+    const card = json.animationTemplate[0]
+    expect(card.idSuffix).toBe('.value')
+    expect(card.type).toBe('text')
+    expect(card.bindings[0]).toEqual({ tag: '{slot.value_text}', output: { text: {} } })
+    // Точность в шаблоне не пишется: она свойство привязки (tms ячейки).
+    expect(card.bindings[0].output.decimals).toBeUndefined()
+
+    const svg = serializeSvg(withValue, base)
+    expect(svg).toContain('<text data-anim-suffix=".value" x="50"')
+  })
+
+  it('правимая подпись → params с текстом-образцом + метка на <text>', () => {
+    const base = { id: 'cell_x', label: 'X', category: 'C', width: 100, height: 20 }
+    const shapes = [
+      { type: 'text', x: 10, y: 15, text: 'Ua', param: 'p1' },
+      { type: 'text', x: 90, y: 15, text: 'В', param: 'p2' },
+    ]
+    const json = buildStencilJson(base, [], shapes)
+    // Текст образца — и значение по умолчанию, и подпись поля в инспекторе холста.
+    expect(json.params).toEqual([
+      { key: 'p1', default: 'Ua' },
+      { key: 'p2', default: 'В' },
+    ])
+    const svg = serializeSvg(shapes, base)
+    expect(svg).toContain('<text data-tms-param="p1" x="10"')
+    expect(parseStencilSvg(svg)[1].param).toBe('p2')
+  })
+
+  it('пустая по умолчанию подпись объявляется параметром и переживает round-trip', () => {
+    // Единица величины по умолчанию пустая — её дописывает автор на холсте.
+    const base = { id: 'cell_x', label: 'X', category: 'C', width: 100, height: 20 }
+    const shapes = [{ type: 'text', x: 95, y: 15, text: '', param: 'p2' }]
+    expect(buildStencilJson(base, [], shapes).params).toEqual([{ key: 'p2', default: '' }])
+    expect(parseStencilSvg(serializeSvg(shapes, base))[0]).toMatchObject({ param: 'p2' })
+  })
+
+  it('чужой ключ параметра отбрасывается на обоих концах, дубль объявляется один раз', () => {
+    const base = { id: 'cell_x', label: 'X', category: 'C', width: 100, height: 20 }
+    const bad = [{ type: 'text', x: 10, y: 15, text: 'Ua', param: 'p 1' }]
+    expect(buildStencilJson(base, [], bad).params).toBeUndefined()
+    expect(serializeSvg(bad, base)).not.toContain('data-tms-param')
+
+    const dup = [
+      { type: 'text', x: 10, y: 15, text: 'Ua', param: 'p1' },
+      { type: 'text', x: 90, y: 15, text: 'Ua', param: 'p1' },
+    ]
+    expect(buildStencilJson(base, [], dup).params).toEqual([{ key: 'p1', default: 'Ua' }])
+  })
+
+  it('текст без флага метку не получает, слота и карточки нет', () => {
+    const base = { id: 'cell_x', label: 'X', category: 'C', width: 100, height: 20 }
+    const plain = [{ type: 'text', x: 50, y: 15, text: 'Ua' }]
+    const json = buildStencilJson(base, [], plain)
+    expect(json.slots).toBeUndefined()
+    expect(json.animationTemplate).toBeUndefined()
+    expect(serializeSvg(plain, base)).not.toContain('data-anim-suffix')
+  })
+
+  it('значение и состояние в одном символе: два слота, карточки не перетирают друг друга', () => {
+    // Слоты складываются — иначе выключатель не смог бы показывать ещё и ток.
+    const both = [
+      { type: 'rect', x: 0, y: 0, w: 20, h: 20, state: 'true' },
+      { type: 'text', x: 10, y: 15, text: '--', valueText: true },
+    ]
+    const json = buildStencilJson(
+      { id: 'cell_x', label: 'X', category: 'C', width: 20, height: 20, ...meta },
+      [],
+      both
+    )
+    expect(json.slots).toEqual([
+      { key: 'value_text', type: 'Text' },
+      { key: 'onoff', type: 'Boolean' },
+    ])
+    expect(json.animationTemplate.map((c) => c.idSuffix).sort()).toEqual(['.true', '.value'])
+  })
+
+  it('метка текста со значением читается обратно при разборе shape.svg', () => {
+    const base = { id: 'cell_x', label: 'X', category: 'C', width: 100, height: 20 }
+    const shapes = [{ type: 'text', x: 50, y: 15, text: '--', valueText: true }]
+    const parsed = parseStencilSvg(serializeSvg(shapes, base))
+    expect(parsed[0].valueText).toBe(true)
+  })
+
   it('buildStencilJson не эмитит анимацию, если stateful выключен или нет true/false', () => {
     const base = { id: 'cell_x', label: 'X', category: 'C', width: 20, height: 20 }
     const staticShapes = [{ type: 'rect', x: 0, y: 0, w: 10, h: 10 }]

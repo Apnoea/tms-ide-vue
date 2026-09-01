@@ -113,3 +113,34 @@ describe('parser.instantiate', () => {
     expect(card.bindings[0].output.text.from).toBe('OBJ.RIGHT')
   })
 })
+
+describe('параметры экземпляра', () => {
+  const paramStencil = {
+    id: 'cell_param',
+    svgText: `<svg xmlns="http://www.w3.org/2000/svg">
+      <text data-tms-param="p1" x="10" y="15">Ua</text>
+      <text data-tms-param="p2" x="90" y="15"><tspan x="90">В</tspan></text>
+    </svg>`,
+  }
+
+  it('значение подписи подставляется в рисунок, незаданное оставляет образец', () => {
+    const { root } = instantiate(paramStencil, 'c1', {}, { p1: 'Ia' })
+    const texts = root.querySelectorAll('text')
+    expect(texts[0].textContent).toBe('Ia')
+    // Пустой параметр = текст из определения: он и есть значение по умолчанию.
+    expect(texts[1].textContent).toBe('В')
+  })
+
+  it('подстановка идёт по клону — шаблон в кэше остаётся с образцом', () => {
+    instantiate(paramStencil, 'c1', {}, { p1: 'Ia' })
+    const { root } = instantiate(paramStencil, 'c2', {}, {})
+    expect(root.querySelector('text').textContent).toBe('Ua')
+  })
+
+  it('многострочный образец заменяется целиком (у параметра одна строка)', () => {
+    const { root } = instantiate(paramStencil, 'c1', {}, { p2: 'кА' })
+    const second = root.querySelectorAll('text')[1]
+    expect(second.textContent).toBe('кА')
+    expect(second.querySelector('tspan')).toBeNull()
+  })
+})

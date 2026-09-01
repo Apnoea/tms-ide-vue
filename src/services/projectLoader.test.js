@@ -298,6 +298,27 @@ describe('parseSvgProject', () => {
     expect(out.errors.length).toBeGreaterThan(0)
   })
 
+  it('карточка значения из старого архива приходит уже переведённой', () => {
+    // Конвертер один на оба входа данных (формы из IDB и .zip), иначе формат жил бы
+    // в двух вариантах.
+    const meta = {
+      id: 'v1',
+      stencilId: 'cell_value',
+      width: 100,
+      height: 20,
+      valueTag: 'T1.UA',
+      valueLabel: 'Ua',
+      valueUnit: 'кВ',
+    }
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      <g transform="translate(0,0)" data-tms-meta='${attr(meta)}'/>
+    </svg>`
+    const { tms } = parseSvgProject(svg).cells[0]
+    expect(tms.slots).toEqual({ value_text: 'T1.UA' })
+    expect(tms.params).toEqual({ p1: 'Ua', p2: 'кВ' })
+    expect(tms.valueTag).toBeUndefined()
+  })
+
   it('чистит числовые/перечислимые поля чужой meta', () => {
     // Архив приходит извне: `decimals: 500` валит `toFixed` в рантайме,
     // нечисловой fontSize ломает замер габарита, неизвестный align — якорь роста.

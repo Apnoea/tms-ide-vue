@@ -7,7 +7,7 @@
  * состояние, а рантайм на пустом теге ругается.
  */
 
-import { innerKey, resolveSlotTemplate, ATTR_SUFFIX } from '../constants/ids'
+import { innerKey, resolveSlotTemplate, ATTR_PARAM, ATTR_SUFFIX } from '../constants/ids'
 
 /** `{slot.KEY}` → тег из slots; неразрешённый слот → null. */
 function interpolate(str, slots) {
@@ -101,13 +101,20 @@ function templateRoot(stencil) {
  *
  * Шаблон в кэше не мутируем — правки идут только по клону.
  */
-function instantiateSvg(stencil, cellId) {
+function instantiateSvg(stencil, cellId, params) {
   const tpl = templateRoot(stencil)
   if (!tpl) return null
   const root = tpl.cloneNode(true)
   for (const el of root.querySelectorAll(`[${ATTR_SUFFIX}]`)) {
     el.setAttribute('id', innerKey(stencil.id, cellId, el.getAttribute(ATTR_SUFFIX) || ''))
     el.removeAttribute(ATTR_SUFFIX)
+  }
+  // Подпись-параметр: экземпляр подставляет свой текст, образец в шаблоне остаётся
+  // значением по умолчанию. У параметра одна строка, поэтому пишем textContent —
+  // tspan'ы многострочного образца уходят вместе с ним.
+  for (const el of root.querySelectorAll(`[${ATTR_PARAM}]`)) {
+    const value = params?.[el.getAttribute(ATTR_PARAM)]
+    if (typeof value === 'string' && value) el.textContent = value
   }
   return root
 }
@@ -118,9 +125,9 @@ function instantiateSvg(stencil, cellId) {
  * @returns {{ animations: object, root: Element|null }} `root` — корень клона
  *   разметки (null у символа без `shape.svg`: программные рисуются билдерами)
  */
-export function instantiate(stencil, cellId, slots = {}) {
+export function instantiate(stencil, cellId, slots = {}, params = {}) {
   return {
     animations: generateAnimations(stencil, cellId, slots),
-    root: instantiateSvg(stencil, cellId),
+    root: instantiateSvg(stencil, cellId, params),
   }
 }

@@ -5,7 +5,7 @@
  */
 
 import { ref } from 'vue'
-import { ATTR_SUFFIX, STENCIL_ID_RE } from '../constants/ids'
+import { ATTR_SUFFIX, STENCIL_ID_RE, isValidParamKey } from '../constants/ids'
 import { isValidDomain } from '../constants/domains'
 import { sanitizeSvgMarkup } from '../utils/sanitizeSvg'
 
@@ -70,6 +70,7 @@ export function validateStencilJson(path, json, svgText) {
     'defaults',
     'locked',
     'domains',
+    'params',
     // Поле прошлых версий (скрытие держит LEGACY_HIDDEN_IDS): в known остаётся,
     // чтобы архивы с ним не сыпали предупреждением на каждом импорте.
     'hidden',
@@ -89,6 +90,20 @@ export function validateStencilJson(path, json, svgText) {
       for (const key of json.domains) {
         if (!isValidDomain(key)) {
           issues.push(`[stencils] ${path}: неизвестная область применения "${key}" — отброшена`)
+        }
+      }
+    }
+  }
+
+  // Параметры — подписи, правимые на холсте: ключ идёт в data-tms-param и в
+  // tms.params, поэтому маска та же, что у значений (constants/ids).
+  if (json.params !== undefined) {
+    if (!Array.isArray(json.params)) {
+      issues.push(`[stencils] ${path}: "params" должен быть массивом`)
+    } else {
+      for (const [i, param] of json.params.entries()) {
+        if (!isValidParamKey(param?.key)) {
+          issues.push(`[stencils] ${path}: params[${i}] с недопустимым "key"`)
         }
       }
     }
@@ -230,9 +245,9 @@ export function unregisterStencil(id) {
   if (registry.delete(id)) registryVersion.value++
 }
 
-// Закреплена первой независимо от алфавита: каркас схемы (подписи, значения, узлы,
-// шины) нужен на любой схеме. Остальные — по алфавиту, ru-локаль.
-const PINNED_FIRST_CATEGORIES = ['Разметка и значения']
+// Закреплена первой независимо от алфавита: шина — каркас любой схемы, с неё
+// начинают. Остальные — по алфавиту, ru-локаль.
+const PINNED_FIRST_CATEGORIES = ['Шины']
 
 /**
  * Булев слот-драйвер (`onoff`) — единый ключ всех булевых символов. Инспектор

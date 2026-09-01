@@ -1,6 +1,6 @@
 // Мост «модель JointJS → DOM cellView»: порты, отражение, инъекция SVG символа
-// и переинъекция после fromJSON. Разметку программных символов (bus/text/value/node)
-// строят busCell/textCell/valueCell/nodeCell — здесь только выбор нужного билдера.
+// и переинъекция после fromJSON. Разметку программных символов (bus/text/node)
+// строят busCell/textCell/nodeCell — здесь только выбор нужного билдера.
 import { instantiate } from './parser'
 import { getStencilById } from './registry'
 import { TMSStencil } from './tmsStencil'
@@ -12,7 +12,6 @@ import { CANVAS_GRID } from './canvasPaper'
 import { computeBusPorts, buildBusContent } from './busCell'
 import { reinjectAllShapes } from './shapeElement'
 import { buildTextContent } from './textCell'
-import { buildValueContent } from './valueCell'
 import { buildNodeContent } from './nodeCell'
 
 /**
@@ -206,17 +205,13 @@ export function injectStencilSvg(cellView, stencil) {
     for (const el of buildBusContent(cellView)) target.appendChild(el)
   } else if (stencil.id === 'cell_text') {
     for (const el of buildTextContent(cellView)) target.appendChild(el)
-  } else if (stencil.id === 'cell_value') {
-    // Рисуем в координатах определения: увеличенный экземпляр растягивает contentTransform.
-    const box = { width: stencil.width, height: stencil.height }
-    for (const el of buildValueContent(cellView, box)) target.appendChild(el)
   } else if (stencil.id === 'cell_node') {
     for (const el of buildNodeContent(cellView)) target.appendChild(el)
   } else {
     const tms = cellView.model.get('tms') || {}
     const cellId = cellView.model.id
     // Клон разобранного шаблона (parser.instantiate): узлы сразу переезжают в DOM.
-    const { root } = instantiate(stencil, cellId, tms.slots || {})
+    const { root } = instantiate(stencil, cellId, tms.slots || {}, tms.params || {})
     if (!root) return false
     for (const child of Array.from(root.children)) {
       target.appendChild(child)
@@ -281,8 +276,8 @@ export function contentScales(stencil) {
 const PROGRAMMATIC_SIZE = new Set(['cell_bus', 'cell_text', 'cell_node'])
 
 /**
- * Масштабируется ли символ ручками. Исключения: у шины и карточки значения габарит
- * свой (ресайз / содержимое), у точки соединения диаметр задаёт `tms.dotSize`. Замок
+ * Масштабируется ли символ ручками. Исключения: у шины габарит свой (ресайз), у
+ * подписи — по содержимому, у точки соединения диаметр задаёт `tms.dotSize`. Замок
  * гейтит вызывающий (useCanvasResize).
  *
  * @returns {object|null} определение символа (вызывающему нужны его размеры) либо null

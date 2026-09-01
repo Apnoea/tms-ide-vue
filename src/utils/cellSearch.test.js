@@ -26,16 +26,13 @@ describe('getCellSearchStrings', () => {
     expect(strings).toContain('PS031VK001.ALR')
   })
 
-  it('подхватывает rangeSource.tag, boolSource, valueTag', () => {
+  it('подхватывает rangeSource.tag и boolSource', () => {
     const cell = makeCell({
       rangeSource: { tag: 'PS031TN001.U' },
       boolSource: { groups: [['ОБЩИЙ.ONOFF', 'LOCAL.ONOFF']] },
-      valueTag: 'PS031TN001.UA',
     })
     const strings = getCellSearchStrings(cell)
-    expect(strings).toEqual(
-      expect.arrayContaining(['PS031TN001.U', 'ОБЩИЙ.ONOFF', 'LOCAL.ONOFF', 'PS031TN001.UA'])
-    )
+    expect(strings).toEqual(expect.arrayContaining(['PS031TN001.U', 'ОБЩИЙ.ONOFF', 'LOCAL.ONOFF']))
   })
 
   it('подхватывает text у cell_text', () => {
@@ -43,10 +40,10 @@ describe('getCellSearchStrings', () => {
     expect(getCellSearchStrings(cell)).toContain('СШ-110')
   })
 
-  it('подхватывает подпись и единицу cell_value', () => {
+  it('подхватывает правимые подписи символа (tms.params)', () => {
     // Их вписывает автор от руки, и на схеме видно именно их — искать «Ua»
     // логичнее, чем помнить тег.
-    const cell = makeCell({ stencilId: 'cell_value', valueLabel: 'Ua', valueUnit: 'кВ' })
+    const cell = makeCell({ stencilId: 'cell_value', params: { p1: 'Ua', p2: 'кВ' } })
     expect(getCellSearchStrings(cell)).toEqual(expect.arrayContaining(['Ua', 'кВ']))
     expect(cellMatchesQuery(cell, 'ua')).toBe(true)
     // В tag-поля они не попадают: подпись не сигнал (иначе highlight по тегу
@@ -101,15 +98,14 @@ describe('cellMatchesQuery', () => {
 })
 
 describe('getCellTags / cellHasTag', () => {
-  it('собирает все привязанные теги (slots + диапазоны + boolSource + valueTag)', () => {
+  it('собирает все привязанные теги (slots + диапазоны + boolSource)', () => {
     const cell = makeCell({
-      slots: { onoff: 'A.ONOFF', alr: 'A.ALR' },
+      slots: { onoff: 'A.ONOFF', value_text: 'A.IA' },
       rangeSource: { tag: 'A.U' },
       boolSource: { groups: [['B.ONOFF', 'C.ONOFF']] },
-      valueTag: 'A.IA',
     })
     expect(getCellTags(cell).sort()).toEqual(
-      ['A.ALR', 'A.IA', 'A.ONOFF', 'A.U', 'B.ONOFF', 'C.ONOFF'].sort()
+      ['A.IA', 'A.ONOFF', 'A.U', 'B.ONOFF', 'C.ONOFF'].sort()
     )
   })
 
@@ -137,9 +133,8 @@ describe('getCellTagsFromTms', () => {
       slots: { onoff: 'X.ONOFF' },
       rangeSource: { tag: 'V.U' },
       boolSource: { groups: [['S1', 'S2']] },
-      valueTag: 'VT',
     }
-    expect(getCellTagsFromTms(tms)).toEqual(['X.ONOFF', 'V.U', 'S1', 'S2', 'VT'])
+    expect(getCellTagsFromTms(tms)).toEqual(['X.ONOFF', 'V.U', 'S1', 'S2'])
   })
 
   it('null / undefined / пустой объект → []', () => {

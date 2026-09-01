@@ -201,7 +201,7 @@ export function assignOrMergeAnimation(animations, key, card) {
  * Дублирует bindings новой карточки во ВСЕ символьные shape-карточки того же
  * animId (`animation-{stencilId}-{animId}.true`, `.false`, …). Так класс
  * ляжет не только на outer-wrapper, но и на внутренние shape-группы символа.
- * Text-карточки (вроде cell_value text-update) пропускаем — их раскрашивать
+ * Text-карточки (подпись показывает значение тега) пропускаем — их раскрашивать
  * чужими классами не нужно.
  */
 export function mergeBindingsIntoStencilCards(animations, stencilId, animId, exceptKey, card) {

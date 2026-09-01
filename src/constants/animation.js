@@ -38,6 +38,17 @@ export function rangeRowColor(row) {
 const ANIMATION_OFF_COLOR = '#64748b'
 
 // Class-name'ы wire-protocol'а (классы диапазонов уже есть ключами выше).
+/**
+ * Знаков после запятой у text-анимации: уезжает в `output.decimals` карточки,
+ * формат считает рантайм. Дефолт пишем ВСЕГДА — без поля рантайм берёт свои 4
+ * знака, и вид схемы меняется.
+ */
+export const VALUE_DECIMALS_DEFAULT = 2
+
+export function resolveValueDecimals(tms = null) {
+  return Number.isFinite(tms?.decimals) ? tms.decimals : VALUE_DECIMALS_DEFAULT
+}
+
 export const CLASS_OFF = 'animation-off'
 export const CLASS_HIDDEN = 'animation-hidden'
 

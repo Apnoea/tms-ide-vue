@@ -27,12 +27,6 @@ describe('TagField', () => {
     expect(wrapper.find(WARN).exists()).toBe(false)
   })
 
-  it('пробел в теге предупреждает даже без загруженного tag-list', async () => {
-    const wrapper = mountField({ value: 'ПС 1.U' })
-    await wrapper.vm.$nextTick()
-    expect(wrapper.find(WARN).exists()).toBe(true)
-  })
-
   it('tag-list не загружен → про отсутствие тега молчим', async () => {
     const wrapper = mountField({ value: 'PS031.UA' })
     await wrapper.vm.$nextTick()

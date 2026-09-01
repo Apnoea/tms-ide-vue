@@ -101,71 +101,55 @@ describe('exportProject', () => {
     expect(anims['animation-cell_qw-c1']).toBeUndefined()
   })
 
-  it('cell_value с дефисом в теге: animId = valueTag целиком (не режется по `-`)', () => {
+  it('карточка значения — обычный символ: outer по short-id, text-карточка из слота', () => {
     const graph = mockGraph([
       mockCell({
-        id: 'c1',
+        id: 'c1234567-89ab',
         stencilId: 'cell_value',
-        valueTag: 'MY-TAG.IA',
+        slots: { value_text: 'PS031VV001.IA' },
         w: 100,
-        h: 18,
+        h: 20,
       }),
     ])
     const result = exportProject(graph)
-    // Naive split-by-dash для 'MY-TAG.IA' дал бы 'MY' — рантайм не нашёл бы
-    // text-карточку. Для cell_value мы используем valueTag целиком без укорачивания.
-    expect(result.svgText).toContain('animation-cell-MY-TAG.IA')
-    expect(result.animations.animations).toHaveProperty('animation-MY-TAG.IA')
-  })
-
-  it('cell_value с valueTag: id и animation key из тега (рантайм-конвенция, префикс animation-cell-)', () => {
-    const graph = mockGraph([
-      mockCell({
-        id: 'c1',
-        stencilId: 'cell_value',
-        valueTag: 'PS031VV001.IA',
-        w: 100,
-        h: 18,
-      }),
-    ])
-    const result = exportProject(graph)
-    // outer wrapper использует valueTag как идентификатор (рантайм-конвенция),
-    // префикс animation-cell- сохраняется — cell_value по семантике рантайма.
-    expect(result.svgText).toContain('animation-cell-PS031VV001.IA')
-    expect(result.animations.animations).toHaveProperty('animation-PS031VV001.IA')
-    const card = result.animations.animations['animation-PS031VV001.IA']
+    expect(result.svgText).toContain('animation-cell_value-c1234567')
+    const card = result.animations.animations['animation-cell_value-c1234567.value']
     expect(card.animation).toBe('text')
     expect(card.bindings[0].tag).toBe('PS031VV001.IA')
+    // Подписи в карточку не идут: это рисунок, а не привязка.
+    expect(result.animations.animations['animation-cell_value-c1234567']).toBeDefined()
   })
 
-  it('cell_value: точность из tms.decimals, иначе дефолт (формат считает рантайм)', () => {
+  it('точность text-карточки: из tms.decimals, иначе дефолт (формат считает рантайм)', () => {
     const card = (extra) => {
       const graph = mockGraph([
-        mockCell({ id: 'v1', stencilId: 'cell_value', valueTag: 'T1.VAL', ...extra }),
+        mockCell({
+          id: 'v1',
+          stencilId: 'cell_value',
+          slots: { value_text: 'T1.VAL' },
+          ...extra,
+        }),
       ])
-      return exportProject(graph).animations.animations['animation-T1.VAL']
+      return exportProject(graph).animations.animations['animation-cell_value-v1.value']
     }
     expect(card({}).bindings[0].output.decimals).toBe(2)
     expect(card({ decimals: 0 }).bindings[0].output.decimals).toBe(0)
     expect(card({ decimals: 4 }).bindings[0].output.decimals).toBe(4)
   })
 
-  it('cell_value: выбранная величина переживает round-trip', () => {
-    // Без явной пары подпись/единица восстанавливались бы из пресета по суффиксу
-    // тега — то есть выбор автора молча откатывался бы.
+  it('подписи карточки значения переживают round-trip значениями параметров', () => {
     const graph = mockGraph([
       mockCell({
         id: 'v1',
         stencilId: 'cell_value',
-        valueTag: 'T1.RAW',
-        valueLabel: 'Уровень',
-        valueUnit: 'м',
+        slots: { value_text: 'T1.RAW' },
+        params: { p1: 'Уровень', p2: 'м' },
       }),
     ])
     const parsed = parseSvgProject(exportProject(graph).svgText)
-    expect(parsed.cells.find((c) => c.id === 'v1').tms).toMatchObject({
-      valueLabel: 'Уровень',
-      valueUnit: 'м',
+    expect(parsed.cells.find((c) => c.id === 'v1').tms.params).toEqual({
+      p1: 'Уровень',
+      p2: 'м',
     })
   })
 
@@ -315,33 +299,16 @@ describe('exportProject', () => {
     expect(parseSvgProject(exported.svgText).cells[0].tms.color).toBeUndefined()
   })
 
-  it('cell_value без тега: предупреждение экспорта (карточка останется прочерком)', () => {
-    // На схеме такая карточка выглядит рабочей, а в рантайме её нечем обновлять —
-    // молча выпускать её в архив нельзя.
+  it('карточка значения без тега: text-карточки нет (слот пустой = статика)', () => {
     const graph = mockGraph([mockCell({ id: 'v1', stencilId: 'cell_value', w: 100, h: 20 })])
-    const { warnings } = exportProject(graph)
-    expect(warnings.some((w) => w.includes('тег не выбран'))).toBe(true)
-    // С тегом предупреждения нет.
-    const ok = exportProject(
-      mockGraph([mockCell({ id: 'v2', stencilId: 'cell_value', valueTag: 'T1.VAL' })])
-    )
-    expect(ok.warnings.some((w) => w.includes('тег не выбран'))).toBe(false)
+    const anims = exportProject(graph).animations.animations
+    expect(anims['animation-cell_value-v1.value']).toBeUndefined()
   })
 
-  it('cell_value: растянутая ширина переживает round-trip', () => {
-    // Ширину карточки задаёт автор (ручки/поле), и содержимое раскладывается от неё —
-    // без round-trip'а после импорта она вернулась бы к 100 из stencil.json.
+  it('точность переживает round-trip, пустая в meta не пишется', () => {
     const graph = mockGraph([
-      mockCell({ id: 'v1', stencilId: 'cell_value', valueTag: 'T1.VAL', w: 180, h: 20 }),
-    ])
-    const parsed = parseSvgProject(exportProject(graph).svgText)
-    expect(parsed.cells.find((c) => c.id === 'v1').size).toMatchObject({ width: 180, height: 20 })
-  })
-
-  it('cell_value: точность переживает round-trip, пустая в meta не пишется', () => {
-    const graph = mockGraph([
-      mockCell({ id: 'v1', stencilId: 'cell_value', valueTag: 'T1.VAL', decimals: 3 }),
-      mockCell({ id: 'v2', stencilId: 'cell_value', valueTag: 'T2.VAL' }),
+      mockCell({ id: 'v1', stencilId: 'cell_value', slots: { value_text: 'T1.VAL' }, decimals: 3 }),
+      mockCell({ id: 'v2', stencilId: 'cell_value', slots: { value_text: 'T2.VAL' } }),
     ])
     const parsed = parseSvgProject(exportProject(graph).svgText)
     expect(parsed.cells.find((c) => c.id === 'v1').tms.decimals).toBe(3)
@@ -808,78 +775,22 @@ describe('exportProject', () => {
     }
   })
 
-  it('cell_value: спецсимволы в valueTag (&, <, ") не ломают XML — round-trip через projectLoader', () => {
-    // Контрфактический valueTag — реальные SCADA-теги такого не содержат, но без
-    // эскейпа экспорт дал бы невалидный XML и projectLoader упал бы на parsererror.
+  it('спецсимволы в теге слота (&, <, ") не ломают XML — round-trip через projectLoader', () => {
+    // Контрфактический тег — реальные SCADA-теги такого не содержат, но без эскейпа
+    // меты экспорт дал бы невалидный XML и projectLoader упал бы на parsererror.
     const graph = mockGraph([
       mockCell({
         id: 'c1',
         stencilId: 'cell_value',
-        valueTag: 'A&B<C"D',
+        slots: { value_text: 'A&B<C"D' },
         w: 100,
-        h: 18,
+        h: 20,
       }),
     ])
     const { svgText } = exportProject(graph)
-    // Реальный round-trip: экспортированный SVG валиден и читается обратно с тем
-    // же тегом (без эскейпа parseSvgProject вернул бы ok=false на parsererror).
     const parsed = parseSvgProject(svgText)
     expect(parsed.ok).toBe(true)
-    const cell = parsed.cells.find((c) => c.id === 'c1')
-    expect(cell?.tms.valueTag).toBe('A&B<C"D')
-  })
-
-  it('cell_value: пробел в теге не даёт невалидный id, тег подписки сохраняется', () => {
-    // id по стандарту без пробелов, а рантайм ищет text-узел через getElementById:
-    // с пробелом карточка навсегда осталась бы с прочерком. В id пробел заменяем,
-    // в binding.tag тег идёт как есть — подписка на реальный сигнал не меняется.
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const graph = mockGraph([
-      mockCell({ id: 'c1', stencilId: 'cell_value', valueTag: 'ПС 1.НАПРЯЖЕНИЕ A', w: 100, h: 18 }),
-    ])
-    const { svgText, animations, warnings } = exportProject(graph)
-    const key = 'animation-ПС_1.НАПРЯЖЕНИЕ_A'
-    // Ключ карточки и id узла в SVG совпадают — иначе рантайм не найдёт элемент.
-    expect(animations.animations).toHaveProperty(key)
-    expect(svgText).toContain(`id="${key}"`)
-    expect(svgText).not.toContain('id="animation-ПС 1')
-    expect(animations.animations[key].bindings[0].tag).toBe('ПС 1.НАПРЯЖЕНИЕ A')
-    // Молча не «чиним»: чаще это опечатка в tag-list'е, и тогда данные не придут
-    // по самой подписке.
-    expect(warnings.some((w) => w.includes('ПС 1.НАПРЯЖЕНИЕ A'))).toBe(true)
-    // Round-trip тега — по data-tms-meta, там он исходный.
-    expect(parseSvgProject(svgText).cells.find((c) => c.id === 'c1').tms.valueTag).toBe(
-      'ПС 1.НАПРЯЖЕНИЕ A'
-    )
-    warnSpy.mockRestore()
-  })
-
-  it('warnings: два cell_value с одинаковым valueTag → дубль попадает в result.warnings', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const graph = mockGraph([
-      mockCell({ id: 'c1', stencilId: 'cell_value', valueTag: 'PS031.UA' }),
-      mockCell({ id: 'c2', stencilId: 'cell_value', valueTag: 'PS031.UA' }),
-    ])
-    const result = exportProject(graph)
-    expect(result.warnings).toHaveLength(1)
-    expect(result.warnings[0]).toMatch(/PS031\.UA/)
-    expect(warnSpy).toHaveBeenCalled()
-    warnSpy.mockRestore()
-  })
-
-  it('дубль valueTag → уникальные outer-id (валидный SVG), второй с суффиксом', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const graph = mockGraph([
-      mockCell({ id: 'c1', stencilId: 'cell_value', valueTag: 'PS031.UA' }),
-      mockCell({ id: 'c2', stencilId: 'cell_value', valueTag: 'PS031.UA' }),
-    ])
-    const { svgText } = exportProject(graph)
-    // Базовый outer-id — ровно один раз (без duplicate-id в SVG).
-    const base = (svgText.match(/id="animation-cell-PS031\.UA"/g) || []).length
-    expect(base).toBe(1)
-    // Второй cell_value получил уникальный суффикс.
-    expect(svgText).toContain('animation-cell-PS031.UA__2')
-    warnSpy.mockRestore()
+    expect(parsed.cells.find((c) => c.id === 'c1')?.tms.slots.value_text).toBe('A&B<C"D')
   })
 
   it('short-id collision: две ячейки с одинаковым первым сегментом UUID получают разные animation-keys', () => {
@@ -1121,6 +1032,7 @@ describe('exportProject', () => {
   // перечисляет поля в cellExports ВРУЧНУЮ — там и живёт риск забыть).
   const CELL_SAMPLES = {
     slots: { onoff: 'PS031VK001.ONOFF' },
+    params: { p1: 'Ia' },
     text: 'Подпись',
     fontSize: 18,
     bold: true,

@@ -14,6 +14,32 @@ import { rangeRowColor } from '../constants/animation'
 import { measureTextWidth } from '../utils/textMetrics'
 
 /**
+ * Карточка значения ПРОШЛОГО формата: тег в `tms.valueTag`, подпись и единица —
+ * своими полями, рисунок программный. Теперь это обычный символ: тег живёт в слоте
+ * `value_text`, подписи — в `params` (p1 — величина, p2 — единица, порядок фигур в
+ * shape.svg). null — ячейка не такая, вызывающий оставляет её как есть.
+ *
+ * Размер не переносим: у растянутой карточки габарит вернётся к определению — своей
+ * ширины у неё больше нет, растёт весь символ масштабом.
+ */
+export function valueCellToParams(cell) {
+  const tms = cell?.tms
+  if (tms?.stencilId !== 'cell_value') return null
+  if (!tms.valueTag && !tms.valueLabel && !tms.valueUnit) return null
+
+  const next = { ...tms }
+  delete next.valueTag
+  delete next.valueLabel
+  delete next.valueUnit
+  if (tms.valueTag) next.slots = { ...(tms.slots || {}), value_text: tms.valueTag }
+  const params = { ...(tms.params || {}) }
+  if (tms.valueLabel) params.p1 = String(tms.valueLabel)
+  if (tms.valueUnit) params.p2 = String(tms.valueUnit)
+  if (Object.keys(params).length) next.params = params
+  return { ...cell, tms: next }
+}
+
+/**
  * Ячейка `cell_text` (graphJson) → ячейка-фигура. null, если это не подпись —
  * вызывающий тогда оставляет ячейку как есть.
  *
@@ -209,6 +235,11 @@ export function migrateGraphJson(json) {
     if (shapeCell) {
       changed = true
       return shapeCell
+    }
+    const valueCell = valueCellToParams(c)
+    if (valueCell) {
+      changed = true
+      return valueCell
     }
     const migrated = isBusCellJson(c) ? rebuildBusPorts(c) : relinkBusPorts(c, busIds)
     const recolored = recolorRanges(migrated || c)

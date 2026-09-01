@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  valueCellToParams,
   textCellToShape,
   migrateGraphJson,
   legacyBusPortId,
@@ -260,5 +261,45 @@ describe('cell_node → точка на свободном конце', () => {
     expect(changed).toBe(true)
     expect(json.cells).toHaveLength(1)
     expect(json.cells[0].target).toEqual({ x: 50, y: 50 })
+  })
+})
+
+describe('карточка значения прошлого формата → параметры и слот', () => {
+  const valueCell = (tms) => ({ id: 'v1', tms: { stencilId: 'cell_value', ...tms } })
+
+  it('тег переезжает в слот, подпись и единица — в params', () => {
+    const out = valueCellToParams(
+      valueCell({ valueTag: 'T1.UA', valueLabel: 'Ua', valueUnit: 'кВ', decimals: 3 })
+    )
+    expect(out.tms).toEqual({
+      stencilId: 'cell_value',
+      // Точность — свойство привязки, у неё формат не менялся.
+      decimals: 3,
+      slots: { value_text: 'T1.UA' },
+      params: { p1: 'Ua', p2: 'кВ' },
+    })
+  })
+
+  it('пустые поля не создают ни слота, ни параметра', () => {
+    const out = valueCellToParams(valueCell({ valueTag: 'T1.UA' }))
+    expect(out.tms.slots).toEqual({ value_text: 'T1.UA' })
+    expect(out.tms.params).toBeUndefined()
+  })
+
+  it('уже переведённая карточка и чужие символы остаются как есть', () => {
+    expect(valueCellToParams(valueCell({ slots: { value_text: 'T1.UA' } }))).toBeNull()
+    expect(valueCellToParams({ id: 'c1', tms: { stencilId: 'cell_qw' } })).toBeNull()
+  })
+
+  it('migrateGraphJson переводит карточку вместе с прочими миграциями', () => {
+    const { json, changed } = migrateGraphJson({
+      cells: [valueCell({ valueTag: 'T1.UA', valueLabel: 'Ua' })],
+    })
+    expect(changed).toBe(true)
+    expect(json.cells[0].tms).toMatchObject({
+      slots: { value_text: 'T1.UA' },
+      params: { p1: 'Ua' },
+    })
+    expect(json.cells[0].tms.valueTag).toBeUndefined()
   })
 })

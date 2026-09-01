@@ -1,9 +1,6 @@
 /** Тип тега из tag-list булев (Boolean/Bool/…). */
 export const isBooleanType = (type) => /^bool/i.test(type || '')
 
-/** Тип тега из tag-list — с плавающей точкой (Float). Только такие для cell_value. */
-export const isFloatType = (type) => /^float/i.test(type || '')
-
 /**
  * Парсит tag-list: строки вида "TAG.NAME=Type;...". Пустые строки и комментарии (#)
  * пропускаются — в заголовке файла обычно пояснение формата. → [{ name, type }].

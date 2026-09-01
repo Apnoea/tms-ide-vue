@@ -14,10 +14,10 @@
  * перекраске: CSS исключает `<text>` селектором `*:not(text)`.
  */
 
-import { ATTR_SUFFIX, STENCIL_ID_RE } from '../constants/ids'
+import { ATTR_PARAM, ATTR_SUFFIX, STENCIL_ID_RE, isValidParamKey } from '../constants/ids'
 import { STATE_FILL_CLASS, normalizeStateColor } from '../constants/animation'
 import { normalizeDomains } from '../constants/domains'
-import { escapeXml } from './xml'
+import { escapeAttr, escapeXml } from './xml'
 import { measureTextWidth, normalizeFont } from './textMetrics'
 
 // Числа в атрибутах: без хвостовых нулей и float-мусора (12.0 → 12, 12.5 → 12.5).
@@ -166,8 +166,15 @@ export function serializeShape(shape, markFill) {
       const weight = shape.bold ? ' font-weight="bold"' : ''
       const size = shape.fontSize ?? TEXT_SHAPE_SIZE
       const lines = textLines(shape)
+      // Текст, показывающий значение тега: метка идёт на сам <text> (рантайм пишет в
+      // его textContent), а не на группу — та отвечает за видимость по состоянию.
+      const valueMark = shape.valueText ? ` ${ATTR_SUFFIX}="${VALUE_TEXT_SUFFIX}"` : ''
+      // Подпись-параметр: экземпляр подставит свой текст в этот узел.
+      const paramMark = isValidParamKey(shape.param)
+        ? ` ${ATTR_PARAM}="${escapeAttr(shape.param)}"`
+        : ''
       const open =
-        `<text x="${num(shape.x)}" y="${num(shape.y)}" text-anchor="${textAnchorOf(shape)}" ` +
+        `<text${valueMark}${paramMark} x="${num(shape.x)}" y="${num(shape.y)}" text-anchor="${textAnchorOf(shape)}" ` +
         `font-size="${num(size)}" font-family="${normalizeFont(shape.fontFamily)}"${weight} ` +
         `fill="${shape.stroke || '#000'}">`
       // Одна строка — текст прямо в <text>, без tspan'ов.
@@ -578,6 +585,10 @@ function elementToShape(el) {
         stroke: fill === 'none' ? '#000' : fill,
         strokeWidth: 2,
         fill: 'none',
+        ...(el.getAttribute(ATTR_SUFFIX) === VALUE_TEXT_SUFFIX ? { valueText: true } : {}),
+        ...(isValidParamKey(el.getAttribute(ATTR_PARAM))
+          ? { param: el.getAttribute(ATTR_PARAM) }
+          : {}),
       }
     }
     default:
@@ -638,6 +649,15 @@ export function stencilDraftIssues(meta, shapes, existingIds = []) {
   if (!(meta.label || '').trim()) issues.push('Укажите название')
   if (!(meta.category || '').trim()) issues.push('Укажите категорию')
   if (!shapes?.length) issues.push('Добавьте хотя бы одну фигуру')
+  // Слот и суффикс у текста со значением один, поэтому вторая такая подпись в схему
+  // не уедет.
+  if ((shapes || []).filter((s) => s.type === 'text' && s.valueText).length > 1) {
+    issues.push('Значение тега показывает только одна подпись')
+  }
+  // Обе метки на одной подписи: холст подставил бы параметр, рантайм — значение тега.
+  if ((shapes || []).some((s) => s.valueText && s.param)) {
+    issues.push('Подпись со значением тега не может правиться на холсте')
+  }
   // Кратность 5 = шаг сетки схемы (PORT_GRID в useStencilEditor); минимум 10.
   if (!(meta.width >= 10) || meta.width % 5 !== 0) issues.push('Ширина кратна 5')
   if (!(meta.height >= 10) || meta.height % 5 !== 0) issues.push('Высота кратна 5')
@@ -711,6 +731,8 @@ export function buildStencilJson(meta, ports, shapes = []) {
     const seq = Math.max(meta.portSeq || 0, portSeqFrom(ports))
     if (seq) json.portSeq = seq
   }
+  buildParams(json, shapes)
+  buildValueTextSlot(json, shapes)
   if (meta.stateful) {
     if (meta.stateMode === 'value') buildValueState(json, meta, shapes)
     else buildBooleanState(json, meta, shapes)
@@ -734,6 +756,57 @@ export function buildStencilJson(meta, ports, shapes = []) {
   return json
 }
 
+/**
+ * Объявления подписей-параметров: ключ + текст из рисунка как значение по умолчанию
+ * (он же подпись поля в инспекторе холста). Порядок — порядок фигур. Дубль ключа
+ * отбрасываем: подставлять одно значение в две подписи допустимо, но объявление
+ * нужно одно.
+ */
+function buildParams(json, shapes) {
+  const params = []
+  for (const shape of shapes || []) {
+    if (shape.type !== 'text' || !isValidParamKey(shape.param)) continue
+    if (params.some((p) => p.key === shape.param)) continue
+    params.push({ key: shape.param, default: shape.text || '' })
+  }
+  if (params.length) json.params = params
+}
+
+/** Суффикс и ключ слота у текста, показывающего значение тега. */
+const VALUE_TEXT_SUFFIX = '.value'
+const VALUE_TEXT_SLOT = 'value_text'
+
+/** Слоты складываются, а не перетираются: у символа их может быть несколько. */
+function addSlot(json, slot) {
+  if (!json.slots) json.slots = []
+  if (!json.slots.some((s) => s.key === slot.key)) json.slots.push(slot)
+}
+
+/** Карточки — тоже: текст со значением и состояния живут в одном символе. */
+function addCards(json, cards) {
+  if (!cards?.length) return
+  json.animationTemplate = [...(json.animationTemplate || []), ...cards]
+}
+
+/**
+ * Текст, показывающий значение тега → слот + карточка `text`. Точность здесь не
+ * пишется: она свойство привязки и живёт в `tms.decimals` ячейки (exporter
+ * дописывает её в карточку).
+ */
+function buildValueTextSlot(json, shapes) {
+  if (!(shapes || []).some((s) => s.type === 'text' && s.valueText)) return
+  const tag = `{slot.${VALUE_TEXT_SLOT}}`
+  addSlot(json, { key: VALUE_TEXT_SLOT, type: 'Text' })
+  addCards(json, [
+    {
+      idSuffix: VALUE_TEXT_SUFFIX,
+      type: 'text',
+      bindings: [{ tag, output: { text: {} } }],
+      detailTags: [{ tag }],
+    },
+  ])
+}
+
 // Булев режим (частный случай): слот onoff + карточки `.true`/`.false`, каждая
 // прячется на противоположном значении. Пишем только при наличии таких фигур.
 function buildBooleanState(json, meta, shapes) {
@@ -746,11 +819,11 @@ function buildBooleanState(json, meta, shapes) {
   if (!states.size && !hasColor) return
   const key = meta.stateSlot?.key || 'onoff'
   const tag = `{slot.${key}}`
-  json.slots = [{ key, type: 'Boolean' }]
+  addSlot(json, { key, type: 'Boolean' })
   const cards = []
   if (states.has('true')) cards.push(stateCard('.true', tag, ['false']))
   if (states.has('false')) cards.push(stateCard('.false', tag, ['true']))
-  if (cards.length) json.animationTemplate = cards
+  addCards(json, cards)
 }
 
 // Режим «по значению»: слот value + список состояний (states — редакторные
@@ -763,7 +836,7 @@ function buildValueState(json, meta, shapes) {
   if (!declared.length) return
   const key = meta.stateSlot?.key || 'value'
   const tag = `{slot.${key}}`
-  json.slots = [{ key, type: 'Value' }]
+  addSlot(json, { key, type: 'Value' })
   json.states = declared.map((s) => ({ key: s.key, label: s.label || '', code: s.code ?? '' }))
   const shapeStates = new Set((shapes || []).map((s) => s.state).filter(Boolean))
   const coded = declared.filter((s) => s.code !== '' && s.code != null)
@@ -776,5 +849,5 @@ function buildValueState(json, meta, shapes) {
         coded.filter((o) => o.key !== st.key).map((o) => o.code)
       )
     )
-  if (cards.length) json.animationTemplate = cards
+  addCards(json, cards)
 }

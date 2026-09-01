@@ -15,7 +15,12 @@ import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 import { sanitizeShape } from '../stencils/shapeElement'
 import { isBackgroundZ, BACKGROUND_Z_BOUNDS } from '../utils/zOrder'
 import { portPoints } from '../utils/portGeom'
-import { textCellToShape, legacyBusPortId, dissolveNodeCells } from './legacyFormat'
+import {
+  textCellToShape,
+  valueCellToParams,
+  legacyBusPortId,
+  dissolveNodeCells,
+} from './legacyFormat'
 
 /**
  * Первая и последняя точки пути провода — последняя линия обороны: если в meta конец
@@ -192,11 +197,15 @@ export function parseSvgProject(svgText) {
       // Подпись прошлого формата (cell_text) сразу становится фигурой — тем же
       // конвертером, что чинит формы в IDB (services/legacyFormat).
       const migrated = textCellToShape(cellJson)
-      cells.push(migrated || cellJson)
+      // Карточка значения прошлого формата: тег переезжает в слот, подписи — в params.
+      // Дальше по функции работаем с ТЕМ ЖЕ объектом, что попал в набор: конвертер
+      // отдаёт копию, и индекс портов по исходному описывал бы уже чужую ячейку.
+      const cellNext = migrated || valueCellToParams(cellJson) || cellJson
+      cells.push(cellNext)
       elementIds.add(meta.id)
       if (meta.stencilId === 'cell_bus') busIds.add(meta.id)
       if (!migrated) {
-        indexPorts(portIndex, cellJson, portByCellPoint)
+        indexPorts(portIndex, cellNext, portByCellPoint)
         cellPorts.set(meta.id, new Set(portItems.map((it) => it.id)))
       }
     } catch (e) {

@@ -27,7 +27,6 @@ import { getStencilById, hasBoolSlot } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
 import { isShapeCell, shapeTypeLabel, applyShapePatch } from '../stencils/shapeElement'
 import { TEXT_FONT_SIZE } from '../stencils/textCell'
-import { VALUE_DECIMALS_DEFAULT, VALUE_TEXT_COLOR } from '../stencils/valueCell'
 import { BUS_COLOR_DEFAULT, BUS_THICKNESS_MAX, setBusThickness } from '../stencils/busCell'
 import { NODE_SIZE_DEFAULT, NODE_SIZE_MAX } from '../stencils/nodeCell'
 import { nplural } from '../utils/plural'
@@ -41,6 +40,7 @@ import RangeBlock from './RangeBlock.vue'
 import BooleanBlock from './BooleanBlock.vue'
 import WireStyleFields from './WireStyleFields.vue'
 import { previewOuterKey } from '../constants/ids'
+import { VALUE_DECIMALS_DEFAULT } from '../constants/animation'
 import {
   isDefaultWireValue,
   syncLinkEndMarkers,
@@ -223,17 +223,22 @@ const details = computed(() => {
           : cell.get('size').height,
       thicknessMin: tms.stencilId === 'cell_node' ? NODE_SIZE_DEFAULT : (stencil?.height ?? 1),
       thicknessMax: tms.stencilId === 'cell_node' ? NODE_SIZE_MAX : BUS_THICKNESS_MAX,
-      isValue: tms.stencilId === 'cell_value',
-      valueTag: tms.valueTag ?? '',
-      // Явно выбранная пара «подпись + единица».
-      valueLabel: tms.valueLabel ?? '',
       decimals: Number.isFinite(tms.decimals) ? tms.decimals : null,
-      valueUnit: tms.valueUnit ?? '',
       // id outer-карточки в animations.json/SVG (тот же, что эмитит exporter).
-      exportId: previewOuterKey(tms.stencilId, cell.id, tms.valueTag),
+      exportId: previewOuterKey(tms.stencilId, cell.id),
       // Символы с булевым слотом-драйвером (`onoff`, см. hasBoolSlot) рендерят его
       // первой строкой BooleanBlock вместе с зависимостями boolSource.
       hasBoolSlot: hasBoolSlot(stencil),
+      // Символ показывает значение тега подписью (слот Text) — у него есть точность.
+      hasTextSlot: slotsDef.some((s) => s.type === 'Text'),
+      // Правимые подписи символа: подпись поля — текст из определения (он же
+      // значение по умолчанию). Пустой по умолчанию подписи заголовок не рисуем —
+      // называть её нечем, а выдуманное имя врало бы.
+      params: (stencil?.params || []).map((p) => ({
+        key: p.key,
+        label: p.default || '',
+        value: tms.params?.[p.key] ?? '',
+      })),
       // Тег основного булева слота (slot.onoff) — чтобы исключить его из boolSource.
       // Берётся из payload, а не по индексу slots[0].
       onoffTag: slotValues.onoff || '',
@@ -272,7 +277,14 @@ const details = computed(() => {
 const valueStateSlot = computed(() => {
   const d = details.value
   if (!d || d.kind !== 'cell') return null
-  return (d.slots || []).find((s) => s.key !== 'onoff') || null
+  return (d.slots || []).find((s) => s.key !== 'onoff' && s.type !== 'Text') || null
+})
+
+// Слот подписи, показывающей значение тега: тег + точность, состояний у неё нет.
+const valueTextSlot = computed(() => {
+  const d = details.value
+  if (!d || d.kind !== 'cell') return null
+  return (d.slots || []).find((s) => s.type === 'Text') || null
 })
 
 // ─── Удаление ───
@@ -395,12 +407,10 @@ function applyThickness(v) {
 function applyBodyColor(value) {
   withSelectedCell(
     ({ cell, tms, d }) => {
-      if (!d.isBus && !d.isNode && !d.isValue) return false
+      if (!d.isBus && !d.isNode) return false
       const next = { ...tms }
-      // Дефолт зависит от символа: у карточки значения это цвет текста, у шины и точки —
-      // цвет тела. Значение, равное дефолту, в tms не пишем.
-      const fallback = d.isValue ? VALUE_TEXT_COLOR : BUS_COLOR_DEFAULT
-      if (value && value !== fallback) next.color = value
+      // Дефолт в tms не пишем — отсутствие поля и есть он.
+      if (value && value !== BUS_COLOR_DEFAULT) next.color = value
       else delete next.color
       if (next.color === tms.color) return false
       cell.set('tms', next)
@@ -621,40 +631,14 @@ function onToggleLock() {
   else if (multiGroup.value.ungroup) applyMultiLockToggle()
 }
 
-// ─── Tag-picker для cell_value (отображаемый тег) ───
-function openValueTagPicker() {
-  openPicker({
-    tags: () => project.floatTags,
-    selected: details.value?.valueTag || '',
-    header: 'Выберите тег для отображения значения',
-    onSelect: onPickValueTag,
-  })
-}
-
-/** Подпись и единица cell_value — свободный ввод, без справочника величин. */
-function applyValueText(key, raw) {
-  withSelectedCell(
-    ({ cell, tms, d }) => {
-      if (!d.isValue) return false
-      const value = (raw ?? '').trim()
-      const next = { ...tms }
-      if (value) next[key] = value
-      else delete next[key]
-      if (next[key] === tms[key]) return false
-      cell.set('tms', next)
-    },
-    { reinject: true }
-  )
-}
-
 /**
- * Точность значения. Пустое поле = «как в пресете величины», поэтому не пишем 0,
- * а удаляем ключ — иначе «сбросить к пресету» стало бы невозможно.
+ * Точность значения. Пустое поле = дефолт протокола, поэтому не пишем 0, а удаляем
+ * ключ — иначе «вернуть как было» стало бы невозможно.
  */
 function applyValueDecimals(v) {
   withSelectedCell(
     ({ cell, tms, d }) => {
-      if (!d.isValue) return false
+      if (!d.hasTextSlot) return false
       const next = { ...tms }
       if (Number.isFinite(v)) next.decimals = v
       else delete next.decimals
@@ -665,13 +649,22 @@ function applyValueDecimals(v) {
   )
 }
 
-function onPickValueTag(tag) {
-  // Перерисовка — buildValueContent читает свежий tms.valueTag и обновляет label/unit.
+/**
+ * Значение правимой подписи. Пустое поле возвращает текст из определения, поэтому
+ * ключ удаляется, а не пишется пустой строкой.
+ */
+function applyParam(key, value) {
   withSelectedCell(
-    ({ cell, tms, d }) => {
-      if (!d.isValue) return false
-      if ((tms.valueTag ?? '') === tag) return false
-      cell.set('tms', { ...tms, valueTag: tag })
+    ({ cell, tms }) => {
+      const text = (value ?? '').replace(/\s+/g, ' ').trim()
+      const params = { ...(tms.params || {}) }
+      if (text) params[key] = text
+      else delete params[key]
+      if ((tms.params?.[key] ?? '') === (params[key] ?? '')) return false
+      const next = { ...tms }
+      if (Object.keys(params).length) next.params = params
+      else delete next.params
+      cell.set('tms', next)
     },
     { reinject: true }
   )
@@ -1367,80 +1360,6 @@ const {
               </div>
             </div>
 
-            <!-- cell_value: picker одного полного тега для отображения значения -->
-            <div v-else-if="details.isValue">
-              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
-                Тег значения
-              </div>
-              <TagField
-                :value="details.valueTag || ''"
-                :can-pick="!!project.tags.length"
-                @pick="openValueTagPicker"
-              />
-              <!-- Подпись и единица — свободный ввод: имена тегов в проектах не
-                   следуют единой конвенции, угадывать величину по суффиксу нечем. -->
-              <div class="mt-2 grid grid-cols-2 gap-2">
-                <div>
-                  <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
-                    Подпись
-                  </div>
-                  <InputText
-                    :model-value="details.valueLabel"
-                    size="small"
-                    class="w-full"
-                    placeholder="Ua"
-                    @update:model-value="(v) => applyValueText('valueLabel', v)"
-                  />
-                </div>
-                <div>
-                  <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
-                    Единица
-                  </div>
-                  <InputText
-                    :model-value="details.valueUnit"
-                    size="small"
-                    class="w-full"
-                    placeholder="В"
-                    @update:model-value="(v) => applyValueText('valueUnit', v)"
-                  />
-                </div>
-              </div>
-              <!-- Точность значения: уезжает в output.decimals карточки, формат
-                   считает рантайм. Пусто = взять из пресета величины/дефолт. -->
-              <div class="mt-2 flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Знаков после запятой
-                </span>
-                <InputNumber
-                  :model-value="details.decimals"
-                  :min="0"
-                  :max="6"
-                  :step="1"
-                  show-buttons
-                  button-layout="horizontal"
-                  size="small"
-                  input-class="w-12! text-center"
-                  class="ml-auto"
-                  :placeholder="String(VALUE_DECIMALS_DEFAULT)"
-                  @update:model-value="applyValueDecimals"
-                />
-              </div>
-              <!-- Цвет ЗНАЧЕНИЯ: подпись и единица остаются служебно-серыми, иначе
-                   карточка теряет различимость. Диапазоны, если привязаны, красят
-                   поверх — как у тела шины. -->
-              <div class="mt-2 flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Цвет значения
-                </span>
-                <input
-                  type="color"
-                  :value="details.color || VALUE_TEXT_COLOR"
-                  class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                  @input="applyBodyColor($event.target.value)"
-                />
-              </div>
-            </div>
-
             <!-- Вид тела шины / точки соединения одним блоком. Цвет БАЗОВЫЙ:
                  привязанные диапазоны и обесточивание заливают его поверх, поэтому в
                  рантайме свой цвет виден, пока ни один animation-класс не активен.
@@ -1538,9 +1457,9 @@ const {
             </div>
           </template>
 
-          <!-- Анимации: не у подписи/значения и не у фигуры-разметки (у последней их
+          <!-- Анимации: не у подписи и не у фигуры-разметки (у последней их
                нет вовсе — exporter не эмитит для неё карточек, привязка вела бы в никуда). -->
-          <div v-if="!details.isText && !details.isValue && !details.isShape" class="space-y-2">
+          <div v-if="!details.isText && !details.isShape" class="space-y-2">
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
 
             <!-- Символ «по значению»: привязка тега сигнала (состояния и их вид
@@ -1561,6 +1480,73 @@ const {
                 @pick="openSlotPicker(valueStateSlot)"
                 @highlight="canvas.toggleHighlightedTag(valueStateSlot.value)"
               />
+            </div>
+
+            <!-- Карточка значения одним блоком: тег-источник, точность (формат считает
+                 рантайм, пусто = дефолт) и правимые подписи символа — на схеме они
+                 стоят рядом со значением, поэтому и правятся тут же. У символа с
+                 подписями, но без тега значения остаются одни подписи. -->
+            <div
+              v-if="valueTextSlot || details.params?.length"
+              class="border border-surface-200 rounded p-3 bg-surface-0"
+            >
+              <div class="flex items-center gap-2 mb-2 min-h-6">
+                <i class="pi pi-hashtag text-cyan-600" />
+                <div class="text-xs font-medium text-surface-700">
+                  {{ valueTextSlot ? 'Значение тега' : 'Подписи' }}
+                </div>
+              </div>
+              <template v-if="valueTextSlot">
+                <div class="text-[11px] text-surface-500 mb-1">
+                  Тег
+                  <span class="text-surface-400">для анимации элемента</span>
+                </div>
+                <TagField
+                  :value="valueTextSlot.value"
+                  :can-pick="!!project.tags.length"
+                  highlightable
+                  @pick="openSlotPicker(valueTextSlot)"
+                  @highlight="canvas.toggleHighlightedTag(valueTextSlot.value)"
+                />
+                <div class="mt-2 flex items-center gap-3">
+                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+                    Знаков после запятой
+                  </span>
+                  <InputNumber
+                    :model-value="details.decimals"
+                    :min="0"
+                    :max="6"
+                    :step="1"
+                    show-buttons
+                    button-layout="horizontal"
+                    size="small"
+                    input-class="w-12! text-center"
+                    class="ml-auto"
+                    :placeholder="String(VALUE_DECIMALS_DEFAULT)"
+                    @update:model-value="applyValueDecimals"
+                  />
+                </div>
+              </template>
+              <!-- Две колонки: у карточки значения это «величина» и «единица» — они
+                   читаются парой, как на самой карточке. Пустое поле = текст из
+                   символа. -->
+              <div v-if="details.params?.length" class="mt-2 grid grid-cols-2 gap-2">
+                <div v-for="param in details.params" :key="param.key">
+                  <!-- Строка заголовка есть всегда: у пустой по умолчанию подписи
+                       названия нет, а без неё поля в паре разъезжаются по вертикали. -->
+                  <div class="text-[11px] text-surface-500 mb-1 truncate min-h-4">
+                    {{ param.label }}
+                  </div>
+                  <InputText
+                    :model-value="param.value"
+                    size="small"
+                    class="w-full"
+                    :placeholder="param.label"
+                    data-param-field
+                    @update:model-value="(v) => applyParam(param.key, v)"
+                  />
+                </div>
+              </div>
             </div>
 
             <!-- Булево значение — виден ВСЕГДА. У символа с булевым слотом

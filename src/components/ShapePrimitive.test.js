@@ -134,6 +134,19 @@ describe('ShapePrimitive', () => {
     expect(rows[1].text()).toBe('ячейка 12')
   })
 
+  it('пустая подпись рисуется рамкой — иначе её нечем выделить и сдвинуть', () => {
+    const w = mountShape({ id: 's12', type: 'text', x: 40, y: 15, fontSize: 10, align: 'right' })
+    expect(w.find('text').exists()).toBe(false)
+    // Рамка стоит там, где появится набранный текст: якорь end — влево от точки.
+    expect(w.find('rect').attributes()).toMatchObject({
+      x: '20',
+      y: '5',
+      width: '20',
+      'data-se-move': 'shape',
+      'data-id': 's12',
+    })
+  })
+
   it('pointerEvents=none в режиме рисования — фигура прозрачна для мыши', () => {
     const w = mountShape(
       { id: 's8', type: 'rect', x: 0, y: 0, w: 10, h: 10 },

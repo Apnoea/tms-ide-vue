@@ -1,12 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { outerKey, innerKey, innerPrefix, wireKey, valueTextKey, resolveSlotTemplate } from './ids'
+import {
+  outerKey,
+  innerKey,
+  innerPrefix,
+  wireKey,
+  resolveSlotTemplate,
+  normalizeParams,
+} from './ids'
 
 describe('id generators', () => {
-  it('outerKey: cell_value → animation-cell-{tag} (рантайм-конвенция)', () => {
-    expect(outerKey('cell_value', 'PS031.UA')).toBe('animation-cell-PS031.UA')
-  })
-
-  it('outerKey: остальные → animation-{stencilId}-{animId}', () => {
+  it('outerKey: animation-{stencilId}-{animId} — одна схема на все символы', () => {
     expect(outerKey('cell_qw', 'abc123')).toBe('animation-cell_qw-abc123')
     expect(outerKey('cell_qr', 'c1')).toBe('animation-cell_qr-c1')
   })
@@ -20,16 +23,11 @@ describe('id generators', () => {
 
   it('innerPrefix: с трейлингом точкой для startsWith-проверок', () => {
     expect(innerPrefix('cell_qw', 'c1')).toBe('animation-cell_qw-c1.')
-    expect(innerPrefix('cell_value', 'X')).toBe('animation-X.')
+    expect(innerPrefix('cell_value', 'c1')).toBe('animation-cell_value-c1.')
   })
 
   it('wireKey: animation-wire-{shortId}', () => {
     expect(wireKey('abc12345')).toBe('animation-wire-abc12345')
-  })
-
-  it('valueTextKey: animation-{tag} (без shortening)', () => {
-    expect(valueTextKey('PS031.UA')).toBe('animation-PS031.UA')
-    expect(valueTextKey('MY-TAG.IA')).toBe('animation-MY-TAG.IA')
   })
 })
 
@@ -90,5 +88,19 @@ describe('resolveSlotTemplate', () => {
     expect(resolveSlotTemplate('{slot.x}', slots).value).toBe('V')
     expect(resolveSlotTemplate('{slot.x}', slots).value).toBe('V')
     expect(resolveSlotTemplate('{slot.x}', slots).value).toBe('V')
+  })
+})
+
+describe('normalizeParams', () => {
+  it('оставляет только годные ключи и одну строку, пустой набор → undefined', () => {
+    expect(normalizeParams({ p1: '  Ia  ', unit: 'кА' })).toEqual({ p1: 'Ia', unit: 'кА' })
+    // Ключ уезжает в data-tms-param и в tms.params, а приходит из чужого архива —
+    // маска та же, что у объявлений символа.
+    expect(normalizeParams({ 'p 1': 'x', P1: 'x', '1p': 'x' })).toBeUndefined()
+    expect(normalizeParams({ p1: 5, p2: null })).toBeUndefined()
+    // Перевод строки в подписи не отрисовался бы (подстановка в textContent).
+    expect(normalizeParams({ p1: 'A\nB' })).toEqual({ p1: 'A B' })
+    expect(normalizeParams({ p1: '   ' })).toBeUndefined()
+    expect(normalizeParams(null)).toBeUndefined()
   })
 })

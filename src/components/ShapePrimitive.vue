@@ -4,7 +4,11 @@
  * примитив — геометрия считается один раз на оба.
  *
  * Подпись (`text`) — отдельная ветка: обводки нет, цвет в `fill`, halo — рамка по
- * замеренному bbox (широкий stroke дал бы контур вокруг глифов).
+ * замеренному bbox (широкий stroke дал бы контур вокруг глифов). У ПУСТОЙ подписи
+ * вместо глифов — иконка текстового блока (та же, что на кнопке инструмента) и
+ * прозрачная область попадания: у пустого `<text>` её нет, и фигуру нельзя было бы
+ * ни увидеть, ни выделить, ни сдвинуть. Пустая подпись штатна — её текст приходит с
+ * холста параметром. В `shape.svg` иконка не уезжает.
  *
  * Двухкорневой шаблон держит DOM плоским: interact.js цепляется по глобальному
  * `[data-se-move]`, а z-порядок фигур совпадает с порядком экспорта.
@@ -20,6 +24,10 @@ import {
   textShapeBox,
 } from '../utils/stencilSvg'
 import { normalizeFont } from '../utils/textMetrics'
+import { TEXT_ICON } from '../constants/icons'
+
+/** Служебный серый (zinc-400): иконка — подсказка редактора, а не часть рисунка. */
+const EMPTY_TEXT_COLOR = '#a1a1aa'
 
 const props = defineProps({
   shape: { type: Object, required: true },
@@ -74,8 +82,35 @@ const geom = computed(() => {
   return { tag: s.closed ? 'polygon' : 'polyline', attrs: { points } }
 })
 
+/** Пустая подпись: глифов нет, рисуем вместо них иконку текстового блока. */
+const emptyText = computed(() => isText.value && !(props.shape.text || '').trim())
+
+/**
+ * Габарит-заглушка: примерно два знака текущего кегля, отложенные от точки привязки
+ * по якорю подписи — там, где появится набранный текст.
+ */
+const emptyBox = computed(() => {
+  const s = props.shape
+  const size = s.fontSize ?? TEXT_SHAPE_SIZE
+  const w = size * 2
+  const anchor = textAnchorOf(s)
+  const x = anchor === 'start' ? s.x : anchor === 'end' ? s.x - w : s.x - w / 2
+  return { x, y: s.y - size, w, h: size * 1.25 }
+})
+
+// Иконка нарисована в сетке 16×16 (constants/icons), поэтому вписываем её по высоте
+// заглушки и центрируем по ширине — пропорции глифа не искажаются.
+const emptyIconTransform = computed(() => {
+  const b = emptyBox.value
+  const k = b.h / 16
+  return `translate(${b.x + (b.w - 16 * k) / 2} ${b.y}) scale(${k})`
+})
+
 // Рамка выделения подписи — по тому же bbox, что учитывает cropToContent.
-const textHalo = computed(() => (isText.value ? textShapeBox(props.shape) : null))
+const textHalo = computed(() => {
+  if (!isText.value) return null
+  return emptyText.value ? emptyBox.value : textShapeBox(props.shape)
+})
 
 // Заливка бессмысленна у линии (у ломаной — есть: замкнутая становится polygon).
 // У текста fill — это его цвет, поэтому берём из `stroke` модели (единое поле цвета).
@@ -135,7 +170,34 @@ const capJoin = computed(() => {
   >
     <component :is="geom.tag" v-bind="geom.attrs" />
   </g>
+  <!-- Пустая подпись: иконка текстового блока и прозрачная область попадания
+       поверх неё (interact.js читает data-se-move у самого target'а, поэтому атрибут
+       на прямоугольнике, а иконка для мыши прозрачна). -->
+  <g v-if="emptyText" :transform="emptyIconTransform" pointer-events="none">
+    <path
+      v-for="(part, i) in TEXT_ICON"
+      :key="i"
+      :d="part.d"
+      :fill="part.mode === 'fill' ? EMPTY_TEXT_COLOR : 'none'"
+      :stroke="part.mode === 'stroke' ? EMPTY_TEXT_COLOR : 'none'"
+      stroke-width="1.2"
+    />
+  </g>
+  <rect
+    v-if="emptyText"
+    :x="emptyBox.x"
+    :y="emptyBox.y"
+    :width="emptyBox.w"
+    :height="emptyBox.h"
+    fill="transparent"
+    stroke="none"
+    data-se-move="shape"
+    :data-id="shape.id"
+    :pointer-events="pointerEvents"
+    @pointerdown="emit('select', $event)"
+  />
   <component
+    v-else
     :is="geom.tag"
     v-bind="{ ...geom.attrs, ...capJoin }"
     data-se-move="shape"

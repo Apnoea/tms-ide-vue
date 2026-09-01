@@ -48,7 +48,7 @@ body,
 }
 
 /* Подсветка элементов с любым tag-полем равным highlightedTag (slots,
-   rangeSource.tag, boolSource, valueTag — см. cellHasTag).
+   rangeSource.tag, boolSource — см. cellHasTag).
    Триггерится кнопкой «Подсветить на схеме» в инспекторе. Оттенок —
    фиолетовый (violet-500 #8b5cf6), НАМЕРЕННО отличный от cyan-primary'а
    выделения (.tms-selected): иначе «выделено» и «подсвечено по тегу» сливались

@@ -5,12 +5,6 @@ import { isShapeCell } from '../stencils/shapeElement'
 import { serializeShape } from '../utils/stencilSvg'
 import { buildBusExportSvg, collectBusMarks } from '../stencils/busCell'
 import { buildTextExportSvg } from '../stencils/textCell'
-import {
-  buildValueExportSvg,
-  resolveValueDisplay,
-  resolveValueDecimals,
-  valueTextColor,
-} from '../stencils/valueCell'
 import { buildNodeExportSvg } from '../stencils/nodeCell'
 import { LINK_Z, arrowExportSvg, dotExportSvg, endPoint } from '../stencils/linkDefaults'
 import { isBackgroundZ } from '../utils/zOrder'
@@ -18,6 +12,7 @@ import {
   CLASS_OFF,
   CLASS_HIDDEN,
   rangeRowColor,
+  resolveValueDecimals,
   buildRangeCssRules,
   buildStateColorCssRules,
 } from '../constants/animation'
@@ -25,8 +20,6 @@ import {
   outerKey,
   innerPrefix,
   wireKey,
-  valueTextKey,
-  idSafeTag,
   ATTR_META,
   ATTR_STENCIL,
   CELL_META_FIELDS,
@@ -200,43 +193,12 @@ export function exportProject(graph, paper = null) {
     const pos = cell.get('position')
     const size = cell.get('size')
 
-    // У cell_value animId = сам тег (рантайм находит text-узел по id == тег),
-    // остальным — short-id из UUID. Дубль valueTag получает суффикс, но по «чистому»
-    // тегу рантайм обновит только первый.
-    let animId
-    if (tms.stencilId === 'cell_value' && tms.valueTag) {
-      // Пробел делает id невалидным (рантайм ищет узел через getElementById): в id он
-      // заменяется, в binding.tag тег идёт как есть. Предупреждение всё равно нужно —
-      // чаще это опечатка в tag-list'е, и данные не придут по подписке.
-      animId = idSafeTag(tms.valueTag)
-      if (animId !== tms.valueTag) {
-        const msg = `cell_value: пробел в теге "${tms.valueTag}" — id узла записан как "${animId}", проверь tag-list`
-        warnings.push(msg)
-        console.warn(`[Exporter] ${msg}`)
-      }
-      if (usedOuterKeys.has(outerKeyFor('cell_value', animId))) {
-        const msg = `cell_value: дубль valueTag="${tms.valueTag}" — рантайм обновит только первый символ`
-        warnings.push(msg)
-        console.warn(`[Exporter] ${msg}`)
-        let n = 2
-        while (usedOuterKeys.has(outerKeyFor('cell_value', `${animId}__${n}`))) n++
-        animId = `${animId}__${n}`
-      }
-    } else {
-      // Карточка значения без тега уедет в архив прочерком: рантайму нечего
-      // подписывать, а на схеме она выглядит рабочей.
-      if (tms.stencilId === 'cell_value') {
-        const msg = 'cell_value: тег не выбран — карточка останется прочерком в рантайме'
-        warnings.push(msg)
-        console.warn(`[Exporter] ${msg}`)
-      }
-      animId = uniqueShortId(cell.id, (id) => usedOuterKeys.has(outerKeyFor(tms.stencilId, id)))
-    }
+    const animId = uniqueShortId(cell.id, (id) => usedOuterKeys.has(outerKeyFor(tms.stencilId, id)))
     usedOuterKeys.add(outerKeyFor(tms.stencilId, animId))
 
-    // Разметка экземпляра: у программных символов (шина, подпись, значение, узел) её
-    // строит билдер СТРОКОЙ по фактическому размеру и без редактор-декораций, у
-    // остальных это клон разобранного `shape.svg` (DOM). Оба вида сериализуются ниже.
+    // Разметка экземпляра: у программных символов (шина, подпись, точка) её строит
+    // билдер СТРОКОЙ по фактическому размеру и без редактор-декораций, у остальных
+    // это клон разобранного `shape.svg` (DOM). Оба вида сериализуются ниже.
     let cellSvg
     let cellSvgRoot = null
     if (tms.stencilId === 'cell_bus') {
@@ -256,35 +218,20 @@ export function exportProject(graph, paper = null) {
       })
     } else if (tms.stencilId === 'cell_node') {
       cellSvg = buildNodeExportSvg(size.width, size.height, tms)
-    } else if (tms.stencilId === 'cell_value') {
-      // Базовый размер: масштаб экземпляра накладывает contentTransform.
-      cellSvg = buildValueExportSvg(animId, stencil.width, stencil.height, {
-        ...resolveValueDisplay(tms),
-        color: valueTextColor(tms),
-      })
-      if (tms.valueTag) {
-        // text-id = animation-{animId} (animId дедуплицирован выше). Конвенция
-        // рантайма: пустой output.text = «взять значение из binding.tag».
-        animations[valueTextKey(animId)] = {
-          animation: 'text',
-          bindings: [
-            {
-              tag: tms.valueTag,
-              output: {
-                text: {},
-                decimals: resolveValueDecimals(tms),
-              },
-            },
-          ],
-          detailTags: [{ tag: tms.valueTag }],
-        }
-      }
     } else {
       // parser.instantiate интерполирует {slot.X} → tms.slots[X] в bindings и собирает
       // SVG с id="animation-{stencilId}-{animId}{suffix}"; animId — короткий.
-      const inst = instantiate(stencil, animId, tms.slots || {})
+      const inst = instantiate(stencil, animId, tms.slots || {}, tms.params || {})
       // DOM-клон, а не строка: дети сериализуются ниже одним проходом.
       cellSvgRoot = inst.root
+      // Точность значения — свойство привязки, а не рисунка: в шаблоне символа её нет,
+      // подставляем из tms ячейки.
+      for (const card of Object.values(inst.animations)) {
+        if (card?.animation !== 'text') continue
+        for (const b of card.bindings || []) {
+          if (b.output?.text) b.output.decimals = resolveValueDecimals(tms)
+        }
+      }
       Object.assign(animations, inst.animations)
     }
 
@@ -306,6 +253,9 @@ export function exportProject(graph, paper = null) {
       svgContent: cellSvg,
       svgRoot: cellSvgRoot,
       slots: tms.slots || null,
+      // Значения правимых подписей: рисунок уже с ними, но при загрузке поля
+      // инспектора берут их отсюда.
+      params: tms.params || null,
       rangeSource: tms.rangeSource || null,
       boolSource: tms.boolSource || null,
       // navigation — имя view, на которую рантайм переходит по клику.
@@ -326,9 +276,9 @@ export function exportProject(graph, paper = null) {
       groupId: tms.groupId,
       // busId — закрепление на шине: без round-trip'а символ перестал бы за ней ездить.
       busId: tms.busId,
+      // Поля карточки значения прошлого формата: у новых ячеек их нет, а старые
+      // конвертирует миграция — экспорт их только переносит.
       valueTag: tms.valueTag,
-      // Величина и точность cell_value, выбранные автором: без них round-trip
-      // откатил бы их к дефолтам.
       valueLabel: tms.valueLabel,
       valueUnit: tms.valueUnit,
       decimals: tms.decimals,
@@ -570,8 +520,7 @@ export function exportProject(graph, paper = null) {
 
   // ─── detailTags на outer-wrapper / wire-card ───
   // Рантайм открывает popup с подробностями по клику, читая detailTags карточки
-  // внешней обёртки. У cell_value они ставятся на text-карточку
-  // (`animation-{valueTag}`) — конвенция рантайма; у остальных на outer или wire.
+  // внешней обёртки — у ячейки это outer, у провода wire-карточка.
   function attachDetailTags(key, tags) {
     if (!tags.length) return
     if (!animations[key]) {
@@ -747,8 +696,6 @@ export function exportProject(graph, paper = null) {
         // вокруг центра ячейки в её локальных координатах.
         let transform = `translate(${c.x},${c.y})`
         if (c.angle) transform += ` rotate(${c.angle} ${c.width / 2} ${c.height / 2})`
-        // escapeAttr на outer-id: для cell_value c.animId = valueTag, который
-        // может содержать ", &, < и т.п. — без эскейпа SVG становится невалидным.
         // stencilId по инварианту реестра уже в маске [a-z0-9_], escapeAttr на нём —
         // страховка от нового пути регистрации в обход registry.isValidStencilId.
         return `  <g id="${escapeAttr(outerKeyFor(c.stencilId, c.animId))}" transform="${transform}" ${ATTR_STENCIL}="${escapeAttr(c.stencilId)}" ${ATTR_META}="${metaAttr}">${inner}</g>`

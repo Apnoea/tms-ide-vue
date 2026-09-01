@@ -4,8 +4,6 @@
 // выпущенные view.svg. Цвета анимаций — в constants/animation.js.
 //
 //  • ячейка:          animation-<stencilId>-<animId>[<suffix из data-anim-suffix>]
-//  • cell_value:      animation-cell-<valueTag> (outer) + animation-<valueTag>
-//    (text-узел) — рантайм адресует text-карточку по id, равному тегу
 //  • провод:          animation-wire-<shortId>
 
 import { SVG_FONT, normalizeFont } from '../utils/textMetrics'
@@ -55,13 +53,38 @@ const normalizeRangeSource = (v) => {
 // Без export: наружу торчат только key-билдеры ниже.
 const ANIM_PREFIX = 'animation-'
 const WIRE_PREFIX = 'animation-wire-'
-const CELL_VALUE_PREFIX = 'animation-cell-'
 
 // ─── Data-атрибуты (round-trip / контракт editor'а) ─────────────────────────
 
 export const ATTR_META = 'data-tms-meta'
 export const ATTR_STENCIL = 'data-tms-stencil'
 export const ATTR_SUFFIX = 'data-anim-suffix'
+/** Метка подписи-параметра в shape.svg: значение подставляет экземпляр (tms.params). */
+export const ATTR_PARAM = 'data-tms-param'
+
+/** Ключ параметра символа: латиница и `_`, как id символа. */
+const PARAM_KEY_RE = /^[a-z][a-z0-9_]{0,23}$/
+
+/** Годен ли ключ параметра (реестр проверяет объявления, meta — значения). */
+export function isValidParamKey(key) {
+  return typeof key === 'string' && PARAM_KEY_RE.test(key)
+}
+
+/**
+ * Значения параметров экземпляра: только объявляемые ключи и одна строка.
+ * Перевод строки в подписи не отрисовался бы (подстановка идёт в textContent),
+ * поэтому склеивается в пробел.
+ */
+export function normalizeParams(raw) {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (!isValidParamKey(key) || typeof value !== 'string') continue
+    const text = value.replace(/\s+/g, ' ').trim().slice(0, 200)
+    if (text) out[key] = text
+  }
+  return Object.keys(out).length ? out : undefined
+}
 
 /**
  * Допустимый id символа. Не косметика: id уезжает в `data-tms-stencil` и в
@@ -105,17 +128,6 @@ export function safeFormId(raw) {
 }
 
 /**
- * Тег в роли id: whitespace → `_`. Нужно только cell_value — у него id узла равен
- * тегу (рантайм-конвенция, поиск через `getElementById`), а id по стандарту не
- * может содержать пробелов: с пробелом узел не находится и карточка навсегда с
- * прочерком. Тег внутри `bindings[].tag` остаётся ИСХОДНЫМ — подписка идёт на
- * реальный сигнал, переименовывается только адрес узла в DOM.
- */
-export function idSafeTag(tag) {
-  return String(tag).replace(/\s+/g, '_')
-}
-
-/**
  * tms-поля ЯЧЕЙКИ для round-trip через `data-tms-meta` — единый список для записи
  * (exporter) и чтения (projectLoader): забыть одну сторону = тихая потеря поля.
  *
@@ -127,6 +139,8 @@ export function idSafeTag(tag) {
  */
 export const CELL_META_FIELDS = [
   { key: 'slots', keep: Boolean, clone: true },
+  // Значения подписей-параметров символа. Пустое = текст из определения.
+  { key: 'params', keep: Boolean, clone: true, normalize: normalizeParams },
   { key: 'text', keep: (v) => v !== undefined },
   { key: 'fontSize', keep: (v) => v !== undefined, normalize: clampNumber(1, 400, undefined) },
   { key: 'bold', keep: (v) => v !== undefined },
@@ -149,11 +163,13 @@ export const CELL_META_FIELDS = [
     keep: (v) => v !== undefined && v !== 'left',
     normalize: oneOf(['left', 'center', 'right'], undefined),
   },
+  // Тег, подпись и единица карточки значения ПРОШЛОГО формата: новых ячеек с этими
+  // полями не появляется (тег живёт в slots.value_text, подписи — в params), но их
+  // читает миграция, поэтому дескрипторы живут, пока жив её слой.
   { key: 'valueTag', keep: (v) => v !== undefined },
-  // Подпись и единица cell_value — вписывает автор. Пустые не пишем.
   { key: 'valueLabel', keep: Boolean },
   { key: 'valueUnit', keep: Boolean },
-  // Знаков после запятой у cell_value. Пустое = дефолт (VALUE_DECIMALS_DEFAULT).
+  // Знаков после запятой у text-анимации. Пустое = дефолт (VALUE_DECIMALS_DEFAULT).
   { key: 'decimals', keep: (v) => Number.isFinite(v), normalize: clampNumber(0, 20, undefined) },
   { key: 'locked', keep: Boolean, flag: true },
   { key: 'flipH', keep: Boolean, flag: true },
@@ -192,9 +208,8 @@ export const LINK_META_FIELDS = [
 
 // ─── ID-генераторы ──────────────────────────────────────────────────────────
 
-/** Outer-key карточки ячейки. cell_value — конвенция `animation-cell-{tag}`. */
+/** Outer-key карточки ячейки. */
 export function outerKey(stencilId, animId) {
-  if (stencilId === 'cell_value') return `${CELL_VALUE_PREFIX}${animId}`
   return `${ANIM_PREFIX}${stencilId}-${animId}`
 }
 
@@ -203,9 +218,8 @@ export function outerKey(stencilId, animId) {
  * коллизий (его делает exporter.uniqueShortId). Один источник — превью и экспорт
  * не разъезжаются.
  */
-export function previewOuterKey(stencilId, cellId, valueTag) {
-  const animId = stencilId === 'cell_value' && valueTag ? valueTag : String(cellId).split('-')[0]
-  return outerKey(stencilId, animId)
+export function previewOuterKey(stencilId, cellId) {
+  return outerKey(stencilId, String(cellId).split('-')[0])
 }
 
 /** Inner-key символьной карточки (outer + suffix из data-anim-suffix). */
@@ -215,18 +229,12 @@ export function innerKey(stencilId, animId, suffix) {
 
 /** Префикс для startsWith()-проверок над inner-картами (exporter merge/quality). */
 export function innerPrefix(stencilId, animId) {
-  if (stencilId === 'cell_value') return `${ANIM_PREFIX}${animId}.`
   return `${ANIM_PREFIX}${stencilId}-${animId}.`
 }
 
 /** Wire-card key. */
 export function wireKey(shortId) {
   return `${WIRE_PREFIX}${shortId}`
-}
-
-/** Key text-узла cell_value (по полному valueTag без укорачивания). */
-export function valueTextKey(valueTag) {
-  return `${ANIM_PREFIX}${valueTag}`
 }
 
 // ─── Slot-template резолвер ─────────────────────────────────────────────────
