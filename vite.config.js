@@ -138,7 +138,9 @@ export default defineConfig({
     },
   },
   test: {
-    environment: 'jsdom',
+    // Дефолт — node: подъём jsdom стоит дороже самих тестов, а DOM нужен меньшинству
+    // файлов — они помечены `// @vitest-environment jsdom` первой строкой.
+    environment: 'node',
     include: ['src/**/*.{test,spec}.js'],
   },
 })

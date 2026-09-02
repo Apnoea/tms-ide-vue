@@ -2,13 +2,11 @@
 import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
-import Textarea from 'primevue/textarea'
 import InputNumber from 'primevue/inputnumber'
 import AutoComplete from 'primevue/autocomplete'
 import Select from 'primevue/select'
 import SelectButton from 'primevue/selectbutton'
 import ToggleSwitch from 'primevue/toggleswitch'
-import Checkbox from 'primevue/checkbox'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import {
@@ -39,8 +37,11 @@ import TagField from './TagField.vue'
 import RangeBlock from './RangeBlock.vue'
 import BooleanBlock from './BooleanBlock.vue'
 import WireStyleFields from './WireStyleFields.vue'
+import ShapeBlock from './ShapeBlock.vue'
+import ValueBlock from './ValueBlock.vue'
+import AlignBlock from './AlignBlock.vue'
+import BodyStyleFields from './BodyStyleFields.vue'
 import { previewOuterKey } from '../constants/ids'
-import { VALUE_DECIMALS_DEFAULT } from '../constants/animation'
 import {
   isDefaultWireValue,
   syncLinkEndMarkers,
@@ -442,11 +443,6 @@ function commitShapeText() {
   if (draft === null || draft) return
   const id = details.value?.id
   if (id) canvas.deleteItems([{ kind: 'cell', id }])
-}
-
-/** Тумблер заливки фигуры: включаем последним цветом (или белым), выключаем в `none`. */
-function toggleShapeFill(on) {
-  patchShape({ fill: on ? details.value?.fill || '#ffffff' : 'none' })
 }
 
 // Свитч наконечника (`solid` — треугольник, `open` — две линии под 45°, нет поля —
@@ -904,7 +900,7 @@ const {
       <template v-if="canvas.selection.value.length > 1">
         <div class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4">
           <div>
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
+            <div class="text-[11px] text-surface-500 mb-1">
               {{ multiGroup.ungroup ? 'Группа' : 'Выделено' }}
             </div>
             <div class="font-medium text-surface-900">
@@ -947,37 +943,13 @@ const {
                мультивыделения (≥2 ячеек), НЕ для цельной группы — та единый объект,
                внутреннюю раскладку не трогаем. Три категории: гориз./верт.
                выравнивание, распределение; центры снапятся к сетке. -->
-          <div v-if="canAlign && !multiGroup.ungroup" class="space-y-2.5">
-            <div v-for="row in ALIGN_ROWS" :key="row.label" class="flex items-center gap-3">
-              <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                {{ row.label }}
-              </span>
-              <div class="ml-auto flex items-center gap-1">
-                <button
-                  v-for="btn in row.buttons"
-                  :key="btn.op"
-                  type="button"
-                  v-tooltip.bottom="btn.tip"
-                  :disabled="row.kind === 'distribute' && !canDistribute"
-                  class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900 disabled:cursor-not-allowed disabled:opacity-40"
-                  @click="row.kind === 'distribute' ? distributeCells(btn.op) : alignCells(btn.op)"
-                >
-                  <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-                    <rect
-                      v-for="(r, i) in btn.rects"
-                      :key="i"
-                      :x="r.x"
-                      :y="r.y"
-                      :width="r.w"
-                      :height="r.h"
-                      :rx="r.rx"
-                      :opacity="r.o"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
+          <AlignBlock
+            v-if="canAlign && !multiGroup.ungroup"
+            :rows="ALIGN_ROWS"
+            :can-distribute="canDistribute"
+            @align="alignCells"
+            @distribute="distributeCells"
+          />
 
           <!-- Multi-select: те же блоки, что в single, как «применить ко всем»
                (общего состояния у выделения нет → списки пустые/шаблон, выбор тега
@@ -1068,176 +1040,16 @@ const {
           <!-- Фигура-разметка: только вид (и содержимое подписи). Анимаций, навигации
                и тегов у неё нет — блоки ниже не рендерим, геометрия правится на
                холсте жестами. -->
-          <template v-if="details.isShape">
-            <div>
-              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Фигура</div>
-              <div class="font-medium text-surface-900">{{ details.shapeLabel }}</div>
-            </div>
-
-            <div class="space-y-2.5">
-              <div v-if="details.isShapeText">
-                <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
-                <!-- Пустое поле = удалить подпись (по коммиту, не на каждый символ:
-                     иначе стирание текста «под новый» сносило бы фигуру). Textarea, а
-                     не InputText: подпись многострочная, Enter добавляет строку —
-                     поэтому шаг истории пишется по blur, а не по Enter. -->
-                <Textarea
-                  :model-value="shapeText"
-                  rows="3"
-                  size="small"
-                  class="w-full"
-                  placeholder="Пустое поле удалит подпись"
-                  @update:model-value="onShapeTextInput"
-                  @blur="commitShapeText"
-                />
-              </div>
-
-              <div v-if="!details.isShapeText" class="flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  {{ details.isShapeFillable ? 'Цвет линии' : 'Цвет' }}
-                </span>
-                <input
-                  type="color"
-                  :value="details.stroke"
-                  class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                  @input="patchShape({ stroke: $event.target.value })"
-                />
-              </div>
-
-              <div v-if="!details.isShapeText" class="flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Толщина, px
-                </span>
-                <InputNumber
-                  :model-value="details.strokeWidth"
-                  :min="0.5"
-                  :max="40"
-                  :step="0.5"
-                  :max-fraction-digits="1"
-                  show-buttons
-                  button-layout="horizontal"
-                  size="small"
-                  input-class="w-12! text-center"
-                  class="ml-auto"
-                  @update:model-value="(v) => v != null && patchShape({ strokeWidth: v })"
-                />
-              </div>
-
-              <!-- Заливка — как в редакторе символов: галка «есть/нет» + свотч при
-                   включённой (`<input type="color">` состояния «нет цвета» не имеет).
-                   Выключение пишет `none`, а не удаляет поле: отсутствие и `none` для
-                   отрисовки одно и то же, но патч мержится, а не заменяет фигуру. -->
-              <div v-if="details.isShapeFillable" class="flex min-h-8 items-center gap-3">
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <Checkbox
-                    :model-value="!!details.fill"
-                    binary
-                    input-id="shape-fill"
-                    @update:model-value="toggleShapeFill"
-                  />
-                  <span class="text-[11px] uppercase tracking-wider text-surface-500">Заливка</span>
-                </label>
-                <input
-                  v-if="details.fill"
-                  type="color"
-                  :value="details.fill"
-                  class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                  @input="patchShape({ fill: $event.target.value })"
-                />
-              </div>
-
-              <template v-if="details.isShapeText">
-                <div class="flex items-center gap-3">
-                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                    Размер, pt
-                  </span>
-                  <InputNumber
-                    :model-value="details.fontSize"
-                    :min="6"
-                    :max="72"
-                    :step="1"
-                    show-buttons
-                    button-layout="horizontal"
-                    size="small"
-                    input-class="w-12! text-center"
-                    class="ml-auto"
-                    @update:model-value="(v) => v != null && patchShape({ fontSize: v })"
-                  />
-                </div>
-
-                <div class="flex items-center gap-3">
-                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                    Шрифт
-                  </span>
-                  <Select
-                    :model-value="details.fontFamily"
-                    :options="FONT_FAMILIES"
-                    option-label="label"
-                    option-value="value"
-                    size="small"
-                    class="ml-auto w-40"
-                    @update:model-value="(v) => patchShape({ fontFamily: v })"
-                  >
-                    <template #option="{ option }">
-                      <span :style="{ fontFamily: option.value }">{{ option.label }}</span>
-                    </template>
-                  </Select>
-                </div>
-
-                <div class="flex items-center gap-3">
-                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                    Жирность
-                  </span>
-                  <SelectButton
-                    :model-value="details.bold ? 'bold' : null"
-                    :options="BOLD_OPTIONS"
-                    option-value="value"
-                    data-key="value"
-                    size="small"
-                    class="ml-auto"
-                    @update:model-value="(v) => patchShape({ bold: v === 'bold' })"
-                  >
-                    <template #option>
-                      <span class="font-bold" v-tooltip.top="'Жирный'">B</span>
-                    </template>
-                  </SelectButton>
-                </div>
-
-                <div class="flex items-center gap-3">
-                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                    Цвет
-                  </span>
-                  <input
-                    type="color"
-                    :value="details.stroke"
-                    class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                    @input="patchShape({ stroke: $event.target.value })"
-                  />
-                </div>
-
-                <!-- Выравнивание = якорь роста (как у cell_text): точка привязки
-                     стоит на месте, текст растёт от неё. -->
-                <div class="flex items-center gap-3">
-                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                    Выравнивание
-                  </span>
-                  <SelectButton
-                    :model-value="details.shapeAlign"
-                    :options="ALIGN_OPTIONS"
-                    option-value="value"
-                    data-key="value"
-                    size="small"
-                    class="ml-auto"
-                    @update:model-value="(v) => v && patchShape({ align: v })"
-                  >
-                    <template #option="{ option }">
-                      <i :class="option.icon" v-tooltip.top="option.tip" />
-                    </template>
-                  </SelectButton>
-                </div>
-              </template>
-            </div>
-          </template>
+          <ShapeBlock
+            v-if="details.isShape"
+            :values="details"
+            :text="shapeText"
+            :align-options="ALIGN_OPTIONS"
+            :bold-options="BOLD_OPTIONS"
+            @patch="patchShape"
+            @text-input="onShapeTextInput"
+            @text-commit="commitShapeText"
+          />
 
           <template v-else-if="details.kind === 'cell'">
             <div>
@@ -1365,37 +1177,15 @@ const {
                  рантайме свой цвет виден, пока ни один animation-класс не активен.
                  Толщина: у шины = высота ячейки, у точки = диаметр; минимум — дефолт
                  (тоньше тело сливается с проводами, точка — с их пересечением). -->
-            <div v-if="details.isBus || details.isNode" class="space-y-2.5">
-              <div class="flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Цвет
-                </span>
-                <input
-                  type="color"
-                  :value="details.color || BUS_COLOR_DEFAULT"
-                  class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                  @input="applyBodyColor($event.target.value)"
-                />
-              </div>
-
-              <div class="flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Толщина, px
-                </span>
-                <InputNumber
-                  :model-value="details.thickness"
-                  :min="details.thicknessMin"
-                  :max="details.thicknessMax"
-                  :step="1"
-                  show-buttons
-                  button-layout="horizontal"
-                  size="small"
-                  input-class="w-12! text-center"
-                  class="ml-auto"
-                  @update:model-value="applyThickness"
-                />
-              </div>
-            </div>
+            <BodyStyleFields
+              v-if="details.isBus || details.isNode"
+              :color="details.color || BUS_COLOR_DEFAULT"
+              :thickness="details.thickness"
+              :thickness-min="details.thicknessMin"
+              :thickness-max="details.thicknessMax"
+              @update-color="applyBodyColor"
+              @update-thickness="applyThickness"
+            />
 
             <!-- Навигация (hyperlink на другую форму при клике в рантайме). Цель —
                  id формы проекта (= view-id рантайма): можно выбрать из списка форм ИЛИ
@@ -1471,7 +1261,7 @@ const {
               </div>
               <div class="text-[11px] text-surface-500 mb-1">
                 Тег
-                <span class="text-surface-400">- сигнал, значение выбирает состояние</span>
+                <span class="text-surface-400">для анимации элемента</span>
               </div>
               <TagField
                 :value="valueStateSlot.value"
@@ -1482,72 +1272,18 @@ const {
               />
             </div>
 
-            <!-- Карточка значения одним блоком: тег-источник, точность (формат считает
-                 рантайм, пусто = дефолт) и правимые подписи символа — на схеме они
-                 стоят рядом со значением, поэтому и правятся тут же. У символа с
-                 подписями, но без тега значения остаются одни подписи. -->
-            <div
-              v-if="valueTextSlot || details.params?.length"
-              class="border border-surface-200 rounded p-3 bg-surface-0"
-            >
-              <div class="flex items-center gap-2 mb-2 min-h-6">
-                <i class="pi pi-hashtag text-cyan-600" />
-                <div class="text-xs font-medium text-surface-700">
-                  {{ valueTextSlot ? 'Значение тега' : 'Подписи' }}
-                </div>
-              </div>
-              <template v-if="valueTextSlot">
-                <div class="text-[11px] text-surface-500 mb-1">
-                  Тег
-                  <span class="text-surface-400">для анимации элемента</span>
-                </div>
-                <TagField
-                  :value="valueTextSlot.value"
-                  :can-pick="!!project.tags.length"
-                  highlightable
-                  @pick="openSlotPicker(valueTextSlot)"
-                  @highlight="canvas.toggleHighlightedTag(valueTextSlot.value)"
-                />
-                <div class="mt-2 flex items-center gap-3">
-                  <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                    Знаков после запятой
-                  </span>
-                  <InputNumber
-                    :model-value="details.decimals"
-                    :min="0"
-                    :max="6"
-                    :step="1"
-                    show-buttons
-                    button-layout="horizontal"
-                    size="small"
-                    input-class="w-12! text-center"
-                    class="ml-auto"
-                    :placeholder="String(VALUE_DECIMALS_DEFAULT)"
-                    @update:model-value="applyValueDecimals"
-                  />
-                </div>
-              </template>
-              <!-- Две колонки: у карточки значения это «величина» и «единица» — они
-                   читаются парой, как на самой карточке. Пустое поле = текст из
-                   символа. -->
-              <div v-if="details.params?.length" class="mt-2 grid grid-cols-2 gap-2">
-                <div v-for="param in details.params" :key="param.key">
-                  <!-- Строка заголовка есть всегда: у пустой по умолчанию подписи
-                       названия нет, а без неё поля в паре разъезжаются по вертикали. -->
-                  <div class="text-[11px] text-surface-500 mb-1 truncate min-h-4">
-                    {{ param.label }}
-                  </div>
-                  <InputText
-                    :model-value="param.value"
-                    size="small"
-                    class="w-full"
-                    :placeholder="param.label"
-                    data-param-field
-                    @update:model-value="(v) => applyParam(param.key, v)"
-                  />
-                </div>
-              </div>
-            </div>
+            <!-- Карточка значения одним блоком: тег, точность и правимые подписи. -->
+            <ValueBlock
+              v-if="valueTextSlot"
+              :slot-info="valueTextSlot"
+              :params="details.params"
+              :decimals="details.decimals"
+              :tags-loaded="!!project.tags.length"
+              @pick-tag="openSlotPicker(valueTextSlot)"
+              @highlight-tag="canvas.toggleHighlightedTag"
+              @update-decimals="applyValueDecimals"
+              @update-param="applyParam"
+            />
 
             <!-- Булево значение — виден ВСЕГДА. У символа с булевым слотом
                  (onoff, в т.ч. cell_alr) первой строкой идёт этот слот (основной

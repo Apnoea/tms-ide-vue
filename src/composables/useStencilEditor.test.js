@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
 import { createStencilEditor, useStencilEditor, PORT_GRID } from './useStencilEditor'
 
@@ -691,6 +692,49 @@ describe('useStencilEditor', () => {
     expect(ed.shapes.value).toHaveLength(0)
     expect(ed.editingId.value).toBeNull()
     expect(ed.canUndo.value).toBe(false)
+  })
+})
+
+describe('loadStencil: анимация состояния', () => {
+  const base = {
+    id: 'cell_x',
+    label: 'X',
+    category: 'C',
+    width: 100,
+    height: 20,
+    svgText:
+      '<svg xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="10" height="10"/></svg>',
+  }
+
+  it('подпись со значением тега НЕ включает анимацию состояния', () => {
+    // Слот с карточкой есть и у text-анимации, а от флага зависит метка
+    // tms-state-fill в shape.svg — по ней файл «дышал» на пересохранении.
+    const ed = createStencilEditor()
+    ed.loadStencil({
+      ...base,
+      slots: [{ key: 'value_text', type: 'Text' }],
+      animationTemplate: [{ idSuffix: '.value', type: 'text', bindings: [] }],
+    })
+    expect(ed.meta.stateful).toBe(false)
+  })
+
+  it('фигура с состоянием, состояния «по значению» и цвет состояния — включают', () => {
+    const withShapeState = createStencilEditor()
+    withShapeState.loadStencil({
+      ...base,
+      svgText:
+        '<svg xmlns="http://www.w3.org/2000/svg"><g data-anim-suffix=".true"><rect x="0" y="0" width="10" height="10"/></g></svg>',
+      slots: [{ key: 'onoff', type: 'Boolean' }],
+    })
+    expect(withShapeState.meta.stateful).toBe(true)
+
+    const withStates = createStencilEditor()
+    withStates.loadStencil({ ...base, states: [{ key: 'on', label: 'Вкл', code: '1' }] })
+    expect(withStates.meta.stateful).toBe(true)
+
+    const withColor = createStencilEditor()
+    withColor.loadStencil({ ...base, stateColors: { true: '#10b981' } })
+    expect(withColor.meta.stateful).toBe(true)
   })
 })
 

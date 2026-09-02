@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // Компонентные тесты picker'а тега: поведение диалога живёт во вьюхе (клик по
 // опции Listbox, пустое состояние), юнитом до него не добраться.
 import { describe, it, expect, vi, beforeEach } from 'vitest'

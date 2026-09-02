@@ -633,7 +633,7 @@ function clearStateColor(key, which) {
               />
             </div>
             <label class="flex items-center justify-between">
-              <span class="text-surface-700">Размер</span>
+              <span class="text-[11px] uppercase tracking-wider text-surface-500">Размер, pt</span>
               <InputNumber
                 :model-value="textSize"
                 :min="4"
@@ -650,7 +650,9 @@ function clearStateColor(key, which) {
             <!-- Выравнивание = якорь роста: точка привязки стоит на месте, текст
                  растёт от неё (те же варианты, что у подписи на холсте). -->
             <label class="flex items-center justify-between">
-              <span class="text-surface-700">Выравнивание</span>
+              <span class="text-[11px] uppercase tracking-wider text-surface-500">
+                Выравнивание
+              </span>
               <SelectButton
                 :model-value="textAlign"
                 :options="ALIGN_OPTIONS"
@@ -666,7 +668,7 @@ function clearStateColor(key, which) {
               </SelectButton>
             </label>
             <label class="flex items-center justify-between">
-              <span class="text-surface-700">Шрифт</span>
+              <span class="text-[11px] uppercase tracking-wider text-surface-500">Шрифт</span>
               <!-- Пункты рисуются своим же семейством — выбор виден до применения. -->
               <Select
                 :model-value="textFont"
@@ -721,7 +723,7 @@ function clearStateColor(key, which) {
             </label>
           </template>
           <label class="flex items-center justify-between cursor-pointer">
-            <span class="text-surface-700">
+            <span class="text-[11px] uppercase tracking-wider text-surface-500">
               {{ isTextShape ? 'Цвет' : 'Цвет линии' }}
               <span v-if="strokeMixed" class="text-xs text-surface-400">разные</span>
             </span>
@@ -734,7 +736,7 @@ function clearStateColor(key, which) {
             />
           </label>
           <label v-if="hasStrokeWidth" class="flex items-center justify-between">
-            <span class="text-surface-700">Толщина линии</span>
+            <span class="text-[11px] uppercase tracking-wider text-surface-500">Толщина, px</span>
             <InputNumber
               :model-value="strokeWidth"
               :min="0.5"

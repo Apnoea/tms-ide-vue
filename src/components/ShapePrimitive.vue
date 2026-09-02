@@ -8,7 +8,12 @@
  * вместо глифов — иконка текстового блока (та же, что на кнопке инструмента) и
  * прозрачная область попадания: у пустого `<text>` её нет, и фигуру нельзя было бы
  * ни увидеть, ни выделить, ни сдвинуть. Пустая подпись штатна — её текст приходит с
- * холста параметром. В `shape.svg` иконка не уезжает.
+ * холста параметром.
+ *
+ * РОЛЬ подписи (значение тега / правится на холсте) помечается у самой фигуры:
+ * иначе её видно только по галкам выделенной, и в символе с тремя подписями роли
+ * приходится искать перебором. Иконка и маркеры живут только в редакторе — в
+ * `shape.svg` они не уезжают.
  *
  * Двухкорневой шаблон держит DOM плоским: interact.js цепляется по глобальному
  * `[data-se-move]`, а z-порядок фигур совпадает с порядком экспорта.
@@ -112,6 +117,19 @@ const textHalo = computed(() => {
   return emptyText.value ? emptyBox.value : textShapeBox(props.shape)
 })
 
+/**
+ * Маркер роли подписи по её bbox: у значения тега — решётка над левым верхним углом
+ * (та же метафора, что у блока «Значение тега» в инспекторе), у правимой на холсте —
+ * пунктир под базовой линией (метафора поля ввода). Роли взаимоисключающие.
+ */
+const roleMark = computed(() => {
+  const box = textHalo.value
+  if (!box) return null
+  if (props.shape.valueText) return { kind: 'value', box }
+  if (props.shape.param) return { kind: 'param', box }
+  return null
+})
+
 // Заливка бессмысленна у линии (у ломаной — есть: замкнутая становится polygon).
 // У текста fill — это его цвет, поэтому берём из `stroke` модели (единое поле цвета).
 const fill = computed(() => {
@@ -170,6 +188,31 @@ const capJoin = computed(() => {
   >
     <component :is="geom.tag" v-bind="geom.attrs" />
   </g>
+  <!-- Роль подписи: решётка у значения тега, пунктир у правимой на холсте. -->
+  <template v-if="roleMark">
+    <text
+      v-if="roleMark.kind === 'value'"
+      pointer-events="none"
+      :x="roleMark.box.x"
+      :y="roleMark.box.y"
+      :font-size="roleMark.box.h * 0.5"
+      font-family="sans-serif"
+      :fill="EMPTY_TEXT_COLOR"
+    >
+      #
+    </text>
+    <line
+      v-else
+      pointer-events="none"
+      :x1="roleMark.box.x"
+      :y1="roleMark.box.y + roleMark.box.h"
+      :x2="roleMark.box.x + roleMark.box.w"
+      :y2="roleMark.box.y + roleMark.box.h"
+      :stroke="EMPTY_TEXT_COLOR"
+      stroke-width="0.5"
+      stroke-dasharray="2 2"
+    />
+  </template>
   <!-- Пустая подпись: иконка текстового блока и прозрачная область попадания
        поверх неё (interact.js читает data-se-move у самого target'а, поэтому атрибут
        на прямоугольнике, а иконка для мыши прозрачна). -->

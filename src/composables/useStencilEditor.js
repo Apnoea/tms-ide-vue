@@ -602,12 +602,20 @@ export function createStencilEditor() {
       ? def.states.map((s) => ({ key: s.key, label: s.label || '', code: s.code ?? '' }))
       : []
     meta.stateColors = def.stateColors ? { ...def.stateColors } : {}
-    meta.stateful = hasValueStates || !!(def.slots?.length && def.animationTemplate?.length)
-    const loadedKey = def.slots?.[0]?.key
+    const loadedKey = def.slots?.find((s) => s.type !== 'Text')?.key
     const fallbackKey = hasValueStates ? 'value' : 'onoff'
     meta.stateSlot = { key: loadedKey && loadedKey !== 'state' ? loadedKey : fallbackKey }
     // Присваиваем внутренние id — без них не работают выделение/ручки/удаление.
-    shapes.value = parseStencilSvg(def.svgText).map((s) => ({ id: nextId(), ...s }))
+    const parsed = parseStencilSvg(def.svgText)
+    shapes.value = parsed.map((s) => ({ id: nextId(), ...s }))
+    // Анимация состояния — по её собственным признакам: состояния «по значению»,
+    // фигуры, привязанные к состоянию, или цвет состояния. Слот с карточкой признаком
+    // не годится — они есть и у подписи со значением тега, а от флага зависит метка
+    // `tms-state-fill` в shape.svg (иначе файл «дышит» на каждом пересохранении).
+    meta.stateful =
+      hasValueStates ||
+      parsed.some((s) => s.state && s.state !== 'always') ||
+      Object.keys(meta.stateColors).length > 0
     ports.value = (def.ports || []).map((p) => ({ id: nextId(), name: p.name, x: p.x, y: p.y }))
     // Без поля-счётчика в json нумерация продолжается от наибольшего выданного имени,
     // чтобы не отдать занятое.

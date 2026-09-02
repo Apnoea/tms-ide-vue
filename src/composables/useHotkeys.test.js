@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // Гейт мутирующих хоткеев по projectBusy: во время проектной операции
 // (экспорт/импорт/переключение формы) undo/redo/paste/duplicate/delete/nudge
 // не должны трогать граф — иначе JSON чужой формы уедет в store/IDB.

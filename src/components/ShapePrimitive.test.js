@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // Рендер примитивов редактора: тег/атрибуты по типу фигуры, halo выделения и
 // SVG-namespace. Namespace проверяем отдельно: примитив создаётся через
 // <component :is>, и если Vue отрендерит его как HTML-элемент, браузер покажет
@@ -145,6 +146,34 @@ describe('ShapePrimitive', () => {
       'data-se-move': 'shape',
       'data-id': 's12',
     })
+  })
+
+  it('роль подписи видна у фигуры: решётка у значения тега, пунктир у правимой', () => {
+    // Иначе роль читается только по галкам выделенной фигуры, и в символе с тремя
+    // подписями её приходится искать перебором.
+    const value = mountShape({
+      id: 's13',
+      type: 'text',
+      x: 10,
+      y: 20,
+      text: '--',
+      fontSize: 10,
+      valueText: true,
+    })
+    expect(value.findAll('text').some((t) => t.text() === '#')).toBe(true)
+    expect(value.find('line').exists()).toBe(false)
+
+    const param = mountShape({
+      id: 's14',
+      type: 'text',
+      x: 10,
+      y: 20,
+      text: 'Ua',
+      fontSize: 10,
+      param: 'p1',
+    })
+    expect(param.find('line').attributes('stroke-dasharray')).toBe('2 2')
+    expect(param.findAll('text').some((t) => t.text() === '#')).toBe(false)
   })
 
   it('pointerEvents=none в режиме рисования — фигура прозрачна для мыши', () => {

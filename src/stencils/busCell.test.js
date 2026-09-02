@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
 import { dia, shapes } from '@joint/core'
 import { TMSStencil, tmsNamespace } from './tmsStencil'
