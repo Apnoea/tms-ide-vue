@@ -17,6 +17,11 @@ import { useCanvas } from './useCanvas'
 const META_KEY = 'project:meta'
 const TAGS_KEY = 'project:tags'
 const formKey = (id) => `project:form:${id}`
+// Корзина удалённых форм: граф формы — часы работы, а удаление в отличие от правок на
+// холсте не откатывается Ctrl+Z (проектные операции вне графового undo). Держим
+// последние записи в IDB, чтобы возврат переживал перезагрузку.
+const TRASH_KEY = 'project:trash'
+const TRASH_MAX = 5
 
 // Дефолтная форма при пустом старте (проекта в IDB ещё нет).
 const DEFAULT_FORM_ID = 'main'
@@ -192,6 +197,7 @@ export function useAutosave({ restoringHistory }) {
     // GC форм прежнего проекта: restore идёт по formIds меты, а старые ключи копили бы
     // мёртвые блобы до квоты. Чистим ДО записи новых.
     lastSaved = null // проект меняется целиком — прежняя запись ни о чём не говорит
+    await idbDel(TRASH_KEY) // корзина от прежнего проекта: возвращать её формы некуда
     const keep = new Set(forms.map((f) => formKey(f.id)))
     for (const key of await idbKeys()) {
       if (key.startsWith('project:form:') && !keep.has(key)) await idbDel(key)
@@ -219,7 +225,29 @@ export function useAutosave({ restoringHistory }) {
     return idbGet(TAGS_KEY)
   }
 
-  /** Запись graphJson формы по id (создание / переименование). */
+  /** Все записи корзины, свежие первыми. Чтение упало → пустая. */
+  async function loadTrash() {
+    const { ok, value } = await idbTryGet(TRASH_KEY)
+    return ok && Array.isArray(value) ? value : []
+  }
+
+  /** Положить форму в корзину; `false` = запись не прошла (квота / read-only). */
+  async function pushTrash(entry) {
+    if (readOnly()) return false
+    const next = [entry, ...(await loadTrash()).filter((e) => e.id !== entry.id)]
+    return idbSet(TRASH_KEY, toPlain(next.slice(0, TRASH_MAX)))
+  }
+
+  /** Вынуть запись из корзины (возврат формы или зачистка). */
+  async function popTrash(id) {
+    if (readOnly()) return null
+    const items = await loadTrash()
+    const entry = items.find((e) => e.id === id) || null
+    if (entry) await idbSet(TRASH_KEY, toPlain(items.filter((e) => e.id !== id)))
+    return entry
+  }
+
+  /** Запись graphJson формы по id (создание / переименование / возврат из корзины). */
   function persistForm(id, json) {
     if (readOnly()) return Promise.resolve(false)
     if (lastSaved?.id === id) lastSaved = null // пишем ту же форму мимо saveActiveForm
@@ -256,5 +284,8 @@ export function useAutosave({ restoringHistory }) {
     readTagsText,
     persistForm,
     removeFormPersist,
+    loadTrash,
+    pushTrash,
+    popTrash,
   }
 }

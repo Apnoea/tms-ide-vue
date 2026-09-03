@@ -24,6 +24,9 @@ const confirm = useConfirm()
 // свёрнутых ветвей, персист в localStorage — как у аккордеона палитры.
 const panelCollapsed = useLocalStorage('tms-ide:forms-collapsed:v1', false)
 
+// id последней удалённой формы (корзина живёт в IDB, см. useProject.restoreForm).
+const lastTrashed = computed(() => canvas.formTrash.value[0]?.id || '')
+
 // Свёрнутые ветки (по id). По умолчанию всё раскрыто.
 const collapsed = ref(new Set())
 function toggle(id) {
@@ -249,6 +252,19 @@ onBeforeUnmount(() => {
       >
         Формы
       </h2>
+      <!-- Возврат удалённой формы: удаление не откатывается Ctrl+Z (проектные
+           операции вне графового undo), поэтому корзина в IDB — единственный путь
+           назад. Кнопка появляется, только когда есть что возвращать. -->
+      <Button
+        v-if="!panelCollapsed && lastTrashed"
+        v-tooltip.bottom="`Вернуть удалённую форму «${lastTrashed}»`"
+        icon="pi pi-undo"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-icon-btn"
+        @click.stop="canvas.restoreForm()"
+      />
       <!-- Кнопка «создать форму» — тот же PrimeVue Button, что в тулбаре холста
            (secondary/text/small): единый размер, hover и поведение. В свёрнутом
            виде прячем: создавать форму в скрытую секцию некуда. -->

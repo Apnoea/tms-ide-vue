@@ -33,7 +33,7 @@ import { useCanvas } from './useCanvas'
  *
  * @param {object} deps
  * @param {import('vue').Ref<boolean>} deps.restoringHistory — общий флаг с undo/autosave
- * @param {{ saveActiveForm, persistMeta, replaceProject, readTagsText, persistForm, removeFormPersist }} deps.autosave
+ * @param {{ saveActiveForm, persistMeta, replaceProject, readTagsText, persistForm, removeFormPersist, loadTrash, pushTrash, popTrash }} deps.autosave
  * @param {{ cancelPendingSnapshot, initHistory }} deps.undo
  * @param {{ stopSimulation, simulating }} deps.simulation
  * @param {() => void} deps.commitTextEdit — закоммитить inline-правку текста
@@ -58,6 +58,9 @@ export function useProject({
     readTagsText,
     persistForm,
     removeFormPersist,
+    loadTrash,
+    pushTrash,
+    popTrash,
   } = autosave
   const { cancelPendingSnapshot, initHistory } = undo
   const { stopSimulation, simulating } = simulation
@@ -67,6 +70,13 @@ export function useProject({
   const flagIfNotSaved = (ok) => {
     if (!ok) canvas.setSaveError(true)
     return ok
+  }
+
+  // Корзина форм: список для UI (кнопка возврата над деревом). Читается из IDB, поэтому
+  // переживает перезагрузку — тост с предложением вернуть форму мог быть пропущен.
+  const trash = ref([])
+  async function refreshTrash() {
+    trash.value = await loadTrash()
   }
 
   // Загрузить graphJson в живой холст + сброс undo под новую форму. Общий хвост
@@ -199,11 +209,55 @@ export function useProject({
     const wasActive = id === workspace.activeFormId
     if (wasActive) cancelPendingSnapshot()
     else await saveActiveForm() // удаляем не активную — её правки сохраняем
+    // В корзину — ДО удаления: нужны граф, фон и место в дереве. Ctrl+Z проектные
+    // операции не откатывает, поэтому это единственный путь вернуть форму.
+    const trashed = await pushTrash({
+      id,
+      graphJson: toPlain(workspace.getFormGraph(id) || { cells: [] }),
+      bg: workspace.formBg[id] ?? null,
+      anchor: workspace.nodeAnchor(id),
+      ts: Date.now(),
+    })
+    await refreshTrash()
     const newActive = workspace.removeForm(id)
     await removeFormPersist(id)
     flagIfNotSaved(await persistMeta())
     if (wasActive) loadActiveIntoCanvas(graph, paper, workspace.getFormGraph(newActive))
     canvas.markDirty() // форма удалена → проект разошёлся с .zip
+    // Корзина не записалась (квота / read-only) — обещать возврат нельзя.
+    if (trashed) notify.info('Форма удалена', `«${id}» можно вернуть кнопкой над деревом форм`)
+    else notify.warn('Форма удалена', `«${id}» вернуть не получится — хранилище не приняло копию`)
+  }
+
+  /**
+   * Вернуть форму из корзины: граф, фон и место в дереве (после прежнего соседа, иначе
+   * внутрь прежнего родителя, иначе в конец корня). Активную не меняем — возврат не
+   * должен увести пользователя с текущей схемы.
+   */
+  async function restoreForm(id = trash.value[0]?.id) {
+    if (!id) return false
+    if (workspace.hasForm(id)) {
+      notify.warn('Форма уже есть', `«${id}» в проекте — возвращать нечего`)
+      await popTrash(id)
+      await refreshTrash()
+      return false
+    }
+    const entry = await popTrash(id)
+    await refreshTrash()
+    if (!entry) return false
+    workspace.addForm(entry.id, entry.graphJson)
+    if (entry.bg) workspace.setFormBg(entry.id, entry.bg)
+    const anchor = entry.anchor || null
+    if (anchor?.prevId && workspace.hasForm(anchor.prevId)) {
+      workspace.moveNode(entry.id, anchor.prevId, 'after')
+    } else if (anchor?.parentId && workspace.hasForm(anchor.parentId)) {
+      workspace.moveNode(entry.id, anchor.parentId, 'inside')
+    }
+    flagIfNotSaved(await persistForm(entry.id, entry.graphJson))
+    flagIfNotSaved(await persistMeta())
+    canvas.markDirty()
+    notify.success('Форма возвращена', `«${entry.id}» на месте`)
+    return true
   }
 
   /**
@@ -575,7 +629,10 @@ export function useProject({
     createForm: withProjectBusy(createForm),
     duplicateForm: withProjectBusy(duplicateForm),
     deleteForm: withProjectBusy(deleteForm),
+    restoreForm: withProjectBusy(restoreForm),
     renameForm: withProjectBusy(renameForm),
     moveFormNode: withProjectBusy(moveFormNode),
+    trash,
+    refreshTrash,
   }
 }

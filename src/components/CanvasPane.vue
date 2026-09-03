@@ -60,6 +60,7 @@ const confirm = useConfirm()
 // Общий флаг «идёт восстановление графа» (useAutosave + useUndoRedo): без него
 // snapshot → save → restore зацикливается. Взводится и на массовых правках графа.
 const restoringHistory = ref(false)
+
 const {
   restoreProject,
   saveActiveForm,
@@ -69,6 +70,9 @@ const {
   readTagsText,
   persistForm,
   removeFormPersist,
+  loadTrash,
+  pushTrash,
+  popTrash,
 } = useAutosave({ restoringHistory })
 
 const { initHistory, snapshot, scheduleSnapshot, undo, redo, cancelPendingSnapshot } = useUndoRedo({
@@ -165,8 +169,11 @@ const {
   createForm: guardedCreateForm,
   duplicateForm: guardedDuplicateForm,
   deleteForm: guardedDeleteForm,
+  restoreForm: guardedRestoreForm,
   renameForm: guardedRenameForm,
   moveFormNode: guardedMoveForm,
+  trash: formTrash,
+  refreshTrash,
 } = useProject({
   restoringHistory,
   autosave: {
@@ -176,6 +183,9 @@ const {
     readTagsText,
     persistForm,
     removeFormPersist,
+    loadTrash,
+    pushTrash,
+    popTrash,
   },
   undo: { cancelPendingSnapshot, initHistory },
   simulation: { stopSimulation, simulating },
@@ -663,9 +673,14 @@ onMounted(async () => {
     createForm: guardedCreateForm,
     duplicateForm: guardedDuplicateForm,
     deleteForm: guardedDeleteForm,
+    restoreForm: guardedRestoreForm,
     renameForm: guardedRenameForm,
     moveForm: guardedMoveForm,
+    trash: formTrash,
   })
+  // Корзина живёт в IDB: после перезагрузки кнопка возврата должна знать про формы,
+  // удалённые в прошлой сессии.
+  refreshTrash()
 
   // Хранилище не читается (restoreProject вернул -1): данные в IDB целы, но в сторе
   // пустышка, поэтому autosave выключен до перезагрузки. Говорим прямо — иначе
@@ -795,8 +810,10 @@ onBeforeUnmount(() => {
     createForm: null,
     duplicateForm: null,
     deleteForm: null,
+    restoreForm: null,
     renameForm: null,
     moveForm: null,
+    trash: [],
   })
   paper?.remove()
   paper = null

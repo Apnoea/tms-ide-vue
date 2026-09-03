@@ -1,4 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+// Реестр мокнут: миграция карточки значения берёт у него ключи параметров, а поднимать
+// настоящий реестр (glob + sanitize через DOMParser) тесту не нужно.
+const stencilParams = vi.hoisted(() => ({ value: null }))
+vi.mock('../stencils/registry', () => ({
+  getStencilById: (id) => (id === 'cell_value' && stencilParams.value ? stencilParams.value : null),
+}))
 import {
   valueCellToParams,
   textCellToShape,
@@ -284,6 +291,20 @@ describe('карточка значения прошлого формата → 
     const out = valueCellToParams(valueCell({ valueTag: 'T1.UA' }))
     expect(out.tms.slots).toEqual({ value_text: 'T1.UA' })
     expect(out.tms.params).toBeUndefined()
+  })
+
+  it('ключи параметров берутся из определения символа, а не из константы', () => {
+    // Их выдаёт редактор, и у пересохранённой карточки они другие; конвертация
+    // одноразовая, поэтому ключ мимо определения = подпись, которую нечем вернуть.
+    stencilParams.value = { params: [{ key: 'a' }, { key: 'b' }] }
+    const out = valueCellToParams(valueCell({ valueLabel: 'Ua', valueUnit: 'кВ' }))
+    expect(out.tms.params).toEqual({ a: 'Ua', b: 'кВ' })
+    stencilParams.value = null
+  })
+
+  it('символа нет в реестре → прежние ключи p1/p2', () => {
+    const out = valueCellToParams(valueCell({ valueLabel: 'Ua', valueUnit: 'кВ' }))
+    expect(out.tms.params).toEqual({ p1: 'Ua', p2: 'кВ' })
   })
 
   it('уже переведённая карточка и чужие символы остаются как есть', () => {

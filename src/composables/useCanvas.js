@@ -51,6 +51,11 @@ const fitViewFn = shallowRef(null)
 const createFormFn = shallowRef(null)
 const duplicateFormFn = shallowRef(null)
 const deleteFormFn = shallowRef(null)
+const restoreFormFn = shallowRef(null)
+// Корзина удалённых форм: данные держит useProject, здесь — ссылка на его ref, чтобы
+// кнопка возврата над деревом видела список. Наружу отдаём развёрнутый массив.
+const formTrashSource = shallowRef(null)
+const formTrash = computed(() => formTrashSource.value?.value ?? [])
 const renameFormFn = shallowRef(null)
 const moveFormFn = shallowRef(null)
 
@@ -200,10 +205,20 @@ export function useCanvas() {
     fitToContent() {
       return fitViewFn.value?.()
     },
-    setFormCrudFns({ createForm, duplicateForm, deleteForm, renameForm, moveForm }) {
+    setFormCrudFns({
+      createForm,
+      duplicateForm,
+      deleteForm,
+      restoreForm,
+      renameForm,
+      moveForm,
+      trash,
+    }) {
       createFormFn.value = createForm
       duplicateFormFn.value = duplicateForm
       deleteFormFn.value = deleteForm
+      restoreFormFn.value = restoreForm
+      formTrashSource.value = trash || null
       renameFormFn.value = renameForm
       moveFormFn.value = moveForm
     },
@@ -216,6 +231,10 @@ export function useCanvas() {
     deleteForm(id) {
       return deleteFormFn.value?.(id)
     },
+    restoreForm(id) {
+      return restoreFormFn.value?.(id)
+    },
+    formTrash,
     renameForm(oldId, newId) {
       return renameFormFn.value?.(oldId, newId)
     },

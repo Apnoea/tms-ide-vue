@@ -110,6 +110,19 @@ function insertNode(nodes, targetId, zone, node) {
   return done ? out : null
 }
 
+/**
+ * Место узла в дереве: родитель и предыдущий сосед. Нужно, чтобы возвращённая из
+ * корзины форма встала туда, где была, а не в конец корня.
+ */
+function findAnchor(nodes, id, parentId = null) {
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i].id === id) return { parentId, prevId: i > 0 ? nodes[i - 1].id : null }
+    const deeper = findAnchor(nodes[i].children, id, nodes[i].id)
+    if (deeper) return deeper
+  }
+  return null
+}
+
 export const useWorkspaceStore = defineStore('workspace', () => {
   // id → graphJson. Приватная, не возвращаем наружу — не state Pinia.
   const forms = new Map()
@@ -289,6 +302,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return true
   }
 
+  /** Якорь узла (родитель + предыдущий сосед) — для возврата формы из корзины. */
+  function nodeAnchor(id) {
+    return findAnchor(formTree.value, id)
+  }
+
   /**
    * Перенос узла дерева (DnD): `dragId` встаёт относительно `targetId` по зоне
    * `before`/`after`/`inside` (targetId=null → в корень). Узел едет вместе с
@@ -321,6 +339,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     setProjectName,
     setFormTree,
     moveNode,
+    nodeAnchor,
     loadForms,
     updateActiveGraph,
     getFormGraph,

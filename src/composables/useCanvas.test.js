@@ -1,6 +1,7 @@
 // Замок (`tms.locked`) = read-only. `paper.interactive` его НЕ защищает: массовые
 // операции пишут в модель программно, поэтому единая точка фильтра — writableItems.
 import { describe, it, expect, beforeEach } from 'vitest'
+import { ref } from 'vue'
 import { dia, shapes } from '@joint/core'
 import { TMSStencil, TMSShape, tmsNamespace } from '../stencils/tmsStencil'
 import { isBackgroundZ } from '../utils/zOrder'
@@ -229,5 +230,22 @@ describe('useCanvas: подложка под проводами', () => {
     canvas.reorderCells([{ kind: 'cell', id: shape.id }], 'back')
     expect(stops).toBe(1)
     expect(canvas.snapshotTick.value).toBe(tick + 1)
+  })
+})
+
+describe('useCanvas: корзина форм', () => {
+  it('formTrash разворачивает ref из useProject — кнопка возврата видит список', () => {
+    // Кладя ref внутрь ref, наружу отдали бы объект Ref, и `[0]` было бы undefined:
+    // кнопка «вернуть форму» не появлялась бы никогда.
+    const canvas = useCanvas()
+    const trash = ref([{ id: 'formA' }])
+    canvas.setFormCrudFns({ trash })
+    expect(canvas.formTrash.value[0]?.id).toBe('formA')
+
+    trash.value = []
+    expect(canvas.formTrash.value).toEqual([])
+
+    canvas.setFormCrudFns({ trash: null })
+    expect(canvas.formTrash.value).toEqual([])
   })
 })

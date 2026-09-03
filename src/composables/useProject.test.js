@@ -73,6 +73,10 @@ function makeDeps(overrides = {}) {
       readTagsText: vi.fn(async () => null),
       persistForm: vi.fn(async () => true),
       removeFormPersist: vi.fn(async () => {}),
+      // Корзина форм: удаление кладёт в неё запись, возврат — вынимает.
+      loadTrash: vi.fn(async () => []),
+      pushTrash: vi.fn(async () => true),
+      popTrash: vi.fn(async () => null),
       ...overrides.autosave,
     },
     undo: { cancelPendingSnapshot: vi.fn(), initHistory: vi.fn(), ...overrides.undo },
@@ -539,6 +543,68 @@ describe('useProject', () => {
       await duplicateForm('nope')
 
       expect(useWorkspaceStore().formIds).toEqual(['a'])
+      expect(deps.autosave.persistForm).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('корзина форм', () => {
+    it('удаление кладёт в корзину граф, фон и место в дереве', async () => {
+      const deps = makeDeps()
+      const { deleteForm } = useProject(deps)
+      const ws = useWorkspaceStore()
+      ws.loadForms(
+        [
+          { id: 'a', graphJson: { cells: [{ id: 'c1' }] } },
+          { id: 'b', graphJson: { cells: [] } },
+        ],
+        'b'
+      )
+      ws.setFormTree([{ id: 'a', children: [{ id: 'b', children: [] }] }])
+      ws.setFormBg('b', '#101010')
+
+      await deleteForm('b')
+
+      const entry = deps.autosave.pushTrash.mock.calls[0][0]
+      expect(entry).toMatchObject({ id: 'b', bg: '#101010' })
+      expect(entry.anchor).toEqual({ parentId: 'a', prevId: null })
+      expect(entry.graphJson).toEqual({ cells: [] })
+    })
+
+    it('возврат ставит форму на прежнее место с графом и фоном', async () => {
+      const deps = makeDeps({
+        autosave: {
+          popTrash: vi.fn(async () => ({
+            id: 'b',
+            graphJson: { cells: [{ id: 'c9' }] },
+            bg: '#202020',
+            anchor: { parentId: 'a', prevId: null },
+          })),
+        },
+      })
+      const { restoreForm } = useProject(deps)
+      const ws = useWorkspaceStore()
+      ws.loadForms([{ id: 'a', graphJson: { cells: [] } }], 'a')
+      ws.setFormTree([{ id: 'a', children: [] }])
+
+      expect(await restoreForm('b')).toBe(true)
+      expect(ws.formIds).toEqual(['a', 'b'])
+      expect(ws.getFormGraph('b')).toEqual({ cells: [{ id: 'c9' }] })
+      expect(ws.formBg.b).toBe('#202020')
+      // Место в дереве: внутрь прежнего родителя, а не в конец корня.
+      expect(ws.formTree).toEqual([{ id: 'a', children: [{ id: 'b', children: [] }] }])
+      // Активную форму возврат не меняет — не уводим пользователя с его схемы.
+      expect(ws.activeFormId).toBe('a')
+      expect(deps.autosave.persistForm).toHaveBeenCalledWith('b', { cells: [{ id: 'c9' }] })
+    })
+
+    it('форма с таким id уже есть → запись из корзины отбрасывается', async () => {
+      const deps = makeDeps({ autosave: { popTrash: vi.fn(async () => null) } })
+      const { restoreForm } = useProject(deps)
+      const ws = useWorkspaceStore()
+      ws.loadForms([{ id: 'a', graphJson: { cells: [] } }], 'a')
+
+      expect(await restoreForm('a')).toBe(false)
+      expect(deps.autosave.popTrash).toHaveBeenCalledWith('a')
       expect(deps.autosave.persistForm).not.toHaveBeenCalled()
     })
   })

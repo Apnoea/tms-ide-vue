@@ -10,14 +10,20 @@
 import { TEXT_FONT_SIZE, TEXT_PADDING_X } from '../stencils/textCell'
 import { placeShape } from '../stencils/shapeElement'
 import { computeBusPorts } from '../stencils/busCell'
+import { getStencilById } from '../stencils/registry'
 import { rangeRowColor } from '../constants/animation'
 import { measureTextWidth } from '../utils/textMetrics'
 
 /**
  * Карточка значения ПРОШЛОГО формата: тег в `tms.valueTag`, подпись и единица —
  * своими полями, рисунок программный. Теперь это обычный символ: тег живёт в слоте
- * `value_text`, подписи — в `params` (p1 — величина, p2 — единица, порядок фигур в
- * shape.svg). null — ячейка не такая, вызывающий оставляет её как есть.
+ * `value_text`, подписи — в `params`. null — ячейка не такая, вызывающий оставляет
+ * её как есть.
+ *
+ * Ключи параметров берутся из ОПРЕДЕЛЕНИЯ (первый по порядку — величина, второй —
+ * единица), а не из константы: их выдаёт редактор символов, и у пересохранённой
+ * карточки они другие. Конвертация одноразовая (`valueLabel`/`valueUnit` удаляются),
+ * поэтому ключ мимо определения = подпись, которую уже нечем восстановить.
  *
  * Размер не переносим: у растянутой карточки габарит вернётся к определению — своей
  * ширины у неё больше нет, растёт весь символ масштабом.
@@ -27,14 +33,19 @@ export function valueCellToParams(cell) {
   if (tms?.stencilId !== 'cell_value') return null
   if (!tms.valueTag && !tms.valueLabel && !tms.valueUnit) return null
 
+  const declared = (getStencilById('cell_value')?.params || []).map((p) => p.key)
+  // Символа нет в реестре (чужой архив без library) — прежние ключи как запасные.
+  const labelKey = declared[0] || 'p1'
+  const unitKey = declared[1] || 'p2'
+
   const next = { ...tms }
   delete next.valueTag
   delete next.valueLabel
   delete next.valueUnit
   if (tms.valueTag) next.slots = { ...(tms.slots || {}), value_text: tms.valueTag }
   const params = { ...(tms.params || {}) }
-  if (tms.valueLabel) params.p1 = String(tms.valueLabel)
-  if (tms.valueUnit) params.p2 = String(tms.valueUnit)
+  if (tms.valueLabel) params[labelKey] = String(tms.valueLabel)
+  if (tms.valueUnit) params[unitKey] = String(tms.valueUnit)
   if (Object.keys(params).length) next.params = params
   return { ...cell, tms: next }
 }
