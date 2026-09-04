@@ -52,8 +52,8 @@ const createFormFn = shallowRef(null)
 const duplicateFormFn = shallowRef(null)
 const deleteFormFn = shallowRef(null)
 const restoreFormFn = shallowRef(null)
-// Корзина удалённых форм: данные держит useProject, здесь — ссылка на его ref, чтобы
-// кнопка возврата над деревом видела список. Наружу отдаём развёрнутый массив.
+// Корзина удалённых форм: данные держит useProject, здесь ссылка на его ref. Наружу
+// отдаём развёрнутый массив — иначе к потребителю уходит объект Ref.
 const formTrashSource = shallowRef(null)
 const formTrash = computed(() => formTrashSource.value?.value ?? [])
 const renameFormFn = shallowRef(null)

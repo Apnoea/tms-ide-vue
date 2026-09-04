@@ -72,8 +72,7 @@ export function useProject({
     return ok
   }
 
-  // Корзина форм: список для UI (кнопка возврата над деревом). Читается из IDB, поэтому
-  // переживает перезагрузку — тост с предложением вернуть форму мог быть пропущен.
+  // Корзина форм: список для кнопки возврата над деревом, читается из IDB.
   const trash = ref([])
   async function refreshTrash() {
     trash.value = await loadTrash()
@@ -209,8 +208,7 @@ export function useProject({
     const wasActive = id === workspace.activeFormId
     if (wasActive) cancelPendingSnapshot()
     else await saveActiveForm() // удаляем не активную — её правки сохраняем
-    // В корзину — ДО удаления: нужны граф, фон и место в дереве. Ctrl+Z проектные
-    // операции не откатывает, поэтому это единственный путь вернуть форму.
+    // В корзину — ДО удаления: нужны граф, фон и место в дереве.
     const trashed = await pushTrash({
       id,
       graphJson: toPlain(workspace.getFormGraph(id) || { cells: [] }),
@@ -231,8 +229,7 @@ export function useProject({
 
   /**
    * Вернуть форму из корзины: граф, фон и место в дереве (после прежнего соседа, иначе
-   * внутрь прежнего родителя, иначе в конец корня). Активную не меняем — возврат не
-   * должен увести пользователя с текущей схемы.
+   * внутрь прежнего родителя, иначе в конец корня). Активную форму не меняем.
    */
   async function restoreForm(id = trash.value[0]?.id) {
     if (!id) return false

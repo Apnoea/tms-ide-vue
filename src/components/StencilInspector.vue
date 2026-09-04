@@ -265,7 +265,7 @@ const shapeStateOptions = computed(() => {
 // выбор применяется ко всем. Дискретная операция → снимок истории сразу.
 // Подпись здесь участвует: `animation-hidden` — это display:none на группе
 // состояния, он работает и для <text>. Из перекраски (stateColors) текст
-// по-прежнему исключён — см. `:not(text)` в constants/animation.
+// исключён — см. `:not(text)` в constants/animation.
 const hasShapeState = computed(() => meta.stateful && selectedFor().length > 0)
 const shapeState = computed({
   get: () => commonValue((s) => s.state || 'always') ?? null,

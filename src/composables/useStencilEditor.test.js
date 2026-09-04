@@ -708,7 +708,7 @@ describe('loadStencil: анимация состояния', () => {
 
   it('подпись со значением тега НЕ включает анимацию состояния', () => {
     // Слот с карточкой есть и у text-анимации, а от флага зависит метка
-    // tms-state-fill в shape.svg — по ней файл «дышал» на пересохранении.
+    // tms-state-fill в shape.svg.
     const ed = createStencilEditor()
     ed.loadStencil({
       ...base,

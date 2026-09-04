@@ -277,6 +277,8 @@ const pxW = computed(() => meta.width * scale.value)
 const pxH = computed(() => meta.height * scale.value)
 // Ручки константного размера на экране (в user-единицах = px/scale).
 const hr = computed(() => 4 / scale.value)
+// Запас hit-обводки фигуры — 8 экранных px (в user-координатах, отсюда деление).
+const hitWidth = computed(() => 8 / scale.value)
 // Порт — в МОДЕЛЬНЫХ единицах, как на холсте: автор видит вывод той величины, что
 // получит на схеме.
 const PORT_R = 1.5
@@ -540,6 +542,26 @@ const selectedShape = computed(() => shapes.value.find((s) => s.id === selectedI
 // считается пофигурно: с общим значением у тонкой линии halo раздувается в полосу, а у
 // толстой прячется под её же обводкой.
 const haloWidthFor = (s) => (s.strokeWidth || 2) + 4 / scale.value
+/**
+ * Курсор ручки по ключу: угол габарита — диагональ растягивания, полуось эллипса —
+ * своя ось, вершина линии/ломаной — перемещение точки.
+ */
+/** Стиль порта: выделение красит обводку, курсор зависит от активного инструмента. */
+function portStyle(id) {
+  return {
+    ...(selectedPortSet.value.has(id) ? { stroke: SEL_STROKE } : {}),
+    cursor: tool.value === 'port' ? 'pointer' : 'move',
+  }
+}
+
+function handleCursor(key) {
+  if (key === 'nw' || key === 'se') return 'nwse-resize'
+  if (key === 'ne' || key === 'sw') return 'nesw-resize'
+  if (key === 'rx') return 'ew-resize'
+  if (key === 'ry') return 'ns-resize'
+  return 'move'
+}
+
 const handles = computed(() => {
   const s = selectedShape.value
   if (!s) return []
@@ -622,58 +644,63 @@ function reshape(snap, hKey, cur) {
 }
 
 function setupInteract() {
-  interact('[data-se-move]').draggable({
-    listeners: {
-      start(e) {
-        // Перетаскивание существующих объектов — только в режиме выбора: при активном
-        // инструменте клик по фигуре рисует поверх неё.
-        if (tool.value !== 'select') {
-          e.interaction.stop()
-          return
-        }
-        const el = e.target
-        const role = el.dataset.seMove
-        const id = el.dataset.id
-        dragCtx = { role, id, hKey: el.dataset.h }
-        if (role === 'shape') {
-          // Ведущая фигура задаёт сдвиг и снап. Если она в выделении — тащим всё
-          // выделение, иначе переключаемся на неё.
-          if (!selectedSet.value.has(id)) select(id)
-          dragCtx.snapshot = clone(shapes.value.find((s) => s.id === id))
-          dragCtx.group = clone(shapes.value.filter((s) => selectedSet.value.has(s.id)))
-          dragCtx.start = unitsFromEvent(e)
-        } else if (role === 'handle') {
-          dragCtx.snapshot = clone(shapes.value.find((s) => s.id === id))
-        }
+  // Курсоры ставим сами. `styleCursor` выключается МЕТОДОМ Interactable (в опциях
+  // draggable он игнорируется): иначе interact пишет `element.style.cursor = 'move'`
+  // всем элементам селектора — и фигурам, и ручкам, и портам.
+  interact('[data-se-move]')
+    .styleCursor(false)
+    .draggable({
+      listeners: {
+        start(e) {
+          // Перетаскивание существующих объектов — только в режиме выбора: при активном
+          // инструменте клик по фигуре рисует поверх неё.
+          if (tool.value !== 'select') {
+            e.interaction.stop()
+            return
+          }
+          const el = e.target
+          const role = el.dataset.seMove
+          const id = el.dataset.id
+          dragCtx = { role, id, hKey: el.dataset.h }
+          if (role === 'shape') {
+            // Ведущая фигура задаёт сдвиг и снап. Если она в выделении — тащим всё
+            // выделение, иначе переключаемся на неё.
+            if (!selectedSet.value.has(id)) select(id)
+            dragCtx.snapshot = clone(shapes.value.find((s) => s.id === id))
+            dragCtx.group = clone(shapes.value.filter((s) => selectedSet.value.has(s.id)))
+            dragCtx.start = unitsFromEvent(e)
+          } else if (role === 'handle') {
+            dragCtx.snapshot = clone(shapes.value.find((s) => s.id === id))
+          }
+        },
+        move(e) {
+          if (!dragCtx) return
+          const cur = unitsFromEvent(e)
+          if (dragCtx.role === 'port') {
+            movePort(dragCtx.id, cur.x, cur.y)
+          } else if (dragCtx.role === 'handle') {
+            reshape(dragCtx.snapshot, dragCtx.hKey, cur)
+          } else if (dragCtx.role === 'shape') {
+            // Снап считается ОДИН раз по ведущей фигуре, общий dx/dy идёт всей пачке:
+            // поштучный снап развалил бы взаимное расположение.
+            const a = anchorOf(dragCtx.snapshot)
+            const dx = snapShapeX(a.x + (cur.x - dragCtx.start.x)) - a.x
+            const dy = snapShapeY(a.y + (cur.y - dragCtx.start.y)) - a.y
+            const byId = new Map(dragCtx.group.map((s) => [s.id, s]))
+            updateShapes(
+              dragCtx.group.map((s) => s.id),
+              (s) => translated(byId.get(s.id), dx, dy)
+            )
+          }
+        },
+        end() {
+          // Один снимок истории на весь жест (move'ы шли без коммита); commit
+          // сам дедупит, если фигуру/порт по факту не сдвинули.
+          if (dragCtx) commit()
+          dragCtx = null
+        },
       },
-      move(e) {
-        if (!dragCtx) return
-        const cur = unitsFromEvent(e)
-        if (dragCtx.role === 'port') {
-          movePort(dragCtx.id, cur.x, cur.y)
-        } else if (dragCtx.role === 'handle') {
-          reshape(dragCtx.snapshot, dragCtx.hKey, cur)
-        } else if (dragCtx.role === 'shape') {
-          // Снап считается ОДИН раз по ведущей фигуре, общий dx/dy идёт всей пачке:
-          // поштучный снап развалил бы взаимное расположение.
-          const a = anchorOf(dragCtx.snapshot)
-          const dx = snapShapeX(a.x + (cur.x - dragCtx.start.x)) - a.x
-          const dy = snapShapeY(a.y + (cur.y - dragCtx.start.y)) - a.y
-          const byId = new Map(dragCtx.group.map((s) => [s.id, s]))
-          updateShapes(
-            dragCtx.group.map((s) => s.id),
-            (s) => translated(byId.get(s.id), dx, dy)
-          )
-        }
-      },
-      end() {
-        // Один снимок истории на весь жест (move'ы шли без коммита); commit
-        // сам дедупит, если фигуру/порт по факту не сдвинули.
-        if (dragCtx) commit()
-        dragCtx = null
-      },
-    },
-  })
+    })
 }
 
 /**
@@ -985,9 +1012,8 @@ onBeforeUnmount(() => {
 
       <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
 
-      <!-- Размер символа — рядом с инструментами рисования. Словом «холст» в UI
-           называется холст СХЕМЫ, поэтому здесь «Символ». На сохранении контент
-           обрезается до bbox (cropToContent), поэтому итог может отличаться. -->
+      <!-- Размер символа (словом «холст» в UI зовётся холст СХЕМЫ). На сохранении
+           контент обрезается до bbox (cropToContent), поэтому итог может отличаться. -->
       <div class="flex items-center gap-1.5 text-xs text-surface-500">
         <span>Символ</span>
         <InputNumber
@@ -1241,6 +1267,8 @@ onBeforeUnmount(() => {
                 :halo-width="haloWidthFor(s)"
                 :halo-stroke="SEL_STROKE"
                 :pointer-events="shapePointerEvents"
+                :cursor="tool === 'select' ? 'move' : null"
+                :hit-width="hitWidth"
                 @select="onShapeSelect(s.id, $event)"
               />
 
@@ -1320,7 +1348,8 @@ onBeforeUnmount(() => {
                 vector-effect="non-scaling-stroke"
               />
 
-              <!-- Ручки выделенной фигуры -->
+              <!-- Ручки выделенной фигуры: вид как у ручек габарита на холсте
+                   (залитый primary круг в белой рамке), курсор — по роли ручки. -->
               <circle
                 v-for="hnd in handles"
                 :key="`${selectedId}-${hnd.h}`"
@@ -1330,11 +1359,10 @@ onBeforeUnmount(() => {
                 :cx="hnd.x"
                 :cy="hnd.y"
                 :r="hr"
-                fill="#fff"
-                :style="{ stroke: SEL_STROKE }"
+                stroke="#fff"
+                :style="{ fill: SEL_STROKE, cursor: handleCursor(hnd.h) }"
                 stroke-width="1.5"
                 vector-effect="non-scaling-stroke"
-                class="cursor-pointer"
               />
 
               <!-- Порты -->
@@ -1347,10 +1375,9 @@ onBeforeUnmount(() => {
                 :cy="p.y"
                 :r="PORT_R"
                 fill="#ffffff"
-                :style="selectedPortSet.has(p.id) ? { stroke: SEL_STROKE } : null"
+                :style="portStyle(p.id)"
                 stroke="#000000"
                 :stroke-width="PORT_STROKE"
-                :class="tool === 'port' ? 'cursor-pointer' : 'cursor-move'"
                 @pointerdown="onPortDown($event, p.id)"
               />
             </svg>

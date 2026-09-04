@@ -36,7 +36,7 @@ defineEmits([
   'paste',
 ])
 
-// Быстрые свотчи под пикером: прежняя палитра диапазонов как отправная точка.
+// Быстрые свотчи под пикером: типовые цвета диапазонов.
 const PRESETS = RANGE_COLOR_PRESETS
 const rowColor = rangeRowColor
 
@@ -126,7 +126,7 @@ const cellText = (v) => (Number.isFinite(v) ? String(v) : '')
                 @change="$emit('update-range', idx, 'max', $event.target.value)"
               />
             </div>
-            <!-- Пресеты прежней палитры первыми: типовой цвет ставится одним кликом,
+            <!-- Пресеты первыми: типовой цвет ставится одним кликом,
                  пикер нужен только для своего. -->
             <div class="flex items-center gap-1 shrink-0">
               <button

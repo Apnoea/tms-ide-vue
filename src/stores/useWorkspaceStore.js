@@ -110,10 +110,7 @@ function insertNode(nodes, targetId, zone, node) {
   return done ? out : null
 }
 
-/**
- * Место узла в дереве: родитель и предыдущий сосед. Нужно, чтобы возвращённая из
- * корзины форма встала туда, где была, а не в конец корня.
- */
+/** Место узла в дереве: родитель и предыдущий сосед — куда вернуть форму из корзины. */
 function findAnchor(nodes, id, parentId = null) {
   for (let i = 0; i < nodes.length; i++) {
     if (nodes[i].id === id) return { parentId, prevId: i > 0 ? nodes[i - 1].id : null }

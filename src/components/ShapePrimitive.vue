@@ -3,17 +3,22 @@
  * Одна фигура редактора символов: halo выделения (под фигурой, в её слое) и сам
  * примитив — геометрия считается один раз на оба.
  *
+ * Halo линии и ломаной УДЛИНЯЕТСЯ на запас: обводка расширяется только
+ * перпендикулярно, поэтому рамка равной толщины со всех сторон получается только так
+ * (`square`/`round` выступили бы на половину толщины halo).
+ *
  * Подпись (`text`) — отдельная ветка: обводки нет, цвет в `fill`, halo — рамка по
  * замеренному bbox (широкий stroke дал бы контур вокруг глифов). У ПУСТОЙ подписи
- * вместо глифов — иконка текстового блока (та же, что на кнопке инструмента) и
- * прозрачная область попадания: у пустого `<text>` её нет, и фигуру нельзя было бы
- * ни увидеть, ни выделить, ни сдвинуть. Пустая подпись штатна — её текст приходит с
- * холста параметром.
+ * вместо глифов — иконка текстового блока и прозрачная область попадания: у пустого
+ * `<text>` её нет, а такая подпись штатна (текст приходит с холста параметром).
  *
- * РОЛЬ подписи (значение тега / правится на холсте) помечается у самой фигуры:
- * иначе её видно только по галкам выделенной, и в символе с тремя подписями роли
- * приходится искать перебором. Иконка и маркеры живут только в редакторе — в
- * `shape.svg` они не уезжают.
+ * РОЛЬ подписи (значение тега / правится на холсте) помечается у самой фигуры — по
+ * галкам её видно только у выделенной. Иконка и маркеры только в редакторе, в
+ * `shape.svg` не уезжают.
+ *
+ * Мышь работает по HIT-СЛОЮ — прозрачной копии геометрии с широкой обводкой и
+ * `fill="transparent"`: у контурной фигуры (`fill="none"`) иначе ловится только сама
+ * линия. Рисунок для мыши прозрачен.
  *
  * Двухкорневой шаблон держит DOM плоским: interact.js цепляется по глобальному
  * `[data-se-move]`, а z-порядок фигур совпадает с порядком экспорта.
@@ -43,6 +48,10 @@ const props = defineProps({
   haloStroke: { type: String, default: '' },
   /** null — обычный хит-тест; 'none' — фигура прозрачна для мыши (режим рисования). */
   pointerEvents: { type: String, default: null },
+  /** CSS-курсор фигуры: намерение должно читаться ДО нажатия (тело — перемещение). */
+  cursor: { type: String, default: null },
+  /** Запас hit-обводки в user-координатах (вызывающий знает масштаб). */
+  hitWidth: { type: Number, default: 6 },
 })
 
 const emit = defineEmits(['select'])
@@ -87,13 +96,13 @@ const geom = computed(() => {
   return { tag: s.closed ? 'polygon' : 'polyline', attrs: { points } }
 })
 
+/** Ширина hit-обводки: обводка фигуры плюс запас — края толстой линии тоже ловятся. */
+const hitStroke = computed(() => (props.shape.strokeWidth ?? 2) + props.hitWidth)
+
 /** Пустая подпись: глифов нет, рисуем вместо них иконку текстового блока. */
 const emptyText = computed(() => isText.value && !(props.shape.text || '').trim())
 
-/**
- * Габарит-заглушка: примерно два знака текущего кегля, отложенные от точки привязки
- * по якорю подписи — там, где появится набранный текст.
- */
+/** Габарит-заглушки: два знака кегля от точки привязки по якорю подписи. */
 const emptyBox = computed(() => {
   const s = props.shape
   const size = s.fontSize ?? TEXT_SHAPE_SIZE
@@ -111,6 +120,40 @@ const emptyIconTransform = computed(() => {
   return `translate(${b.x + (b.w - 16 * k) / 2} ${b.y}) scale(${k})`
 })
 
+/** Запас halo с каждой стороны, он же величина удлинения торцов. */
+const haloPad = computed(() => Math.max(0, (props.haloWidth - (props.shape.strokeWidth ?? 2)) / 2))
+
+/** Точка, отодвинутая от `[bx, by]` в сторону `[ax, ay]` на `pad`. */
+function extendPoint([ax, ay], [bx, by], pad) {
+  const dx = ax - bx
+  const dy = ay - by
+  const len = Math.hypot(dx, dy)
+  if (!len) return [ax, ay]
+  return [ax + (dx / len) * pad, ay + (dy / len) * pad]
+}
+
+/**
+ * Геометрия halo: у линии и НЕзамкнутой ломаной концы вынесены наружу на запас, у
+ * остальных — та же, что у фигуры (у замкнутых торцов нет).
+ */
+const haloGeom = computed(() => {
+  const s = props.shape
+  const pad = haloPad.value
+  if (!pad) return geom.value
+  if (s.type === 'line') {
+    const [x1, y1] = extendPoint([s.x1, s.y1], [s.x2, s.y2], pad)
+    const [x2, y2] = extendPoint([s.x2, s.y2], [s.x1, s.y1], pad)
+    return { tag: 'line', attrs: { x1, y1, x2, y2 } }
+  }
+  if (s.type === 'polyline' && !s.closed && (s.points || []).length > 1) {
+    const pts = s.points.map((p) => [...p])
+    pts[0] = extendPoint(pts[0], pts[1], pad)
+    pts[pts.length - 1] = extendPoint(pts[pts.length - 1], pts[pts.length - 2], pad)
+    return { tag: 'polyline', attrs: { points: pts.map((p) => p.join(',')).join(' ') } }
+  }
+  return geom.value
+})
+
 // Рамка выделения подписи — по тому же bbox, что учитывает cropToContent.
 const textHalo = computed(() => {
   if (!isText.value) return null
@@ -118,9 +161,8 @@ const textHalo = computed(() => {
 })
 
 /**
- * Маркер роли подписи по её bbox: у значения тега — решётка над левым верхним углом
- * (та же метафора, что у блока «Значение тега» в инспекторе), у правимой на холсте —
- * пунктир под базовой линией (метафора поля ввода). Роли взаимоисключающие.
+ * Маркер роли по bbox подписи: решётка у значения тега (как у одноимённого блока
+ * инспектора), пунктир у правимой на холсте. Роли взаимоисключающие.
  */
 const roleMark = computed(() => {
   const box = textHalo.value
@@ -183,10 +225,10 @@ const capJoin = computed(() => {
     fill="none"
     :style="{ stroke: haloStroke }"
     :stroke-width="haloWidth"
-    :stroke-linecap="shape.rounded ? 'round' : null"
-    :stroke-linejoin="shape.rounded ? 'round' : null"
+    :stroke-linecap="shape.rounded ? 'round' : 'butt'"
+    :stroke-linejoin="shape.rounded ? 'round' : 'miter'"
   >
-    <component :is="geom.tag" v-bind="geom.attrs" />
+    <component :is="haloGeom.tag" v-bind="haloGeom.attrs" />
   </g>
   <!-- Роль подписи: решётка у значения тега, пунктир у правимой на холсте. -->
   <template v-if="roleMark">
@@ -213,9 +255,8 @@ const capJoin = computed(() => {
       stroke-dasharray="2 2"
     />
   </template>
-  <!-- Пустая подпись: иконка текстового блока и прозрачная область попадания
-       поверх неё (interact.js читает data-se-move у самого target'а, поэтому атрибут
-       на прямоугольнике, а иконка для мыши прозрачна). -->
+  <!-- Пустая подпись: иконка и область попадания поверх неё. data-se-move на
+       прямоугольнике — interact.js читает атрибут у самого target'а. -->
   <g v-if="emptyText" :transform="emptyIconTransform" pointer-events="none">
     <path
       v-for="(part, i) in TEXT_ICON"
@@ -237,23 +278,39 @@ const capJoin = computed(() => {
     data-se-move="shape"
     :data-id="shape.id"
     :pointer-events="pointerEvents"
+    :style="cursor ? { cursor } : null"
     @pointerdown="emit('select', $event)"
   />
   <component
     v-else
     :is="geom.tag"
     v-bind="{ ...geom.attrs, ...capJoin }"
-    data-se-move="shape"
-    :data-id="shape.id"
     :fill="fill"
     :stroke="isText ? null : shape.stroke"
     :stroke-width="isText ? null : shape.strokeWidth"
-    :pointer-events="pointerEvents"
-    @pointerdown="emit('select', $event)"
+    pointer-events="none"
   >
     <template v-if="textRows">
       <tspan v-for="(row, i) in textRows" :key="i" :x="shape.x" :dy="row.dy">{{ row.line }}</tspan>
     </template>
     <template v-else-if="isText">{{ shape.text }}</template>
+  </component>
+  <component
+    v-if="!emptyText"
+    :is="geom.tag"
+    v-bind="geom.attrs"
+    data-se-move="shape"
+    :data-id="shape.id"
+    fill="transparent"
+    stroke="transparent"
+    :stroke-width="hitStroke"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    :pointer-events="pointerEvents === 'none' ? 'none' : 'all'"
+    :style="cursor ? { cursor } : null"
+    @pointerdown="emit('select', $event)"
+  >
+    <!-- Подпись ловится глифами: обводка hit-слоя дала бы контур вокруг букв. -->
+    <template v-if="isText">{{ shape.text }}</template>
   </component>
 </template>

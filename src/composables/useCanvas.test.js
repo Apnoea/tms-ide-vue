@@ -235,8 +235,7 @@ describe('useCanvas: подложка под проводами', () => {
 
 describe('useCanvas: корзина форм', () => {
   it('formTrash разворачивает ref из useProject — кнопка возврата видит список', () => {
-    // Кладя ref внутрь ref, наружу отдали бы объект Ref, и `[0]` было бы undefined:
-    // кнопка «вернуть форму» не появлялась бы никогда.
+    // Ref внутри ref: наружу ушёл бы объект Ref, и `[0]` был бы undefined.
     const canvas = useCanvas()
     const trash = ref([{ id: 'formA' }])
     canvas.setFormCrudFns({ trash })
