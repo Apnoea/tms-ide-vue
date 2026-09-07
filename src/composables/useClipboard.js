@@ -217,9 +217,9 @@ export function useClipboard({ scheduleSnapshot }) {
         // из полосы как есть, всё прочее уводит на дно.
         z: normalizeLinkZ(linkSnap.z),
         // Стиль линии (толщина/цвет) живёт в tms — дублируем в attrs.line, иначе
-        // копия рисуется дефолтной; концы нужны, чтобы у свободного появилась точка.
+        // копия рисуется дефолтной.
         ...(() => {
-          const attrs = linkStyleAttrs(linkSnap.tms, source, target)
+          const attrs = linkStyleAttrs(linkSnap.tms)
           return attrs ? { attrs } : {}
         })(),
       })

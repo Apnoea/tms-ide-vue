@@ -291,7 +291,7 @@ export function parseSvgProject(svgText) {
         link.tms[f.key] = v
       }
       // Стиль линии из tms → attrs.line (иначе провод нарисуется дефолтным).
-      const styleAttrs = linkStyleAttrs(link.tms, source, target)
+      const styleAttrs = linkStyleAttrs(link.tms)
       if (styleAttrs) link.attrs = styleAttrs
       cells.push(link)
     } catch (e) {

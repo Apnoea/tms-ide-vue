@@ -458,7 +458,7 @@ export function reinjectAllStencils(graph, paper, { sync = false } = {}) {
     if (link.get('z') !== z) link.set('z', z)
     // Маркеры концов — по фактической привязке: `attrs` приезжают из graphJson, а
     // точка свободного конца выводится из source/target и пересобирается здесь.
-    syncLinkEndMarkers(link)
+    syncLinkEndMarkers(link, paper)
   }
   return report
 }

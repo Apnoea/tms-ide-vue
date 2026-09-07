@@ -532,7 +532,7 @@ function applyLinkStyle(key, value) {
     link.set('tms', next)
     // Наконечник зависит от толщины и цвета линии, а точка — от привязки конца:
     // маркеры пересобираются тем же билдером, что и при загрузке формы.
-    syncLinkEndMarkers(link)
+    syncLinkEndMarkers(link, canvas.paperRef.value)
   }
   canvas.bumpVersion()
   canvas.requestSnapshot()

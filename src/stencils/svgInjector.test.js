@@ -41,15 +41,21 @@ describe('reinjectAllStencils: z проводов', () => {
     expect(JSON.stringify(graph.toJSON())).toBe(before)
   })
 
-  it('маркеры концов пересобираются: свободный конец получает точку на загрузке', () => {
-    // `attrs` приезжают из сохранённого graphJson, а точка выводится из привязки
-    // конца — без пересборки она появлялась бы только после того, как конец тронули.
+  it('маркеры концов пересобираются на загрузке', () => {
+    // `attrs` приезжают из сохранённого graphJson, поэтому наконечники и точки
+    // свободных концов восстанавливаются пересборкой, а не касанием конца.
     const graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
-    const free = new shapes.standard.Link({ source: { id: 'c1' }, target: { x: 40, y: 40 } })
+    const free = new shapes.standard.Link({
+      source: { id: 'c1' },
+      target: { x: 40, y: 40 },
+      tms: { arrowStart: 'solid' },
+    })
     graph.addCell(free)
     reinjectAllStencils(graph, paper)
-    expect(free.attr('line/targetMarker')).toMatchObject({ type: 'circle' })
-    expect(free.attr('line/sourceMarker')).toEqual({ type: 'none' })
+    expect(free.attr('line/sourceMarker')).toMatchObject({ type: 'path' })
+    // Точка свободного конца — не маркер, а <circle> в группе линка (renderEndDots).
+    // attr мержится с дефолтом standard.Link, поэтому проверяем тип.
+    expect(free.attr('line/targetMarker').type).toBe('none')
   })
 
   it('провода уходят под символы (LINK_Z ниже дефолтного z ячеек)', () => {

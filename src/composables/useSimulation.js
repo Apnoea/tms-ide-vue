@@ -1,4 +1,4 @@
-import { ref, onBeforeUnmount } from 'vue'
+import { computed, ref, onBeforeUnmount } from 'vue'
 import { useNotify, TOAST_LIFE } from './useNotify'
 import {
   CLASS_OFF,
@@ -10,48 +10,136 @@ import {
   buildRangeCssRules,
   buildStateColorCssRules,
   stateColorClass,
+  resolveValueDecimals,
 } from '../constants/animation'
 import { innerKey, resolveSlotTemplate } from '../constants/ids'
 import { normalizeBoolSource } from '../utils/boolSource'
+import { getCellTags } from '../utils/cellSearch'
+import {
+  boolOf,
+  rangeRowFor,
+  stateKeyFor,
+  formatValueText,
+  randomValueForTag,
+} from '../utils/simValues'
+import { useProjectStore } from '../stores/useProjectStore'
 import { getStencilById, getAllStencils } from '../stencils/registry'
 import { useCanvas } from './useCanvas'
 
 const SIM_CYCLE_MS = 1500
+const SIM_CSS_ID = 'tms-sim-css'
+
+/**
+ * Слот, который драйвит состояние символа — любой НЕ `Text`: подпись со значением тега
+ * тоже слот, и у символа с ней первый по порядку слот оказался бы подписью.
+ */
+const stateSlotKey = (stencil) => stencil?.slots?.find((sl) => sl.type !== 'Text')?.key
+
+// СИНГЛТОН: композабл зовут и CanvasPane (запуск, классы), и SimulationPanel (значения
+// тегов), поэтому состояние живёт в модуле — иначе у панели была бы своя симуляция.
+const simulating = ref(false)
+/** Значения тегов, заданные вручную: `tag → значение`. Остальные — случайные. */
+const simValues = ref(new Map())
+// Исходный текст подписей со значением: симуляция пишет в них число, остановка
+// возвращает то, что нарисовано в символе.
+const valueTexts = new Map()
+let simIntervalId = null
+// Сигнатура набора цветов, под который собран <style>: перекрасив строку во время
+// симуляции, автор требует доинжектить правило.
+let simCssKey = ''
 
 /**
  * Симуляция: визуальный preview animation-классов через JS-таймер.
  *
- * Группировка по тегу: на каждом тике одна фаза per-tag (lazy, phaseFor /
- * boolFalseFor), поэтому все элементы с этим тегом рисуются согласованно — у значения
- * фаза выбирает строку источника (цвет берётся из настроек элемента), у булева —
- * true/false.
+ * Источник — ЗНАЧЕНИЯ тегов (`simValues`), поэтому превью считает то же, что рантайм:
+ * строка диапазона выбирается сравнением с границами, состояние «по значению» — по
+ * коду, подпись показывает отформатированное число. Значение одно на тег, значит все
+ * его элементы согласованы; незаданное вручную догенерируется случайным (см.
+ * utils/simValues.randomValueForTag) и держится до конца тика.
  *
  * CSS под `.tms-simulating` инжектится в `<head>` и не протекает в обычный режим;
- * класс на paperContainer вешает Vue через :class.
- *
- * Возвращает:
- *  • `simulating` — Ref<boolean> для template (`:class`/`:icon`)
- *  • `toggleSimulation`
- *  • `stopSimulation` — принудительная остановка (зовёт useProject перед экспортом/импортом)
+ * класс на paperContainer вешает Vue через :class. `stopSimulation` — принудительная
+ * остановка, её зовёт useProject перед экспортом и импортом.
  */
 export function useSimulation() {
   const canvas = useCanvas()
   const notify = useNotify()
-  const simulating = ref(false)
-  let simIntervalId = null
-  // Счётчик тиков — циклическая смена value-состояний (states[simTick % N]); в отличие
-  // от фазы тега он persistent между тиками.
-  let simTick = 0
-  const SIM_CSS_ID = 'tms-sim-css'
+  const project = useProjectStore()
+
+  /** Пустое значение = вернуть тегу случайное: пустых записей в наборе не держим. */
+  function setTagValue(tag, value) {
+    const next = new Map(simValues.value)
+    if (value == null) next.delete(tag)
+    else next.set(tag, value)
+    simValues.value = next
+  }
+
+  function clearTagValues() {
+    simValues.value = new Map()
+  }
 
   /**
-   * Фаза тега: доля 0..1 либо null («нейтральный» тег, вероятность 1/4). Именно фаза, а
-   * не готовый класс: цвета свои у каждого источника, и по одной фазе элементы с общим
-   * тегом красятся согласованно, каждый своей строкой.
+   * Теги, привязанные в ТЕКУЩЕЙ форме, с ролью — от неё зависит контрол в панели:
+   * `state` (список состояний символа), `bool` (тумблер), `value` (число). Роль берётся
+   * по месту привязки, а не по типу из tag-list: тип может отсутствовать, а место
+   * говорит, чем тег управляет. Приоритет state → bool → value: тег в нескольких
+   * ролях показываем более конкретной. Источники (`states`/`rangeSource`) при этом
+   * НАКАПЛИВАЮТСЯ со всех мест привязки — по ним подбирается случайное значение.
    */
-  function pickRandomPhase() {
-    const r = Math.random()
-    return r < 0.25 ? null : (r - 0.25) / 0.75
+  const formTags = computed(() => {
+    canvas.graphVersion.value // пересобрать после правок схемы
+    const graph = canvas.graphRef.value
+    const byTag = new Map()
+    const RANK = { state: 3, bool: 2, value: 1 }
+    const put = (tag, kind, extra = {}) => {
+      if (!tag) return
+      const prev = byTag.get(tag)
+      const strongest = prev && RANK[prev.kind] > RANK[kind] ? prev.kind : kind
+      byTag.set(tag, { ...prev, ...extra, tag, kind: strongest })
+    }
+    for (const cell of graph?.getCells() || []) {
+      const tms = cell.get('tms') || {}
+      const stencil = getStencilById(tms.stencilId)
+      for (const slot of stencil?.slots || []) {
+        const tag = tms.slots?.[slot.key]
+        if (!tag) continue
+        if (slot.type === 'Text') put(tag, 'value')
+        else if (stencil.states?.length) put(tag, 'state', { states: stencil.states })
+        else put(tag, 'bool')
+      }
+      if (tms.rangeSource?.tag) put(tms.rangeSource.tag, 'value', { rangeSource: tms.rangeSource })
+      for (const group of normalizeBoolSource(tms.boolSource).groups) {
+        for (const tag of group) put(tag, 'bool')
+      }
+    }
+    const typeOf = (tag) => project.tags.find((t) => t.name === tag)?.type || ''
+    return [...byTag.values()]
+      .map((entry) => ({ ...entry, type: typeOf(entry.tag) }))
+      .sort((a, b) => a.tag.localeCompare(b.tag, 'ru'))
+  })
+
+  /** Те же записи по имени тега: контекст для случайных значений на тике. */
+  const tagInfo = computed(() => new Map(formTags.value.map((t) => [t.tag, t])))
+
+  /**
+   * Теги выделенных на холсте элементов: панель сужает список до них, чтобы не искать
+   * нужный тег среди всех тегов формы.
+   */
+  const selectedTags = computed(() => {
+    canvas.graphVersion.value
+    const graph = canvas.graphRef.value
+    const out = new Set()
+    for (const { id } of canvas.selection.value) {
+      const cell = graph?.getCell(id)
+      if (cell) for (const tag of getCellTags(cell)) out.add(tag)
+    }
+    return out
+  })
+
+  /** Вернуть подписям текст символа (симуляция писала в них значения). */
+  function restoreValueTexts() {
+    for (const [el, text] of valueTexts) el.textContent = text
+    valueTexts.clear()
   }
 
   /** Строки источника с заданным цветом — только они дают класс (как в экспорте). */
@@ -75,10 +163,6 @@ export function useSimulation() {
     const { value, hadUnresolved } = resolveSlotTemplate(rawTag, tms.slots || {})
     return hadUnresolved ? null : value
   }
-
-  // Сигнатура набора цветов, под который собран <style>: перекрасив строку во время
-  // симуляции, автор требует доинжектить правило.
-  let simCssKey = ''
 
   function injectSimulationCss(colors) {
     // Пересборка на каждый старт (remove + add): цвета состояний автор мог изменить,
@@ -130,7 +214,7 @@ export function useSimulation() {
     }
   }
 
-  /** Одна фаза per-tag за тик: ячейки/линки с одним тегом — согласованно. */
+  /** Одно значение per-tag за тик: ячейки/линки с одним тегом — согласованно. */
   function applySimClass() {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
@@ -140,29 +224,25 @@ export function useSimulation() {
     const colors = collectRangeColors()
     if (colors.join('|') !== simCssKey) injectSimulationCss(colors)
 
-    // Per-tag pickers: фаза кэшируется при первом обращении, остальные элементы с тем
-    // же тегом получают её же.
-    const phaseByTag = new Map() // tag → доля 0..1 | null
-    const boolByTag = new Map() // tag → boolean (true = false-фаза/off, false = on)
-    const phaseFor = (tag) => {
-      if (!phaseByTag.has(tag)) phaseByTag.set(tag, pickRandomPhase())
-      return phaseByTag.get(tag)
+    // Значения тегов на этот тик: заданные вручную приоритетнее, остальные
+    // догенерируются один раз и держатся до конца тика — иначе элементы с общим тегом
+    // разъехались бы.
+    const tickValues = new Map()
+    const valueOf = (tag) => {
+      if (!tickValues.has(tag)) {
+        const manual = simValues.value.get(tag)
+        tickValues.set(tag, manual ?? randomValueForTag(tagInfo.value.get(tag) || {}))
+      }
+      return tickValues.get(tag)
     }
-    const boolFalseFor = (tag) => {
-      if (!boolByTag.has(tag)) boolByTag.set(tag, Math.random() < 0.5)
-      return boolByTag.get(tag)
-    }
-    /** Класс строки источника по фазе тега: цвет берём из НАСТРОЕК этого элемента. */
+    const boolFalseFor = (tag) => !boolOf(valueOf(tag))
+    /** Класс строки источника по значению тега: цвет берём из НАСТРОЕК этого элемента. */
     const rangeClassFor = (vs) => {
-      const phase = phaseFor(vs.tag)
-      if (phase === null) return null
-      const rows = colorRows(vs)
-      if (!rows.length) return null
-      const idx = Math.min(rows.length - 1, Math.floor(phase * rows.length))
-      return rangeColorClass(rangeRowColor(rows[idx]))
+      const row = rangeRowFor(vs, valueOf(vs.tag))
+      return row ? rangeColorClass(rangeRowColor(row)) : null
     }
 
-    // Источник значения: фаза общая по тегу, цвет — свой у каждого элемента.
+    // Источник значения: значение общее по тегу, цвет — свой у каждого элемента.
     for (const cell of graph.getCells()) {
       const vs = cell.get('tms')?.rangeSource
       if (!vs?.tag) continue
@@ -183,8 +263,8 @@ export function useSimulation() {
     }
 
     // Bool-биндинги символьного template: у каждого резолвится тег ({slot.X} →
-    // tms.slots[X]), берётся фаза тега и применяется класс нужного case'а. Несколько
-    // биндингов на одном теге переключаются согласованно.
+    // tms.slots[X]), значение тега приводится к boolean и применяется класс нужного
+    // case'а. Несколько биндингов на одном теге переключаются согласованно.
     for (const cell of graph.getElements()) {
       const tms = cell.get('tms') || {}
       const stencil = getStencilById(tms.stencilId)
@@ -206,15 +286,15 @@ export function useSimulation() {
         }
       }
     }
-    // State-color БУЛЕВ: класс перекраса по активной bool-фазе, согласованно с
-    // видимостью выше. Value-символы — цикл ниже.
+    // State-color БУЛЕВ: класс перекраса по значению тега, согласованно с видимостью
+    // выше. Value-символы — проход ниже.
     for (const cell of graph.getElements()) {
       const tms = cell.get('tms') || {}
       const stencil = getStencilById(tms.stencilId)
       const colors = stencil?.stateColors
       if (!colors || !Object.keys(colors).length) continue
       if (Array.isArray(stencil.states) && stencil.states.length) continue // value — ниже
-      const slotKey = stencil.slots?.[0]?.key
+      const slotKey = stateSlotKey(stencil)
       const tag = slotKey ? tms.slots?.[slotKey] : null
       if (!tag) continue
       const key = boolFalseFor(tag) ? 'false' : 'true'
@@ -222,27 +302,28 @@ export function useSimulation() {
         paper.findViewByModel(cell)?.el?.classList.add(stateColorClass(stencil.id, key))
     }
 
-    // Value-состояния: циклическая смена видимости групп и цвета. Активное =
-    // states[simTick % N], ячейки одного символа синхронны (общий tick). Гейт по
-    // привязанному тегу слота value: без тега рантайм показал бы все группы.
+    // Value-состояния: активное выбирает КОД под значение тега (как cases рантайма).
+    // Совпадения нет — скрыты все группы. Гейт по привязанному тегу слота value: без
+    // тега рантайм показал бы все группы.
     for (const cell of graph.getElements()) {
       const tms = cell.get('tms') || {}
       const stencil = getStencilById(tms.stencilId)
       const states = stencil?.states
       if (!Array.isArray(states) || !states.length) continue
-      const slotKey = stencil.slots?.[0]?.key
+      const slotKey = stateSlotKey(stencil)
       const tag = slotKey ? tms.slots?.[slotKey] : null
       if (!tag) continue
       const view = paper.findViewByModel(cell)
       if (!view?.el) continue
-      const active = states[simTick % states.length]
+      const activeKey = stateKeyFor(states, valueOf(tag))
       for (const st of states) {
-        if (st.key === active.key) continue
+        if (st.key === activeKey) continue
         const el = view.el.querySelector(`[id="${innerKey(stencil.id, cell.id, '.' + st.key)}"]`)
         if (el) el.classList.add(CLASS_HIDDEN)
       }
-      const color = stencil.stateColors?.[active.key]
-      if (color) view.el.classList.add(stateColorClass(stencil.id, active.key))
+      if (activeKey && stencil.stateColors?.[activeKey]) {
+        view.el.classList.add(stateColorClass(stencil.id, activeKey))
+      }
     }
 
     // boolSource: группы условий. Тег делит состояние со всеми своими
@@ -255,7 +336,24 @@ export function useSimulation() {
       paper.findViewByModel(cell)?.el?.classList.add(CLASS_OFF)
     }
 
-    simTick++ // следующий тик — следующее value-состояние по кругу
+    // Подпись со значением тега: рантайм пишет её textContent, превью — то же, с
+    // точностью карточки. Исходный текст запомнен на старте (restoreValueTexts).
+    for (const cell of graph.getElements()) {
+      const tms = cell.get('tms') || {}
+      const stencil = getStencilById(tms.stencilId)
+      if (!stencil?.animationTemplate?.length) continue
+      const view = paper.findViewByModel(cell)
+      if (!view?.el) continue
+      for (const tpl of stencil.animationTemplate) {
+        if (tpl.type !== 'text') continue
+        const tag = resolveBindingTag(tpl.bindings?.[0]?.tag, tms)
+        if (!tag) continue
+        const el = view.el.querySelector(`[id="${innerKey(stencil.id, cell.id, tpl.idSuffix)}"]`)
+        if (!el) continue
+        if (!valueTexts.has(el)) valueTexts.set(el, el.textContent)
+        el.textContent = formatValueText(valueOf(tag), resolveValueDecimals(tms))
+      }
+    }
   }
 
   function startSimulation() {
@@ -263,7 +361,6 @@ export function useSimulation() {
     injectSimulationCss(collectRangeColors())
     // Класс tms-simulating вешает Vue через :class на paperContainer.
     simulating.value = true
-    simTick = 0 // начинаем цикл value-состояний с первого
     applySimClass()
     simIntervalId = setInterval(applySimClass, SIM_CYCLE_MS)
   }
@@ -273,6 +370,7 @@ export function useSimulation() {
     simIntervalId = null
     simulating.value = false
     clearSimClasses()
+    restoreValueTexts()
   }
 
   function toggleSimulation() {
@@ -296,5 +394,16 @@ export function useSimulation() {
     document.getElementById(SIM_CSS_ID)?.remove()
   })
 
-  return { simulating, toggleSimulation, stopSimulation }
+  // simValues + set/clear + formTags — API панели значений: она задаёт, чем кормить
+  // превью, и показывает теги текущей формы.
+  return {
+    simulating,
+    toggleSimulation,
+    stopSimulation,
+    simValues,
+    setTagValue,
+    clearTagValues,
+    formTags,
+    selectedTags,
+  }
 }

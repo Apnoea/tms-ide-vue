@@ -5,6 +5,7 @@
 import { dia, routers, linkTools } from '@joint/core'
 import { LINK_META_FIELDS } from '../constants/ids'
 import { RANGE_FILL_CLASS, cssColor } from '../constants/animation'
+import { svgEl } from '../utils/xml'
 import { ARROW_KINDS, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire'
 
 const { Directions } = routers.rightAngle
@@ -271,23 +272,42 @@ function dotRadius(strokeWidth) {
   return arrowSize(strokeWidth).len / 2
 }
 
+/** Атрибут-метка точки конца: по нему прежние узлы находятся и заменяются. */
+const END_DOT_ATTR = 'data-tms-end-dot'
+
 /**
- * Маркер свободного конца: провод, законченный на холсте, помечается точкой.
+ * Точка свободного конца: провод, законченный на холсте, помечается ею вместо
+ * наконечника. В модели её нет — выводится из привязки конца, поэтому и в
+ * `data-tms-meta`, и в инспекторе она отсутствует.
  *
- * Точка не хранится в модели — выводится из привязки конца, поэтому в `data-tms-meta`
- * и в инспекторе её нет. Выбранный автором наконечник приоритетнее точки.
+ * Рисуется `<circle>` в ГРУППЕ линка (как в экспорте, dotExportSvg), а не маркером:
+ * маркеры JointJS живут в `<defs>` и кэшируются по хэшу описания, поэтому CSS
+ * диапазонов и обесточивания до них не достаёт, а правка общего `<marker>` покрасила бы
+ * все провода. Координата берётся из модели — свободный конец и есть `{x, y}`.
  */
-function endMarker(kind, tms, endRef) {
-  const arrow = arrowMarker(kind, tms)
-  if (arrow) return arrow
-  // Вызывающий без данных о концах (`undefined`) получает пустой маркер: точку ставим
-  // только там, где конец точно свободен.
-  if (!isFreeEnd(endRef)) return null
-  return {
-    type: 'circle',
-    r: dotRadius(tms?.strokeWidth),
-    fill: tms?.strokeColor || LINK_DEFAULTS.attrs.line.stroke,
-    stroke: 'none',
+export function renderEndDots(link, view) {
+  const el = view?.el
+  if (!el || !link?.get) return
+  for (const old of el.querySelectorAll(`[${END_DOT_ATTR}]`)) old.remove()
+  const tms = link.get('tms') || {}
+  const color = cssColor(tms.strokeColor) || LINK_DEFAULTS.attrs.line.stroke
+  const r = dotRadius(tms.strokeWidth)
+  for (const end of ['source', 'target']) {
+    // Выбранный автором наконечник вытесняет точку.
+    if (tms[end === 'source' ? 'arrowStart' : 'arrowEnd']) continue
+    const point = endPoint(link.get(end))
+    if (!point) continue
+    el.appendChild(
+      svgEl('circle', {
+        [END_DOT_ATTR]: '',
+        class: RANGE_FILL_CLASS,
+        cx: point.x,
+        cy: point.y,
+        r,
+        fill: color,
+        stroke: 'none',
+      })
+    )
   }
 }
 
@@ -296,7 +316,7 @@ function endMarker(kind, tms, endRef) {
  * attrs, поэтому стиль применяется при КАЖДОМ создании модели (paste, load). null =
  * стиль дефолтный. Всегда новый объект: `LINK_DEFAULTS.attrs` общий на все провода.
  */
-export function linkStyleAttrs(tms, source, target) {
+export function linkStyleAttrs(tms) {
   const lineAttrs = {}
   for (const f of LINK_META_FIELDS) {
     const v = tms?.[f.key]
@@ -305,8 +325,8 @@ export function linkStyleAttrs(tms, source, target) {
   // Маркеры обоих концов одинаковы: `marker-start` ориентируется по направлению пути,
   // а `target-marker` JointJS отдаёт с `rotate(180)`, поэтому внутрь линии у обоих
   // смотрит +X. Зеркальный путь для конца увёл бы наконечник за точку соединения.
-  const start = endMarker(tms?.arrowStart, tms, source)
-  const end = endMarker(tms?.arrowEnd, tms, target)
+  const start = arrowMarker(tms?.arrowStart, tms)
+  const end = arrowMarker(tms?.arrowEnd, tms)
   if (start) lineAttrs.sourceMarker = start
   if (end) lineAttrs.targetMarker = end
   if (!Object.keys(lineAttrs).length) return null
@@ -318,13 +338,15 @@ export function linkStyleAttrs(tms, source, target) {
  * снесла бы `wrapper`). Зовётся при смене наконечника или стиля и на перецепке конца:
  * точка свободного конца появляется и исчезает вместе с привязкой.
  */
-export function syncLinkEndMarkers(link) {
+export function syncLinkEndMarkers(link, paper = null) {
   if (!link?.attr) return
   const tms = link.get('tms') || {}
-  const source = endMarker(tms.arrowStart, tms, link.get('source'))
-  const target = endMarker(tms.arrowEnd, tms, link.get('target'))
+  const source = arrowMarker(tms.arrowStart, tms)
+  const target = arrowMarker(tms.arrowEnd, tms)
   link.attr('line/sourceMarker', source || { type: 'none' })
   link.attr('line/targetMarker', target || { type: 'none' })
+  // Точки свободных концов — в DOM линка (см. renderEndDots).
+  if (paper) renderEndDots(link, paper.findViewByModel(link))
 }
 
 // Ручки концов: кружок размером с порт, в слое инструментов ПОВЕРХ magnet'ов — иначе

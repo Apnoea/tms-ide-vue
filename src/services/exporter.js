@@ -70,7 +70,7 @@ function endpointMeta(end) {
 
 /**
  * Разметка конца провода: наконечник, а если его нет и конец не привязан к символу —
- * точка свободного конца (endMarker).
+ * точка свободного конца (dotExportSvg).
  */
 function endMarkSvg(kind, end, ref, width, color) {
   return (

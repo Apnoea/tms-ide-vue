@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
 import {
   insideApproachDirection,
@@ -6,6 +7,8 @@ import {
   isInsideBBox,
   arrowPath,
   arrowMarker,
+  syncLinkEndMarkers,
+  renderEndDots,
   arrowExportSvg,
   linkStyleAttrs,
   isFreeEnd,
@@ -117,26 +120,6 @@ describe('наконечники провода', () => {
     expect(line.targetMarker.d).toBe(arrowMarker('solid', { strokeWidth: 2 }).d)
   })
 
-  it('свободный конец получает точку, привязанный — нет', () => {
-    // Точка выводится из привязки конца, а не хранится полем, поэтому в инспекторе её
-    // не выбирают.
-    const line = linkStyleAttrs({}, { id: 'cell-a', port: 'top' }, { x: 200, y: 100 }).line
-    expect(line.sourceMarker).toEqual({ type: 'none' })
-    expect(line.targetMarker).toMatchObject({ type: 'circle', fill: '#000' })
-    // Радиус — от толщины провода, как раствор наконечника.
-    expect(line.targetMarker.r).toBe(arrowSize(2).len / 2)
-  })
-
-  it('выбранный наконечник приоритетнее точки', () => {
-    const line = linkStyleAttrs({ arrowEnd: 'solid' }, { id: 'a' }, { x: 0, y: 0 }).line
-    expect(line.targetMarker.type).toBe('path')
-  })
-
-  it('без данных о концах точку не додумываем', () => {
-    // Вызывающий, который не знает привязки концов, точки получать не должен.
-    expect(linkStyleAttrs({ arrowEnd: 'solid' }).line.sourceMarker).toEqual({ type: 'none' })
-  })
-
   it('стиль линии несёт маркеры только для заданных концов', () => {
     expect(linkStyleAttrs({ arrowEnd: 'solid' }).line.targetMarker).toMatchObject({
       type: 'path',
@@ -198,12 +181,6 @@ describe('isFreeEnd / endPoint', () => {
     expect(endPoint({ id: 'a', x: 5, y: 6 })).toBeNull()
     expect(endPoint({})).toBeNull()
   })
-
-  it('маркер конца без координат не ставится', () => {
-    // Конец без id и без координат свободным не считается: точку рисовать негде.
-    expect(linkStyleAttrs({}, { id: 'a' }, {})).toBeNull()
-    expect(linkStyleAttrs({}, { id: 'a' }, { x: 10, y: 10 }).line.targetMarker.type).toBe('circle')
-  })
 })
 
 // Допуски вида провода: одна проверка на правку из инспектора и на чтение меты.
@@ -225,5 +202,61 @@ describe('normalizeWireStyle', () => {
   it('не объект → пусто', () => {
     expect(normalizeWireStyle(null)).toEqual({})
     expect(normalizeWireStyle('solid')).toEqual({})
+  })
+})
+
+describe('renderEndDots', () => {
+  const linkOf = (tms, source, target) => ({
+    get: (key) => (key === 'tms' ? tms : key === 'source' ? source : target),
+  })
+
+  it('точка рисуется в группе линка с классом заливки — как в экспорте', () => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+    renderEndDots(linkOf({ strokeColor: '#ff0000' }, { id: 'a', port: 'p' }, { x: 40, y: 10 }), {
+      el,
+    })
+    const dots = el.querySelectorAll('circle')
+    expect(dots).toHaveLength(1)
+    expect(dots[0].getAttribute('cx')).toBe('40')
+    expect(dots[0].getAttribute('fill')).toBe('#ff0000')
+    expect(dots[0].getAttribute('class')).toBe('tms-range-fill')
+  })
+
+  it('повторный вызов заменяет прежние точки, наконечник её вытесняет', () => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+    const link = linkOf({}, { x: 0, y: 0 }, { x: 40, y: 10 })
+    renderEndDots(link, { el })
+    renderEndDots(link, { el })
+    expect(el.querySelectorAll('circle')).toHaveLength(2)
+
+    renderEndDots(linkOf({ arrowEnd: 'solid' }, { id: 'a' }, { x: 40, y: 10 }), { el })
+    expect(el.querySelectorAll('circle')).toHaveLength(0)
+  })
+})
+
+describe('syncLinkEndMarkers', () => {
+  const link = (tms, target) => {
+    const attrs = {}
+    return {
+      get: (key) => (key === 'tms' ? tms : key === 'target' ? target : { id: 'c1', port: 'p' }),
+      attr: (path, value) => {
+        attrs[path] = value
+        return attrs[path]
+      },
+      attrs,
+    }
+  }
+
+  it('без наконечников оба маркера пустые: точку свободного конца рисует DOM', () => {
+    const l = link({}, { x: 10, y: 20 })
+    syncLinkEndMarkers(l)
+    expect(l.attrs['line/sourceMarker']).toEqual({ type: 'none' })
+    expect(l.attrs['line/targetMarker']).toEqual({ type: 'none' })
+  })
+
+  it('заданный наконечник ставится маркером', () => {
+    const l = link({ arrowEnd: 'solid' }, { x: 10, y: 20 })
+    syncLinkEndMarkers(l)
+    expect(l.attrs['line/targetMarker']).toMatchObject({ type: 'path', fill: '#000' })
   })
 })

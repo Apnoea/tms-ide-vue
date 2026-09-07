@@ -560,7 +560,7 @@ onMounted(async () => {
   // scheduleSnapshot молчит сам). Заодно пересобираются маркеры концов: точка
   // свободного конца появляется при отцеплении и уходит при привязке к порту.
   graph.on('change:source change:target', (link) => {
-    syncLinkEndMarkers(link)
+    syncLinkEndMarkers(link, paper)
     scheduleSnapshot()
   })
 

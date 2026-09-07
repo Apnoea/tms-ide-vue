@@ -118,7 +118,7 @@ export function createCanvasPaper({
     clickThreshold: 5,
     magnetThreshold: 4,
     // Конец провода можно оставить на холсте: свободный конец помечается точкой
-    // (см. endMarker).
+    // (см. linkDefaults.renderEndDots).
     linkPinning: true,
     // Не заставляем целиться в кружок порта — бросок рядом подтягивается сам.
     snapLinks: { radius: 30 },

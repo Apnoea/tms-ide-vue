@@ -156,7 +156,7 @@ describe('exportProject', () => {
 
   it('cell_node прошлого формата: экспорт рисует точку, импорт её растворяет', () => {
     // Точка соединения перестала быть символом — теперь ею помечает себя свободный
-    // конец провода (см. linkDefaults.endMarker). Экспорт старых узлов по-прежнему
+    // конец провода (см. linkDefaults.renderEndDots). Экспорт старых узлов по-прежнему
     // рисует кружок, а загрузка убирает ячейку (см. legacyFormat.dissolveNodeCells).
     const graph = mockGraph([
       mockCell({ id: 'n1', stencilId: 'cell_node', w: 20, h: 20, color: '#ff8800', dotSize: 8 }),
