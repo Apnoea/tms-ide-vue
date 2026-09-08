@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { isBooleanType } from '../services/parsers'
+import { isBooleanType, isNumericType } from '../services/parsers'
 
 /**
  * Загруженный tag-list проекта. File-handle для тихого обновления тегов на старте
@@ -13,13 +13,15 @@ export const useProjectStore = defineStore('project', () => {
     tags.value = newTags
   }
 
-  // Булевы теги для picker'ов слотов и булева источника — фильтр в одном месте, а не
-  // в каждом компоненте. Подпись со значением берёт теги без фильтра: показать можно
-  // и число, и строку.
+  // Фильтры пикеров живут здесь, а не в каждом компоненте: булевы слоты и условия
+  // берут booleanTags, пороги диапазонов и подпись со значением — numericTags (булев,
+  // текстовый или бинарный тег числом не сравнить и с точностью не напечатать).
+  // Состояния «по значению» берут весь список: код состояния задаёт автор.
   const booleanTags = computed(() => tags.value.filter((t) => isBooleanType(t.type)))
+  const numericTags = computed(() => tags.value.filter((t) => isNumericType(t.type)))
   // Имена Set'ом: чипы тегов проверяют «есть ли такой сигнал» на каждый рендер
   // (utils/tagHealth), а tag-list бывает на тысячи строк.
   const tagNames = computed(() => new Set(tags.value.map((t) => t.name)))
 
-  return { tags, setTags, booleanTags, tagNames }
+  return { tags, setTags, booleanTags, numericTags, tagNames }
 })

@@ -58,19 +58,34 @@ function onPick(e) {
   confirmTag(e.value?.name ?? props.selected)
 }
 
+/**
+ * Совпадение с запросом: имя, описание, имена объектов пути. У XML-дерева имя тега
+ * бывает коротким (`P120Tag1`), и найти его проще по объекту или описанию. Имя
+ * проверяется первым — по нему ищут чаще всего, а tag-list бывает на тысячи строк.
+ */
+function matchesQuery(t, q) {
+  if (t.name.toLowerCase().includes(q)) return true
+  if (t.description?.toLowerCase().includes(q)) return true
+  return !!t.path?.some((p) => p.toLowerCase().includes(q))
+}
+
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
   if (!q) return props.tags
-  return props.tags.filter((t) => t.name.toLowerCase().includes(q))
+  return props.tags.filter((t) => matchesQuery(t, q))
 })
 
-// Группировка по prefix'у — всё до первой точки. PS031VK001.ONOFF →"PS031VK001".
+/**
+ * Заголовок группы: путь объектов из XML-дерева (`S17 / N70160`), иначе prefix имени —
+ * всё до первой точки (`PS031VK001.ONOFF` → `PS031VK001`).
+ */
+const groupOf = (t) => (t.path?.length ? t.path.join(' / ') : t.name.split('.')[0])
+
 // PrimeVue Listbox требует структуру { name, items: [...] } для group-mode.
 const grouped = computed(() => {
   const map = new Map()
   for (const t of filtered.value) {
-    const i = t.name.indexOf('.')
-    const g = i >= 0 ? t.name.slice(0, i) : t.name
+    const g = groupOf(t)
     if (!map.has(g)) map.set(g, [])
     map.get(g).push(t)
   }
@@ -141,8 +156,13 @@ function cancel() {
         list-style="max-height: 320px"
         @change="onPick"
       >
+        <!-- Описание из tag-list'а — тултипом: в строку не влезает, а по нему тег
+             узнают быстрее, чем по имени. -->
         <template #option="{ option }">
-          <span class="flex items-center justify-between w-full font-mono">
+          <span
+            v-tooltip.top="option.description || ''"
+            class="flex items-center justify-between w-full font-mono"
+          >
             <span class="text-sm text-surface-900">{{ option.name }}</span>
             <span class="text-[10px] text-surface-400 ml-2">
               {{ option.type }}

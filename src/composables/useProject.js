@@ -79,8 +79,13 @@ export function useProject({
   }
 
   // Загрузить graphJson в живой холст + сброс undo под новую форму. Общий хвост
-  // selectForm / createForm / deleteForm (когда меняется активная форма).
+  // selectForm / createForm / duplicateForm / deleteForm / renameForm (когда меняется
+  // активная форма).
   function loadActiveIntoCanvas(graph, paper, json) {
+    // Симуляция не переезжает на другую форму: её значения и подписи принадлежат той,
+    // что была на холсте. Гасим здесь, потому что через эту точку идут ВСЕ смены графа
+    // активной формы — удаление и переименование в том числе.
+    if (simulating.value) stopSimulation()
     let synced = { changed: 0, detached: [] }
     withRestoreGuard(restoringHistory, () => {
       // Заморозка только на fromJSON: инъекция ниже ходит через findViewByModel, а у
@@ -130,7 +135,6 @@ export function useProject({
     // выстрелит уже после setActiveFormId(B), пока в графе ещё A, и запишет граф A под
     // ключ B. Правка A не теряется — её персистит saveActiveForm ниже.
     cancelPendingSnapshot()
-    if (simulating.value) stopSimulation() // симуляция не должна тащиться на новую форму
     await saveActiveForm()
     workspace.setActiveFormId(id)
     await persistMeta()
@@ -145,7 +149,6 @@ export function useProject({
     const paper = canvas.paperRef.value
     if (!graph || !paper) return
     cancelPendingSnapshot()
-    if (simulating.value) stopSimulation()
     await saveActiveForm() // не теряем правки текущей перед переключением
     let n = workspace.formIds.length + 1
     let id = `form${n}`
@@ -178,7 +181,6 @@ export function useProject({
     const paper = canvas.paperRef.value
     if (!graph || !paper || !workspace.hasForm(id)) return
     cancelPendingSnapshot()
-    if (simulating.value) stopSimulation()
     await saveActiveForm() // дублируем актуальное состояние, а не последнее сохранённое
     const copyId = uniqueFormId(`${id}_copy`)
     const json = toPlain(workspace.getFormGraph(id) || { cells: [] })
@@ -466,8 +468,16 @@ export function useProject({
     }
 
     // Оверрайды символов проекта (новые + изменённые встроенные) → в IDB: переживают
-    // reload и в prod, где dev-плагина нет. Набор заменяется целиком.
-    await replaceStencilOverrides(importedStencils)
+    // reload и в prod, где dev-плагина нет. Пишем набор ВСЕГДА, даже пустой — у
+    // проекта без своих символов прежние оверрайды обязаны уйти. Запись не прошла:
+    // символы архива живут до перезагрузки, и молчать об этом нельзя.
+    const overridesSaved = flagIfNotSaved(await replaceStencilOverrides(importedStencils))
+    if (!overridesSaved && importedStencils.length) {
+      notify.warn(
+        'Символы проекта не сохранены',
+        'Браузер отклонил запись — после перезагрузки вернутся встроенные версии'
+      )
+    }
     // На ДИСК (файл в `definitions/` попадает под git) пишутся ТОЛЬКО символы,
     // которых в кодовой базе нет: архив хранит версию на момент своего экспорта, и
     // запись изменённого встроенного откатила бы правки символа в репозитории. В
@@ -505,8 +515,7 @@ export function useProject({
       const exportWarnings = []
 
       for (const id of [...workspace.formIds]) {
-        const json = workspace.getFormGraph(id) || { cells: [] }
-        graphs.push(json)
+        let json = workspace.getFormGraph(id) || { cells: [] }
         let synced = { changed: 0, detached: [] }
         withRestoreGuard(restoringHistory, () => {
           withPaperFrozen(paper, () => graph.fromJSON(json))
@@ -514,6 +523,15 @@ export function useProject({
           // выгрузится с портами прежней версии символа.
           synced = reinjectAllStencils(graph, paper, { sync: true }) || synced
         })
+        // Сверка ПРАВИТ граф (порты, габарит, отцепление концов), поэтому её результат
+        // сохраняется: иначе в архив уходит одна форма, а в проекте остаётся другая, и
+        // предупреждение об отцепленных возвращается при каждом её открытии.
+        if (synced.changed) {
+          json = graph.toJSON()
+          workspace.setFormGraph(id, json)
+          flagIfNotSaved(await persistForm(id, json))
+        }
+        graphs.push(json)
         // Отцепленный конец меняет схему связей — в сводку предупреждений экспорта.
         if (synced.detached.length) {
           exportWarnings.push(`${id}: отцеплено проводов (порт удалён): ${synced.detached.length}`)

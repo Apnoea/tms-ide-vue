@@ -75,9 +75,11 @@ export function useValueRanges({ details, mutateSelectedTms, openPicker }) {
     }))
   }
 
+  // Только числовые: диапазон сравнивает значение с min/max, булев или текстовый тег
+  // цвета не даст ни в превью, ни в рантайме.
   function openRangePicker() {
     openPicker({
-      tags: () => project.tags,
+      tags: () => project.numericTags,
       selected: details.value?.rangeSource?.tag || '',
       header: 'Выберите тег (диапазоны значений)',
       onSelect: onPickTag,
@@ -165,7 +167,7 @@ export function useValueRanges({ details, mutateSelectedTms, openPicker }) {
 
   function openMultiRangePicker() {
     openPicker({
-      tags: () => project.tags,
+      tags: () => project.numericTags,
       header: 'Тег диапазонов для всех выделенных символов',
       onSelect: onPickMultiRangeTag,
     })

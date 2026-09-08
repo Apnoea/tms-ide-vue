@@ -19,3 +19,28 @@ export const TEXT_ICON = [
 
 /** Ломаная: три звена с изломами — форма читается даже в 14px. */
 export const POLYLINE_ICON = [{ d: 'M2 12.2 6 6.2l3.6 3L14 3.8', mode: 'stroke' }]
+
+// Управление прогоном симуляции. Готовые `pi-pause`/`pi-step-forward` — сплошные
+// медиа-глифы, а тулбар холста набран линейными (`pi-undo`, `pi-search`, `pi-plus`),
+// поэтому те же знаки рисуем контуром.
+
+/** Пауза: две стойки. */
+export const PAUSE_ICON = [
+  { d: 'M6 3.6v8.8', mode: 'stroke' },
+  { d: 'M10 3.6v8.8', mode: 'stroke' },
+]
+
+/** Продолжить: контурный треугольник — тот же знак, что у запуска, но линией. */
+export const PLAY_ICON = [{ d: 'M5.4 3.4 12.4 8l-7 4.6z', mode: 'stroke' }]
+
+/** Шаг назад: шеврон к стойке — «на одно значение назад», а не «в начало». */
+export const STEP_BACK_ICON = [
+  { d: 'M4.2 3.8v8.4', mode: 'stroke' },
+  { d: 'M11.8 4.2 7.4 8l4.4 3.8', mode: 'stroke' },
+]
+
+/** Шаг вперёд: зеркально шагу назад. */
+export const STEP_FORWARD_ICON = [
+  { d: 'M11.8 3.8v8.4', mode: 'stroke' },
+  { d: 'M4.2 4.2 8.6 8l-4.4 3.8', mode: 'stroke' },
+]

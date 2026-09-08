@@ -48,6 +48,18 @@ describe('projectZip', () => {
     expect(data.hierarchy).toEqual([{ id: 'main', children: [{ id: 'sub', children: [] }] }])
   })
 
+  it('XML-дерево тегов уезжает как taglist.xml и читается обратно', async () => {
+    // Tag-list возвращается скадисту тем же файлом, что он дал: формат сохраняем.
+    const tagsText = '<?xml version="1.0"?>\n<Root><Tag name="A" type="Boolean"/></Root>'
+    const data = await readProjectZipFile(
+      buildProjectZipBlob({
+        forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],
+        tagsText,
+      })
+    )
+    expect(data.tagsText).toBe(tagsText)
+  })
+
   it('id формы с путём наружу в архив не уезжает', () => {
     // Zip-slip: `forms/../../x/view.svg` при распаковке уедет за папку проекта. Имена
     // чинит импорт (utils/formIds), здесь последний рубеж — путь наружу не должен

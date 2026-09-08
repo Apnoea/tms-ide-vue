@@ -1,4 +1,4 @@
-import { computed, ref, onBeforeUnmount } from 'vue'
+import { computed, ref, shallowRef, onBeforeUnmount } from 'vue'
 import { useNotify, TOAST_LIFE } from './useNotify'
 import {
   CLASS_OFF,
@@ -22,12 +22,23 @@ import {
   formatValueText,
   randomValueForTag,
 } from '../utils/simValues'
+import {
+  EMPTY_TICKS,
+  currentTick,
+  pushTick,
+  backTick,
+  forwardTick,
+  truncateAfterCurrent,
+  replaceCurrentTick,
+} from '../utils/tickHistory'
 import { useProjectStore } from '../stores/useProjectStore'
 import { getStencilById, getAllStencils } from '../stencils/registry'
 import { useCanvas } from './useCanvas'
 
 const SIM_CYCLE_MS = 1500
 const SIM_CSS_ID = 'tms-sim-css'
+/** Глубина шага назад: ~45 секунд прогона — столько, чтобы вернуться к мелькнувшему. */
+const TICK_HISTORY_MAX = 30
 
 /**
  * Слот, который драйвит состояние символа — любой НЕ `Text`: подпись со значением тега
@@ -38,8 +49,18 @@ const stateSlotKey = (stencil) => stencil?.slots?.find((sl) => sl.type !== 'Text
 // СИНГЛТОН: композабл зовут и CanvasPane (запуск, классы), и SimulationPanel (значения
 // тегов), поэтому состояние живёт в модуле — иначе у панели была бы своя симуляция.
 const simulating = ref(false)
+const paused = ref(false)
 /** Значения тегов, заданные вручную: `tag → значение`. Остальные — случайные. */
 const simValues = ref(new Map())
+/**
+ * Прошедшие тики и позиция просмотра (`utils/tickHistory`): шаг назад применяет
+ * сохранённый набор, шаг вперёд с конца — генерирует новый. Правка значения обрезает
+ * всё после текущей позиции, как новое действие в undo-стеке.
+ *
+ * `shallowRef`: состояние всегда заменяется целиком, а глубокая реактивность обернула
+ * бы прокси каждый Map значений на каждом тике.
+ */
+const ticks = shallowRef(EMPTY_TICKS)
 // Исходный текст подписей со значением: симуляция пишет в них число, остановка
 // возвращает то, что нарисовано в символе.
 const valueTexts = new Map()
@@ -72,10 +93,23 @@ export function useSimulation() {
     if (value == null) next.delete(tag)
     else next.set(tag, value)
     simValues.value = next
+    if (!simulating.value) return
+    // Правка обрывает просмотр истории: дальше прогон идёт от неё.
+    ticks.value = truncateAfterCurrent(ticks.value)
+    // Идущий прогон применит правку следующим тиком, на паузе её иначе не видно.
+    if (!paused.value) return
+    const patched = new Map(currentTick(ticks.value) || [])
+    if (value == null) patched.delete(tag)
+    else patched.set(tag, value)
+    refreshCurrentTick(patched)
   }
 
   function clearTagValues() {
     simValues.value = new Map()
+    if (!simulating.value) return
+    ticks.value = truncateAfterCurrent(ticks.value)
+    // Теги отпущены — на паузе показываем это сразу, новыми случайными значениями.
+    if (paused.value) refreshCurrentTick(null)
   }
 
   /**
@@ -214,11 +248,17 @@ export function useSimulation() {
     }
   }
 
-  /** Одно значение per-tag за тик: ячейки/линки с одним тегом — согласованно. */
-  function applySimClass() {
+  /**
+   * Одно значение per-tag за тик: ячейки/линки с одним тегом — согласованно. Возвращает
+   * набор применённых значений (он же уходит в историю шагов).
+   *
+   * `preset` — набор прошлого тика: значения берутся из него и не генерируются заново,
+   * поэтому шаг назад возвращает ровно ту картинку.
+   */
+  function applySimClass(preset = null) {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
-    if (!graph || !paper) return
+    if (!graph || !paper) return null
     clearSimClasses()
     // Цвет строки могли поменять на ходу — правило под него могло не попасть в CSS.
     const colors = collectRangeColors()
@@ -227,7 +267,7 @@ export function useSimulation() {
     // Значения тегов на этот тик: заданные вручную приоритетнее, остальные
     // догенерируются один раз и держатся до конца тика — иначе элементы с общим тегом
     // разъехались бы.
-    const tickValues = new Map()
+    const tickValues = new Map(preset || [])
     const valueOf = (tag) => {
       if (!tickValues.has(tag)) {
         const manual = simValues.value.get(tag)
@@ -354,6 +394,64 @@ export function useSimulation() {
         el.textContent = formatValueText(valueOf(tag), resolveValueDecimals(tms))
       }
     }
+    return tickValues
+  }
+
+  /** Новый тик: значения генерируются и запоминаются как последний шаг истории. */
+  function runNextTick() {
+    const values = applySimClass()
+    if (!values) return
+    ticks.value = pushTick(ticks.value, values, TICK_HISTORY_MAX)
+  }
+
+  /** Перерисовать текущий тик на месте — новым шагом истории правка не становится. */
+  function refreshCurrentTick(preset) {
+    const applied = applySimClass(preset)
+    if (applied) ticks.value = replaceCurrentTick(ticks.value, applied)
+  }
+
+  const canStepBack = computed(() => ticks.value.index > 0)
+
+  function pauseSimulation() {
+    clearInterval(simIntervalId)
+    simIntervalId = null
+    paused.value = true
+  }
+
+  function resumeSimulation() {
+    if (simIntervalId) return
+    ticks.value = truncateAfterCurrent(ticks.value)
+    paused.value = false
+    simIntervalId = setInterval(runNextTick, SIM_CYCLE_MS)
+  }
+
+  function togglePause() {
+    if (!simulating.value) return
+    if (paused.value) resumeSimulation()
+    else pauseSimulation()
+  }
+
+  /** Шаг назад по сохранённым тикам; как в плеере, сначала ставит прогон на паузу. */
+  function stepBack() {
+    if (!simulating.value) return
+    const back = backTick(ticks.value)
+    if (!back) return
+    pauseSimulation()
+    ticks.value = back
+    applySimClass(currentTick(back))
+  }
+
+  /** Шаг вперёд: по истории, а с её конца — новый тик. */
+  function stepForward() {
+    if (!simulating.value) return
+    pauseSimulation()
+    const { state, needsNew } = forwardTick(ticks.value)
+    if (needsNew) {
+      runNextTick()
+      return
+    }
+    ticks.value = state
+    applySimClass(currentTick(state))
   }
 
   function startSimulation() {
@@ -361,14 +459,18 @@ export function useSimulation() {
     injectSimulationCss(collectRangeColors())
     // Класс tms-simulating вешает Vue через :class на paperContainer.
     simulating.value = true
-    applySimClass()
-    simIntervalId = setInterval(applySimClass, SIM_CYCLE_MS)
+    paused.value = false
+    ticks.value = EMPTY_TICKS
+    runNextTick()
+    simIntervalId = setInterval(runNextTick, SIM_CYCLE_MS)
   }
 
   function stopSimulation() {
     clearInterval(simIntervalId)
     simIntervalId = null
     simulating.value = false
+    paused.value = false
+    ticks.value = EMPTY_TICKS
     clearSimClasses()
     restoreValueTexts()
   }
@@ -383,23 +485,27 @@ export function useSimulation() {
     }
   }
 
-  // Cleanup на unmount: таймер и sim-классы с view'ев (иначе классы зависают на
-  // ячейках после HMR).
   onBeforeUnmount(() => {
-    clearInterval(simIntervalId)
-    simIntervalId = null
-    if (simulating.value) clearSimClasses()
+    // Состояние живёт в модуле, поэтому размонтирование обязано СНЯТЬ симуляцию, а не
+    // только таймер: иначе она осталась бы «включённой» без прогона.
+    if (simulating.value) stopSimulation()
     // Свой <style> снимаем сами: он живёт в document.head и пережил бы unmount, а
     // собран по тем stateColors, что были на старте симуляции.
     document.getElementById(SIM_CSS_ID)?.remove()
   })
 
   // simValues + set/clear + formTags — API панели значений: она задаёт, чем кормить
-  // превью, и показывает теги текущей формы.
+  // превью, и показывает теги текущей формы; paused + шаги — управление прогоном
+  // (кнопки тулбара видны, только пока превью идёт).
   return {
     simulating,
     toggleSimulation,
     stopSimulation,
+    paused,
+    togglePause,
+    stepBack,
+    stepForward,
+    canStepBack,
     simValues,
     setTagValue,
     clearTagValues,

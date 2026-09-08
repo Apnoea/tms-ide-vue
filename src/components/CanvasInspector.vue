@@ -311,10 +311,21 @@ function onPickerSelect(tag) {
 }
 
 // ─── Редактирование слотов (привязка тегов) ───
-// Булев слот → только bool-теги; остальные — весь tag-list.
+/**
+ * Теги, подходящие слоту по типу: булев слот берёт bool-теги, подпись со значением
+ * (`Text`) — числовые (она печатает число с точностью, булев и текстовый тег ей нечего
+ * показать), состояния «по значению» — весь список: код состояния автор задаёт сам, и
+ * у булевых символов это как раз `true`/`false`.
+ */
+function slotPickerTags(slot) {
+  if (isBooleanType(slot?.type)) return project.booleanTags
+  if (slot?.type === 'Text') return project.numericTags
+  return project.tags
+}
+
 function openSlotPicker(slot) {
   openPicker({
-    tags: () => (isBooleanType(slot?.type) ? project.booleanTags : project.tags),
+    tags: () => slotPickerTags(slot),
     selected: slot?.value || '',
     header: 'Выберите тег',
     onSelect: (tag) => patchSlotTag(slot.key, tag),

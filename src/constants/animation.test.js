@@ -17,7 +17,8 @@ describe('buildStateColorCssRules', () => {
       stencil({ true: '#ff0000', false: { stroke: 'blue', fill: '#0f0' } }),
     ])
     expect(rules.some((r) => r.includes('animation-color-cell_x-true') && r.includes('#ff0000')))
-    expect(rules.filter((r) => r.includes('animation-color-cell_x-false'))).toHaveLength(2)
+    // Контур + сброс обводки у подписей + заливка.
+    expect(rules.filter((r) => r.includes('animation-color-cell_x-false'))).toHaveLength(3)
   })
 
   it('scope префиксует селекторы (симуляция)', () => {
@@ -37,7 +38,7 @@ describe('buildStateColorCssRules', () => {
     expect(buildStateColorCssRules([stencil({ true: 'url(http://evil/x)' })])).toEqual([])
     // Заливка отброшена, валидный контур остаётся.
     const rules = buildStateColorCssRules([stencil({ true: { stroke: 'red', fill: 'a; }' } })])
-    expect(rules).toHaveLength(1)
+    expect(rules).toHaveLength(2) // контур + сброс обводки у подписей
     expect(rules[0]).toContain('stroke: red')
   })
 })
@@ -61,20 +62,33 @@ describe('цвет строки диапазона', () => {
 describe('buildRangeCssRules', () => {
   it('правило на каждый использованный цвет + animation-off поверх', () => {
     const rules = buildRangeCssRules(['#ff8800', '#ff8800', '#10b981'])
-    // Дубли схлопнуты: по два правила (stroke + opt-in fill) на цвет, плюс off.
-    expect(rules).toHaveLength(6)
+    // Дубли схлопнуты: по три правила на цвет (stroke, сброс обводки у подписей,
+    // opt-in fill), плюс off.
+    expect(rules).toHaveLength(9)
     expect(rules[0]).toContain('.animation-c-ff8800')
     expect(rules[0]).toContain('stroke: #ff8800')
     expect(rules.at(-1)).toContain('.animation-off')
   })
 
   it('без цветов остаётся только off; мусор правил не даёт', () => {
-    expect(buildRangeCssRules([])).toHaveLength(2)
-    expect(buildRangeCssRules(['url(#evil)', ''])).toHaveLength(2)
+    expect(buildRangeCssRules([])).toHaveLength(3)
+    expect(buildRangeCssRules(['url(#evil)', ''])).toHaveLength(3)
   })
 
   it('scope префиксует селекторы (симуляция)', () => {
     const [rule] = buildRangeCssRules(['#10b981'], { scope: '.tms-simulating ' })
     expect(rule.startsWith('.tms-simulating .animation-c-10b981')).toBe(true)
+  })
+
+  it('подписям обводка сбрасывается: stroke группы наследуется в <text>', () => {
+    // Цвет глифов — fill, обводки у текста нет, а унаследованный stroke обводит их
+    // контуром состояния. `*:not(text)` от наследования не спасает — это про прямое
+    // применение.
+    const off = buildRangeCssRules([]).find((r) => r.includes('.animation-off text'))
+    expect(off).toContain('stroke: none !important')
+    const state = buildStateColorCssRules([stencil({ false: '#94a3b8' })]).find((r) =>
+      r.includes(' text')
+    )
+    expect(state).toContain('stroke: none !important')
   })
 })

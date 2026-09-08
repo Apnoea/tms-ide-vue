@@ -1,5 +1,18 @@
-import { describe, it, expect } from 'vitest'
-import { editRanges } from './useValueRanges'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { ref } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
+
+vi.mock('./useCanvas', () => ({
+  useCanvas: () => ({ graphRef: ref(null), paperRef: ref(null), selection: ref([]) }),
+}))
+vi.mock('./useNotify', () => ({
+  useNotify: () => ({ success: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
+  TOAST_LIFE: {},
+}))
+vi.mock('../stencils/registry', () => ({ getStencilById: () => null }))
+
+import { editRanges, useValueRanges } from './useValueRanges'
+import { useProjectStore } from '../stores/useProjectStore'
 
 const RANGES = [
   { min: 0, max: 3.99, color: '#10b981' },
@@ -31,5 +44,42 @@ describe('editRanges', () => {
     const rows = [{ value: 1, color: '#10b981' }]
     expect(editRanges(rows, 0, 'value', '2')[0]).toEqual({ value: 2, color: '#10b981' })
     expect(editRanges(rows, 0, 'value', '')).toBeNull()
+  })
+})
+
+// Диапазон сравнивает значение с min/max, поэтому булев и текстовый тег в его пикере
+// не нужны: такая привязка не даст цвета ни в превью, ни в рантайме.
+describe('пикер тега диапазонов: только числовые типы', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  function setup() {
+    useProjectStore().setTags([
+      { name: 'UA', type: 'Float' },
+      { name: 'ONOFF', type: 'Boolean' },
+      { name: 'NAME', type: 'String' },
+      { name: 'RAW', type: 'ByteArray' },
+      { name: 'CNT', type: 'Int32' },
+      { name: 'MYSTERY', type: 'Whatever' },
+    ])
+    const openPicker = vi.fn()
+    const api = useValueRanges({
+      details: ref({ rangeSource: null }),
+      mutateSelectedTms: vi.fn(),
+      openPicker,
+    })
+    return { api, openPicker }
+  }
+
+  it('одиночная привязка отдаёт числовые теги, незнакомый тип оставляет', () => {
+    const { api, openPicker } = setup()
+    api.openRangePicker()
+    const tags = openPicker.mock.calls[0][0].tags()
+    expect(tags.map((t) => t.name)).toEqual(['UA', 'CNT', 'MYSTERY'])
+  })
+
+  it('массовая привязка фильтрует так же', () => {
+    const { api, openPicker } = setup()
+    api.openMultiRangePicker()
+    expect(openPicker.mock.calls[0][0].tags().map((t) => t.name)).toEqual(['UA', 'CNT', 'MYSTERY'])
   })
 })

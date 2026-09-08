@@ -85,6 +85,14 @@ const CSS_COLOR_RE = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+)$/
 export const cssColor = (v) => (CSS_COLOR_RE.test(v) ? v : '')
 
 /**
+ * Сброс обводки у подписей внутри перекрашенного элемента. Цвет глифов текста — это
+ * `fill`, обводки у него нет, а `stroke` НАСЛЕДУЕТСЯ от группы: без сброса подпись
+ * обводится контуром состояния (`*:not(text)` от наследования не спасает — оно
+ * исключает только прямое применение).
+ */
+const textStrokeReset = (sel) => `${sel} text { stroke: none !important; }`
+
+/**
  * CSS перекраса по состоянию — один источник для экспорта (scope '') и симуляции
  * (scope '.tms-simulating '). `:not(.animation-off)` — обесточивание бьёт цвет
  * состояния. Про scope/strokeExtra см. buildRangeCssRules.
@@ -103,7 +111,10 @@ export function buildStateColorCssRules(stencils, { scope = '', strokeExtra = ''
       const fill = cssColor(norm.fill)
       const sel = `${scope}.${stateColorClass(s.id, key)}:not(.${CLASS_OFF})`
       if (stroke)
-        rules.push(`${sel}, ${sel} *:not(text)${strokeExtra} { stroke: ${stroke} !important; }`)
+        rules.push(
+          `${sel}, ${sel} *:not(text)${strokeExtra} { stroke: ${stroke} !important; }`,
+          textStrokeReset(sel)
+        )
       if (fill)
         rules.push(
           `${sel} .${STATE_FILL_CLASS}, ${sel}.${STATE_FILL_CLASS} { fill: ${fill} !important; }`
@@ -129,6 +140,7 @@ export function buildRangeCssRules(colors = [], { scope = '', strokeExtra = '' }
   const paint = (cls, hex) => {
     rules.push(
       `${scope}.${cls}, ${scope}.${cls} *:not(text)${strokeExtra} { stroke: ${hex} !important; }`,
+      textStrokeReset(`${scope}.${cls}`),
       `${scope}.${cls} .${RANGE_FILL_CLASS}, ${scope}.${cls}.${RANGE_FILL_CLASS} { fill: ${hex} !important; }`
     )
   }

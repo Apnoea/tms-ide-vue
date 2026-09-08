@@ -36,7 +36,7 @@ vi.mock('../services/stencilLibrary', () => ({ persistStencilsToDisk: vi.fn(asyn
 // stencilOverrides — IDB-персист правок символов; в тесте детерминируем.
 // stencilSignature — упрощённая, но чувствительная к json+svg (для ветки changed).
 vi.mock('../services/stencilOverrides', () => ({
-  replaceStencilOverrides: vi.fn(async () => {}),
+  replaceStencilOverrides: vi.fn(async () => true),
   stencilSignature: (j, s) => `${JSON.stringify(j ?? {})}|${s || ''}`,
 }))
 
@@ -463,6 +463,28 @@ describe('useProject', () => {
       expect(useWorkspaceStore().activeFormId).toBe('a')
       expect(deps.undo.initHistory).not.toHaveBeenCalled()
       expect(deps.undo.cancelPendingSnapshot).toHaveBeenCalled()
+      // Сверка ничего не поправила — формы не перезаписываются.
+      expect(deps.autosave.persistForm).not.toHaveBeenCalled()
+    })
+
+    it('сверенная сверкой форма сохраняется: архив не расходится с проектом', async () => {
+      // reinjectAllStencils({sync:true}) правит граф (порты, габарит, отцепление
+      // концов); без записи проект остался бы прежним, и предупреждение возвращалось
+      // бы при каждом открытии формы.
+      reinjectAllStencils.mockReturnValue({ changed: 2, detached: [] })
+      seedForms(
+        [
+          { id: 'a', graphJson: { cells: [] } },
+          { id: 'b', graphJson: { cells: [] } },
+        ],
+        'a'
+      )
+      const deps = makeDeps()
+      const { exportProjectToArchive } = useProject(deps)
+      await exportProjectToArchive()
+
+      expect(deps.autosave.persistForm.mock.calls.map((c) => c[0])).toEqual(['a', 'b'])
+      expect(useWorkspaceStore().getFormGraph('b')).toEqual(expect.objectContaining({ cells: [] }))
     })
   })
 
@@ -637,6 +659,23 @@ describe('useProject', () => {
       expect(ws.activeFormId).toBe('b')
       expect(deps.autosave.removeFormPersist).toHaveBeenCalledWith('a')
       expect(deps.undo.initHistory).toHaveBeenCalled() // активная сменилась → reload
+    })
+
+    it('смена графа активной формы гасит симуляцию', async () => {
+      // Превью считает по тегам ТОЙ формы, что на холсте, и пишет значения в её
+      // подписи — на чужую форму оно переезжать не должно.
+      seedForms(
+        [
+          { id: 'a', graphJson: { cells: [] } },
+          { id: 'b', graphJson: { cells: [] } },
+        ],
+        'a'
+      )
+      const deps = makeDeps({ simulation: { simulating: ref(true) } })
+      const { deleteForm } = useProject(deps)
+      await deleteForm('a')
+
+      expect(deps.simulation.stopSimulation).toHaveBeenCalled()
     })
 
     it('удаление не активной не перегружает холст', async () => {

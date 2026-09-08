@@ -51,6 +51,7 @@ vi.mock('../stencils/svgInjector', async (importActual) => ({
 import CanvasInspector from './CanvasInspector.vue'
 import TagPickerDialog from './TagPickerDialog.vue'
 import BooleanBlock from './BooleanBlock.vue'
+import ValueBlock from './ValueBlock.vue'
 import { useCanvas } from '../composables/useCanvas'
 import { materializeShape } from '../stencils/shapeElement'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -170,6 +171,27 @@ describe('CanvasInspector', () => {
     await fields[0].setValue('')
     await wrapper.vm.$nextTick()
     expect(cell.get('tms').params).toEqual({ p2: 'кВ' })
+  })
+
+  it('tag-picker подписи со значением получает только числовые теги', async () => {
+    // Подпись печатает число с точностью (`decimals`), поэтому булев и текстовый тег
+    // ей нечего показать.
+    useProjectStore().setTags([
+      { name: 'BR1.ONOFF', type: 'Boolean' },
+      { name: 'PT1.VALUE', type: 'Float' },
+      { name: 'NAME', type: 'String' },
+    ])
+    const cell = makeCell({ stencilId: 'cell_value' })
+    graph.addCell(cell)
+    canvas.selectOnly('cell', cell.id)
+    setup()
+    await wrapper.vm.$nextTick()
+
+    wrapper.findComponent(ValueBlock).vm.$emit('pick-tag')
+    await wrapper.vm.$nextTick()
+
+    const picker = wrapper.findComponent(TagPickerDialog)
+    expect(picker.props('tags').map((t) => t.name)).toEqual(['PT1.VALUE'])
   })
 })
 

@@ -1,9 +1,11 @@
 // Проект ↔ ZIP-архив — единственный формат ввода-вывода. Раскладка внутри архива:
 // forms/<id>/{view.svg,animations.json}, library/<id>/{stencil.json,shape.svg},
-// taglist.csv, hierarchy.json, project.json (редакторная мета). Экспорт — скачивание
+// taglist.csv (или taglist.xml — в формате исходного файла), hierarchy.json,
+// project.json (редакторная мета). Экспорт — скачивание
 // Blob, импорт — выбор .zip (pickFile) и распаковка в структуру для useProject.
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 import { FORM_ID_RE, FORM_ID_MAX } from '../constants/ids'
+import { isXmlTagList } from './parsers'
 import { pickFile } from './fileSystem'
 
 /** Id, из которого строится путь внутри архива. Нарушитель = баг, а не данные. */
@@ -44,7 +46,11 @@ export function buildProjectZipBlob({ forms, stencils, tagsText, hierarchy, proj
       files[`library/${s.id}/shape.svg`] = strToU8(s.shapeSvg)
     }
   }
-  if (tagsText != null) files['taglist.csv'] = strToU8(tagsText)
+  // Tag-list уезжает КАК ЕСТЬ, в своём формате: скадист открывает архив тем же файлом,
+  // что дал нам, а разбор различает форматы сам (parsers.parseTagList).
+  if (tagsText != null) {
+    files[isXmlTagList(tagsText) ? 'taglist.xml' : 'taglist.csv'] = strToU8(tagsText)
+  }
   // project.json — редакторная мета проекта (фон холста по формам). Отдельным файлом,
   // а не полем hierarchy.json: тот массив-дерево, менять его форму = ломать чтение
   // старых архивов. Пустая мета не пишется.
@@ -131,7 +137,7 @@ export async function readProjectZipFile(file) {
     stencils.push({ id, stencilJson, shapeSvg: text(`library/${id}/shape.svg`) ?? '' })
   }
 
-  const tagsText = text('taglist.csv') ?? text('taglist.txt')
+  const tagsText = text('taglist.csv') ?? text('taglist.txt') ?? text('taglist.xml')
 
   let hierarchy = null
   const hierarchyText = text('hierarchy.json')

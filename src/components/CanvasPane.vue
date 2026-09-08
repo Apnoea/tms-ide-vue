@@ -35,6 +35,7 @@ import { usePan } from '../composables/usePan'
 import { useCanvasZoom, ZOOM_STEP } from '../composables/useCanvasZoom'
 import { useCellHighlight } from '../composables/useCellHighlight'
 import { useMultiDrag } from '../composables/useMultiDrag'
+import { useSnapGuides } from '../composables/useSnapGuides'
 import { useLasso } from '../composables/useLasso'
 import { useCanvasDraw } from '../composables/useCanvasDraw'
 import { useCanvasResize } from '../composables/useCanvasResize'
@@ -46,7 +47,14 @@ import { confirmDanger } from '../utils/confirmDanger'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cssColor } from '../constants/animation'
 import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
-import { TEXT_ICON, POLYLINE_ICON } from '../constants/icons'
+import {
+  TEXT_ICON,
+  POLYLINE_ICON,
+  PAUSE_ICON,
+  PLAY_ICON,
+  STEP_BACK_ICON,
+  STEP_FORWARD_ICON,
+} from '../constants/icons'
 import SearchBar from './SearchBar.vue'
 
 const project = useProjectStore()
@@ -131,15 +139,29 @@ let isPointerDownOnCell = false
 // «Ячейку тащат» — взводится на первом change в окне pointer-down (drag, а не клик).
 // Пока true, overlay-кнопки скрыты: bumpVersion подавлен.
 const cellDragging = ref(false)
+// Направляющие: притягивают двигаемый символ к краям, центрам и портам соседей.
+// Объявлены здесь, а не рядом с multi-drag: `endGuides` зовёт releasePointerDrag ниже.
+const { guideLines, beginGuides, updateGuides, endGuides } = useSnapGuides()
 function releasePointerDrag() {
   if (!isPointerDownOnCell) return
   isPointerDownOnCell = false
   cellDragging.value = false
+  // Мышь могли отпустить вне холста — линии иначе остались бы висеть.
+  endGuides()
   canvas.bumpVersion()
 }
 useEventListener(document, 'mouseup', releasePointerDrag, { capture: true })
 
-const { simulating, toggleSimulation, stopSimulation } = useSimulation()
+const {
+  simulating,
+  toggleSimulation,
+  stopSimulation,
+  paused,
+  togglePause,
+  stepBack,
+  stepForward,
+  canStepBack,
+} = useSimulation()
 const { textEditing, textEditValue, textEditorRef, startTextEdit, commitTextEdit, cancelTextEdit } =
   useTextEdit({ scheduleSnapshot })
 const { copySelection, pasteClipboard, duplicateSelection, hasClipboard } = useClipboard({
@@ -326,6 +348,24 @@ const DRAW_TOOLS = [
   { key: 'text', glyph: TEXT_ICON, tip: 'Подпись (текст правится в инспекторе)' },
 ]
 
+// Управление прогоном симуляции: шаг назад, пауза/продолжить, шаг вперёд.
+const SIM_CONTROLS = computed(() => [
+  {
+    key: 'back',
+    tip: 'Шаг назад',
+    glyph: STEP_BACK_ICON,
+    disabled: !canStepBack.value,
+    act: stepBack,
+  },
+  {
+    key: 'pause',
+    tip: paused.value ? 'Продолжить' : 'Пауза',
+    glyph: paused.value ? PLAY_ICON : PAUSE_ICON,
+    act: togglePause,
+  },
+  { key: 'forward', tip: 'Шаг вперёд', glyph: STEP_FORWARD_ICON, act: stepForward },
+])
+
 // ─── Pan-жесты ──────────────────────────────────────────────────────────────
 // Средняя кнопка или Space+ЛКМ панят холст, обычный ЛКМ по пустому — лассо.
 // Курсор: Space над холстом → grab, во время pan → grabbing. spaceHeld и overCanvas —
@@ -466,6 +506,7 @@ onMounted(async () => {
     }
     // Ячейка уже в выделении и нет Ctrl — оставляем как есть (multi-drag).
     prepareMultiDrag(cellId)
+    beginGuides(cellId)
   })
   paper.on('link:pointerdown', (linkView, evt) => {
     if (evt.ctrlKey || evt.metaKey) {
@@ -477,6 +518,11 @@ onMounted(async () => {
   // Multi-drag: ведущая ячейка тянет остальных выделенных (см. useMultiDrag).
   graph.on('change:position', onPositionChange)
   paper.on('element:pointerup', endMultiDrag)
+
+  // Направляющие: правим позицию ПОСЛЕ снапа JointJS к сетке, поэтому на pointermove,
+  // а не на change:position (там правка ведущей вызвала бы саму себя).
+  paper.on('element:pointermove', (elementView, evt) => updateGuides(elementView.model, evt))
+  paper.on('element:pointerup', endGuides)
 
   // Закрепление на шине: сдвинули шину — закреплённые символы едут за ней. Выделенные
   // пропускаются (их уже сдвинул multi-drag), `busFollow` гасит реентри.
@@ -925,13 +971,44 @@ function performClearCanvas(count) {
 
         <Button
           v-tooltip.bottom="simulating ? 'Остановить симуляцию' : 'Запустить симуляцию'"
-          :icon="simulating ? 'pi pi-pause-circle' : 'pi pi-play-circle'"
+          :icon="simulating ? 'pi pi-stop-circle' : 'pi pi-play-circle'"
           :severity="simulating ? 'primary' : 'secondary'"
           :text="!simulating"
           size="small"
           class="tms-icon-btn"
           @click="toggleSimulation"
         />
+
+        <!-- Управление прогоном: показываем только во время симуляции — вне неё шагать
+             некуда. Шаг сам ставит на паузу (как в плеере). -->
+        <template v-if="simulating">
+          <Button
+            v-for="c in SIM_CONTROLS"
+            :key="c.key"
+            v-tooltip.bottom="c.tip"
+            severity="secondary"
+            text
+            size="small"
+            class="tms-icon-btn"
+            :disabled="c.disabled"
+            @click="c.act()"
+          >
+            <template #icon>
+              <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
+                <path
+                  v-for="(el, i) in c.glyph"
+                  :key="i"
+                  :d="el.d"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </template>
+          </Button>
+        </template>
       </div>
 
       <!-- Справа — инструменты группами: история │ вид (поиск + зум) │ удаление. -->
@@ -1297,6 +1374,26 @@ function performClearCanvas(count) {
         :style="{ ...h.style, cursor: h.cursor }"
         @pointerdown="onHandleDown($event, h.key)"
       ></div>
+
+      <!-- Направляющие двигаемого символа: линия проходит через соседей, с которыми он
+           встал в ряд. Тонкая и пунктиром — подсказка на время жеста, не элемент схемы. -->
+      <svg
+        v-if="guideLines.length"
+        class="absolute inset-0 pointer-events-none w-full h-full overflow-visible"
+      >
+        <line
+          v-for="(g, i) in guideLines"
+          :key="i"
+          :x1="g.x1"
+          :y1="g.y1"
+          :x2="g.x2"
+          :y2="g.y2"
+          stroke="currentColor"
+          stroke-width="1"
+          stroke-dasharray="3 3"
+          class="text-primary-500"
+        />
+      </svg>
 
       <!-- Превью рисуемой фигуры (координаты в container-px, как у лассо). Рамка для
            прямоугольника/эллипса, линия и ломаная — своими примитивами. -->
