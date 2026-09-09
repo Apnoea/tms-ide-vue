@@ -55,6 +55,7 @@ import {
   STEP_BACK_ICON,
   STEP_FORWARD_ICON,
 } from '../constants/icons'
+import ColorField from './ColorField.vue'
 import SearchBar from './SearchBar.vue'
 
 const project = useProjectStore()
@@ -93,8 +94,6 @@ const bus = useBusResize({ scheduleSnapshot })
 // Объявления идут ДО блока listeners: useEventListener читает paperContainer как
 // зависимость, а у `const` нет hoisting'а (TDZ).
 const paperContainer = ref(null)
-// Скрытый <input type="color"> пикера фона: кнопка тулбара открывает его click()'ом.
-const bgInput = ref(null)
 let paper = null
 let graph = null
 
@@ -801,9 +800,9 @@ watch(
   // setSelection/toggle/clear), ref-сравнения достаточно.
 )
 
-// Цвет, пока пикер открыт: нативный диалог шлёт `input` непрерывно (живое превью),
-// и писать на каждый тик в стор + IndexedDB значило бы десятки записей за один выбор.
-// Поэтому превью держим локально, а в проект пишем на `change` — по закрытию диалога.
+// Цвет, пока пикер открыт: палитра шлёт значение непрерывно (живое превью), и писать
+// на каждый тик в стор + IndexedDB значило бы десятки записей за один выбор. Поэтому
+// превью держим локально, а в проект пишем по закрытию палитры.
 const bgPreview = ref(null)
 
 function previewFormBackground(color) {
@@ -819,6 +818,14 @@ function commitFormBackground(color) {
   if (!workspace.setFormBg(workspace.activeFormId, color)) return
   persistMeta()
   canvas.markDirty()
+}
+
+/**
+ * Жест в палитре закончен: пишем цвет, только если его действительно выбирали — иначе
+ * «открыл и закрыл» гонял бы запись меты.
+ */
+function onBgFieldChange() {
+  if (bgPreview.value) commitFormBackground(bgPreview.value)
 }
 
 // Фон холста — свойство ФОРМЫ (`workspace.formBg`), поэтому watch следит и за сменой
@@ -1036,43 +1043,40 @@ function performClearCanvas(count) {
 
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
 
-        <!-- Фон АКТИВНОЙ ФОРМЫ (см. workspace.formBg). Клик по иконке открывает
-             нативный пикер сразу: промежуточная всплывашка ради одного контрола
-             стоила лишнего клика. Сам `input` спрятан, но живёт в DOM — открыть
-             диалог можно только его собственным click(). -->
-        <span class="relative inline-flex">
-          <Button
-            v-tooltip.bottom="'Фон этой формы'"
-            icon="pi pi-palette"
-            severity="secondary"
-            text
-            size="small"
-            class="tms-icon-btn"
-            @click="bgInput?.click()"
-          />
-          <!-- Крестик поверх иконки — сброс к дефолту. Виден только у формы со своим
+        <!-- Фон АКТИВНОЙ ФОРМЫ (см. workspace.formBg): общее поле цвета, но триггер
+             свой — иконка палитры в тулбаре вместо свотча. Палитра ведёт живое превью
+             (в стор ничего не пишется), запись в мету — по завершении жеста. -->
+        <ColorField
+          :model-value="formBackground"
+          @update:model-value="previewFormBackground"
+          @change="onBgFieldChange"
+        >
+          <template #trigger="{ open }">
+            <Button
+              v-tooltip.bottom="'Фон этой формы'"
+              icon="pi pi-palette"
+              severity="secondary"
+              text
+              size="small"
+              class="tms-icon-btn"
+              @click="open"
+            />
+          </template>
+          <template #badge>
+            <!-- Крестик поверх иконки — сброс к дефолту. Виден только у формы со своим
                фоном: иначе висел бы пустым обещанием. stop, чтобы клик не всплыл на
-               кнопку и не открыл пикер вместо сброса. -->
-          <button
-            v-if="workspace.activeFormBg"
-            v-tooltip.bottom="'Вернуть фон по умолчанию'"
-            type="button"
-            class="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
-            @click.stop="commitFormBackground(null)"
-          >
-            <i class="pi pi-times text-[7px]!" />
-          </button>
-        </span>
-        <input
-          ref="bgInput"
-          type="color"
-          class="sr-only"
-          tabindex="-1"
-          aria-hidden="true"
-          :value="formBackground"
-          @input="previewFormBackground($event.target.value)"
-          @change="commitFormBackground($event.target.value)"
-        />
+               кнопку и не открыл палитру вместо сброса. -->
+            <button
+              v-if="workspace.activeFormBg"
+              v-tooltip.bottom="'Вернуть фон по умолчанию'"
+              type="button"
+              class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+              @click.stop="commitFormBackground(null)"
+            >
+              <i class="pi pi-times text-[7px]!" />
+            </button>
+          </template>
+        </ColorField>
 
         <!-- Поиск (Ctrl+F) — в той же группе, что фон и зум: всё про просмотр схемы.
              Кнопка делает фичу видимой, а не только клавиатурной (панель SearchBar). -->

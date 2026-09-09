@@ -14,7 +14,7 @@ defineProps({
   slotInfo: { type: Object, required: true },
   /** Объявленные подписи: `{ key, label, value }` — label пуст у пустой по умолчанию. */
   params: { type: Array, default: () => [] },
-  /** Знаков после запятой (`tms.decimals`); null = дефолт протокола. */
+  /** Знаков после запятой (`tms.decimals`); `null` = поле не задано, показываем дефолт. */
   decimals: { type: Number, default: null },
   tagsLoaded: { type: Boolean, default: false },
 })
@@ -41,8 +41,11 @@ const emit = defineEmits(['pick-tag', 'highlight-tag', 'update-decimals', 'updat
     />
     <div class="mt-2 flex items-center gap-3">
       <span class="text-[11px] text-surface-500 shrink-0">Знаков после запятой</span>
+      <!-- Точность показываем ЧИСЛОМ, а не подсказкой в пустом поле: в `tms` дефолт не
+           пишется, но в рантайме подпись всё равно печатается с ним, и пустое поле
+           читалось бы как «точность не задана». -->
       <InputNumber
-        :model-value="decimals"
+        :model-value="decimals ?? VALUE_DECIMALS_DEFAULT"
         :min="0"
         :max="6"
         :step="1"
@@ -51,7 +54,6 @@ const emit = defineEmits(['pick-tag', 'highlight-tag', 'update-decimals', 'updat
         size="small"
         input-class="w-12! text-center"
         class="ml-auto"
-        :placeholder="String(VALUE_DECIMALS_DEFAULT)"
         @update:model-value="(v) => emit('update-decimals', v)"
       />
     </div>

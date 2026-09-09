@@ -1,8 +1,11 @@
 <script setup>
+import { computed } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import TagField from './TagField.vue'
-import { RANGE_COLOR_PRESETS, rangeRowColor } from '../constants/animation'
+import ColorField from './ColorField.vue'
+import { rangeRowColor } from '../constants/animation'
+import { rangeBarSegments } from '../utils/rangeBar'
 
 /**
  * Карточка анимации «Значение тега → цвет по диапазону» в инспекторе. Виден всегда;
@@ -16,7 +19,7 @@ import { RANGE_COLOR_PRESETS, rangeRowColor } from '../constants/animation'
  * highlight / remove / copy / paste). Состоянием
  * (объектом rangeSource) владеет родитель — мы только рендерим и зовём.
  */
-defineProps({
+const props = defineProps({
   rangeSource: { type: Object, default: null }, // { tag, ranges } | null
   tagsLoaded: { type: Boolean, default: false },
   // copyable — есть что копировать (задан rangeSource); pasteable — в буфере
@@ -36,9 +39,10 @@ defineEmits([
   'paste',
 ])
 
-// Быстрые свотчи под пикером: типовые цвета диапазонов.
-const PRESETS = RANGE_COLOR_PRESETS
 const rowColor = rangeRowColor
+
+/** Сегменты полоски-превью; `null` — рисовать нечего (нет годных строк). */
+const bar = computed(() => rangeBarSegments(props.rangeSource?.ranges))
 
 /** Пустая ячейка — строка без порога: в экспорт она не попадёт. */
 const cellText = (v) => (Number.isFinite(v) ? String(v) : '')
@@ -105,46 +109,50 @@ const cellText = (v) => (Number.isFinite(v) ? String(v) : '')
 
       <div v-if="rangeSource?.tag">
         <div class="text-[11px] text-surface-500 mb-1">Диапазоны</div>
+        <!-- Полоска-превью: в столбике чисел не видно ни порядка, ни пропусков, ни
+             того, какая полоса шире. Фон под сегментами остаётся там, где значения
+             цвета не получат. -->
+        <template v-if="bar">
+          <div class="relative mb-1 h-2 w-full overflow-hidden rounded-sm bg-surface-200">
+            <span
+              v-for="(s, i) in bar.segments"
+              :key="i"
+              v-tooltip.top="`${s.from} – ${s.to}`"
+              class="absolute inset-y-0"
+              :style="{ left: `${s.left}%`, width: `${s.width}%`, background: s.color }"
+            />
+          </div>
+          <div class="mb-2 flex justify-between font-mono text-[10px] text-surface-400">
+            <span>{{ bar.from }}</span>
+            <span>{{ bar.to }}</span>
+          </div>
+        </template>
         <div class="space-y-1">
           <div v-for="(r, idx) in rangeSource.ranges" :key="idx" class="flex items-center gap-1.5">
-            <!-- Границы забирают остаток строки: свотчи, пикер и удаление фиксированы,
-                 поэтому во всех строках стоят на одном месте. -->
-            <div class="flex flex-1 min-w-0 items-center gap-1.5">
-              <InputText
-                :model-value="cellText(r.min)"
-                size="small"
-                class="flex-1 min-w-0 font-mono text-xs!"
-                inputmode="decimal"
-                @change="$emit('update-range', idx, 'min', $event.target.value)"
-              />
-              <span class="text-surface-400 text-xs">–</span>
-              <InputText
-                :model-value="cellText(r.max)"
-                size="small"
-                class="flex-1 min-w-0 font-mono text-xs!"
-                inputmode="decimal"
-                @change="$emit('update-range', idx, 'max', $event.target.value)"
-              />
-            </div>
-            <!-- Пресеты первыми: типовой цвет ставится одним кликом,
-                 пикер нужен только для своего. -->
-            <div class="flex items-center gap-1 shrink-0">
-              <button
-                v-for="preset in PRESETS"
-                :key="preset"
-                type="button"
-                class="h-5 w-5 rounded-sm border border-surface-300 cursor-pointer"
-                :class="rowColor(r) === preset ? 'ring-2 ring-primary-400' : ''"
-                :style="{ background: preset }"
-                @click="$emit('update-range', idx, 'color', preset)"
-              />
-            </div>
-            <!-- Тот же размер, что у пикеров цвета в остальных блоках инспектора. -->
-            <input
-              type="color"
-              :value="rowColor(r) || '#10b981'"
-              class="h-8 w-10 shrink-0 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-              @input="$emit('update-range', idx, 'color', $event.target.value)"
+            <!-- Цвет ПЕРВЫМ: он метка строки, а не настройка в конце — глаз связывает
+                 его с числами. Границы по содержимому (пять знаков), удаление справа. -->
+            <ColorField
+              :model-value="rowColor(r) || '#10b981'"
+              class="shrink-0"
+              @update:model-value="$emit('update-range', idx, 'color', $event)"
+            />
+            <!-- Низ ПЕРВОЙ строки не правится и всегда показывает нуль: шкала
+                 начинается с него (пустое поле читалось бы как «порог не задан»). -->
+            <InputText
+              :model-value="idx === 0 ? cellText(r.min) || '0' : cellText(r.min)"
+              :disabled="idx === 0"
+              size="small"
+              class="w-14! font-mono text-xs!"
+              inputmode="decimal"
+              @change="$emit('update-range', idx, 'min', $event.target.value)"
+            />
+            <span class="text-surface-400 text-xs">–</span>
+            <InputText
+              :model-value="cellText(r.max)"
+              size="small"
+              class="w-14! font-mono text-xs!"
+              inputmode="decimal"
+              @change="$emit('update-range', idx, 'max', $event.target.value)"
             />
             <Button
               v-tooltip.bottom="'Удалить строку'"
@@ -152,7 +160,7 @@ const cellText = (v) => (Number.isFinite(v) ? String(v) : '')
               severity="secondary"
               text
               size="small"
-              class="p-1! w-6! h-6! shrink-0"
+              class="ml-auto p-1! w-6! h-6! shrink-0"
               @click="$emit('remove-range', idx)"
             />
           </div>

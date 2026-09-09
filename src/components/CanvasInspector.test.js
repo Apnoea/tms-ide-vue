@@ -51,6 +51,7 @@ vi.mock('../stencils/svgInjector', async (importActual) => ({
 import CanvasInspector from './CanvasInspector.vue'
 import TagPickerDialog from './TagPickerDialog.vue'
 import BooleanBlock from './BooleanBlock.vue'
+import ColorField from './ColorField.vue'
 import ValueBlock from './ValueBlock.vue'
 import { useCanvas } from '../composables/useCanvas'
 import { materializeShape } from '../stencils/shapeElement'
@@ -238,10 +239,9 @@ describe('CanvasInspector: фигура-разметка', () => {
     const cell = selectShape({ type: 'rect', x: 0, y: 0, w: 40, h: 20 })
     await wrapper.vm.$nextTick()
 
-    const colorInput = wrapper.find('input[type="color"]')
-    expect(colorInput.exists()).toBe(true)
-    colorInput.element.value = '#ff0000'
-    await colorInput.trigger('input')
+    const color = wrapper.findComponent(ColorField)
+    expect(color.exists()).toBe(true)
+    await color.vm.$emit('update:modelValue', '#ff0000')
 
     expect(cell.get('tms').shape.stroke).toBe('#ff0000')
   })
@@ -346,9 +346,7 @@ describe('CanvasInspector: стиль провода', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('2 провода')
 
-    const color = wrapper.find('input[type="color"]')
-    color.element.value = '#ff0000'
-    await color.trigger('input')
+    await wrapper.findComponent(ColorField).vm.$emit('update:modelValue', '#ff0000')
     expect(a.get('tms').strokeColor).toBe('#ff0000')
     expect(b.get('tms').strokeColor).toBe('#ff0000')
   })
@@ -375,9 +373,7 @@ describe('CanvasInspector: стиль провода', () => {
     ])
     mount()
     await wrapper.vm.$nextTick()
-    const color = wrapper.find('input[type="color"]')
-    color.element.value = '#ff0000'
-    await color.trigger('input')
+    await wrapper.findComponent(ColorField).vm.$emit('update:modelValue', '#ff0000')
     expect(a.get('tms').strokeColor).toBe('#ff0000')
     expect(b.get('tms').strokeColor).toBeUndefined()
   })
@@ -387,9 +383,7 @@ describe('CanvasInspector: стиль провода', () => {
     canvas.setSelection([{ kind: 'link', id: a.id }])
     mount()
     await wrapper.vm.$nextTick()
-    const color = wrapper.find('input[type="color"]')
-    color.element.value = '#123456'
-    await color.trigger('input')
+    await wrapper.findComponent(ColorField).vm.$emit('update:modelValue', '#123456')
     expect(useWorkspaceStore().wireStyle.strokeColor).toBe('#123456')
   })
 
@@ -398,7 +392,7 @@ describe('CanvasInspector: стиль провода', () => {
     mount()
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('Ничего не выделено')
-    expect(wrapper.find('input[type="color"]').exists()).toBe(false)
+    expect(wrapper.findComponent(ColorField).exists()).toBe(false)
   })
 
   it('дефолтное значение снимает поле, а не пишет его в tms', async () => {
@@ -407,9 +401,7 @@ describe('CanvasInspector: стиль провода', () => {
     canvas.setSelection([{ kind: 'link', id: a.id }])
     mount()
     await wrapper.vm.$nextTick()
-    const color = wrapper.find('input[type="color"]')
-    color.element.value = '#000000'
-    await color.trigger('input')
+    await wrapper.findComponent(ColorField).vm.$emit('update:modelValue', '#000000')
     expect(a.get('tms').strokeColor).toBeUndefined()
     expect(useWorkspaceStore().wireStyle.strokeColor).toBeUndefined()
   })

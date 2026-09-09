@@ -41,6 +41,7 @@ import ShapeBlock from './ShapeBlock.vue'
 import ValueBlock from './ValueBlock.vue'
 import AlignBlock from './AlignBlock.vue'
 import BodyStyleFields from './BodyStyleFields.vue'
+import ColorField from './ColorField.vue'
 import { previewOuterKey } from '../constants/ids'
 import {
   isDefaultWireValue,
@@ -1154,11 +1155,10 @@ const {
                 <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
                   Цвет
                 </span>
-                <input
-                  type="color"
-                  :value="details.color || '#000000'"
-                  class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                  @input="applyColor($event.target.value)"
+                <ColorField
+                  :model-value="details.color || '#000000'"
+                  class="ml-auto"
+                  @update:model-value="applyColor($event)"
                 />
               </div>
 
@@ -1191,6 +1191,7 @@ const {
             <BodyStyleFields
               v-if="details.isBus || details.isNode"
               :color="details.color || BUS_COLOR_DEFAULT"
+              :color-default="BUS_COLOR_DEFAULT"
               :thickness="details.thickness"
               :thickness-min="details.thicknessMin"
               :thickness-max="details.thicknessMax"

@@ -11,7 +11,7 @@ vi.mock('./useNotify', () => ({
 }))
 vi.mock('../stencils/registry', () => ({ getStencilById: () => null }))
 
-import { editRanges, useValueRanges } from './useValueRanges'
+import { editRanges, useValueRanges, withZeroStart } from './useValueRanges'
 import { useProjectStore } from '../stores/useProjectStore'
 
 const RANGES = [
@@ -81,5 +81,24 @@ describe('пикер тега диапазонов: только числовы�
     const { api, openPicker } = setup()
     api.openMultiRangePicker()
     expect(openPicker.mock.calls[0][0].tags().map((t) => t.name)).toEqual(['UA', 'CNT', 'MYSTERY'])
+  })
+})
+
+// Низ первой строки фиксирован нулём: в инспекторе поле не правится, поэтому данные
+// обязаны совпадать с тем, что показано.
+describe('withZeroStart', () => {
+  it('первой строке ставит min = 0, остальные не трогает', () => {
+    const out = withZeroStart([
+      { min: 5, max: 8, color: '#10b981' },
+      { min: 8, max: 10, color: '#ef4444' },
+    ])
+    expect(out[0]).toEqual({ min: 0, max: 8, color: '#10b981' })
+    expect(out[1]).toEqual({ min: 8, max: 10, color: '#ef4444' })
+  })
+
+  it('готовый список отдаёт как есть (без лишней перезаписи графа)', () => {
+    const rows = [{ min: 0, max: 4, color: '#10b981' }]
+    expect(withZeroStart(rows)).toBe(rows)
+    expect(withZeroStart([])).toEqual([])
   })
 })

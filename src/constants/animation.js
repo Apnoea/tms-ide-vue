@@ -7,7 +7,7 @@ const ANIMATION_CLASS_COLORS = {
   'animation-high': '#ef4444',
 }
 
-/** Быстрые свотчи пикера: те же три цвета, что были фиксированной палитрой. */
+/** Цвета строк нового источника: те же три, что были фиксированной палитрой. */
 export const RANGE_COLOR_PRESETS = Object.values(ANIMATION_CLASS_COLORS)
 
 /**

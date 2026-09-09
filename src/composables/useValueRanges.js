@@ -6,20 +6,6 @@ import { getStencilById } from '../stencils/registry'
 import { toPlain } from '../utils/plain'
 import { RANGE_COLOR_PRESETS, rangeRowColor } from '../constants/animation'
 
-// max-границы укорочены на 0.01: condition-evaluator рантайма inclusive по обоим
-// концам (`>=min && <=max`), и при max=4/4/7 значение 4 попало бы сразу в две строки.
-// Та же причина у quality-диапазона `[0, 191]`.
-const RANGE_DEFAULTS = [
-  { min: 0, max: 3.99, color: RANGE_COLOR_PRESETS[0] },
-  { min: 4, max: 6.99, color: RANGE_COLOR_PRESETS[1] },
-  { min: 7, max: 10, color: RANGE_COLOR_PRESETS[2] },
-]
-
-/** Дефолтные строки нового источника — клон, чтобы ячейки не делили массив. */
-function defaultRows() {
-  return RANGE_DEFAULTS.map((r) => ({ ...r }))
-}
-
 /**
  * Новая строка источника: цвет — первый пресет, не занятый другими строками, пороги
  * пустые (их вписывает автор).
@@ -28,6 +14,16 @@ function newRow(vs) {
   const used = new Set((vs?.ranges || []).map((r) => rangeRowColor(r)))
   const color = RANGE_COLOR_PRESETS.find((c) => !used.has(c)) || RANGE_COLOR_PRESETS[0]
   return { color }
+}
+
+/**
+ * Шкала начинается с нуля: у ПЕРВОЙ строки низ фиксирован (в инспекторе поле не
+ * правится). Приводим при правках списка, а не на чтении: старую форму с другим низом
+ * молча переписывать нельзя, а после первой же правки она станет обычной.
+ */
+export function withZeroStart(ranges) {
+  if (!ranges?.length || ranges[0].min === 0) return ranges
+  return ranges.map((r, i) => (i === 0 ? { ...r, min: 0 } : r))
 }
 
 /**
@@ -87,12 +83,12 @@ export function useValueRanges({ details, mutateSelectedTms, openPicker }) {
   }
 
   function onPickTag(tag) {
-    // Если rangeSource ещё не существует (add-flow без созданной карточки),
-    // создаём её с дефолтными диапазонами; иначе обновляем только тег.
+    // Источника ещё нет (тег выбирают первым) — создаём с ОДНОЙ пустой строкой:
+    // готовые пороги пришлось бы стирать, а осмысленные знает только автор схемы.
     if (details.value?.rangeSource) {
       patchRangeSource({ tag })
     } else {
-      patchRangeSource({ tag, ranges: defaultRows() })
+      patchRangeSource({ tag, ranges: withZeroStart([{ ...newRow(null), min: 0 }]) })
     }
   }
 
@@ -100,20 +96,20 @@ export function useValueRanges({ details, mutateSelectedTms, openPicker }) {
     const vs = details.value?.rangeSource
     if (!vs?.ranges) return
     const ranges = editRanges(vs.ranges, idx, field, value)
-    if (ranges) patchRangeSource({ ranges })
+    if (ranges) patchRangeSource({ ranges: withZeroStart(ranges) })
   }
 
   function addRange() {
     const vs = details.value?.rangeSource
     if (!vs) return
-    patchRangeSource({ ranges: [...(vs.ranges || []), newRow(vs)] })
+    patchRangeSource({ ranges: withZeroStart([...(vs.ranges || []), newRow(vs)]) })
   }
 
   /** Удаление строки. Последнюю не запрещаем: источник без строк — «цвета нет». */
   function removeRange(idx) {
     const vs = details.value?.rangeSource
     if (!vs?.ranges) return
-    patchRangeSource({ ranges: vs.ranges.filter((_, i) => i !== idx) })
+    patchRangeSource({ ranges: withZeroStart(vs.ranges.filter((_, i) => i !== idx)) })
   }
 
   function removeRangeSource() {
@@ -176,21 +172,24 @@ export function useValueRanges({ details, mutateSelectedTms, openPicker }) {
   function onPickMultiRangeTag(tag) {
     if (!tag) return
     const prev = multiRange.value
-    multiRange.value = { tag, ranges: prev?.ranges ?? defaultRows() }
+    multiRange.value = {
+      tag,
+      ranges: withZeroStart(prev?.ranges ?? [{ ...newRow(null), min: 0 }]),
+    }
     applyMultiRange()
   }
 
   function addMultiRange() {
     const vs = multiRange.value
     if (!vs) return
-    multiRange.value = { ...vs, ranges: [...(vs.ranges || []), newRow(vs)] }
+    multiRange.value = { ...vs, ranges: withZeroStart([...(vs.ranges || []), newRow(vs)]) }
     applyMultiRange()
   }
 
   function removeMultiRangeRow(idx) {
     const vs = multiRange.value
     if (!vs?.ranges) return
-    multiRange.value = { ...vs, ranges: vs.ranges.filter((_, i) => i !== idx) }
+    multiRange.value = { ...vs, ranges: withZeroStart(vs.ranges.filter((_, i) => i !== idx)) }
     applyMultiRange()
   }
 
@@ -200,7 +199,7 @@ export function useValueRanges({ details, mutateSelectedTms, openPicker }) {
     if (!vs?.ranges) return
     const ranges = editRanges(vs.ranges, idx, field, value)
     if (!ranges) return
-    multiRange.value = { ...vs, ranges }
+    multiRange.value = { ...vs, ranges: withZeroStart(ranges) }
     applyMultiRange()
   }
 

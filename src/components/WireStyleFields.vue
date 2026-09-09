@@ -9,6 +9,7 @@
  */
 import InputNumber from 'primevue/inputnumber'
 import SelectButton from 'primevue/selectbutton'
+import ColorField from './ColorField.vue'
 import { isDefaultWireValue, WIRE_STYLE_DEFAULTS } from '../stencils/linkDefaults'
 import { WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire'
 
@@ -42,23 +43,23 @@ const isCustom = (key) =>
         Цвет
         <span v-if="mixed('strokeColor')" class="text-surface-400">разные</span>
       </span>
-      <span class="relative ml-auto inline-flex">
-        <input
-          type="color"
-          :value="values.strokeColor ?? WIRE_STYLE_DEFAULTS.strokeColor"
-          class="h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-          @input="emit('apply', 'strokeColor', $event.target.value)"
-        />
-        <button
-          v-if="isCustom('strokeColor')"
-          v-tooltip.bottom="'Вернуть цвет по умолчанию'"
-          type="button"
-          class="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
-          @click.stop="emit('apply', 'strokeColor', WIRE_STYLE_DEFAULTS.strokeColor)"
-        >
-          <i class="pi pi-times text-[7px]!" />
-        </button>
-      </span>
+      <ColorField
+        :model-value="values.strokeColor ?? WIRE_STYLE_DEFAULTS.strokeColor"
+        class="ml-auto"
+        @update:model-value="emit('apply', 'strokeColor', $event)"
+      >
+        <template #badge>
+          <button
+            v-if="isCustom('strokeColor')"
+            v-tooltip.bottom="'Вернуть цвет по умолчанию'"
+            type="button"
+            class="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+            @click.stop="emit('apply', 'strokeColor', WIRE_STYLE_DEFAULTS.strokeColor)"
+          >
+            <i class="pi pi-times text-[7px]!" />
+          </button>
+        </template>
+      </ColorField>
     </div>
 
     <!-- Толщина линии — InputNumber со степперами, как в редакторе символов. -->

@@ -147,9 +147,28 @@ body,
 .p-inputnumber-button {
   height: 30px;
 }
-/* Цвет-пикеры — в тот же ряд по высоте. */
-input[type='color'] {
-  height: 30px;
+
+/* Палитра PrimeVue в СВЕТЛОЙ теме Aura тёмная (panel.background = surface.800) и со
+   своей рамкой — внутри поповера та читается как вторая линия. Переопределяем ТОКЕНЫ
+   темы, а не свойства: правила темы вставляются в head после сборочного CSS и при
+   равной специфичности побеждают, а `dt` на компоненте снимается раньше, чем доигрывает
+   анимация закрытия — рамка успевает мигнуть тёмной. */
+.tms-color-popover {
+  --p-colorpicker-panel-background: var(--p-surface-0);
+  --p-colorpicker-panel-border-color: transparent;
+  /* Ручки — это только рамка (border-color): светлая на светлом фоне не видна. */
+  --p-colorpicker-handle-color: var(--p-surface-700);
+}
+/* Тёмная рамка ручки теряется на тёмных цветах спектра так же, как светлая на светлых,
+   поэтому добавляем вторую линию белым контуром — пара читается на любом фоне. */
+.tms-color-popover .p-colorpicker-color-handle,
+.tms-color-popover .p-colorpicker-hue-handle {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.9);
+}
+/* Контент поповера без отступов, палитра прилегает к краям (отступ снизу держит блок
+   с полем кода). */
+.tms-color-popover .p-popover-content {
+  padding: 0;
 }
 
 /* Close-кнопки (toast/dialog) не наследуют .p-button — снимаем кольцо явно. */

@@ -12,6 +12,7 @@ import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
 import SelectButton from 'primevue/selectbutton'
+import ColorField from './ColorField.vue'
 import { FONT_FAMILIES } from '../utils/textMetrics'
 
 const props = defineProps({
@@ -61,11 +62,10 @@ function toggleFill(on) {
       <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
         {{ values.isShapeFillable ? 'Цвет линии' : 'Цвет' }}
       </span>
-      <input
-        type="color"
-        :value="values.stroke"
-        class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-        @input="patch({ stroke: $event.target.value })"
+      <ColorField
+        :model-value="values.stroke"
+        class="ml-auto"
+        @update:model-value="patch({ stroke: $event })"
       />
     </div>
 
@@ -88,8 +88,8 @@ function toggleFill(on) {
       />
     </div>
 
-    <!-- Заливка — как в редакторе символов: галка «есть/нет» + свотч при включённой
-         (`<input type="color">` состояния «нет цвета» не имеет). Выключение пишет
+    <!-- Заливка — как в редакторе символов: галка «есть/нет» + поле цвета при
+         включённой (состояния «нет цвета» у него нет). Выключение пишет
          `none`, а не удаляет поле: отсутствие и `none` для отрисовки одно и то же, но
          патч мержится, а не заменяет фигуру. -->
     <div v-if="values.isShapeFillable" class="flex min-h-8 items-center gap-3">
@@ -102,12 +102,11 @@ function toggleFill(on) {
         />
         <span class="text-[11px] uppercase tracking-wider text-surface-500">Заливка</span>
       </label>
-      <input
+      <ColorField
         v-if="values.fill"
-        type="color"
-        :value="values.fill"
-        class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-        @input="patch({ fill: $event.target.value })"
+        :model-value="values.fill"
+        class="ml-auto"
+        @update:model-value="patch({ fill: $event })"
       />
     </div>
 
@@ -166,11 +165,10 @@ function toggleFill(on) {
 
       <div class="flex items-center gap-3">
         <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">Цвет</span>
-        <input
-          type="color"
-          :value="values.stroke"
-          class="ml-auto h-8 w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-          @input="patch({ stroke: $event.target.value })"
+        <ColorField
+          :model-value="values.stroke"
+          class="ml-auto"
+          @update:model-value="patch({ stroke: $event })"
         />
       </div>
 

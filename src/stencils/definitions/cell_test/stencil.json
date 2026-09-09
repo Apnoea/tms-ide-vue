@@ -4,5 +4,33 @@
   "category": "Тест",
   "shapeFile": "shape.svg",
   "width": 20,
-  "height": 20
+  "height": 20,
+  "slots": [
+    {
+      "key": "value",
+      "type": "Value"
+    }
+  ],
+  "states": [
+    {
+      "key": "on",
+      "label": "Включен",
+      "code": ""
+    },
+    {
+      "key": "off",
+      "label": "Отключен",
+      "code": ""
+    },
+    {
+      "key": "intermediate",
+      "label": "Промежуточное",
+      "code": ""
+    },
+    {
+      "key": "invalid",
+      "label": "Недостоверно",
+      "code": ""
+    }
+  ]
 }

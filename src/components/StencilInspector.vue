@@ -14,6 +14,7 @@ import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
 import SelectButton from 'primevue/selectbutton'
 import Button from 'primevue/button'
+import ColorField from './ColorField.vue'
 import { getCategories, registryVersion } from '../stencils/registry'
 import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor'
 import { normalizeStateColor } from '../constants/animation'
@@ -172,8 +173,8 @@ const hasFillableShapes = computed(() => shapes.value.some(isFillableShape))
 const stateStroke = (key) => normalizeStateColor(meta.stateColors[key]).stroke
 const stateFill = (key) => normalizeStateColor(meta.stateColors[key]).fill
 
-// <input type="color"> требует 6-значный #rrggbb: разворачиваем #rgb, «none»/
-// пусто → запасной цвет (сам факт заливки регулируется отдельной галкой).
+// Свотч цвета требует 6-значный #rrggbb: разворачиваем #rgb, «none»/пусто →
+// запасной цвет (сам факт заливки регулируется отдельной галкой).
 function normHex(c, fallback) {
   if (!c || c === 'none') return fallback
   if (/^#[0-9a-fA-F]{3}$/.test(c)) {
@@ -182,8 +183,8 @@ function normHex(c, fallback) {
   return c
 }
 // «Разные» = значение у выделенных фигур расходится (commonValue → undefined).
-// У <input type="color"> пустого состояния нет, поэтому там показываем дефолт и
-// подписываем расхождение словом; у числа/селекта — пустое поле с «—».
+// У поля цвета пустого состояния нет, поэтому там показываем дефолт и подписываем
+// расхождение словом; у числа/селекта — пустое поле с «—».
 const mixed = (v, filter) => v === undefined && selectedFor(filter).length > 1
 
 const strokeCommon = computed(() => commonValue((s) => s.stroke))
@@ -196,18 +197,18 @@ const fillEnabled = computed(() => fillState.value === true)
 const fillMixed = computed(() => mixed(fillState.value, FILLABLE))
 const fillColor = computed(() => normHex(fillCommon.value, '#ffffff'))
 
-// Живое обновление на @input (видно на холсте сразу), один снимок истории на
-// @change (закрытие пипетки) — как жесты рисования.
-function setStroke(e) {
-  applyToSelected({ stroke: e.target.value })
+// Живое обновление на каждый сдвиг палитры (видно на холсте сразу), один снимок
+// истории на `change` (палитра закрыта, код применён) — как жесты рисования.
+function setStroke(color) {
+  applyToSelected({ stroke: color })
 }
 const strokeWidthCommon = computed(() => commonValue((s) => s.strokeWidth ?? 2, NOT_TEXT))
 const strokeWidth = computed(() => strokeWidthCommon.value ?? null)
 function setStrokeWidth(v) {
   if (v != null) applyToSelected({ strokeWidth: v }, NOT_TEXT)
 }
-function setFill(e) {
-  applyToSelected({ fill: e.target.value }, FILLABLE)
+function setFill(color) {
+  applyToSelected({ fill: color }, FILLABLE)
 }
 function toggleFill(on) {
   // При расхождении галка приходит в true — первый клик включает заливку всем
@@ -431,13 +432,12 @@ function clearStateColor(key, which) {
                   class="w-16 font-mono text-xs!"
                 />
                 <div class="flex w-14 shrink-0 items-center justify-center gap-0.5">
-                  <input
-                    type="color"
+                  <ColorField
                     v-tooltip.top="'Цвет контуров символа в этом состоянии'"
-                    :value="stateStroke(st.value) || '#64748b'"
+                    swatch-class="h-6 w-6"
+                    :model-value="stateStroke(st.value) || '#64748b'"
                     :class="{ 'opacity-40': !stateStroke(st.value) }"
-                    class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                    @input="setStateColor(st.value, $event.target.value, 'stroke')"
+                    @update:model-value="setStateColor(st.value, $event, 'stroke')"
                     @change="commit"
                   />
                   <button
@@ -455,13 +455,12 @@ function clearStateColor(key, which) {
                   v-if="hasFillableShapes"
                   class="flex w-14 shrink-0 items-center justify-center gap-0.5"
                 >
-                  <input
-                    type="color"
+                  <ColorField
                     v-tooltip.top="'Цвет заливки фигур в этом состоянии'"
-                    :value="stateFill(st.value) || '#ffffff'"
+                    swatch-class="h-6 w-6"
+                    :model-value="stateFill(st.value) || '#ffffff'"
                     :class="{ 'opacity-40': !stateFill(st.value) }"
-                    class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                    @input="setStateColor(st.value, $event.target.value, 'fill')"
+                    @update:model-value="setStateColor(st.value, $event, 'fill')"
                     @change="commit"
                   />
                   <button
@@ -508,13 +507,12 @@ function clearStateColor(key, which) {
                   @change="commit"
                 />
                 <div class="flex w-14 shrink-0 items-center justify-center gap-0.5">
-                  <input
-                    type="color"
+                  <ColorField
                     v-tooltip.top="'Цвет контуров символа в этом состоянии'"
-                    :value="stateStroke(st.key) || '#64748b'"
+                    swatch-class="h-6 w-6"
+                    :model-value="stateStroke(st.key) || '#64748b'"
                     :class="{ 'opacity-40': !stateStroke(st.key) }"
-                    class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                    @input="setStateColor(st.key, $event.target.value, 'stroke')"
+                    @update:model-value="setStateColor(st.key, $event, 'stroke')"
                     @change="commit"
                   />
                   <button
@@ -532,13 +530,12 @@ function clearStateColor(key, which) {
                   v-if="hasFillableShapes"
                   class="flex w-14 shrink-0 items-center justify-center gap-0.5"
                 >
-                  <input
-                    type="color"
+                  <ColorField
                     v-tooltip.top="'Цвет заливки фигур в этом состоянии'"
-                    :value="stateFill(st.key) || '#ffffff'"
+                    swatch-class="h-6 w-6"
+                    :model-value="stateFill(st.key) || '#ffffff'"
                     :class="{ 'opacity-40': !stateFill(st.key) }"
-                    class="h-6 w-7 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-                    @input="setStateColor(st.key, $event.target.value, 'fill')"
+                    @update:model-value="setStateColor(st.key, $event, 'fill')"
                     @change="commit"
                   />
                   <button
@@ -727,11 +724,9 @@ function clearStateColor(key, which) {
               {{ isTextShape ? 'Цвет' : 'Цвет линии' }}
               <span v-if="strokeMixed" class="text-xs text-surface-400">разные</span>
             </span>
-            <input
-              type="color"
-              :value="strokeColor"
-              class="w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-              @input="setStroke"
+            <ColorField
+              :model-value="strokeColor"
+              @update:model-value="setStroke"
               @change="commit"
             />
           </label>
@@ -767,12 +762,10 @@ function clearStateColor(key, which) {
               />
               <span class="text-surface-700">Заливка</span>
             </label>
-            <input
+            <ColorField
               v-if="fillEnabled"
-              type="color"
-              :value="fillColor"
-              class="w-10 cursor-pointer rounded border border-surface-300 bg-surface-0 p-0.5"
-              @input="setFill"
+              :model-value="fillColor"
+              @update:model-value="setFill"
               @change="commit"
             />
           </div>
