@@ -172,8 +172,8 @@ function toggleFill(on) {
         />
       </div>
 
-      <!-- Выравнивание = якорь роста (как у cell_text): точка привязки стоит на
-           месте, текст растёт от неё. -->
+      <!-- Выравнивание = якорь роста: точка привязки стоит на месте, текст растёт от
+           неё, а не перекладывается внутри рамки. -->
       <div class="flex items-center gap-3">
         <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
           Выравнивание

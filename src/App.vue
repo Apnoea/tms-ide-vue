@@ -1,6 +1,7 @@
 <script setup>
-import { watch, defineAsyncComponent } from 'vue'
+import { computed, watch, defineAsyncComponent } from 'vue'
 import { useEventListener } from '@vueuse/core'
+import Button from 'primevue/button'
 import Toast from 'primevue/toast'
 import ConfirmPopup from 'primevue/confirmpopup'
 
@@ -15,6 +16,7 @@ import CanvasPane from './components/CanvasPane.vue'
 // (открыть проект, править холст) он не касается.
 const StencilEditor = defineAsyncComponent(() => import('./components/StencilEditor.vue'))
 import InspectorPane from './components/InspectorPane.vue'
+import PaneResizer from './components/PaneResizer.vue'
 import HelpDialog from './components/HelpDialog.vue'
 
 import { useUiStore } from './stores/useUiStore'
@@ -24,6 +26,18 @@ import { useCanvas } from './composables/useCanvas'
 const ui = useUiStore()
 const workspace = useWorkspaceStore()
 const canvas = useCanvas()
+
+// Блоки шапки стоят над колонками, поэтому повторяют их ширину — включая ту, что
+// пользователь задал ресайзом. Ширину задаём МИНИМУМОМ, а не `width`: `min-width`
+// анимируется (в отличие от перехода к `auto`), и шапка едет синхронно с панелью;
+// `max-width` держит прежнюю обрезку длинного имени проекта. Свёрнутая колонка — оба
+// нуля, блок сжимается по содержимому.
+const headerLeftStyle = computed(() => paneHeaderStyle(ui.leftPaneOpen, ui.leftPaneWidth))
+const headerRightStyle = computed(() => paneHeaderStyle(ui.rightPaneOpen, ui.rightPaneWidth))
+
+function paneHeaderStyle(open, width) {
+  return open ? { minWidth: `${width}px`, maxWidth: `${width}px` } : { minWidth: 0 }
+}
 
 // beforeunload-гард только при saveError: запись в IndexedDB не проходит (квота /
 // приватный режим), autosave не спасает → закрытие вкладки теряет всё. В обычном
@@ -56,7 +70,26 @@ useEventListener(window, 'keydown', (event) => {
   <div class="h-screen flex flex-col bg-surface-100 text-surface-900">
     <!-- Проектный I/O — здесь, а не в тулбаре холста; дерево форм — в левой панели. -->
     <div class="flex items-stretch gap-2 px-2 py-1.5">
-      <div class="w-[380px] shrink-0 flex items-center gap-2 px-2 min-w-0">
+      <!-- Блок шапки держит колонку под левой панелью, со свёрнутой — сжимается по
+           содержимому, и холст занимает освободившееся. Ширину задаём МИНИМУМОМ, а не
+           `width`: `min-width` анимируется (в отличие от перехода к `auto`), и шапка
+           едет синхронно с панелью. `max-w` держит прежнюю обрезку длинного имени. -->
+      <div
+        class="shrink-0 flex items-center gap-2 px-2 transition-[min-width] duration-200"
+        :style="headerLeftStyle"
+      >
+        <Button
+          v-tooltip.bottom="
+            ui.leftPaneOpen ? 'Скрыть панель форм и палитру' : 'Показать панель форм и палитру'
+          "
+          :icon="ui.leftPaneOpen ? 'pi pi-angle-double-left' : 'pi pi-angle-double-right'"
+          severity="secondary"
+          text
+          size="small"
+          class="tms-icon-btn shrink-0"
+          :aria-pressed="!ui.leftPaneOpen"
+          @click="ui.toggleLeftPane()"
+        />
         <i class="pi pi-sitemap text-primary-500 shrink-0" />
         <span class="text-sm font-bold tracking-tight shrink-0">TMS IDE</span>
         <!-- Имя открытого проекта (= имя .zip). Отделяет активный проект от
@@ -84,12 +117,26 @@ useEventListener(window, 'keydown', (event) => {
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
         <TagListControl />
       </div>
-      <div class="w-[420px] shrink-0 flex items-center px-2">
+      <div
+        class="shrink-0 flex items-center gap-2 px-2 transition-[min-width] duration-200"
+        :style="headerRightStyle"
+      >
         <StatusBar />
+        <Button
+          v-tooltip.bottom="ui.rightPaneOpen ? 'Скрыть инспектор' : 'Показать инспектор'"
+          :icon="ui.rightPaneOpen ? 'pi pi-angle-double-right' : 'pi pi-angle-double-left'"
+          severity="secondary"
+          text
+          size="small"
+          class="tms-icon-btn shrink-0 ml-auto"
+          :aria-pressed="!ui.rightPaneOpen"
+          @click="ui.toggleRightPane()"
+        />
       </div>
     </div>
 
-    <!-- Без ресайза между колонками; тень отделяет карточки от общего surface-100. -->
+    <!-- Ширину боковых колонок тянут разделители (PaneResizer), сворачивают кнопки в
+         шапке; тень отделяет карточки от общего surface-100. -->
     <!-- Пока открыт редактор символов: левую панель (формы/палитра) гейтим
          (inert), чтобы drag/переключение формы не уходили в скрытый под оверлеем
          холст. Правую (инспектор) НЕ гейтим — там свойства символа (StencilInspector),
@@ -98,28 +145,68 @@ useEventListener(window, 'keydown', (event) => {
          область редактирования гейтим `inert` + затемняем, чтобы клики/правки
          (overlay-кнопки, контекст-меню, инспектор, drag) не уехали под ключ чужой
          формы — живой граф между await'ами держит другую форму (ui.projectBusy). -->
+    <!-- Зазоры между колонками держат сами разделители (`PaneResizer`, ширина 8px),
+         поэтому у контейнера гэпа нет: с ним к ручке добавлялись бы ещё два отступа. -->
     <div
-      class="flex-1 min-h-0 flex gap-2 px-2 pb-2 transition-opacity"
+      class="flex-1 min-h-0 flex px-2 pb-2 transition-opacity"
       :class="{ 'opacity-60': ui.projectBusy }"
       :inert="ui.projectBusy"
     >
-      <div
-        class="w-[380px] shrink-0 rounded-lg overflow-hidden shadow-md flex flex-col transition-opacity"
-        :class="{ 'pointer-events-none opacity-60': ui.stencilEditorOpen }"
-        :inert="ui.stencilEditorOpen"
-      >
-        <FormTree />
-        <PalettePane />
-      </div>
+      <!-- Колонки сворачиваются кнопками в шапке. `v-if`, а не `v-show`: свёрнутый
+           инспектор иначе продолжал бы пересчитывать свойства выделенного на каждый
+           тик графа. Состояние (активная форма, выделение) живёт в сторах и
+           useCanvas, поэтому размонтирование ничего не теряет.
+           Внешний div — «шторка» под анимацию ширины (см. .tms-pane-* в style.css):
+           содержимое держит свою ширину, иначе панель плющило бы по горизонтали на
+           каждом кадре. Тень и радиус — на шторке, а не на содержимом: её
+           `overflow-hidden` срезал бы тень внутреннего блока. -->
+      <Transition name="tms-pane">
+        <div
+          v-if="ui.leftPaneOpen"
+          class="tms-pane-col shrink-0 overflow-hidden rounded-lg shadow-md"
+          :style="{ '--tms-pane-w': `${ui.leftPaneWidth}px` }"
+        >
+          <div
+            class="tms-pane-body rounded-lg overflow-hidden flex flex-col transition-opacity"
+            :class="{ 'pointer-events-none opacity-60': ui.stencilEditorOpen }"
+            :inert="ui.stencilEditorOpen"
+          >
+            <FormTree />
+            <PalettePane />
+          </div>
+        </div>
+      </Transition>
+      <PaneResizer
+        v-if="ui.leftPaneOpen"
+        side="left"
+        :width="ui.leftPaneWidth"
+        @update="ui.setLeftPaneWidth"
+        @reset="ui.resetPaneWidth('left')"
+      />
       <!-- Редактор символов — оверлей поверх холста (relative-контейнер). CanvasPane
            остаётся смонтированным под ним: paper/graph не пересоздаются. -->
       <div class="flex-1 min-w-0 rounded-lg overflow-hidden shadow-md relative">
         <CanvasPane />
         <StencilEditor v-if="ui.stencilEditorOpen" class="absolute inset-0 z-20" />
       </div>
-      <div class="w-[420px] shrink-0 rounded-lg overflow-hidden shadow-md">
-        <InspectorPane />
-      </div>
+      <PaneResizer
+        v-if="ui.rightPaneOpen"
+        side="right"
+        :width="ui.rightPaneWidth"
+        @update="ui.setRightPaneWidth"
+        @reset="ui.resetPaneWidth('right')"
+      />
+      <Transition name="tms-pane">
+        <div
+          v-if="ui.rightPaneOpen"
+          class="tms-pane-col shrink-0 overflow-hidden rounded-lg shadow-md"
+          :style="{ '--tms-pane-w': `${ui.rightPaneWidth}px` }"
+        >
+          <div class="tms-pane-body rounded-lg overflow-hidden">
+            <InspectorPane />
+          </div>
+        </div>
+      </Transition>
     </div>
 
     <Toast position="bottom-right" />

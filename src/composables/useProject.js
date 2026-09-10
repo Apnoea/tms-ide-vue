@@ -36,17 +36,8 @@ import { useCanvas } from './useCanvas'
  * @param {{ saveActiveForm, persistMeta, replaceProject, readTagsText, persistForm, removeFormPersist, loadTrash, pushTrash, popTrash }} deps.autosave
  * @param {{ cancelPendingSnapshot, initHistory }} deps.undo
  * @param {{ stopSimulation, simulating }} deps.simulation
- * @param {() => void} deps.commitTextEdit — закоммитить inline-правку текста
- * @param {import('vue').Ref<boolean>} deps.textEditing — идёт ли inline-редактирование
  */
-export function useProject({
-  restoringHistory,
-  autosave,
-  undo,
-  simulation,
-  commitTextEdit,
-  textEditing,
-}) {
+export function useProject({ restoringHistory, autosave, undo, simulation }) {
   const canvas = useCanvas()
   const workspace = useWorkspaceStore()
   const ui = useUiStore()
@@ -617,9 +608,6 @@ export function useProject({
     (fn) =>
     async (...args) => {
       if (projectBusy.value) return
-      // Незакоммиченная inline-правка текста коммитится ДО операции: fromJSON сменит
-      // граф, и правка ушла бы в никуда, а оверлей-textarea остался бы над чужой формой.
-      if (textEditing.value) commitTextEdit()
       projectBusy.value = true
       ui.setProjectBusy(true) // App гейтит всю область редактирования (inert) на это время
       try {

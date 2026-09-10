@@ -38,7 +38,10 @@ vi.mock('../stencils/registry', () => ({
       slots: [{ key: 'onoff', type: 'Boolean' }],
     }
   }),
-  hasBoolSlot: vi.fn((s) => !!s?.slots?.some((x) => x.key === 'onoff')),
+  // Поиск слотов по типу — не логика реестра, а правило схемы символа: повторяем как
+  // в нём, иначе мок разошёлся бы с продом на первой же смене правила.
+  stateSlotOf: (slots) => (slots || []).find((s) => s.type !== 'Text') || null,
+  textSlotOf: (slots) => (slots || []).find((s) => s.type === 'Text') || null,
 }))
 
 // SVG-инъекция в DOM в тестах не нужна (paper.findViewByModel → null и так её
@@ -50,7 +53,8 @@ vi.mock('../stencils/svgInjector', async (importActual) => ({
 
 import CanvasInspector from './CanvasInspector.vue'
 import TagPickerDialog from './TagPickerDialog.vue'
-import BooleanBlock from './BooleanBlock.vue'
+import StateBlock from './StateBlock.vue'
+import DependencyBlock from './DependencyBlock.vue'
 import ColorField from './ColorField.vue'
 import ValueBlock from './ValueBlock.vue'
 import { useCanvas } from '../composables/useCanvas'
@@ -104,8 +108,8 @@ describe('CanvasInspector', () => {
     setup()
     await wrapper.vm.$nextTick()
 
-    // Открываем picker так же, как это делает клик по чипу тега в блоке.
-    wrapper.findComponent(BooleanBlock).vm.$emit('open-slot-picker')
+    // Открываем picker так же, как это делает клик по чипу тега в блоке состояния.
+    wrapper.findComponent(StateBlock).vm.$emit('pick-tag')
     await wrapper.vm.$nextTick()
 
     const picker = wrapper.findComponent(TagPickerDialog)
@@ -113,6 +117,20 @@ describe('CanvasInspector', () => {
     // Регрессия: `project.booleanTags.value` давал undefined → пустой picker
     // с сообщением «tag-list не загружен».
     expect(picker.props('tags').map((t) => t.name)).toEqual(['BR1.ONOFF'])
+  })
+
+  it('× в блоке состояния убирает ключ слота из tms.slots', async () => {
+    const cell = makeCell()
+    cell.set('tms', { ...cell.get('tms'), slots: { onoff: 'BR1.ONOFF' } })
+    graph.addCell(cell)
+    canvas.selectOnly('cell', cell.id)
+    setup()
+    await wrapper.vm.$nextTick()
+
+    wrapper.findComponent(StateBlock).vm.$emit('clear')
+    await wrapper.vm.$nextTick()
+    // Опустевший набор слотов удаляется целиком: пустой объект уехал бы в meta мусором.
+    expect(cell.get('tms').slots).toBeUndefined()
   })
 
   it('мульти-режим: провода не считаются символами, «Удалить» — по фактически удаляемым', async () => {
@@ -231,7 +249,8 @@ describe('CanvasInspector: фигура-разметка', () => {
     expect(text).toContain('Прямоугольник')
     // Анимаций у разметки нет — блоки тегов не рендерим (иначе привязка вела бы
     // в никуда: карточек для фигур exporter не эмитит).
-    expect(wrapper.findComponent(BooleanBlock).exists()).toBe(false)
+    expect(wrapper.findComponent(StateBlock).exists()).toBe(false)
+    expect(wrapper.findComponent(DependencyBlock).exists()).toBe(false)
     expect(text).not.toContain('Диапазоны значений')
   })
 

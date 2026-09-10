@@ -51,29 +51,17 @@ describe('parseSvgProject', () => {
     expect(cell.tms.slots).toEqual({ onoff: 'PS031VK001.ONOFF' })
   })
 
-  it('cell_text превращается в фигуру-подпись (прошлый формат)', () => {
-    const meta = {
-      id: 'c1',
-      stencilId: 'cell_text',
-      width: 60,
-      height: 20,
-      text: 'Hello',
-      fontSize: 20,
-      bold: true,
-      align: 'center',
-    }
+  it('cell_text из старого архива пропускается с предупреждением', () => {
+    // Символ-подпись не поддерживается, определения нет — восстановить надпись нечем.
+    // Отдельной ветки для неё не держим: ячейку отсекает общая проверка реестра, и
+    // предупреждение о пропуске такое же, как у любого чужого символа.
+    const meta = { id: 'c1', stencilId: 'cell_text', width: 60, height: 20, text: 'Hello' }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
       <g transform="translate(0,0)" data-tms-meta='${JSON.stringify(meta).replace(/"/g, '&quot;')}'/>
     </svg>`
-    const cell = parseSvgProject(svg).cells[0]
-    expect(cell.type).toBe('tms.Shape')
-    expect(cell.tms.shape).toMatchObject({
-      type: 'text',
-      text: 'Hello',
-      fontSize: 20,
-      bold: true,
-      align: 'center',
-    })
+    const out = parseSvgProject(svg)
+    expect(out.cells).toHaveLength(0)
+    expect(out.errors.join(' ')).toContain('cell_text')
   })
 
   it('round-trip angle/navigation/boolSource/rangeSource на ячейке', () => {
@@ -321,8 +309,9 @@ describe('parseSvgProject', () => {
   })
 
   it('чистит числовые/перечислимые поля чужой meta', () => {
-    // Архив приходит извне: `decimals: 500` валит `toFixed` в рантайме,
-    // нечисловой fontSize ломает замер габарита, неизвестный align — якорь роста.
+    // Архив приходит извне: `decimals: 500` валит `toFixed` в рантайме, мусорная
+    // граница диапазона — сравнение. Поля шрифта в meta ячейки больше не читаются
+    // (это поля неподдерживаемого cell_text) и просто не доезжают до tms.
     const meta = {
       id: 'c1',
       stencilId: 'cell_value',
@@ -342,9 +331,7 @@ describe('parseSvgProject', () => {
     expect(tms.decimals).toBe(20)
     expect(tms.fontSize).toBeUndefined()
     expect(tms.align).toBeUndefined()
-    // Шрифт вне whitelist'а откатывается к дефолту, а не выбрасывается: панель
-    // WebScada всё равно нарисует им, и замер обязан совпасть с рендером.
-    expect(tms.fontFamily).toBe('sans-serif')
+    expect(tms.fontFamily).toBeUndefined()
     // Нечисловая граница = «порога нет», числовая строка приводится к числу.
     expect(tms.rangeSource.ranges[0]).toEqual({ min: undefined, max: 5, color: '#10b981' })
   })

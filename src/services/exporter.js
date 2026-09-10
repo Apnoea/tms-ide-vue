@@ -4,7 +4,6 @@ import { contentTransform, contentScales } from '../stencils/svgInjector'
 import { isShapeCell } from '../stencils/shapeElement'
 import { serializeShape } from '../utils/stencilSvg'
 import { buildBusExportSvg, collectBusMarks } from '../stencils/busCell'
-import { buildTextExportSvg } from '../stencils/textCell'
 import { buildNodeExportSvg } from '../stencils/nodeCell'
 import { LINK_Z, arrowExportSvg, dotExportSvg, endPoint } from '../stencils/linkDefaults'
 import { isBackgroundZ } from '../utils/zOrder'
@@ -196,7 +195,7 @@ export function exportProject(graph, paper = null) {
     const animId = uniqueShortId(cell.id, (id) => usedOuterKeys.has(outerKeyFor(tms.stencilId, id)))
     usedOuterKeys.add(outerKeyFor(tms.stencilId, animId))
 
-    // Разметка экземпляра: у программных символов (шина, подпись, точка) её строит
+    // Разметка экземпляра: у программных символов (шина, точка соединения) её строит
     // билдер СТРОКОЙ по фактическому размеру и без редактор-декораций, у остальных
     // это клон разобранного `shape.svg` (DOM). Оба вида сериализуются ниже.
     let cellSvg
@@ -209,13 +208,6 @@ export function exportProject(graph, paper = null) {
         tms.color,
         collectBusMarks(graph, cell.id)
       )
-    } else if (tms.stencilId === 'cell_text') {
-      cellSvg = buildTextExportSvg(tms.text ?? '', size.height, {
-        fontSize: tms.fontSize,
-        bold: tms.bold,
-        color: tms.color,
-        font: tms.fontFamily,
-      })
     } else if (tms.stencilId === 'cell_node') {
       cellSvg = buildNodeExportSvg(size.width, size.height, tms)
     } else {
@@ -260,16 +252,8 @@ export function exportProject(graph, paper = null) {
       boolSource: tms.boolSource || null,
       // navigation — имя view, на которую рантайм переходит по клику.
       navigation: tms.navigation || null,
-      // Поля символа для round-trip восстановления редактором
-      text: tms.text,
-      fontSize: tms.fontSize,
-      bold: tms.bold,
+      // Цвет тела шины и точки соединения (у подписи-разметки свой, в tms.shape).
       color: tms.color,
-      // Шрифт подписи: габарит ячейки посчитан им, без round-trip'а замер разойдётся.
-      fontFamily: tms.fontFamily,
-      // align — якорь роста текста: позиция уже в c.x/c.y, а поле задаёт, от какого
-      // края блок растёт при следующей правке.
-      align: tms.align,
       // locked — «замок» ячейки: read-only на холсте, переживает экспорт/импорт.
       locked: tms.locked,
       // groupId — метка логической группы (общий id у членов).

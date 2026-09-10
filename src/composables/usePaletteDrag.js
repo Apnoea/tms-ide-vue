@@ -4,7 +4,6 @@ import { useCanvas } from './useCanvas'
 import { useUiStore } from '../stores/useUiStore'
 import { getStencilById } from '../stencils/registry'
 import { materializeStencil } from '../stencils/svgInjector'
-import { textCellSize } from '../stencils/textCell'
 import { snapToGrid } from '../utils/grid'
 
 /**
@@ -118,16 +117,9 @@ export function usePaletteDrag(paperContainer, wireSplice, busSnap) {
     // вложенные объекты зашарили бы ссылку из реестра между ячейками.
     if (stencil.defaults) Object.assign(tms, structuredClone(stencil.defaults))
 
-    // cell_text — размер под фактический текст, иначе широкая пустая bbox.
-    let cellWidth = stencil.width
-    let cellHeight = stencil.height
-    if (stencilId === 'cell_text') {
-      ;({ width: cellWidth, height: cellHeight } = textCellSize(tms))
-    }
-
     return materializeStencil(graph, paper, stencil, {
       position: { x: finalX, y: finalY },
-      size: { width: cellWidth, height: cellHeight },
+      size: { width: stencil.width, height: stencil.height },
       tms,
     })
   }

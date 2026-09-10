@@ -23,7 +23,6 @@ import { useAutosave } from '../composables/useAutosave'
 import { useUndoRedo } from '../composables/useUndoRedo'
 import { useBusResize } from '../composables/useBusResize'
 import { useSimulation } from '../composables/useSimulation'
-import { useTextEdit } from '../composables/useTextEdit'
 import { useClipboard } from '../composables/useClipboard'
 import { useWireSplice } from '../composables/useWireSplice'
 import { useBusSnap } from '../composables/useBusSnap'
@@ -161,8 +160,6 @@ const {
   stepForward,
   canStepBack,
 } = useSimulation()
-const { textEditing, textEditValue, textEditorRef, startTextEdit, commitTextEdit, cancelTextEdit } =
-  useTextEdit({ scheduleSnapshot })
 const { copySelection, pasteClipboard, duplicateSelection, hasClipboard } = useClipboard({
   scheduleSnapshot,
 })
@@ -210,8 +207,6 @@ const {
   },
   undo: { cancelPendingSnapshot, initHistory },
   simulation: { stopSimulation, simulating },
-  commitTextEdit,
-  textEditing,
 })
 
 // useHotkeys навешивает window-keydown через useEventListener (снимается сам).
@@ -253,7 +248,6 @@ const { prepareMultiDrag, onPositionChange, endMultiDrag, isMultiDragging } = us
 const { overlayBtns, rotateSelectedBy, flipSelected, onDeleteSelected, toggleLockSelected } =
   useSelectionOverlay({
     scheduleSnapshot,
-    textEditing,
     dragging: cellDragging,
   })
 // Бейдж-замок в углу заблокированной ячейки: правый верхний угол visual-AABB (с
@@ -312,7 +306,7 @@ const groupHoverRect = computed(() => {
 })
 
 const { cellHoverTooltip, showCellTooltip, hideCellTooltip } = useHoverTooltip({
-  suppress: () => isPanning() || isMultiDragging() || bus.isResizing() || textEditing.value,
+  suppress: () => isPanning() || isMultiDragging() || bus.isResizing(),
 })
 const { ctxMenuRef, ctxItems, showContextMenu } = useContextMenu({
   hasClipboard,
@@ -551,12 +545,6 @@ onMounted(async () => {
   // Отпустили символ: лёг на шину — закрепляем, увели с неё — закрепление снимаем.
   paper.on('element:pointerup', (view) => syncBusAttachment(view.model))
 
-  // Double-click по cell_text — открыть inline-редактор поверх ячейки.
-  paper.on('element:pointerdblclick', (elementView) => {
-    const tms = elementView.model.get('tms') || {}
-    if (tms.stencilId === 'cell_text') startTextEdit(elementView.model.id)
-  })
-
   // Hover-tooltip: показывается при mouseenter, скрывается при leave и
   // element:pointerdown (blank:pointerdown гасит его выше).
   paper.on('element:mouseenter', (view) => {
@@ -794,7 +782,7 @@ watch(
     }
     // Inline-× — HTML-overlay (deleteBtnStyle в template). JointJS
     // elementTools.Remove кэширует bbox при addTools, не пересчитывает на
-    // cell.resize → × застревал после ресайза cell_text / cell_bus.
+    // cell.resize → × застревал после ресайза шины.
   }
   // deep НЕ нужен: selection всегда ЗАМЕНЯЕТСЯ новым массивом (selectOnly/
   // setSelection/toggle/clear), ref-сравнения достаточно.
@@ -1199,20 +1187,6 @@ function performClearCanvas(count) {
           v-html="draggingStencilSvg"
         />
       </div>
-
-      <!-- Edit-in-place для cell_text: прозрачный HTML <input> поверх ячейки.
- SVG-<text> на время edit'а скрыт (см. startTextEdit). Коммит на
- клик-вне ловится через onClickOutside (см. textEditorRef). -->
-      <input
-        v-if="textEditing"
-        ref="textEditorRef"
-        v-model="textEditValue"
-        type="text"
-        class="absolute z-10 p-0 m-0 bg-transparent border-0 outline-none text-black font-sans"
-        :style="{ caretColor: 'var(--p-primary-500)', ...textEditing.style }"
-        @keydown.enter.prevent="commitTextEdit"
-        @keydown.esc.prevent="cancelTextEdit"
-      />
 
       <!-- Hover-tooltip над ячейкой: лейбл символа + «В группе (N)» у сгруппированной.
  pointer-events отключены чтобы tooltip не перехватывал клики/hover,

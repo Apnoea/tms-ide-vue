@@ -271,8 +271,10 @@ describe('символы прошлого формата скрыты из па�
     expect(isHiddenStencil(getStencilById('cell_node'))).toBe(true)
   })
 
-  it('cell_text скрыт по той же причине — подпись стала фигурой-разметкой', () => {
-    expect(isHiddenStencil(getStencilById('cell_text'))).toBe(true)
+  it('неподдерживаемого cell_text в реестре нет вовсе', () => {
+    // Подпись — не символ, а фигура-разметка; ячейки старых архивов отбрасываются на
+    // загрузке (legacyFormat.dropTextCells).
+    expect(getStencilById('cell_text')).toBeUndefined()
   })
 
   it('обычный символ остаётся видимым', () => {

@@ -431,7 +431,6 @@ describe('масштаб символа: чистые функции', () => {
     // Их билдеры рисуют по ФАКТИЧЕСКОМУ размеру, поэтому база масштаба = он сам.
     // Иначе тело шины, растянутой за края, уезжало бы во всю ширину холста.
     expect(contentScales(getStencilById('cell_bus'))).toBe(false)
-    expect(contentScales(getStencilById('cell_text'))).toBe(false)
     expect(contentScales(getStencilById('cell_node'))).toBe(false)
     expect(contentScales(getStencilById('cell_qw'))).toBe(true)
     // База = фактический размер → трансформа нет вообще.

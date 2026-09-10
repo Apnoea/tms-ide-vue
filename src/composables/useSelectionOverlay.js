@@ -16,7 +16,7 @@ import { projectToScreen, rotatedAabb, overlayButtonPositions } from '../utils/p
  * flip на серединах сторон. Не JointJS elementTools: те кэшируют bbox при addTools и не
  * следуют за resize. Доступность решают `canCellRotate` и `canCellFlip`.
  */
-export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging }) {
+export function useSelectionOverlay({ scheduleSnapshot, dragging }) {
   const canvas = useCanvas()
 
   /**
@@ -61,7 +61,6 @@ export function useSelectionOverlay({ scheduleSnapshot, textEditing, dragging })
     if (dragging?.value) return null
     const sel = canvas.selection.value
     if (sel.length !== 1 || sel[0].kind !== 'cell') return null
-    if (textEditing.value) return null
     const paper = canvas.paperRef.value
     const graph = canvas.graphRef.value
     if (!paper || !graph) return null

@@ -22,7 +22,7 @@ import { cssColor } from '../constants/animation'
 import { normalizeFont } from '../utils/textMetrics'
 import { svgEl } from '../utils/xml'
 
-/** Якорь роста подписи (как align у cell_text). Отсутствие = центр. */
+/** Якорь роста подписи: от какого края текст растёт при правке. Отсутствие = центр. */
 const TEXT_ALIGNS = ['left', 'center', 'right']
 
 /**

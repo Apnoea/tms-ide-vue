@@ -1,6 +1,6 @@
 // Мост «модель JointJS → DOM cellView»: порты, отражение, инъекция SVG символа
-// и переинъекция после fromJSON. Разметку программных символов (bus/text/node)
-// строят busCell/textCell/nodeCell — здесь только выбор нужного билдера.
+// и переинъекция после fromJSON. Разметку программных символов (bus/node)
+// строят busCell/nodeCell — здесь только выбор нужного билдера.
 import { instantiate } from './parser'
 import { getStencilById } from './registry'
 import { TMSStencil } from './tmsStencil'
@@ -11,7 +11,6 @@ import { portPointAt } from '../utils/portGeom'
 import { CANVAS_GRID } from './canvasPaper'
 import { computeBusPorts, buildBusContent } from './busCell'
 import { reinjectAllShapes } from './shapeElement'
-import { buildTextContent } from './textCell'
 import { buildNodeContent } from './nodeCell'
 
 /**
@@ -203,8 +202,6 @@ export function injectStencilSvg(cellView, stencil) {
   // bus/text/value/node — программные: размер и содержимое задаёт tms, не shape.svg.
   if (stencil.id === 'cell_bus') {
     for (const el of buildBusContent(cellView)) target.appendChild(el)
-  } else if (stencil.id === 'cell_text') {
-    for (const el of buildTextContent(cellView)) target.appendChild(el)
   } else if (stencil.id === 'cell_node') {
     for (const el of buildNodeContent(cellView)) target.appendChild(el)
   } else {
@@ -273,12 +270,11 @@ export function contentScales(stencil) {
   return !PROGRAMMATIC_SIZE.has(stencil.id) && !stencil.minWidth
 }
 
-const PROGRAMMATIC_SIZE = new Set(['cell_bus', 'cell_text', 'cell_node'])
+const PROGRAMMATIC_SIZE = new Set(['cell_bus', 'cell_node'])
 
 /**
- * Масштабируется ли символ ручками. Исключения: у шины габарит свой (ресайз), у
- * подписи — по содержимому, у точки соединения диаметр задаёт `tms.dotSize`. Замок
- * гейтит вызывающий (useCanvasResize).
+ * Масштабируется ли символ ручками. Исключения: у шины габарит свой (ресайз), у точки
+ * соединения диаметр задаёт `tms.dotSize`. Замок гейтит вызывающий (useCanvasResize).
  *
  * @returns {object|null} определение символа (вызывающему нужны его размеры) либо null
  */

@@ -2,7 +2,7 @@
 /**
  * Поле-тег (чип) инспектора: показывает тег или плейсхолдер, по клику просит
  * родителя открыть picker; опционально — «подсветить на схеме» и «убрать». Единый
- * источник стиля и disabled-логики для RangeBlock / BooleanBlock / CanvasInspector.
+ * источник стиля и disabled-логики для RangeBlock / StateBlock / DependencyBlock.
  * Состояние у родителя, отсюда только эмиты.
  */
 import { computed } from 'vue'

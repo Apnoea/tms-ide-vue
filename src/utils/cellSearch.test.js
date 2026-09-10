@@ -35,11 +35,6 @@ describe('getCellSearchStrings', () => {
     expect(strings).toEqual(expect.arrayContaining(['PS031TN001.U', 'ОБЩИЙ.ONOFF', 'LOCAL.ONOFF']))
   })
 
-  it('подхватывает text у cell_text', () => {
-    const cell = makeCell({ stencilId: 'cell_text', text: 'СШ-110' })
-    expect(getCellSearchStrings(cell)).toContain('СШ-110')
-  })
-
   it('подхватывает правимые подписи символа (tms.params)', () => {
     // Их вписывает автор от руки, и на схеме видно именно их — искать «Ua»
     // логичнее, чем помнить тег.
@@ -52,8 +47,8 @@ describe('getCellSearchStrings', () => {
   })
 
   it('подхватывает текст подписи-разметки (фигура)', () => {
-    // На схеме это такая же надпись, как cell_text: ищущий не знает и не должен
-    // знать, символ перед ним или фигура.
+    // Надпись на схеме ищется так же, как теги: ищущий не обязан знать, что перед
+    // ним фигура, а не символ.
     const cell = makeCell({ shape: { type: 'text', x: 0, y: 0, text: 'ГПП-3 ЗРУ 6кВ' } })
     expect(getCellSearchStrings(cell)).toContain('ГПП-3 ЗРУ 6кВ')
     expect(cellMatchesQuery(cell, 'зру')).toBe(true)
@@ -91,8 +86,8 @@ describe('cellMatchesQuery', () => {
     expect(cellMatchesQuery(cell, '')).toBe(false)
   })
 
-  it('матчит по тексту cell_text', () => {
-    const cell = makeCell({ text: 'Фидер №3' })
+  it('матчит по тексту подписи-разметки', () => {
+    const cell = makeCell({ shape: { type: 'text', x: 0, y: 0, text: 'Фидер №3' } })
     expect(cellMatchesQuery(cell, 'фидер')).toBe(true)
   })
 })

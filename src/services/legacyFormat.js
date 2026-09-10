@@ -1,22 +1,22 @@
 // Чтение данных прошлых форматов: читаем старое, пишем только новое. Изменённая форма
-// сразу перезаписывается в IDB, при импорте конвертация идёт на входе. Слой удаляется
-// целиком вместе с вызовами.
+// сразу перезаписывается в IDB, при импорте конвертация идёт на входе. Слой рассчитан
+// на удаление целиком — вместе со своими вызовами.
 //
 // Что конвертируется:
-//  • символ-подпись `cell_text` → фигура-разметка (`tms.Shape`): подпись перестала быть
-//    оборудованием — у неё нет ни портов, ни анимаций, её место среди фигур;
+//  • карточка значения: `valueTag`/`valueLabel`/`valueUnit` → слот и `params`;
+//  • символ-точка `cell_node` → свободный конец провода;
 //  • порты шины `top_i`/`bot_i` → единственный ряд `p_i` в середине толщины;
 //  • строки диапазонов: class-имя палитры (`animation-low`) → свой цвет.
-import { TEXT_FONT_SIZE, TEXT_PADDING_X } from '../stencils/textCell'
-import { placeShape } from '../stencils/shapeElement'
+//
+// Символ-подпись `cell_text` НЕ поддерживается: определения у него нет, такие ячейки
+// отбрасываются (`dropTextCells`) — рисунок задавался кодом, восстановить надпись нечем.
 import { computeBusPorts } from '../stencils/busCell'
 import { getStencilById } from '../stencils/registry'
 import { rangeRowColor } from '../constants/animation'
-import { measureTextWidth } from '../utils/textMetrics'
 
 /**
  * Карточка значения ПРОШЛОГО формата: тег в `tms.valueTag`, подпись и единица —
- * своими полями, рисунок программный. Теперь это обычный символ: тег живёт в слоте
+ * своими полями, рисунок программный. В текущем формате это обычный символ: тег в слоте
  * `value_text`, подписи — в `params`. null — ячейка не такая, вызывающий оставляет
  * её как есть.
  *
@@ -25,7 +25,7 @@ import { measureTextWidth } from '../utils/textMetrics'
  * Конвертация одноразовая, поэтому ключ мимо определения = потерянная подпись.
  *
  * Размер не переносим: у растянутой карточки габарит вернётся к определению — своей
- * ширины у неё больше нет, растёт весь символ масштабом.
+ * ширины у неё нет, растёт весь символ масштабом.
  */
 export function valueCellToParams(cell) {
   const tms = cell?.tms
@@ -50,65 +50,17 @@ export function valueCellToParams(cell) {
 }
 
 /**
- * Ячейка `cell_text` (graphJson) → ячейка-фигура. null, если это не подпись —
- * вызывающий тогда оставляет ячейку как есть.
+ * Выбрасывает ячейки символа-подписи `cell_text`: определения у него нет, и на схеме
+ * такая ячейка была бы пустым невидимым прямоугольником. Портов у подписи нет, поэтому
+ * связи проводов от её удаления не рвутся.
  *
- * Геометрия переводится так, чтобы надпись осталась на месте: у `cell_text` текст идёт
- * от левого края с отступом `TEXT_PADDING_X` и центрируется по вертикали, а у фигуры
- * точка привязки — baseline и якорь по `align`. Поэтому baseline опускается на ~0.3em
- * ниже центра, а x сдвигается под якорь.
+ * @returns {{cells: Array, dropped: number}} `dropped` вызывающий показывает
+ *   предупреждением — потеря подписи должна быть видна.
  */
-export function textCellToShape(cell) {
-  const tms = cell?.tms
-  if (tms?.stencilId !== 'cell_text') return null
-
-  const fontSize = tms.fontSize ?? TEXT_FONT_SIZE
-  const text = tms.text ?? ''
-  const align = tms.align === 'center' || tms.align === 'right' ? tms.align : 'left'
-  const pos = cell.position || { x: 0, y: 0 }
-  const height = cell.size?.height ?? fontSize + 6
-
-  const left = pos.x + TEXT_PADDING_X
-  // Ширина нужна только якорям center/right. Без canvas (замер < 0) сдвиг не считаем и
-  // оставляем подпись у левого края — это лучше, чем NaN в геометрии.
-  const measured = measureTextWidth(text, fontSize, !!tms.bold, -1, tms.fontFamily)
-  const width = measured > 0 ? measured : 0
-  const x =
-    align === 'right' && width
-      ? left + width
-      : align === 'center' && width
-        ? left + width / 2
-        : left
-
-  const shape = {
-    type: 'text',
-    x,
-    y: pos.y + height / 2 + fontSize * 0.3,
-    text,
-    fontSize,
-    // Дефолтное семейство не пишем: у фигуры отсутствие поля и есть дефолт.
-    ...(tms.fontFamily ? { fontFamily: tms.fontFamily } : {}),
-    stroke: tms.color || '#000',
-    ...(tms.bold ? { bold: true } : {}),
-    // Якорь роста пишется всегда: он задаёт, в какую сторону подпись растёт при правке.
-    align,
-  }
-  const placed = placeShape(shape)
-  if (!placed) return null
-
-  const next = {
-    type: 'tms.Shape',
-    id: cell.id,
-    position: placed.position,
-    size: placed.size,
-    tms: { shape: placed.shape },
-  }
-  // Замок и группа — свойства ячейки, переносятся как есть.
-  if (tms.locked) next.tms.locked = true
-  if (tms.groupId) next.tms.groupId = tms.groupId
-  if (cell.angle) next.angle = cell.angle
-  if (cell.z != null) next.z = cell.z
-  return next
+export function dropTextCells(cells) {
+  if (!Array.isArray(cells)) return { cells, dropped: 0 }
+  const next = cells.filter((c) => c?.tms?.stencilId !== 'cell_text')
+  return { cells: next, dropped: cells.length - next.length }
 }
 
 const BUS_PORT_LEGACY_RE = /^(?:top|bot)_(\d+)$/
@@ -241,11 +193,6 @@ export function migrateGraphJson(json) {
   // id шин собираются ДО обхода: линк в списке может стоять раньше своей шины.
   const busIds = new Set(cells.filter(isBusCellJson).map((c) => c.id))
   const next = cells.map((c) => {
-    const shapeCell = textCellToShape(c)
-    if (shapeCell) {
-      changed = true
-      return shapeCell
-    }
     const valueCell = valueCellToParams(c)
     if (valueCell) {
       changed = true
@@ -260,7 +207,10 @@ export function migrateGraphJson(json) {
   // Точки соединения растворяются на наборе целиком: нужны и ячейки, и линки.
   const nodes = dissolveNodeCells(next)
   if (nodes.changed) changed = true
+  // Подписи снятого символа выбрасываем: рисовать их больше нечем.
+  const texts = dropTextCells(nodes.cells)
+  if (texts.dropped) changed = true
   return changed
-    ? { json: { ...json, cells: nodes.cells }, changed: true }
+    ? { json: { ...json, cells: texts.cells }, changed: true }
     : { json, changed: false }
 }

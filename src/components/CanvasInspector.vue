@@ -1,47 +1,43 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
-import InputText from 'primevue/inputtext'
-import InputNumber from 'primevue/inputnumber'
 import AutoComplete from 'primevue/autocomplete'
-import Select from 'primevue/select'
-import SelectButton from 'primevue/selectbutton'
 import ToggleSwitch from 'primevue/toggleswitch'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import {
   useAnimationClipboard,
-  applyBoolClip,
+  applyStateClip,
+  applyDepsClip,
   applyRangeClip,
+  applyValueClip,
 } from '../composables/useAnimationClipboard'
 import { useAlign } from '../composables/useAlign'
 import { useBoolGroups } from '../composables/useBoolGroups'
 import { useValueRanges } from '../composables/useValueRanges'
-import { useTextCellProps, ALIGN_OPTIONS, BOLD_OPTIONS } from '../composables/useTextCellProps'
+import { ALIGN_OPTIONS, BOLD_OPTIONS, TEXT_FONT_SIZE } from '../constants/text'
 import { useNavigationField } from '../composables/useNavigationField'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
-import { getStencilById, hasBoolSlot } from '../stencils/registry'
+import { getStencilById, stateSlotOf, textSlotOf } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
 import { isShapeCell, shapeTypeLabel, applyShapePatch } from '../stencils/shapeElement'
-import { TEXT_FONT_SIZE } from '../stencils/textCell'
 import { BUS_COLOR_DEFAULT, BUS_THICKNESS_MAX, setBusThickness } from '../stencils/busCell'
 import { NODE_SIZE_DEFAULT, NODE_SIZE_MAX } from '../stencils/nodeCell'
 import { nplural } from '../utils/plural'
 import { normalizeBoolSource } from '../utils/boolSource'
-import { FONT_FAMILIES, normalizeFont } from '../utils/textMetrics'
+import { normalizeFont } from '../utils/textMetrics'
 import { toPlain } from '../utils/plain'
 import { isBooleanType } from '../services/parsers'
 import TagPickerDialog from './TagPickerDialog.vue'
-import TagField from './TagField.vue'
 import RangeBlock from './RangeBlock.vue'
-import BooleanBlock from './BooleanBlock.vue'
+import StateBlock from './StateBlock.vue'
+import DependencyBlock from './DependencyBlock.vue'
 import WireStyleFields from './WireStyleFields.vue'
 import ShapeBlock from './ShapeBlock.vue'
 import ValueBlock from './ValueBlock.vue'
 import AlignBlock from './AlignBlock.vue'
 import BodyStyleFields from './BodyStyleFields.vue'
-import ColorField from './ColorField.vue'
 import { previewOuterKey } from '../constants/ids'
 import {
   isDefaultWireValue,
@@ -53,6 +49,15 @@ import {
 // фигуры-разметка. Диапазоны и булев источник к ним не применяются.
 function isStatic(tms) {
   return !!tms?.shape || !!getStencilById(tms?.stencilId)?.static
+}
+
+/**
+ * Ключ слота-драйвера символа по его payload: `onoff` у булевых, `value` у «по
+ * значению», null у элементов без слотов (провод, шина, фигура-разметка). Нужен там, где символ
+ * известен только через tms — вставка буфера и массовая привязка.
+ */
+function stateSlotKeyOf(tms) {
+  return stateSlotOf(getStencilById(tms?.stencilId)?.slots)?.key || null
 }
 
 const canvas = useCanvas()
@@ -208,12 +213,6 @@ const details = computed(() => {
       stencilId: tms.stencilId,
       stencilLabel: stencil?.label || tms.stencilId || '-',
       locked: !!tms.locked,
-      isText: tms.stencilId === 'cell_text',
-      text: tms.text ?? '',
-      fontSize: tms.fontSize ?? TEXT_FONT_SIZE,
-      bold: !!tms.bold,
-      align: tms.align || 'left',
-      fontFamily: normalizeFont(tms.fontFamily),
       color: tms.color || '',
       isBus: tms.stencilId === 'cell_bus',
       isNode: tms.stencilId === 'cell_node',
@@ -228,11 +227,15 @@ const details = computed(() => {
       decimals: Number.isFinite(tms.decimals) ? tms.decimals : null,
       // id outer-карточки в animations.json/SVG (тот же, что эмитит exporter).
       exportId: previewOuterKey(tms.stencilId, cell.id),
-      // Символы с булевым слотом-драйвером (`onoff`, см. hasBoolSlot) рендерят его
-      // первой строкой BooleanBlock вместе с зависимостями boolSource.
-      hasBoolSlot: hasBoolSlot(stencil),
       // Символ показывает значение тега подписью (слот Text) — у него есть точность.
-      hasTextSlot: slotsDef.some((s) => s.type === 'Text'),
+      hasTextSlot: !!textSlotOf(slotsDef),
+      // Состояния «по значению» из определения символа: показываем справкой в
+      // StateBlock — коды значений тега иначе видны только в редакторе символов.
+      states: (stencil?.states || []).map((s) => ({
+        key: s.key,
+        label: s.label || '',
+        code: s.code ?? '',
+      })),
       // Правимые подписи символа: подпись поля — текст из определения (он же
       // значение по умолчанию). Пустой по умолчанию подписи заголовок не рисуем —
       // называть её нечем, а выдуманное имя врало бы.
@@ -241,9 +244,10 @@ const details = computed(() => {
         label: p.default || '',
         value: tms.params?.[p.key] ?? '',
       })),
-      // Тег основного булева слота (slot.onoff) — чтобы исключить его из boolSource.
-      // Берётся из payload, а не по индексу slots[0].
-      onoffTag: slotValues.onoff || '',
+      // Тег слота-драйвера (`onoff` либо `value`) — чтобы исключить его из зависимостей:
+      // от собственного тега элемент зависеть не должен. Берётся из payload, а не по
+      // индексу slots[0].
+      stateTag: slotValues[stateSlotOf(slotsDef)?.key] || '',
       // Слоты для UI: декларация из символа плюс текущее значение из tms.slots.
       slots: slotsDef.map((s) => ({
         key: s.key,
@@ -274,19 +278,30 @@ const details = computed(() => {
   return null
 })
 
-// Слот-драйвер символа «по значению»: любой не-onoff слот (onoff рисует BooleanBlock).
-// На холсте нужна одна строка — привязать тег, состояния и вид заданы в символе.
-const valueStateSlot = computed(() => {
+// Слот-драйвер состояния символа: единственный не-Text слот (`onoff` у булевых, `value`
+// у «по значению»). Режим задан в определении символа, на холсте привязывают только тег —
+// состояния и их вид запечены в символе.
+const stateSlot = computed(() => {
   const d = details.value
   if (!d || d.kind !== 'cell') return null
-  return (d.slots || []).find((s) => s.key !== 'onoff' && s.type !== 'Text') || null
+  return stateSlotOf(d.slots)
 })
 
 // Слот подписи, показывающей значение тега: тег + точность, состояний у неё нет.
 const valueTextSlot = computed(() => {
   const d = details.value
   if (!d || d.kind !== 'cell') return null
-  return (d.slots || []).find((s) => s.type === 'Text') || null
+  return textSlotOf(d.slots)
+})
+
+// Копировать карточку значения имеет смысл, когда в ней что-то задано: тег, точность
+// (в `tms` пишется только своя) или подпись. У пустой копировался бы шаблон, который
+// вставкой лишь снимал бы настройки у цели.
+const valueCopyable = computed(() => {
+  const slot = valueTextSlot.value
+  const d = details.value
+  if (!slot || !d) return false
+  return !!(slot.value || d.decimals !== null || d.params.some((p) => p.value))
 })
 
 // ─── Удаление ───
@@ -356,25 +371,25 @@ function withSelectedCell(fn, { reinject = false } = {}) {
   canvas.requestSnapshot()
 }
 
-/** Записывает тег в слот ячейки и перерисовывает её SVG (новые bindings). */
+/**
+ * Записывает тег в слот ячейки и перерисовывает её SVG (новые bindings). Пустой тег
+ * снимает привязку, а опустевший набор слотов удаляется целиком: пустой объект уехал бы
+ * в `data-tms-meta` мусором (`keep: Boolean` считает `{}` значением).
+ */
 function patchSlotTag(key, tag) {
   withSelectedCell(
     ({ cell, tms }) => {
       const nextSlots = { ...(tms.slots || {}) }
       if (tag) nextSlots[key] = tag
       else delete nextSlots[key]
-      cell.set('tms', { ...tms, slots: nextSlots })
+      const next = { ...tms }
+      if (Object.keys(nextSlots).length) next.slots = nextSlots
+      else delete next.slots
+      cell.set('tms', next)
     },
     { reinject: true }
   )
 }
-
-// ─── Редактирование текста (символ cell_text) ───
-// Секция целиком в useTextCellProps (patch + ресайз под текст; ALIGN/BOLD-опции там же).
-const { applyText, applyFontSize, applyBold, applyColor, applyAlign, applyFontFamily } =
-  useTextCellProps({
-    withSelectedCell,
-  })
 
 // ─── Фигура-разметка: вид и содержимое подписи ───
 // Патч уходит в `tms.shape` через applyShapePatch, он же пересчитывает габарит ячейки
@@ -753,9 +768,10 @@ function onPickMultiBoolTag(tag) {
       skipped++
       continue
     }
-    // Свитчи (символы с slot.onoff) не должны зависеть от своего же тега —
-    // slot.onoff уже отвечает за переключение, дубль в boolSource бессмыслен.
-    if (hasBoolSlot(getStencilById(tms.stencilId)) && tms.slots?.onoff === tag) {
+    // Элемент не должен зависеть от своего же тега — слот-драйвер уже отвечает за
+    // состояние, дубль в boolSource бессмыслен.
+    const slotKey = stateSlotKeyOf(tms)
+    if (slotKey && tms.slots?.[slotKey] === tag) {
       skipped++
       continue
     }
@@ -781,19 +797,43 @@ function onPickMultiBoolTag(tag) {
 }
 
 // ─── Копирование настроек анимаций между элементами ───
-// Буфер (useAnimationClipboard) держит два независимых слота — булев блок и
-// диапазоны, — копируются/вставляются раздельно кнопками в шапке своего блока.
-// Копируем ЦЕЛИКОМ, включая тег (предсказуемый «тот же источник»); тег при нужде
+// Буфер (useAnimationClipboard) держит четыре независимых слота — тег состояния,
+// карточку значения, зависимости и диапазоны, — копируются/вставляются раздельно
+// кнопками в шапке своего блока. Копируем ЦЕЛИКОМ, включая тег (предсказуемый «тот же источник»); тег при нужде
 // меняют вручную после вставки. toPlain снимает reactive-прокси — иначе вставка
 // делила бы одну ссылку между ячейками. Вставка идёт на ВСЁ текущее выделение
 // (одиночное и мульти), со счётчиком пропущенных (несовместимые цели).
 
-/** Копировать булев блок выделенного: свой тег (slot.onoff) + группы-зависимости. */
-function copyBool() {
+/** Копировать тег состояния выделенного вместе с ключом слота: вставка проверит, что у
+ *  цели слот тот же (булев тег в символ «по значению» не годится). */
+function copyState() {
+  const slot = stateSlot.value
+  if (!slot?.value) return
+  animClip.copyState({ slotKey: slot.key, tag: slot.value })
+  notify.success('Скопировано', 'Тег состояния')
+}
+
+/** Копировать карточку значения ЦЕЛИКОМ: тег подписи, точность и правимые подписи. */
+function copyValue() {
+  const slot = valueTextSlot.value
   const d = details.value
-  if (!d) return
-  animClip.copyBool(toPlain({ onoffTag: d.onoffTag || null, groups: boolGroups.value }))
-  notify.success('Скопировано', 'Булевые настройки анимации')
+  if (!slot || !d) return
+  animClip.copyValue(
+    toPlain({
+      slotKey: slot.key,
+      tag: slot.value || '',
+      decimals: d.decimals,
+      params: Object.fromEntries(d.params.filter((p) => p.value).map((p) => [p.key, p.value])),
+    })
+  )
+  notify.success('Скопировано', 'Карточка значения')
+}
+
+/** Копировать группы-зависимости выделенного (boolSource). */
+function copyDeps() {
+  if (!boolGroups.value.length) return
+  animClip.copyDeps(toPlain({ groups: boolGroups.value }))
+  notify.success('Скопировано', 'Зависимости от других элементов')
 }
 
 /** Копировать диапазоны выделенного (rangeSource целиком: тег + пороги). */
@@ -805,25 +845,45 @@ function copyRange() {
 }
 
 /**
- * Вставить булев блок из буфера на всё текущее выделение. Группы-зависимости
- * (boolSource) раздаём любому не-static элементу/проводу; свой булев тег
- * (onoff) — только символам с булевым слотом (иначе некуда его писать). Статичные
- * символы (текст/значение) пропускаем со счётчиком.
+ * Вставить тег состояния на всё выделение — только символам с ТЕМ ЖЕ ключом слота
+ * (`onoff` или `value`): режимы анимации разные, а тег булев либо числовой. Остальные
+ * цели идут в пропущенные.
  */
-function pasteBool() {
-  const clip = animClip.boolClip.value
-  // Вставка ЗАМЕНЯЕТ блок целиком: буфер без групп снимает boolSource у цели.
-  // Считаем такие случаи, чтобы не стереть зависимости молча (тост станет warn).
-  const clipHasGroups = !!(clip?.groups || []).some((g) => g.length)
+function pasteState() {
+  const clip = animClip.stateClip.value
   pasteClip(
     clip,
-    (tms) =>
-      applyBoolClip(tms, clip, {
+    (tms) => applyStateClip(tms, clip, { isStatic: isStatic(tms), slotKey: stateSlotKeyOf(tms) }),
+    { reinject: true }
+  )('Тег состояния вставлен')
+}
+
+/**
+ * Вставить карточку значения на всё выделение — символам с Text-слотом того же ключа.
+ * Подписи раздаём только по ключам, объявленным у цели: у другого символа они свои.
+ */
+function pasteValue() {
+  const clip = animClip.valueClip.value
+  pasteClip(
+    clip,
+    (tms) => {
+      const stencil = getStencilById(tms.stencilId)
+      return applyValueClip(tms, clip, {
         isStatic: isStatic(tms),
-        hasBoolSlot: hasBoolSlot(getStencilById(tms.stencilId)),
-      }),
-    (tms) => !clipHasGroups && !!tms.boolSource
-  )('Булевые настройки вставлены')
+        slotKey: textSlotOf(stencil?.slots)?.key || null,
+        paramKeys: (stencil?.params || []).map((p) => p.key),
+      })
+    },
+    { reinject: true }
+  )('Карточка значения вставлена')
+}
+
+/** Вставить зависимости из буфера на всё выделение (замена групп целиком). Применимы к
+ *  любому не-static элементу, включая провод. */
+function pasteDeps() {
+  pasteClip(animClip.depsClip.value, (tms) =>
+    applyDepsClip(tms, animClip.depsClip.value, { isStatic: isStatic(tms) })
+  )('Зависимости вставлены')
 }
 
 /** Вставить диапазоны из буфера на всё текущее выделение (rangeSource целиком,
@@ -837,39 +897,43 @@ function pasteRange() {
 /**
  * Общий каркас вставки буфера на всё выделение: для каждой цели зовёт apply(tms) →
  * новый tms либо null (несовместимо → пропуск со счётчиком). Заблокированные
- * отсекает `writableItems`. Пустой буфер — no-op. `wasCleared(tmsBefore)` (опц.)
- * помечает цели, у которых вставка СНЯЛА настройку — такие считаем отдельно и
- * выводим warn, чтобы данные не исчезали молча под зелёным тостом.
+ * отсекает `writableItems`. Пустой буфер — no-op.
+ *
+ * `reinject: true` перерисовывает SVG цели — обязателен, когда вставка меняет слоты:
+ * тег уходит в bindings разметки, и без перерисовки они остались бы от прежнего тега
+ * (то же делает `withSelectedCell` при правке слота из инспектора).
+ *
  * Возвращает функцию-финализатор (принимает заголовок тоста).
  */
-function pasteClip(clip, apply, wasCleared = null) {
+function pasteClip(clip, apply, { reinject = false } = {}) {
   return (title) => {
     if (!clip) return
+    const paper = canvas.paperRef.value
     const sel = canvas.selection.value
     const writable = canvas.writableItems(sel)
     let applied = 0
     let skipped = sel.length - writable.length // заблокированные
-    let cleared = 0
     for (const cell of writable) {
-      const before = cell.get('tms') || {}
-      const next = apply(before)
+      const next = apply(cell.get('tms') || {})
       if (!next) {
         skipped++
         continue
       }
-      if (wasCleared?.(before)) cleared++
       cell.set('tms', next)
+      if (reinject) {
+        const stencil = getStencilById(next.stencilId)
+        const cellView = stencil && paper?.findViewByModel(cell)
+        if (cellView) injectStencilSvg(cellView, stencil)
+      }
       applied++
     }
     canvas.bumpVersion()
     canvas.requestSnapshot()
     const parts = [`Применено к ${nplural(applied, 'символ', 'символа', 'символов')}`]
     if (skipped) parts.push(`пропущено: ${skipped}`)
-    if (cleared) parts.push(`зависимости очищены: ${cleared}`)
     const detail = parts.join(' · ')
-    // Нулевой результат или снятые настройки — не «успех».
+    // Нулевой результат — не «успех».
     if (applied === 0) notify.warn('Настройки не применены', detail)
-    else if (cleared) notify.warn(title, detail)
     else notify.success(title, detail)
   }
 }
@@ -965,20 +1029,19 @@ const {
 
           <!-- Multi-select: те же блоки, что в single, как «применить ко всем»
                (общего состояния у выделения нет → списки пустые/шаблон, выбор тега
-               и порогов раздаётся на всё выделение). Булев — BooleanBlock без групп:
-               «+ группа» раздаёт тег новой группой на всё выделение. Range — шаблон
-               multiRange: задаёшь тег → правишь пороги → на все выделенные. -->
+               и порогов раздаётся на всё выделение). Зависимости — DependencyBlock без
+               групп: «+ группа» раздаёт тег новой группой на всё выделение. Тега
+               состояния тут нет: слоты у выделенных символов бывают разного типа.
+               Range — шаблон multiRange: задаёшь тег → правишь пороги → на все. -->
           <div class="space-y-2">
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
-            <BooleanBlock
-              :slot-info="null"
+            <DependencyBlock
               :groups="[]"
               :removable="false"
               :tags-loaded="!!project.tags.length"
-              :pasteable="animClip.hasBool.value"
-              title="Булево значение"
+              :pasteable="animClip.hasDeps.value"
               @add-group="openMultiBoolPicker"
-              @paste="pasteBool"
+              @paste="pasteDeps"
             />
             <RangeBlock
               :range-source="multiRange"
@@ -1079,115 +1142,12 @@ const {
               </div>
             </div>
 
-            <!-- Текстовое поле: редактирование содержимого + стиль. Параметры —
-                 строкой «подпись слева, контрол справа» (как в редакторе). Само поле
-                 ввода текста — исключение: подпись сверху, инпут во всю ширину. -->
-            <div v-if="details.isText" class="space-y-2.5">
-              <div>
-                <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
-                <InputText
-                  :model-value="details.text"
-                  size="small"
-                  class="w-full"
-                  placeholder="Введите текст"
-                  @update:model-value="applyText"
-                />
-              </div>
-
-              <div class="flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Размер, pt
-                </span>
-                <InputNumber
-                  :model-value="details.fontSize"
-                  :min="6"
-                  :max="72"
-                  :step="1"
-                  show-buttons
-                  button-layout="horizontal"
-                  size="small"
-                  input-class="w-12! text-center"
-                  class="ml-auto"
-                  @update:model-value="applyFontSize"
-                />
-              </div>
-
-              <div class="flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Шрифт
-                </span>
-                <!-- Пункты рисуются своим же семейством — выбор виден до применения. -->
-                <Select
-                  :model-value="details.fontFamily"
-                  :options="FONT_FAMILIES"
-                  option-label="label"
-                  option-value="value"
-                  size="small"
-                  class="ml-auto w-40"
-                  @update:model-value="applyFontFamily"
-                >
-                  <template #option="{ option }">
-                    <span :style="{ fontFamily: option.value }">{{ option.label }}</span>
-                  </template>
-                </Select>
-              </div>
-
-              <div class="flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Жирность
-                </span>
-                <SelectButton
-                  :model-value="details.bold ? 'bold' : null"
-                  :options="BOLD_OPTIONS"
-                  option-value="value"
-                  data-key="value"
-                  size="small"
-                  class="ml-auto"
-                  @update:model-value="(v) => applyBold(v === 'bold')"
-                >
-                  <template #option>
-                    <span class="font-bold" v-tooltip.top="'Жирный'">B</span>
-                  </template>
-                </SelectButton>
-              </div>
-
-              <div class="flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Цвет
-                </span>
-                <ColorField
-                  :model-value="details.color || '#000000'"
-                  class="ml-auto"
-                  @update:model-value="applyColor($event)"
-                />
-              </div>
-
-              <div class="flex items-center gap-3">
-                <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-                  Выравнивание
-                </span>
-                <SelectButton
-                  :model-value="details.align"
-                  :options="ALIGN_OPTIONS"
-                  option-value="value"
-                  data-key="value"
-                  :allow-empty="false"
-                  size="small"
-                  class="ml-auto"
-                  @update:model-value="applyAlign"
-                >
-                  <template #option="{ option }">
-                    <i :class="option.icon" v-tooltip.top="option.tip" />
-                  </template>
-                </SelectButton>
-              </div>
-            </div>
-
             <!-- Вид тела шины / точки соединения одним блоком. Цвет БАЗОВЫЙ:
                  привязанные диапазоны и обесточивание заливают его поверх, поэтому в
                  рантайме свой цвет виден, пока ни один animation-класс не активен.
-                 Толщина: у шины = высота ячейки, у точки = диаметр; минимум — дефолт
-                 (тоньше тело сливается с проводами, точка — с их пересечением). -->
+                 Толщина: у шины = высота ячейки, у точки = диаметр; минимум ОН ЖЕ дефолт
+                 (тоньше тело сливается с проводами, точка — с их пересечением), поэтому
+                 крестик сброса ведёт к нему. -->
             <BodyStyleFields
               v-if="details.isBus || details.isNode"
               :color="details.color || BUS_COLOR_DEFAULT"
@@ -1195,6 +1155,7 @@ const {
               :thickness="details.thickness"
               :thickness-min="details.thicknessMin"
               :thickness-max="details.thicknessMax"
+              :thickness-default="details.thicknessMin"
               @update-color="applyBodyColor"
               @update-thickness="applyThickness"
             />
@@ -1204,7 +1165,7 @@ const {
                  ввести view-id вручную (editable) — напр. для view, которой ещё нет в
                  проекте. Свич справа от заголовка показывает/скрывает поле; выключение
                  очищает значение. -->
-            <div v-if="!details.isText" class="space-y-2">
+            <div class="space-y-2">
               <div class="flex items-center justify-between gap-2">
                 <div>
                   <div class="text-[11px] uppercase tracking-wider text-surface-500">Навигация</div>
@@ -1261,28 +1222,25 @@ const {
 
           <!-- Анимации: не у подписи и не у фигуры-разметки (у последней их
                нет вовсе — exporter не эмитит для неё карточек, привязка вела бы в никуда). -->
-          <div v-if="!details.isText && !details.isShape" class="space-y-2">
+          <div v-if="!details.isShape" class="space-y-2">
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
 
-            <!-- Символ «по значению»: привязка тега сигнала (состояния и их вид
-                 запечены в символе, здесь только тег-драйвер). -->
-            <div v-if="valueStateSlot" class="border border-surface-200 rounded p-3 bg-surface-0">
-              <div class="flex items-center gap-2 mb-2 min-h-6">
-                <i class="pi pi-sitemap text-purple-500" />
-                <div class="text-xs font-medium text-surface-700">Состояние по значению</div>
-              </div>
-              <div class="text-[11px] text-surface-500 mb-1">
-                Тег
-                <span class="text-surface-400">для анимации элемента</span>
-              </div>
-              <TagField
-                :value="valueStateSlot.value"
-                :can-pick="!!project.tags.length"
-                highlightable
-                @pick="openSlotPicker(valueStateSlot)"
-                @highlight="canvas.toggleHighlightedTag(valueStateSlot.value)"
-              />
-            </div>
+            <!-- Состояние символа: тег слота-драйвера. Заголовок и справка следуют типу
+                 слота («Булево значение» либо «Состояние по значению») — режим задан в
+                 определении символа, здесь привязывают только тег. -->
+            <StateBlock
+              v-if="stateSlot"
+              :slot-info="stateSlot"
+              :states="details.states"
+              :tags-loaded="!!project.tags.length"
+              :copyable="!!stateSlot.value"
+              :pasteable="animClip.hasState.value"
+              @pick-tag="openSlotPicker(stateSlot)"
+              @highlight-tag="canvas.toggleHighlightedTag"
+              @clear="patchSlotTag(stateSlot.key, '')"
+              @copy="copyState"
+              @paste="pasteState"
+            />
 
             <!-- Карточка значения одним блоком: тег, точность и правимые подписи. -->
             <ValueBlock
@@ -1291,25 +1249,26 @@ const {
               :params="details.params"
               :decimals="details.decimals"
               :tags-loaded="!!project.tags.length"
+              :copyable="valueCopyable"
+              :pasteable="animClip.hasValue.value"
+              @copy="copyValue"
+              @paste="pasteValue"
               @pick-tag="openSlotPicker(valueTextSlot)"
               @highlight-tag="canvas.toggleHighlightedTag"
+              @clear="patchSlotTag(valueTextSlot.key, '')"
               @update-decimals="applyValueDecimals"
               @update-param="applyParam"
             />
 
-            <!-- Булево значение — виден ВСЕГДА. У символа с булевым слотом
-                 (onoff, в т.ч. cell_alr) первой строкой идёт этот слот (основной
-                 тег), ниже — зависимости boolSource. Теги пишутся лениво через
-                 «Добавить»; × очищает (boolRemovable). -->
-            <BooleanBlock
-              :slot-info="details.hasBoolSlot ? details.slots[0] : null"
+            <!-- Зависимости (boolSource) — виден ВСЕГДА, в том числе у провода и шины:
+                 гашение не привязано к слоту символа. Теги пишутся лениво через
+                 «Добавить»; × очищает все группы (boolRemovable). -->
+            <DependencyBlock
               :groups="boolGroups"
               :removable="boolRemovable"
               :tags-loaded="!!project.tags.length"
-              :copyable="!!(details.onoffTag || boolGroups.length)"
-              :pasteable="animClip.hasBool.value"
-              title="Булево значение"
-              @open-slot-picker="openSlotPicker(details.slots[0])"
+              :copyable="!!boolGroups.length"
+              :pasteable="animClip.hasDeps.value"
               @add-group="onAddGroup"
               @add-tag="onAddBoolTag"
               @edit-tag="editBoolTagAt"
@@ -1317,8 +1276,8 @@ const {
               @remove-group="removeBoolGroup"
               @remove="clearBoolGroups"
               @highlight-tag="canvas.toggleHighlightedTag"
-              @copy="copyBool"
-              @paste="pasteBool"
+              @copy="copyDeps"
+              @paste="pasteDeps"
             />
 
             <!-- Значение тега → класс: диапазоны либо точные значения (свитч в блоке).

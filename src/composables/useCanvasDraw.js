@@ -4,7 +4,7 @@ import { useCanvas } from './useCanvas'
 import { useUiStore } from '../stores/useUiStore'
 import { snapToGrid } from '../utils/grid'
 import { materializeShape, dedupeAdjacent } from '../stencils/shapeElement'
-import { TEXT_FONT_SIZE } from '../stencils/textCell'
+import { TEXT_FONT_SIZE } from '../constants/text'
 
 /**
  * Рисование фигур-разметки на холсте теми же жестами, что в редакторе символов:

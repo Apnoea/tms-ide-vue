@@ -194,3 +194,39 @@ body,
 .p-tooltip .p-tooltip-arrow {
   border-width: 4px;
 }
+
+/* Ширина боковой колонки — из `--tms-pane-w` (инлайн-стилем от App.vue, значение из
+   ui-стора). Через переменную, а не inline `width`: иначе инлайн перебивал бы нулевую
+   ширину анимации сворачивания ниже. Содержимое читает ту же переменную и потому не
+   сжимается на промежуточных кадрах. */
+.tms-pane-col,
+.tms-pane-body {
+  width: var(--tms-pane-w);
+}
+.tms-pane-body {
+  height: 100%;
+}
+
+/* Сворачивание боковых колонок: анимируем ШИРИНУ «шторки», содержимое внутри держит
+   свою — иначе панель плющило бы по горизонтали на каждом кадре, а таблицы и поля
+   инспектора перерисовывались бы под каждую промежуточную ширину.
+   Правила вне @layer и объявлены ПОСЛЕ `.tms-pane-col`, поэтому нулевая ширина
+   перебивает её. `prefers-reduced-motion` — без движения, панель просто появляется. */
+.tms-pane-enter-active,
+.tms-pane-leave-active {
+  transition:
+    width 180ms ease,
+    opacity 140ms ease;
+}
+.tms-pane-enter-from,
+.tms-pane-leave-to {
+  width: 0;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tms-pane-enter-active,
+  .tms-pane-leave-active {
+    transition: none;
+  }
+}

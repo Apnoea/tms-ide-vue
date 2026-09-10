@@ -15,12 +15,7 @@ import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 import { sanitizeShape } from '../stencils/shapeElement'
 import { isBackgroundZ, BACKGROUND_Z_BOUNDS } from '../utils/zOrder'
 import { portPoints } from '../utils/portGeom'
-import {
-  textCellToShape,
-  valueCellToParams,
-  legacyBusPortId,
-  dissolveNodeCells,
-} from './legacyFormat'
+import { valueCellToParams, legacyBusPortId, dissolveNodeCells } from './legacyFormat'
 
 /**
  * Первая и последняя точки пути провода — последняя линия обороны: если в meta конец
@@ -194,20 +189,15 @@ export function parseSvgProject(svgText) {
       if (Number.isFinite(angle) && angle % 360 !== 0) cellJson.angle = ((angle % 360) + 360) % 360
       const z = Number.parseFloat(meta.z)
       if (Number.isFinite(z)) cellJson.z = Math.max(0, z)
-      // Подпись прошлого формата (cell_text) сразу становится фигурой — тем же
-      // конвертером, что чинит формы в IDB (services/legacyFormat).
-      const migrated = textCellToShape(cellJson)
       // Карточка значения прошлого формата: тег переезжает в слот, подписи — в params.
       // Дальше по функции работаем с ТЕМ ЖЕ объектом, что попал в набор: конвертер
       // отдаёт копию, и индекс портов по исходному описывал бы уже чужую ячейку.
-      const cellNext = migrated || valueCellToParams(cellJson) || cellJson
+      const cellNext = valueCellToParams(cellJson) || cellJson
       cells.push(cellNext)
       elementIds.add(meta.id)
       if (meta.stencilId === 'cell_bus') busIds.add(meta.id)
-      if (!migrated) {
-        indexPorts(portIndex, cellNext, portByCellPoint)
-        cellPorts.set(meta.id, new Set(portItems.map((it) => it.id)))
-      }
+      indexPorts(portIndex, cellNext, portByCellPoint)
+      cellPorts.set(meta.id, new Set(portItems.map((it) => it.id)))
     } catch (e) {
       errors.push(`Парсинг символа: ${e.message}`)
     }
@@ -320,5 +310,7 @@ export function parseSvgProject(svgText) {
   }
 
   // ok = SVG распарсился (см. docstring). Пустой cells — валидная пустая форма.
+  // Подписи снятого символа `cell_text` сюда не доходят: их отсекает проверка реестра
+  // выше — «символ не зарегистрирован», с предупреждением, как любой чужой символ.
   return { ok: true, cells: nodes.cells, errors, stencilIds: [...stencilIds] }
 }

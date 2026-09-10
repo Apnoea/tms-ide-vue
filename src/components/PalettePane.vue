@@ -96,8 +96,8 @@ const stencilsByCategory = computed(() => {
   const map = new Map()
   for (const cat of allCategories.value) map.set(cat, [])
   for (const stencil of getAllStencils()) {
-    // Символ прошлого формата (см. LEGACY_HIDDEN_IDS) остался в реестре только чтобы
-    // открывать прошлые формы — рисовать им больше не предлагаем.
+    // Символ прошлого формата (см. LEGACY_HIDDEN_IDS) держится в реестре только ради
+    // открытия старых форм — в палитру он не попадает.
     if (isHiddenStencil(stencil) || !matchesSearch(stencil)) continue
     if (domainFilterActive.value && !matchesDomains(stencil, domainFilter.value)) continue
     map.get(stencil.category)?.push(stencil)

@@ -8,15 +8,14 @@ vi.mock('../stencils/registry', () => ({
 }))
 import {
   valueCellToParams,
-  textCellToShape,
+  dropTextCells,
   migrateGraphJson,
   legacyBusPortId,
   dissolveNodeCells,
 } from './legacyFormat'
-import { TEXT_PADDING_X } from '../stencils/textCell'
 
-// Подпись из прошлого формата (символ cell_text) должна стать фигурой-разметкой,
-// не потеряв ни вида, ни места, ни свойств ячейки.
+// Символ-подпись cell_text не поддерживается: его ячейки отбрасываются на загрузке —
+// рисовать их нечем, а пустая невидимая ячейка мешала бы на схеме.
 
 function textCell(tms = {}, rest = {}) {
   return {
@@ -29,67 +28,29 @@ function textCell(tms = {}, rest = {}) {
   }
 }
 
-describe('textCellToShape', () => {
-  it('чужие ячейки не трогает', () => {
-    expect(textCellToShape({ tms: { stencilId: 'cell_qw' } })).toBeNull()
-    expect(textCellToShape({ tms: { shape: { type: 'text' } } })).toBeNull()
-    expect(textCellToShape(null)).toBeNull()
+describe('dropTextCells', () => {
+  it('подписи снятого символа выбрасываются со счётчиком', () => {
+    const other = { type: 'tms.Stencil', id: 'c1', tms: { stencilId: 'cell_qw' } }
+    const { cells, dropped } = dropTextCells([
+      textCell(),
+      other,
+      { type: 'standard.Link', id: 'l1' },
+    ])
+    expect(dropped).toBe(1)
+    expect(cells.map((c) => c.id)).toEqual(['c1', 'l1'])
+    // Прочие ячейки — те же объекты: пересборка набора не нужна.
+    expect(cells[0]).toBe(other)
   })
 
-  it('вид подписи переезжает в геометрию фигуры', () => {
-    const out = textCellToShape(
-      textCell({ text: 'QF-101', fontSize: 20, bold: true, color: '#ff0000', fontFamily: 'serif' })
-    )
-    expect(out.type).toBe('tms.Shape')
-    expect(out.id).toBe('t1')
-    expect(out.tms.shape).toMatchObject({
-      type: 'text',
-      text: 'QF-101',
-      fontSize: 20,
-      bold: true,
-      stroke: '#ff0000',
-      fontFamily: 'serif',
-      align: 'left',
-    })
-  })
-
-  it('подпись остаётся на своём месте: baseline ниже центра ячейки', () => {
-    // Ячейка 50..70 по вертикали, у cell_text текст центрирован по ней; у фигуры
-    // точка привязки — baseline, поэтому она ниже центра (~0.3em).
-    const out = textCellToShape(textCell({ fontSize: 14 }))
-    expect(out.position.y + out.tms.shape.y).toBeCloseTo(50 + 10 + 14 * 0.3, 5)
-    // Левый край + отступ — там же, где текст рисовался у символа.
-    expect(out.position.x + out.tms.shape.x).toBeCloseTo(100 + TEXT_PADDING_X, 5)
-  })
-
-  it('якорь роста сохраняется даже без замера ширины', () => {
-    // Замер идёт через canvas, в jsdom он недоступен — align обязан доехать всё равно,
-    // иначе подпись после первой правки поехала бы в другую сторону.
-    for (const align of ['left', 'center', 'right']) {
-      expect(textCellToShape(textCell({ align })).tms.shape.align).toBe(align)
-    }
-    // Мусорный якорь — как у cell_text, дефолт.
-    expect(textCellToShape(textCell({ align: 'justify' })).tms.shape.align).toBe('left')
-  })
-
-  it('свойства ячейки (замок, группа, угол, слой) переносятся', () => {
-    const out = textCellToShape(textCell({ locked: true, groupId: 'grp-1' }, { angle: 90, z: 7 }))
-    expect(out.tms).toMatchObject({ locked: true, groupId: 'grp-1' })
-    expect(out.angle).toBe(90)
-    expect(out.z).toBe(7)
-    // Символьных полей у фигуры нет — иначе она осталась бы наполовину символом.
-    expect(out.tms.stencilId).toBeUndefined()
-  })
-
-  it('дефолты не пишутся: ни семейства шрифта, ни жирности', () => {
-    const shape = textCellToShape(textCell()).tms.shape
-    expect(shape.fontFamily).toBeUndefined()
-    expect(shape.bold).toBeUndefined()
+  it('без подписей набор возвращается как есть, мусор не ломает', () => {
+    const cells = [{ type: 'standard.Link', id: 'l1' }]
+    expect(dropTextCells(cells)).toEqual({ cells, dropped: 0 })
+    expect(dropTextCells(null)).toEqual({ cells: null, dropped: 0 })
   })
 })
 
 describe('migrateGraphJson', () => {
-  it('переписывает только подписи и сообщает об этом флагом', () => {
+  it('выбрасывает подписи снятого символа и просит перезаписать форму', () => {
     const json = {
       cells: [
         textCell(),
@@ -99,9 +60,7 @@ describe('migrateGraphJson', () => {
     }
     const { json: next, changed } = migrateGraphJson(json)
     expect(changed).toBe(true)
-    expect(next.cells[0].type).toBe('tms.Shape')
-    expect(next.cells[1]).toBe(json.cells[1])
-    expect(next.cells[2]).toBe(json.cells[2])
+    expect(next.cells.map((c) => c.id)).toEqual(['c1', 'l1'])
   })
 
   it('идемпотентна: второй проход ничего не меняет и не просит перезаписи', () => {

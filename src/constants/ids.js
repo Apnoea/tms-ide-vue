@@ -6,7 +6,6 @@
 //  • ячейка:          animation-<stencilId>-<animId>[<suffix из data-anim-suffix>]
 //  • провод:          animation-wire-<shortId>
 
-import { SVG_FONT, normalizeFont } from '../utils/textMetrics'
 import { cssColor, rangeRowColor } from './animation'
 import { ARROW_KINDS, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from './wire'
 
@@ -141,11 +140,8 @@ export const CELL_META_FIELDS = [
   { key: 'slots', keep: Boolean, clone: true },
   // Значения подписей-параметров символа. Пустое = текст из определения.
   { key: 'params', keep: Boolean, clone: true, normalize: normalizeParams },
-  { key: 'text', keep: (v) => v !== undefined },
-  { key: 'fontSize', keep: (v) => v !== undefined, normalize: clampNumber(1, 400, undefined) },
-  { key: 'bold', keep: (v) => v !== undefined },
-  // Цвет подписи и тела шины. Уезжает в атрибут `fill` экспортного SVG, а архив
-  // чужой — мусор отбрасываем целиком (поля нет = дефолтный цвет).
+  // Цвет тела шины и точки соединения. Уезжает в атрибут `fill` экспортного SVG, а
+  // архив чужой — мусор отбрасываем целиком (поля нет = дефолтный цвет).
   { key: 'color', keep: (v) => v !== undefined, normalize: (v) => cssColor(v) || undefined },
   // Диаметр точки соединения. Дефолт не пишем — отсутствие поля и есть он.
   { key: 'dotSize', keep: (v) => v !== undefined, normalize: clampNumber(2, 20, undefined) },
@@ -154,15 +150,6 @@ export const CELL_META_FIELDS = [
   // должен переживать пропорционально, а по одному габариту «40×40» не понять, чего
   // хотел автор. ×1 — дефолт, в meta не пишем.
   { key: 'scale', keep: (v) => v > 1, normalize: clampNumber(1, 4, undefined) },
-  // Шрифт cell_text. `normalize` гоняет значение через whitelist на обоих концах
-  // round-trip'а. Дефолт (SVG_FONT) не пишем — отсутствие = он же.
-  { key: 'fontFamily', keep: (v) => v !== undefined && v !== SVG_FONT, normalize: normalizeFont },
-  // 'left' — дефолт (отсутствие = left), в meta не пишем.
-  {
-    key: 'align',
-    keep: (v) => v !== undefined && v !== 'left',
-    normalize: oneOf(['left', 'center', 'right'], undefined),
-  },
   // Тег, подпись и единица карточки значения ПРОШЛОГО формата: новых ячеек с этими
   // полями не появляется (тег живёт в slots.value_text, подписи — в params), но их
   // читает миграция, поэтому дескрипторы живут, пока жив её слой.

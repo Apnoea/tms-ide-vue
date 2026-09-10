@@ -200,14 +200,34 @@ const registry = (() => {
 })()
 
 /**
+ * Слот-драйвер состояния символа: единственный не-`Text` слот (`onoff` у булевых,
+ * `value` у «по значению» — режим задаёт редактор символов). Подпись со значением
+ * (`Text`) драйвером не считается: у неё нет состояний, она печатает число.
+ *
+ * Одно правило на всех: инспектор ищет слот в UI-списке, буфер и массовая привязка —
+ * в определении символа; разойдись они, тег состояния писался бы не в тот ключ.
+ *
+ * @param {Array<{key: string, type?: string}>} slots
+ */
+export function stateSlotOf(slots) {
+  return (slots || []).find((s) => s.type !== 'Text') || null
+}
+
+/** Слот подписи со значением тега (`Text`) — парно к `stateSlotOf`. */
+export function textSlotOf(slots) {
+  return (slots || []).find((s) => s.type === 'Text') || null
+}
+
+/**
  * Символы прошлого формата: реестр их держит, чтобы открывать старые формы, в палитре
  * их нет. Список в КОДЕ, а не полем json: чужой архив приносит своё
  * `library/<id>/stencil.json` и перекрыл бы поле.
  *
- * `cell_text` — подпись стала фигурой-разметкой, `cell_node` — точку рисует свободный
- * конец провода. Ячейки обоих переводит legacyFormat.
+ * `cell_node` — точку рисует свободный конец провода; ячейки переводит legacyFormat
+ * (`dissolveNodeCells`). Подпись `cell_text` в реестре не значится вовсе: её ячейки
+ * отбрасываются на загрузке (`dropTextCells`).
  */
-const LEGACY_HIDDEN_IDS = new Set(['cell_text', 'cell_node'])
+const LEGACY_HIDDEN_IDS = new Set(['cell_node'])
 
 /** Скрыт ли символ из палитры. */
 export function isHiddenStencil(stencil) {
@@ -248,14 +268,6 @@ export function unregisterStencil(id) {
 // Закреплена первой независимо от алфавита: шина — каркас любой схемы, с неё
 // начинают. Остальные — по алфавиту, ru-локаль.
 const PINNED_FIRST_CATEGORIES = ['Шины']
-
-/**
- * Булев слот-драйвер (`onoff`) — единый ключ всех булевых символов. Инспектор
- * рендерит его первой строкой «Булево значение» и исключает из boolSource.
- */
-export function hasBoolSlot(stencil) {
-  return !!stencil?.slots?.some((s) => s.key === 'onoff')
-}
 
 export function getCategories() {
   const cats = new Set()

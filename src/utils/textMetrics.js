@@ -15,7 +15,7 @@ export const FONT_FAMILIES = [
 ]
 
 /** Шрифт по умолчанию (и он же — fallback для чужих значений). */
-export const SVG_FONT = 'sans-serif'
+const SVG_FONT = 'sans-serif'
 
 /** Значение из whitelist или дефолт. Единая точка проверки для рендера и замера. */
 export function normalizeFont(font) {

@@ -1,8 +1,56 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { useLocalStorage } from '@vueuse/core'
+
+/** Ширина боковых колонок по умолчанию (px) — с ней IDE и жила до ресайза. */
+export const PANE_WIDTH_DEFAULT = { left: 380, right: 420 }
+export const PANE_WIDTH_MIN = 260
+export const PANE_WIDTH_MAX = 640
+
+const clampPaneWidth = (value) =>
+  Math.round(Math.min(PANE_WIDTH_MAX, Math.max(PANE_WIDTH_MIN, Number(value) || 0)))
 
 export const useUiStore = defineStore('ui', () => {
   const lastTagListPickerStartIn = ref(null)
+
+  // Видимость боковых колонок (формы+палитра слева, инспектор справа). Это настройка
+  // РАБОЧЕГО МЕСТА, а не проекта: живёт в localStorage, чтобы переживать перезагрузку
+  // и не уезжать в архив. Скрытая колонка размонтируется — инспектор пересчитывает
+  // свойства выделенного на каждый тик графа, и в свёрнутом виде это была бы работа
+  // впустую.
+  const leftPaneOpen = useLocalStorage('tms.leftPaneOpen', true)
+  const rightPaneOpen = useLocalStorage('tms.rightPaneOpen', true)
+
+  // Ширина колонок — тоже рабочее место. Пределы держат читаемость: уже минимума
+  // палитра идёт в один столбец с обрезанными подписями, шире максимума холст
+  // перестаёт быть главным. Значение из localStorage прогоняем через кламп: там мог
+  // остаться размер от другого монитора.
+  const leftPaneWidth = useLocalStorage('tms.leftPaneWidth', PANE_WIDTH_DEFAULT.left)
+  const rightPaneWidth = useLocalStorage('tms.rightPaneWidth', PANE_WIDTH_DEFAULT.right)
+  leftPaneWidth.value = clampPaneWidth(leftPaneWidth.value)
+  rightPaneWidth.value = clampPaneWidth(rightPaneWidth.value)
+
+  function setLeftPaneWidth(value) {
+    leftPaneWidth.value = clampPaneWidth(value)
+  }
+
+  function setRightPaneWidth(value) {
+    rightPaneWidth.value = clampPaneWidth(value)
+  }
+
+  /** Двойной клик по разделителю — вернуть колонке ширину по умолчанию. */
+  function resetPaneWidth(side) {
+    if (side === 'left') leftPaneWidth.value = PANE_WIDTH_DEFAULT.left
+    else rightPaneWidth.value = PANE_WIDTH_DEFAULT.right
+  }
+
+  function toggleLeftPane() {
+    leftPaneOpen.value = !leftPaneOpen.value
+  }
+
+  function toggleRightPane() {
+    rightPaneOpen.value = !rightPaneOpen.value
+  }
 
   // Текущий drag из палитры: пишет PalettePane на pointerdown, читает CanvasPane для
   // preview-плейсхолдера.
@@ -56,6 +104,9 @@ export const useUiStore = defineStore('ui', () => {
   function openStencilEditor(id = null) {
     stencilEditorTargetId.value = id
     stencilEditorOpen.value = true
+    // Свойства символа живут в ПРАВОЙ колонке (InspectorPane → StencilInspector): со
+    // свёрнутой колонкой редактор открылся бы без единственной панели правки.
+    rightPaneOpen.value = true
   }
 
   function closeStencilEditor() {
@@ -84,6 +135,15 @@ export const useUiStore = defineStore('ui', () => {
     canvasTool,
     setCanvasTool,
     resetCanvasTool,
+    leftPaneOpen,
+    rightPaneOpen,
+    toggleLeftPane,
+    toggleRightPane,
+    leftPaneWidth,
+    rightPaneWidth,
+    setLeftPaneWidth,
+    setRightPaneWidth,
+    resetPaneWidth,
     lastTagListPickerStartIn,
     dragging,
     helpOpen,

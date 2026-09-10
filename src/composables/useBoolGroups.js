@@ -3,7 +3,7 @@ import { useProjectStore } from '../stores/useProjectStore'
 import { normalizeBoolSource } from '../utils/boolSource'
 
 /**
- * Блок «Зависимость от других элементов» инспектора: `tms.boolSource` в
+ * Блок «Зависимость от других элементов» (DependencyBlock): `tms.boolSource` в
  * канонической форме `{ groups: [[tag,…],…] }` (DNF — внутри группы теги через И,
  * группы между собой через ИЛИ; элемент активен, если выполнена ЛЮБАЯ группа
  * целиком, иначе тускнеет). Экспорт: одна группа → дешёвый shape, ≥2 → multi.
@@ -29,25 +29,21 @@ export function useBoolGroups({ details, mutateSelectedTms, openPicker }) {
   // Канонические группы boolSource текущей ячейки (нормализует/чистит форму).
   const boolGroups = computed(() => normalizeBoolSource(details.value?.boolSource).groups)
 
-  // Показывать × «Удалить все зависимости» в шапке блока. У intrinsic-свитча
-  // (cell_qw) блок виден всегда из-за slot.onoff — × имеет смысл ТОЛЬКО когда есть
-  // группы-зависимости (иначе чистить нечего, клик был бы no-op'ом: slot.onoff им
-  // не удаляется). У не-свитча блок появляется лишь при наличии boolSource, и ×
-  // убирает его целиком (в т.ч. пустой) — там достаточно самого факта присутствия.
-  const boolRemovable = computed(() =>
-    details.value?.hasBoolSlot ? boolGroups.value.length > 0 : !!details.value?.boolSource
-  )
+  // Показывать × «Удалить все зависимости» в шапке блока. Блок виден всегда, поэтому
+  // × имеет смысл, только когда есть что чистить: группы либо пустой объект boolSource,
+  // оставшийся в payload (его × тоже снимает).
+  const boolRemovable = computed(() => boolGroups.value.length > 0 || !!details.value?.boolSource)
 
-  // Picker булевых зависимостей исключает: основной тег ячейки (slot.onoff у
-  // cell_qw) + теги ТЕКУЩЕЙ редактируемой группы (внутри группы тег уникален),
-  // кроме редактируемого по индексу (его оставляем, чтобы юзер видел значение).
-  // Теги других групп НЕ исключаем — тег свободно повторяется между группами.
-  // Для новой группы (groupIdx=null) фильтруем только onoff-тег.
+  // Picker булевых зависимостей исключает: тег слота-драйвера ячейки (`onoff` у
+  // свитчей, `value` у символов «по значению») + теги ТЕКУЩЕЙ редактируемой группы
+  // (внутри группы тег уникален), кроме редактируемого по индексу (его оставляем, чтобы
+  // юзер видел значение). Теги других групп НЕ исключаем — тег свободно повторяется
+  // между группами. Для новой группы (groupIdx=null) фильтруем только свой тег.
   const boolPickerTags = computed(() => {
     const d = details.value
     if (!d) return project.booleanTags
     const excluded = new Set()
-    if (d.hasBoolSlot && d.onoffTag) excluded.add(d.onoffTag)
+    if (d.stateTag) excluded.add(d.stateTag)
     const { groupIdx, tagIdx } = editingBool.value
     if (typeof groupIdx === 'number') {
       const group = normalizeBoolSource(d.boolSource).groups[groupIdx] || []
@@ -102,15 +98,15 @@ export function useBoolGroups({ details, mutateSelectedTms, openPicker }) {
   /**
    * Picker вернул тег. groupIdx=null → новая группа [tag]; иначе add (tagIdx=null)
    * или replace (tagIdx=число) внутри группы gi. Дубли ВНУТРИ группы игнорируем
-   * (между группами тег повторяется свободно). Основной тег символа (slot.onoff)
-   * в зависимости не допускаем.
+   * (между группами тег повторяется свободно). Тег слота-драйвера символа в
+   * зависимости не допускаем.
    */
   function onPickBoolTag(tag) {
     const d = details.value
     const { groupIdx, tagIdx } = editingBool.value
     editingBool.value = { groupIdx: undefined, tagIdx: null }
     if (groupIdx === undefined || !tag) return
-    if (d?.hasBoolSlot && d.onoffTag === tag) return
+    if (d?.stateTag && d.stateTag === tag) return
 
     const groups = normalizeBoolSource(d?.boolSource).groups
     if (groupIdx === null) {

@@ -2,7 +2,7 @@
 /**
  * Поле цвета: свотч, палитра в поповере, код и недавние цвета.
  *
- * Нативный `<input type="color">` не годился: его диалог показывает hex только после
+ * Нативный `<input type="color">` не подходит: его диалог показывает hex только после
  * переключения формата, выбор не запоминается между открытиями, и управлять этим со
  * страницы нельзя. Поэтому пикер свой (PrimeVue `ColorPicker`, формат `hex`), а рядом
  * с ним — поле кода (цвета приходят строкой из фирменной палитры) и недавние цвета
@@ -152,7 +152,7 @@ function applyRecent(value) {
             <button
               v-for="(c, i) in recentSlots"
               :key="i"
-              v-tooltip.bottom="c || ''"
+              v-tooltip.top="c || ''"
               type="button"
               class="h-5 w-5 shrink-0 rounded-sm border border-surface-300 bg-surface-0"
               :class="c ? 'cursor-pointer' : 'cursor-default'"

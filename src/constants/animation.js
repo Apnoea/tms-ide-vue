@@ -7,7 +7,7 @@ const ANIMATION_CLASS_COLORS = {
   'animation-high': '#ef4444',
 }
 
-/** Цвета строк нового источника: те же три, что были фиксированной палитрой. */
+/** Цвета, которые получают новые строки диапазонов, — по порядку, до первого свободного. */
 export const RANGE_COLOR_PRESETS = Object.values(ANIMATION_CLASS_COLORS)
 
 /**

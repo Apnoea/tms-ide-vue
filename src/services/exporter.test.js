@@ -581,65 +581,6 @@ describe('exportProject', () => {
     expect(cell.tms.navigation).toBe('view_substation_a')
   })
 
-  it('cell_text из архива читается фигурой-подписью, вид сохраняется', () => {
-    // Подпись перестала быть символом: на входе она конвертируется в разметку
-    // (см. services/legacyFormat), поэтому round-trip отдаёт `tms.Shape`.
-    const graph = mockGraph([
-      mockCell({
-        id: 't1',
-        stencilId: 'cell_text',
-        text: 'Секция',
-        color: '#ff0000',
-        fontSize: 20,
-        bold: true,
-        align: 'right',
-      }),
-    ])
-    const parsed = parseSvgProject(exportProject(graph).svgText)
-    expect(parsed.ok).toBe(true)
-    const cell = parsed.cells.find((c) => c.id === 't1')
-    expect(cell.type).toBe('tms.Shape')
-    expect(cell.tms.shape).toMatchObject({
-      type: 'text',
-      text: 'Секция',
-      fontSize: 20,
-      bold: true,
-      stroke: '#ff0000',
-      align: 'right',
-    })
-  })
-
-  it('cell_text: шрифт доезжает до SVG и переживает конвертацию в фигуру', () => {
-    const graph = mockGraph([
-      mockCell({ id: 't1', stencilId: 'cell_text', text: 'QF-101', fontFamily: 'monospace' }),
-      mockCell({ id: 't2', stencilId: 'cell_text', text: 'Секция', fontFamily: 'sans-serif' }),
-    ])
-    const exported = exportProject(graph)
-    expect(exported.svgText).toContain('font-family="monospace"')
-    const parsed = parseSvgProject(exported.svgText)
-    expect(parsed.cells.find((c) => c.id === 't1').tms.shape.fontFamily).toBe('monospace')
-    // Дефолт не пишется ни в meta подписи, ни в геометрию фигуры.
-    expect(parsed.cells.find((c) => c.id === 't2').tms.shape.fontFamily).toBeUndefined()
-  })
-
-  it('cell_text: чужое семейство из архива не доезжает до SVG — только whitelist', () => {
-    const graph = mockGraph([
-      mockCell({ id: 't1', stencilId: 'cell_text', text: 'Секция', fontFamily: 'Comic Sans MS' }),
-    ])
-    const svg = exportProject(graph).svgText
-    expect(svg).not.toContain('Comic Sans')
-    expect(svg).toContain('font-family="sans-serif"')
-  })
-
-  it('cell_text: align=left (дефолт) в meta не пишется', () => {
-    const graph = mockGraph([
-      mockCell({ id: 't1', stencilId: 'cell_text', text: 'Секция', align: 'left' }),
-    ])
-    const parsed = parseSvgProject(exportProject(graph).svgText)
-    // При дефолтном left поле align в meta отсутствует (json чище).
-    expect(parsed.cells.find((c) => c.id === 't1').tms.align).toBeUndefined()
-  })
-
   it('locked: «замок» ячейки переживает round-trip; отсутствие = не заблокирован', () => {
     const graph = mockGraph([
       mockCell({ id: 'c1', stencilId: 'cell_qw', locked: true }),

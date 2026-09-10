@@ -19,7 +19,7 @@ import { getCategories, registryVersion } from '../stencils/registry'
 import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor'
 import { normalizeStateColor } from '../constants/animation'
 import { STENCIL_DOMAINS } from '../constants/domains'
-import { ALIGN_OPTIONS } from '../composables/useTextCellProps'
+import { ALIGN_OPTIONS } from '../constants/text'
 import { isFillableShape, TEXT_SHAPE_SIZE } from '../utils/stencilSvg'
 import { FONT_FAMILIES, normalizeFont } from '../utils/textMetrics'
 

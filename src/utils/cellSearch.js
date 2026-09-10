@@ -35,14 +35,12 @@ export function cellHasTag(cell, tag) {
 
 /**
  * Строки для Ctrl+F: теги, navigation, правимые подписи символа (`tms.params` —
- * их вписывает автор, и на схеме видно именно их), текст подписи — и у прошлого
- * символа (`tms.text`), и у фигуры-разметки (`tms.shape.text`): на схеме это одна
- * и та же надпись.
+ * их вписывает автор, и на схеме видно именно их) и текст подписи-разметки
+ * (`tms.shape.text`).
  */
 export function getCellSearchStrings(cell) {
   const tms = cell.get('tms') || {}
   const strings = getCellTags(cell)
-  if (tms.text) strings.push(String(tms.text))
   if (tms.shape?.text) strings.push(String(tms.shape.text))
   if (tms.navigation) strings.push(String(tms.navigation))
   for (const v of Object.values(tms.params || {})) if (v) strings.push(String(v))

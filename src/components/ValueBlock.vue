@@ -4,6 +4,7 @@
  * `Text`), точность и правимые подписи символа (`tms.params`). На схеме они стоят
  * рядом со значением, поэтому и правятся одним блоком.
  */
+import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import TagField from './TagField.vue'
@@ -17,9 +18,21 @@ defineProps({
   /** Знаков после запятой (`tms.decimals`); `null` = поле не задано, показываем дефолт. */
   decimals: { type: Number, default: null },
   tagsLoaded: { type: Boolean, default: false },
+  // copyable — в карточке есть что копировать (тег, точность или подпись); pasteable —
+  // в буфере лежит карточка значения, «вставить» показываем на любом выделении.
+  copyable: { type: Boolean, default: false },
+  pasteable: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['pick-tag', 'highlight-tag', 'update-decimals', 'update-param'])
+const emit = defineEmits([
+  'pick-tag',
+  'highlight-tag',
+  'clear',
+  'copy',
+  'paste',
+  'update-decimals',
+  'update-param',
+])
 </script>
 
 <template>
@@ -27,6 +40,41 @@ const emit = defineEmits(['pick-tag', 'highlight-tag', 'update-decimals', 'updat
     <div class="flex items-center gap-2 mb-2 min-h-6">
       <i class="pi pi-hashtag text-cyan-600" />
       <div class="text-xs font-medium text-surface-700">Значение тега</div>
+      <div class="ml-auto flex items-center">
+        <!-- Копируется карточка ЦЕЛИКОМ (тег, точность, подписи): ряд однотипных
+             показаний настраивают один раз. × снимает только привязку тега — точность и
+             подписи это вид символа, а не анимация. -->
+        <Button
+          v-if="pasteable"
+          v-tooltip.bottom="'Вставить карточку значения'"
+          icon="pi pi-clipboard"
+          severity="secondary"
+          text
+          size="small"
+          class="p-1! w-6! h-6!"
+          @click="emit('paste')"
+        />
+        <Button
+          v-if="copyable"
+          v-tooltip.bottom="'Копировать карточку значения'"
+          icon="pi pi-copy"
+          severity="secondary"
+          text
+          size="small"
+          class="p-1! w-6! h-6!"
+          @click="emit('copy')"
+        />
+        <Button
+          v-if="slotInfo.value"
+          v-tooltip.bottom="'Очистить тег'"
+          icon="pi pi-times"
+          severity="secondary"
+          text
+          size="small"
+          class="p-1! w-6! h-6!"
+          @click="emit('clear')"
+        />
+      </div>
     </div>
     <div class="text-[11px] text-surface-500 mb-1">
       Тег
