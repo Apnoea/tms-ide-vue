@@ -1,5 +1,7 @@
 import { useCanvas } from './useCanvas'
 import { isFreeEnd } from '../stencils/linkDefaults'
+import { snapToGrid } from '../utils/grid'
+import { CANVAS_GRID } from '../stencils/canvasPaper'
 
 /**
  * Multi-drag: JointJS двигает только ячейку, за которую взялись, поэтому остальных
@@ -80,20 +82,21 @@ export function useMultiDrag() {
       }
     }
     // Изломы и свободные концы проводов, целиком принадлежащих группе — тем же delta
-    // (от исходных, без дрейфа). vertexSnap гасит снап-хендлер: delta кратен сетке.
+    // от исходных (без дрейфа) и СО СНАПОМ к сетке: исходные точки могли стоять криво
+    // (прежние формы), и конец провода уехал бы с сетки. vertexSnap гасит снап-хендлер
+    // изломов: снапим здесь.
+    const g = canvas.paperRef.value?.options?.gridSize || CANVAS_GRID
+    const shifted = (v) => ({ x: snapToGrid(v.x + dx, g), y: snapToGrid(v.y + dy, g) })
     for (const linkId in dragLinkSnapshot) {
       const link = graph.getCell(linkId)
       if (!link) continue
       const snap = dragLinkSnapshot[linkId]
       if (snap.vertices.length) {
-        link.vertices(
-          snap.vertices.map((v) => ({ x: v.x + dx, y: v.y + dy })),
-          { vertexSnap: true }
-        )
+        link.vertices(snap.vertices.map(shifted), { vertexSnap: true })
       }
       for (const end of ['source', 'target']) {
         const start = snap[end]
-        if (start) link.set(end, { x: start.x + dx, y: start.y + dy }, { multiDrag: true })
+        if (start) link.set(end, shifted(start), { multiDrag: true })
       }
     }
   }

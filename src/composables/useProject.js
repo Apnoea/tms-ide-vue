@@ -1,6 +1,11 @@
 import { ref, nextTick } from 'vue'
 import { reinjectAllStencils } from '../stencils/svgInjector'
 import { getStencilById, registerStencil } from '../stencils/registry'
+import {
+  migrateFormsRanges,
+  planRangeMigration,
+  planWireRangeCleanup,
+} from '../services/rangeMigration'
 import { exportProject } from '../services/exporter'
 import { parseSvgProject } from '../services/projectLoader'
 import {
@@ -11,11 +16,15 @@ import {
   collectUsedStencilIds,
 } from '../services/projectZip'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
-import { replaceStencilOverrides, stencilSignature } from '../services/stencilOverrides'
+import {
+  replaceStencilOverrides,
+  stencilSignature,
+  upsertStencilOverride,
+} from '../services/stencilOverrides'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { withPaperFrozen } from '../utils/paperBatch'
 import { renameFormIds, remapNavigation, remapTree, remapProjectMeta } from '../utils/formIds'
-import { FORM_ID_RE } from '../constants/ids'
+import { FORM_ID_RE, RANGE_SLOT } from '../constants/ids'
 import { nplural } from '../utils/plural'
 import { toPlain } from '../utils/plain'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
@@ -248,6 +257,69 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     canvas.markDirty()
     notify.success('Форма возвращена', `«${entry.id}» на месте`)
     return true
+  }
+
+  /**
+   * Разовый перенос диапазонов с элементов в символы: строки уезжают в определение
+   * символа, тег остаётся на ячейке в слоте `range`. План считает чистая
+   * `planRangeMigration` — символ забирает только набор, одинаковый у ВСЕХ его ячеек.
+   * Зовётся после восстановления проекта; переносить нечего — молчит.
+   */
+  async function migrateRangesToStencils() {
+    const forms = workspace.formIds.map((id) => ({ id, graphJson: workspace.getFormGraph(id) }))
+    const plan = planRangeMigration(forms, getStencilById)
+    if (!plan.stencils.length) return 0
+
+    const saved = []
+    for (const { id, ranges } of plan.stencils) {
+      const { svgText, ...json } = getStencilById(id)
+      const slots = json.slots || []
+      json.ranges = ranges
+      json.slots = slots.some((sl) => sl.key === RANGE_SLOT)
+        ? slots
+        : [...slots, { key: RANGE_SLOT, type: 'Value' }]
+      if (!registerStencil(json, svgText)) continue
+      flagIfNotSaved(await upsertStencilOverride({ id, stencilJson: json, shapeSvg: svgText }))
+      saved.push({ id, stencilJson: json, shapeSvg: svgText })
+    }
+    if (!saved.length) return 0
+    // Файлы в definitions/ — dev-бонус: в prod плагина нет, правка живёт в оверрайдах.
+    await persistStencilsToDisk(saved)
+
+    // Формы — только по символам, которые зоны реально приняли: ячейки прочих остаются
+    // с собственным источником, иначе они потеряли бы цвет.
+    const applied = migrateFormsRanges(forms, new Set(saved.map((s) => s.id)))
+    for (const { id, graphJson } of applied.forms) {
+      workspace.setFormGraph(id, graphJson)
+      flagIfNotSaved(await persistForm(id, graphJson))
+    }
+    canvas.markDirty()
+    notify.info(
+      'Диапазоны перенесены в символы',
+      `${nplural(saved.length, 'символ', 'символа', 'символов')} · элементов: ${applied.moved}`
+    )
+    return saved.length
+  }
+
+  /**
+   * Разовая очистка проводов и точек от диапазонов, совпадающих с унаследованными (см.
+   * planWireRangeCleanup). Зовётся после переноса зон в символы: к тому моменту символы
+   * уже отдают свои зоны, и совпадение с ними тоже считается. Снимать нечего — молчит.
+   */
+  async function cleanupInheritedRanges() {
+    const forms = workspace.formIds.map((id) => ({ id, graphJson: workspace.getFormGraph(id) }))
+    const plan = planWireRangeCleanup(forms, getStencilById)
+    if (!plan.cleared) return 0
+    for (const { id, graphJson } of plan.forms) {
+      workspace.setFormGraph(id, graphJson)
+      flagIfNotSaved(await persistForm(id, graphJson))
+    }
+    canvas.markDirty()
+    notify.info(
+      'Диапазоны проводов наследуются',
+      `Снято настроек: ${plan.cleared} — они совпадали с источником (шина или символ)`
+    )
+    return plan.cleared
   }
 
   /**
@@ -635,6 +707,8 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     restoreForm: withProjectBusy(restoreForm),
     renameForm: withProjectBusy(renameForm),
     moveFormNode: withProjectBusy(moveFormNode),
+    migrateRangesToStencils: withProjectBusy(migrateRangesToStencils),
+    cleanupInheritedRanges: withProjectBusy(cleanupInheritedRanges),
     trash,
     refreshTrash,
   }

@@ -52,6 +52,14 @@ describe('findGuides', () => {
     expect(line).toMatchObject({ v: 100, from: 100, to: 420 })
   })
 
+  it('accept отбрасывает попадание по оси вместе с его линией', () => {
+    // Оба центра почти совпали, но сдвиг по X запрещён: остаётся только ось Y.
+    const accept = (axis) => axis !== 'x'
+    const { dx, dy, lines } = findGuides(box(102, 98), neighbour, 5, accept)
+    expect({ dx, dy }).toEqual({ dx: 0, dy: 2 })
+    expect(lines.map((l) => l.axis)).toEqual(['y'])
+  })
+
   it('без кандидатов и без бокса ничего не считаем', () => {
     expect(findGuides(box(0, 0), { xs: [], ys: [] }, 5)).toEqual({ dx: 0, dy: 0, lines: [] })
     expect(findGuides(null, neighbour, 5)).toEqual({ dx: 0, dy: 0, lines: [] })

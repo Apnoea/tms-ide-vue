@@ -3,7 +3,6 @@ import {
   useAnimationClipboard,
   applyStateClip,
   applyDepsClip,
-  applyRangeClip,
   applyValueClip,
 } from './useAnimationClipboard'
 
@@ -12,36 +11,31 @@ beforeEach(() => {
   const clip = useAnimationClipboard()
   clip.copyState(null)
   clip.copyDeps(null)
-  clip.copyRange(null)
   clip.copyValue(null)
 })
 
 describe('useAnimationClipboard — буфер', () => {
   it('has* отражают наличие payload', () => {
     const clip = useAnimationClipboard()
-    expect([
-      clip.hasState.value,
-      clip.hasDeps.value,
-      clip.hasRange.value,
-      clip.hasValue.value,
-    ]).toEqual([false, false, false, false])
+    expect([clip.hasState.value, clip.hasDeps.value, clip.hasValue.value]).toEqual([
+      false,
+      false,
+      false,
+    ])
     clip.copyState({ slotKey: 'onoff', tag: 'A' })
     clip.copyDeps({ groups: [['B']] })
-    clip.copyRange({ tag: 'C', ranges: [] })
     clip.copyValue({ slotKey: 'value_text', tag: 'D', decimals: null, params: {} })
-    expect([
-      clip.hasState.value,
-      clip.hasDeps.value,
-      clip.hasRange.value,
-      clip.hasValue.value,
-    ]).toEqual([true, true, true, true])
+    expect([clip.hasState.value, clip.hasDeps.value, clip.hasValue.value]).toEqual([
+      true,
+      true,
+      true,
+    ])
   })
 
   it('слоты независимы', () => {
     const clip = useAnimationClipboard()
     clip.copyState({ slotKey: 'onoff', tag: 'A' })
     expect(clip.hasDeps.value).toBe(false)
-    expect(clip.hasRange.value).toBe(false)
     expect(clip.hasValue.value).toBe(false)
   })
 })
@@ -153,23 +147,5 @@ describe('applyDepsClip', () => {
     const b = applyDepsClip({}, clip, {})
     expect(a.boolSource).not.toBe(b.boolSource)
     expect(a.boolSource.groups[0]).not.toBe(clip.groups[0])
-  })
-})
-
-describe('applyRangeClip', () => {
-  it('вставляет rangeSource свежим клоном', () => {
-    const clip = { tag: 'PT', ranges: [{ min: 0, max: 1, class: 'animation-low' }] }
-    const a = applyRangeClip({ color: '#000' }, clip, {})
-    expect(a.rangeSource).toEqual(clip)
-    expect(a.rangeSource).not.toBe(clip)
-    expect(a.color).toBe('#000')
-    // Клон на каждую цель — не общая ссылка.
-    const b = applyRangeClip({}, clip, {})
-    expect(a.rangeSource).not.toBe(b.rangeSource)
-  })
-
-  it('null для статичного символа и пустого буфера', () => {
-    expect(applyRangeClip({}, { tag: 'PT', ranges: [] }, { isStatic: true })).toBeNull()
-    expect(applyRangeClip({}, null, {})).toBeNull()
   })
 })

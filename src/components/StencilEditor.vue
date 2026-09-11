@@ -6,8 +6,9 @@
  *
  * Модель и undo/redo живут в useStencilEditor, здесь DOM: SVG-холст, жесты рисования и
  * привязка drag/resize через interact.js (колбэки пишут в модель, DOM обновляет Vue).
- * Открывается на создание или правку незалоченного символа; сохранение валидирует,
- * регистрирует в реестре и пишет на диск dev-плагином.
+ * Открывается на создание или правку незалоченного символа; программный символ (шина)
+ * — только ради зон диапазонов (`rangesOnly`). Сохранение валидирует, регистрирует в
+ * реестре и пишет на диск dev-плагином.
  */
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useElementSize, useEventListener } from '@vueuse/core'
@@ -173,6 +174,9 @@ if (editTarget) {
   reset()
   meta.id = 'cell_'
 }
+// Программный символ (шина): тело и порты считает код, здесь правятся только зоны
+// диапазонов — стол и инструменты скрыты, сохранение не пересобирает определение.
+const rangesOnly = !!editTarget?.locked
 
 // Есть ли несохранённые изменения: берём canUndo — после открытия история = базовый
 // снимок (false), любая правка даёт true, откат к базе снова false. Так закрытие без
@@ -204,13 +208,14 @@ async function save() {
   const existingIds = getAllStencils()
     .map((s) => s.id)
     .filter((id) => id !== editing)
-  const issues = stencilDraftIssues(meta, shapes.value, existingIds)
+  // Проверки черновика — про фигуры и поля, которых у программного символа не правят.
+  const issues = rangesOnly ? [] : stencilDraftIssues(meta, shapes.value, existingIds)
   if (issues.length) {
     notify.warn('Проверьте символ', issues.join('; '))
     return
   }
   const prev = editing ? getStencilById(editing) : null
-  const { json, svg } = ed.output()
+  const { json, svg } = rangesOnly ? ed.outputRangesOnly(prev) : ed.output()
   registerStencil(json, svg)
   // Оверрайд в IDB даёт правке пережить reload и в prod; persistStencilsToDisk ниже
   // пишет файл в definitions/, чтобы символ попал в кодовую базу.
@@ -751,6 +756,9 @@ useEventListener(window, 'keydown', (e) => {
       redo()
       return
     }
+    // У программного символа фигур не правят: Ctrl+C/V/A ниже двигали бы невидимую
+    // модель (стол скрыт), а сохранение всё равно её не берёт.
+    if (rangesOnly) return
     // Ctrl+C / Ctrl+V — копировать/вставить выделенное (со свойствами).
     if (e.code === 'KeyC') {
       e.preventDefault()
@@ -789,6 +797,8 @@ useEventListener(window, 'keydown', (e) => {
     }
     return
   }
+  // Дальше — правка фигур и портов; у программного символа её нет (см. выше).
+  if (rangesOnly) return
   // Стрелки — сдвиг выделения, как на холсте: шаг сетки, с Shift — впятеро крупнее
   // (у фигур сетка 1px, у портов и размера символа — 5). В полях ввода не
   // перехватываем: там стрелки правят значение степпера.
@@ -977,67 +987,73 @@ onBeforeUnmount(() => {
   <div class="flex flex-col bg-surface-0">
     <!-- Тулбар -->
     <div class="flex min-h-14 items-center gap-2 border-b border-surface-200 px-3">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-surface-900">Редактор</h2>
-      <!-- Инструменты рисования (тогл). Отдельной кнопки «выбор» нет: select —
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-surface-900">
+        {{ rangesOnly ? 'Диапазоны символа' : 'Редактор' }}
+      </h2>
+      <!-- Инструменты рисования, размер и удаление — только у рисуемого символа; у
+           программного (шина) правятся лишь зоны. -->
+      <template v-if="!rangesOnly">
+        <!-- Инструменты рисования (тогл). Отдельной кнопки «выбор» нет: select —
            фоновый дефолт (повторный клик по активному инструменту или авто после
            добавления фигуры возвращают к нему). -->
-      <div class="flex items-center gap-1">
-        <Button
-          v-for="t in DRAW_TOOLS"
-          :key="t.key"
-          v-tooltip.bottom="t.tip"
-          :icon="t.icon"
-          :severity="tool === t.key ? 'primary' : 'secondary'"
-          :text="tool !== t.key"
-          size="small"
-          class="tms-icon-btn"
-          @click="pickTool(t.key)"
-        >
-          <template v-if="t.glyph" #icon>
-            <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
-              <path
-                v-for="(el, i) in t.glyph"
-                :key="i"
-                :d="el.d"
-                :fill="el.mode === 'fill' ? 'currentColor' : 'none'"
-                :stroke="el.mode === 'stroke' ? 'currentColor' : 'none'"
-                stroke-width="1.6"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </template>
-        </Button>
-      </div>
+        <div class="flex items-center gap-1">
+          <Button
+            v-for="t in DRAW_TOOLS"
+            :key="t.key"
+            v-tooltip.bottom="t.tip"
+            :icon="t.icon"
+            :severity="tool === t.key ? 'primary' : 'secondary'"
+            :text="tool !== t.key"
+            size="small"
+            class="tms-icon-btn"
+            @click="pickTool(t.key)"
+          >
+            <template v-if="t.glyph" #icon>
+              <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
+                <path
+                  v-for="(el, i) in t.glyph"
+                  :key="i"
+                  :d="el.d"
+                  :fill="el.mode === 'fill' ? 'currentColor' : 'none'"
+                  :stroke="el.mode === 'stroke' ? 'currentColor' : 'none'"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </template>
+          </Button>
+        </div>
 
-      <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
+        <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
 
-      <!-- Размер символа (словом «холст» в UI зовётся холст СХЕМЫ). На сохранении
+        <!-- Размер символа (словом «холст» в UI зовётся холст СХЕМЫ). На сохранении
            контент обрезается до bbox (cropToContent), поэтому итог может отличаться. -->
-      <div class="flex items-center gap-1.5 text-xs text-surface-500">
-        <span>Символ</span>
-        <InputNumber
-          v-model="meta.width"
-          :min="10"
-          :step="10"
-          :use-grouping="false"
-          size="small"
-          input-class="w-14! text-center"
-          @blur="commit"
-        />
-        <span class="text-surface-400">×</span>
-        <InputNumber
-          v-model="meta.height"
-          :min="10"
-          :step="10"
-          :use-grouping="false"
-          size="small"
-          input-class="w-14! text-center"
-          @blur="commit"
-        />
-      </div>
+        <div class="flex items-center gap-1.5 text-xs text-surface-500">
+          <span>Символ</span>
+          <InputNumber
+            v-model="meta.width"
+            :min="10"
+            :step="10"
+            :use-grouping="false"
+            size="small"
+            input-class="w-14! text-center"
+            @blur="commit"
+          />
+          <span class="text-surface-400">×</span>
+          <InputNumber
+            v-model="meta.height"
+            :min="10"
+            :step="10"
+            :use-grouping="false"
+            size="small"
+            input-class="w-14! text-center"
+            @blur="commit"
+          />
+        </div>
 
-      <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
+        <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
+      </template>
 
       <Button
         v-tooltip.bottom="'Отменить (Ctrl+Z)'"
@@ -1060,9 +1076,10 @@ onBeforeUnmount(() => {
         @click="redo"
       />
 
-      <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
+      <div v-if="!rangesOnly" class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
 
       <Button
+        v-if="!rangesOnly"
         v-tooltip.bottom="'Удалить выделенное'"
         icon="pi pi-trash"
         severity="secondary"
@@ -1086,8 +1103,24 @@ onBeforeUnmount(() => {
       />
     </div>
 
+    <!-- Программный символ: вместо стола — его рисунок и пояснение, что правится. -->
+    <div
+      v-if="rangesOnly"
+      class="flex flex-1 min-h-0 flex-col items-center justify-center gap-4 bg-surface-100 p-8 text-center"
+    >
+      <div
+        class="flex h-24 w-64 items-center justify-center rounded border border-surface-200 bg-white p-3 [&>svg]:h-full [&>svg]:w-full"
+        v-html="editTarget.svgText"
+      ></div>
+      <div class="max-w-md text-xs leading-relaxed text-surface-500">
+        <div class="mb-1 text-sm font-medium text-surface-700">{{ editTarget.label }}</div>
+        Программный символ: тело и порты задаёт код, рисунок здесь не правится. В этом режиме
+        редактируются только диапазоны значений (в панели справа); тег к ним привязывается на холсте
+        у каждого экземпляра.
+      </div>
+    </div>
     <!-- Холст с линейками по краям -->
-    <div class="flex flex-1 min-h-0 flex-col">
+    <div v-else class="flex flex-1 min-h-0 flex-col">
       <!-- Уголок + верхняя линейка (X) -->
       <div class="flex shrink-0">
         <div

@@ -15,6 +15,7 @@ import {
 import { innerKey, resolveSlotTemplate } from '../constants/ids'
 import { normalizeBoolSource } from '../utils/boolSource'
 import { getCellTags } from '../utils/cellSearch'
+import { jointGraphAccess, resolveRangeSource } from '../utils/rangeSource'
 import {
   boolOf,
   rangeRowFor,
@@ -123,6 +124,7 @@ export function useSimulation() {
   const formTags = computed(() => {
     canvas.graphVersion.value // пересобрать после правок схемы
     const graph = canvas.graphRef.value
+    const access = jointGraphAccess(graph)
     const byTag = new Map()
     const RANK = { state: 3, bool: 2, value: 1 }
     const put = (tag, kind, extra = {}) => {
@@ -141,7 +143,8 @@ export function useSimulation() {
         else if (stencil.states?.length) put(tag, 'state', { states: stencil.states })
         else put(tag, 'bool')
       }
-      if (tms.rangeSource?.tag) put(tms.rangeSource.tag, 'value', { rangeSource: tms.rangeSource })
+      const vs = cellRangeSource(cell, access)
+      if (vs?.tag) put(vs.tag, 'value', { rangeSource: vs })
       for (const group of normalizeBoolSource(tms.boolSource).groups) {
         for (const tag of group) put(tag, 'bool')
       }
@@ -176,6 +179,15 @@ export function useSimulation() {
     valueTexts.clear()
   }
 
+  /**
+   * Действующий источник диапазонов элемента — тем же резолвером, что экспорт: у
+   * символа зоны определения плюс тег слота `range`, у шины свой `tms.rangeSource`, у
+   * провода и точки — унаследованный по цепи. `access` — один на проход по графу.
+   */
+  function cellRangeSource(cell, access) {
+    return resolveRangeSource(access.of(cell), access, getStencilById)
+  }
+
   /** Строки источника с заданным цветом — только они дают класс (как в экспорте). */
   function colorRows(vs) {
     return (vs?.ranges || []).filter((r) => rangeRowColor(r))
@@ -184,9 +196,10 @@ export function useSimulation() {
   /** Цвета всех источников формы — из них собираются CSS-правила симуляции. */
   function collectRangeColors() {
     const graph = canvas.graphRef.value
+    const access = jointGraphAccess(graph)
     const out = []
     for (const cell of graph?.getCells() || []) {
-      for (const r of colorRows(cell.get('tms')?.rangeSource)) out.push(rangeRowColor(r))
+      for (const r of colorRows(cellRangeSource(cell, access))) out.push(rangeRowColor(r))
     }
     return out
   }
@@ -282,22 +295,13 @@ export function useSimulation() {
       return row ? rangeColorClass(rangeRowColor(row)) : null
     }
 
-    // Источник значения: значение общее по тегу, цвет — свой у каждого элемента.
+    // Источник значения: значение общее по тегу, цвет — свой у каждого элемента
+    // (провод и точка — унаследованный, см. cellRangeSource).
+    const access = jointGraphAccess(graph)
     for (const cell of graph.getCells()) {
-      const vs = cell.get('tms')?.rangeSource
+      const vs = cellRangeSource(cell, access)
       if (!vs?.tag) continue
       const cls = rangeClassFor(vs)
-      if (!cls) continue
-      paper.findViewByModel(cell)?.el?.classList.add(cls)
-    }
-    // cell_node наследует цвет соединённого провода: берём источник первого
-    // подходящего линка целиком.
-    for (const cell of graph.getElements()) {
-      const tms = cell.get('tms') || {}
-      if (tms.stencilId !== 'cell_node' || tms.rangeSource?.tag) continue
-      const link = graph.getConnectedLinks(cell).find((l) => l.get('tms')?.rangeSource?.tag)
-      if (!link) continue
-      const cls = rangeClassFor(link.get('tms').rangeSource)
       if (!cls) continue
       paper.findViewByModel(cell)?.el?.classList.add(cls)
     }

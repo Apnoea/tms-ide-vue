@@ -738,6 +738,59 @@ describe('loadStencil: анимация состояния', () => {
   })
 })
 
+describe('программный символ (шина): только зоны диапазонов', () => {
+  const bus = {
+    id: 'cell_bus',
+    locked: true,
+    label: 'Шина',
+    category: 'Шины',
+    minWidth: 40,
+    width: 80,
+    height: 8,
+    slots: [{ key: 'onoff', type: 'Boolean' }],
+    svgText: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="80" height="8"/></svg>',
+  }
+
+  it('loadStencil поднимает locked, outputRangesOnly меняет только ranges и слот', () => {
+    const ed = createStencilEditor()
+    ed.loadStencil(bus)
+    expect(ed.meta.locked).toBe(true)
+    ed.addRange()
+    ed.updateRange(0, 'max', '5')
+    ed.addRange() // строка без порогов — в определение не попадает
+    const { json, svg } = ed.outputRangesOnly(bus)
+    expect(svg).toBe(bus.svgText)
+    expect(json.svgText).toBeUndefined()
+    // Определение — как было (тело и порты считает код), плюс зоны и слот `range`.
+    expect(json).toMatchObject({ id: 'cell_bus', locked: true, minWidth: 40, width: 80 })
+    expect(json.ranges).toEqual([{ min: 0, max: 5, color: json.ranges[0].color }])
+    expect(json.slots).toEqual([
+      { key: 'onoff', type: 'Boolean' },
+      { key: 'range', type: 'Value' },
+    ])
+  })
+
+  it('пустые зоны снимают и ranges, и слот `range`', () => {
+    const ed = createStencilEditor()
+    ed.loadStencil({
+      ...bus,
+      slots: [{ key: 'range', type: 'Value' }],
+      ranges: [{ min: 0, max: 1, color: '#10b981' }],
+    })
+    ed.removeRange(0)
+    const { json } = ed.outputRangesOnly({ ...bus, slots: [{ key: 'range', type: 'Value' }] })
+    expect(json.ranges).toBeUndefined()
+    expect(json.slots).toBeUndefined()
+  })
+
+  it('reset снимает locked', () => {
+    const ed = createStencilEditor()
+    ed.loadStencil(bus)
+    ed.reset()
+    expect(ed.meta.locked).toBe(false)
+  })
+})
+
 describe('useStencilEditor (синглтон)', () => {
   it('возвращает один и тот же инстанс', () => {
     expect(useStencilEditor()).toBe(useStencilEditor())

@@ -5,7 +5,13 @@
  */
 
 import { ref } from 'vue'
-import { ATTR_SUFFIX, STENCIL_ID_RE, isValidParamKey } from '../constants/ids'
+import {
+  ATTR_SUFFIX,
+  BUS_STENCIL_ID,
+  RANGE_SLOT,
+  STENCIL_ID_RE,
+  isValidParamKey,
+} from '../constants/ids'
 import { isValidDomain } from '../constants/domains'
 import { sanitizeSvgMarkup } from '../utils/sanitizeSvg'
 
@@ -63,6 +69,7 @@ export function validateStencilJson(path, json, svgText) {
     'animationTemplate',
     'states',
     'stateColors',
+    'ranges',
     'quality',
     'static',
     'noRotate',
@@ -210,7 +217,16 @@ const registry = (() => {
  * @param {Array<{key: string, type?: string}>} slots
  */
 export function stateSlotOf(slots) {
-  return (slots || []).find((s) => s.type !== 'Text') || null
+  return (slots || []).find((s) => s.type !== 'Text' && s.key !== RANGE_SLOT) || null
+}
+
+/**
+ * Шина — программный символ (`locked`: тело и порты считает код), но зоны диапазонов у
+ * неё редактируются, как у любого символа: редактор открывает её в режиме «только
+ * диапазоны», а перенос строк с холста в определение её не обходит.
+ */
+export function isBusStencil(stencil) {
+  return stencil?.id === BUS_STENCIL_ID
 }
 
 /** Слот подписи со значением тега (`Text`) — парно к `stateSlotOf`. */

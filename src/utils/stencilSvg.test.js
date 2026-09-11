@@ -1259,3 +1259,68 @@ describe('portSeq в stencil.json', () => {
     expect(json.portSeq).toBe(3)
   })
 })
+
+describe('зоны диапазонов символа', () => {
+  const base = { id: 'cell_x', label: 'X', category: 'C', width: 20, height: 20 }
+  const rect = [{ type: 'rect', x: 0, y: 0, w: 20, h: 20 }]
+
+  it('пишет ranges и слот `range` для тега', () => {
+    // Тег привязывают на холсте — в символе только границы и цвета.
+    const json = buildStencilJson(
+      { ...base, ranges: [{ min: 0, max: 5, color: '#10b981' }] },
+      [],
+      rect
+    )
+    expect(json.ranges).toEqual([{ min: 0, max: 5, color: '#10b981' }])
+    expect(json.slots).toEqual([{ key: 'range', type: 'Value' }])
+  })
+
+  it('строка без цвета или без обеих границ не эмитится', () => {
+    const json = buildStencilJson(
+      {
+        ...base,
+        ranges: [
+          { min: 0, max: 5, color: '#10b981' },
+          { color: '#ef4444' }, // порогов нет
+          { min: 7 }, // цвета нет
+          { min: 7, color: '#f59e0b' }, // открытая сверху — годится
+        ],
+      },
+      [],
+      rect
+    )
+    expect(json.ranges).toEqual([
+      { min: 0, max: 5, color: '#10b981' },
+      { min: 7, color: '#f59e0b' },
+    ])
+  })
+
+  it('без зон ни поля, ни слота нет', () => {
+    const json = buildStencilJson({ ...base, ranges: [] }, [], rect)
+    expect(json.ranges).toBeUndefined()
+    expect(json.slots).toBeUndefined()
+  })
+
+  it('зоны не зависят от анимации состояния: слоты складываются', () => {
+    // Символ показывает положение по своему тегу и красится по числу другого.
+    const json = buildStencilJson(
+      {
+        ...base,
+        stateful: true,
+        stateMode: 'boolean',
+        stateSlot: { key: 'onoff' },
+        ranges: [{ min: 0, max: 5, color: '#10b981' }],
+      },
+      [],
+      [
+        { type: 'rect', x: 0, y: 0, w: 20, h: 20, state: 'true' },
+        { type: 'line', x1: 0, y1: 0, x2: 20, y2: 20, state: 'false' },
+      ]
+    )
+    expect(json.slots).toEqual([
+      { key: 'range', type: 'Value' },
+      { key: 'onoff', type: 'Boolean' },
+    ])
+    expect(json.ranges).toHaveLength(1)
+  })
+})

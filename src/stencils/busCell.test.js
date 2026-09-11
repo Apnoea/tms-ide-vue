@@ -10,7 +10,7 @@ import {
   busPortIndex,
   buildBusExportSvg,
   buildBusContent,
-  busMarkerRadius,
+  BUS_MARKER_R,
   collectBusMarks,
   BUS_COLOR_DEFAULT,
   BUS_MARKER_FILL,
@@ -94,7 +94,7 @@ describe('маркеры соединения', () => {
   // Порты в view.svg не идут, а порт лежит в середине толщины: конец провода уходит
   // под тело шины, и без точки соединение не отличить от «провод проходит мимо».
   it('точка только на занятых слотах, в середине толщины', () => {
-    const svg = buildBusExportSvg(80, 20, '#000000', [{ index: 1, strokeWidth: 2 }])
+    const svg = buildBusExportSvg(80, 20, '#000000', [{ index: 1 }])
     expect(svg).toContain('<circle cx="40" cy="10"')
     expect(svg.match(/<circle/g)).toHaveLength(1)
     expect(buildBusExportSvg(80, 20, '#000000')).not.toContain('<circle')
@@ -112,10 +112,11 @@ describe('маркеры соединения', () => {
     expect(svg).toContain(`stroke="${BUS_COLOR_DEFAULT}"`)
   })
 
-  it('радиус: не меньше порта на холсте, у толстого провода шире линии', () => {
-    expect(busMarkerRadius(2)).toBe(3)
-    expect(busMarkerRadius(undefined)).toBe(3)
-    expect(busMarkerRadius(6)).toBe(7)
+  it('радиус маркера один на все провода: от толщины не зависит', () => {
+    // Маркер обозначает факт соединения; от толщины он раздувался и накрывал тело
+    // тонкой шины целиком.
+    const svg = buildBusExportSvg(80, 8, '#000000', [{ index: 0 }])
+    expect(svg).toContain(`r="${BUS_MARKER_R}"`)
   })
 
   it('collectBusMarks: слот один раз, даже если проводов в нём несколько', () => {
@@ -131,8 +132,8 @@ describe('маркеры соединения', () => {
       ],
     }
     expect(collectBusMarks(graph, 'bus')).toEqual([
-      { index: 1, color: '#ff8800', strokeWidth: undefined },
-      { index: 2, color: undefined, strokeWidth: undefined },
+      { index: 1, color: '#ff8800' },
+      { index: 2, color: undefined },
     ])
     expect(collectBusMarks(null, 'bus')).toEqual([])
   })

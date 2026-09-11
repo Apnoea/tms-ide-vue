@@ -89,13 +89,20 @@ function lineSpan(candidates, v, movedSpan) {
  * Притяжение набора к линиям соседей: сдвиг `{ dx, dy }` и линии для отрисовки
  * (координаты МОДЕЛЬНЫЕ, максимум по одной на ось).
  *
+ * `accept(axis, delta)` отсеивает попадания, на которые двигать нельзя: сдвиг
+ * отбрасывается вместе с линией — нарисованная направляющая без притяжения обещала бы
+ * то, чего не случилось.
+ *
  * @param {object} box — габарит двигаемого набора с его портами
  * @param {{xs: Array, ys: Array}} candidates — от `guideCandidates`
  * @param {number} threshold — порог притяжения в МОДЕЛЬНЫХ единицах
+ * @param {(axis: 'x'|'y', delta: number) => boolean} [accept]
  */
-export function findGuides(box, candidates, threshold) {
-  const hitX = box ? axisHit(box, 'x', candidates?.xs || [], threshold) : null
-  const hitY = box ? axisHit(box, 'y', candidates?.ys || [], threshold) : null
+export function findGuides(box, candidates, threshold, accept = () => true) {
+  let hitX = box ? axisHit(box, 'x', candidates?.xs || [], threshold) : null
+  let hitY = box ? axisHit(box, 'y', candidates?.ys || [], threshold) : null
+  if (hitX && !accept('x', hitX.delta)) hitX = null
+  if (hitY && !accept('y', hitY.delta)) hitY = null
   const dx = hitX ? hitX.delta : 0
   const dy = hitY ? hitY.delta : 0
   const lines = []

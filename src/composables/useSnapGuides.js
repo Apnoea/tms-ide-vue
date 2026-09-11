@@ -3,6 +3,8 @@ import { useCanvas } from './useCanvas'
 import { guideCandidates, findGuides } from '../utils/snapGuides'
 import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
 import { portPoints } from '../utils/portGeom'
+import { snapToGrid } from '../utils/grid'
+import { CANVAS_GRID } from '../stencils/canvasPaper'
 
 /**
  * Направляющие при перетаскивании ячеек: пока символ едет, его края, центр и порты
@@ -12,7 +14,7 @@ import { portPoints } from '../utils/portGeom'
  * Корректируем позицию ВЕДУЩЕЙ ячейки: остальных выделенных сдвигает `useMultiDrag` от
  * снимка на каждый `change:position`, поэтому правка ведущей доезжает до всего набора.
  * Приходит она уже после снапа JointJS к сетке и перебивает его по той оси, где нашлась
- * направляющая — иначе шаг 5px не давал бы встать точно на линию соседа.
+ * направляющая, но только если позиция ведущей остаётся на сетке (см. updateGuides).
  *
  * Кандидаты собираются ОДИН раз на начало жеста: соседи не двигаются, а на форме их
  * сотни. Порты двигаемого берём только у одиночной ячейки — у набора это десятки линий
@@ -92,11 +94,23 @@ export function useSnapGuides() {
     }
     const box = movingBox(graph)
     if (!box) return
-    const { dx, dy, lines } = findGuides(box, candidates, SNAP_PX / (paper.scale().sx || 1))
-    if (dx || dy) {
-      const pos = leadCell.get('position')
-      leadCell.position(pos.x + dx, pos.y + dy)
+    // Притяжение не должно увозить ведущую с сетки: порты стоят на клетках относительно
+    // позиции, и некратная позиция даёт наклонный сегмент провода у порта (роутер
+    // снапит маршрут, конец — нет). Центр соседа с габаритом 25, край с некратной
+    // шириной или сосед, стоящий криво, дают именно такой сдвиг — его отбрасываем.
+    const grid = paper.options?.gridSize || CANVAS_GRID
+    const pos = leadCell.get('position')
+    const keepsGrid = (axis, delta) => {
+      const v = (axis === 'x' ? pos.x : pos.y) + delta
+      return snapToGrid(v, grid) === v
     }
+    const { dx, dy, lines } = findGuides(
+      box,
+      candidates,
+      SNAP_PX / (paper.scale().sx || 1),
+      keepsGrid
+    )
+    if (dx || dy) leadCell.position(pos.x + dx, pos.y + dy)
     guideLines.value = lines.map((line) => {
       const vertical = line.axis === 'x'
       const a = projectToScreen(paper, vertical ? line.v : line.from, vertical ? line.from : line.v)

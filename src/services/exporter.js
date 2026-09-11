@@ -5,8 +5,15 @@ import { isShapeCell } from '../stencils/shapeElement'
 import { serializeShape } from '../utils/stencilSvg'
 import { buildBusExportSvg, collectBusMarks } from '../stencils/busCell'
 import { buildNodeExportSvg } from '../stencils/nodeCell'
-import { LINK_Z, arrowExportSvg, dotExportSvg, endPoint } from '../stencils/linkDefaults'
+import {
+  LINK_Z,
+  arrowExportSvg,
+  arrowInsetEnds,
+  dotExportSvg,
+  endPoint,
+} from '../stencils/linkDefaults'
 import { isBackgroundZ } from '../utils/zOrder'
+import { jointGraphAccess, resolveRangeSource } from '../utils/rangeSource'
 import {
   CLASS_OFF,
   CLASS_HIDDEN,
@@ -136,6 +143,8 @@ const outerKeyFor = outerKey
 export function exportProject(graph, paper = null) {
   const elements = graph.getElements()
   const links = graph.getLinks()
+  // Обход графа для наследования диапазонов (провод/точка → шина или символ).
+  const access = jointGraphAccess(graph)
 
   const cellExports = []
   const linkExports = []
@@ -248,7 +257,11 @@ export function exportProject(graph, paper = null) {
       // Значения правимых подписей: рисунок уже с ними, но при загрузке поля
       // инспектора берут их отсюда.
       params: tms.params || null,
+      // В мету — только СВОЯ настройка (round-trip); действующий источник (зоны символа
+      // с тегом слота, наследование у точки) — в `rangeEffective`, для карточек. Запиши
+      // его в мету — при загрузке он стал бы своим и перестал следовать за источником.
       rangeSource: tms.rangeSource || null,
+      rangeEffective: resolveRangeSource(access.of(cell), access, getStencilById),
       boolSource: tms.boolSource || null,
       // navigation — имя view, на которую рантайм переходит по клику.
       navigation: tms.navigation || null,
@@ -345,12 +358,15 @@ export function exportProject(graph, paper = null) {
         warnings.push(msg)
         continue
       }
-      pathD = `M ${source.x},${source.y} L ${target.x},${target.y}`
+      // Под наконечником путь укорочен на его длину — как это делает коннектор холста
+      // (arrowInsetJumpover): остриё стоит в точке соединения, тело — до основания.
+      const { start, end } = arrowInsetEnds(source, target, [], link.get('tms'))
+      pathD = `M ${start.x},${start.y} L ${end.x},${end.y}`
       // Прямая: направление — по линии источник→цель.
       const deg = (Math.atan2(target.y - source.y, target.x - source.x) * 180) / Math.PI
       ends = {
-        start: { point: source, angle: deg },
-        end: { point: target, angle: deg + 180 },
+        start: { point: start, angle: deg },
+        end: { point: end, angle: deg + 180 },
       }
 
       minX = Math.min(minX, source.x, target.x)
@@ -375,7 +391,10 @@ export function exportProject(graph, paper = null) {
       id: wireId,
       linkId: link.id, // JointJS-id для round-trip восстановления редактором
       d: pathD,
+      // Своя настройка провода — legacy, в мету как есть; красит его действующий
+      // источник — унаследованный по цепи (см. utils/rangeSource).
       rangeSource: linkTms.rangeSource || null,
+      rangeEffective: resolveRangeSource(access.of(link), access, getStencilById),
       boolSource: linkTms.boolSource || null,
       // Толщина и цвет линии: дефолты (2 / #000) в meta не пишутся.
       strokeWidth: linkTms.strokeWidth || null,
@@ -415,14 +434,17 @@ export function exportProject(graph, paper = null) {
   // Карточка на outer-id ячейки (+ merge во внутренние shape-карточки символа) либо
   // на wire-id линка. needsMulti-цели получают одну `multi` (диапазоны + булево +
   // quality слоями), остальные — shape.
+  // Карточки и detailTags строятся по ДЕЙСТВУЮЩЕМУ источнику диапазонов: билдеры
+  // читают `rangeSource`, поэтому подставляем его в представление для карточек.
+  const cardView = (s) => ({ ...s, rangeSource: s.rangeEffective || null })
   const bindingTargets = [
     ...cellExports.map((c) => ({
-      src: c,
+      src: cardView(c),
       key: outerKeyFor(c.stencilId, c.animId),
       stencilId: c.stencilId,
       animId: c.animId,
     })),
-    ...linkExports.map((l) => ({ src: l, key: l.id })),
+    ...linkExports.map((l) => ({ src: cardView(l), key: l.id })),
   ]
 
   // buildMultiCard работает и для линка (нет stencilId → quality пропускается).
@@ -474,22 +496,6 @@ export function exportProject(graph, paper = null) {
     if (card) assignOrMergeAnimation(animations, outerKeyFor(c.stencilId, c.animId), card)
   }
 
-  // ─── cell_node наследует диапазоны от соединённого провода ───
-  // Без своего rangeSource узел берёт первый соединённый провод с диапазонами и ту же
-  // range-карточку — в рантайме перекрасится в цвет провода.
-  for (const c of cellExports) {
-    if (needsMulti(c)) continue
-    if (c.stencilId !== 'cell_node') continue
-    if (c.rangeSource?.tag) continue
-    for (const l of linkExports) {
-      if (!l.rangeSource?.tag) continue
-      if (l.source?.id !== c.cellId && l.target?.id !== c.cellId) continue
-      const card = buildRangeCard(l.rangeSource)
-      assignOrMergeAnimation(animations, outerKeyFor(c.stencilId, c.animId), card)
-      break
-    }
-  }
-
   // ─── Navigation ───
   // Поле navigation в карточке outer-обёртки. Без других анимаций создаётся пустая
   // shape-карточка: рантайму нужна запись для click-handler'а.
@@ -527,10 +533,10 @@ export function exportProject(graph, paper = null) {
   // собирает тот же getCellTagsFromTms, что и поиск.
   for (const c of cellExports) {
     if (getStencilById(c.stencilId)?.static) continue
-    attachDetailTags(outerKeyFor(c.stencilId, c.animId), getCellTagsFromTms(c))
+    attachDetailTags(outerKeyFor(c.stencilId, c.animId), getCellTagsFromTms(cardView(c)))
   }
   for (const l of linkExports) {
-    attachDetailTags(l.id, getCellTagsFromTms(l))
+    attachDetailTags(l.id, getCellTagsFromTms(cardView(l)))
   }
 
   // ─── Quality (OPC DA): non-good → animation-off ───
@@ -701,7 +707,7 @@ export function exportProject(graph, paper = null) {
   // собираем со всех источников (ячейки + провода), включая прежние class-имена.
   const rangeCss = buildRangeCssRules(
     [...cellExports, ...linkExports].flatMap((s) =>
-      (s.rangeSource?.ranges || []).map((r) => rangeRowColor(r))
+      (s.rangeEffective?.ranges || []).map((r) => rangeRowColor(r))
     )
   )
     .map((r) => `    ${r}`)

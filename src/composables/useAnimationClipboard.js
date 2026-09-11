@@ -1,5 +1,4 @@
 import { ref, computed } from 'vue'
-import { toPlain } from '../utils/plain'
 
 /**
  * Буфер настроек анимаций на сессию (singleton, как useCanvas): переживает смену
@@ -9,13 +8,11 @@ import { toPlain } from '../utils/plain'
  */
 const stateClip = ref(null) // { slotKey: string, tag: string } | null
 const depsClip = ref(null) // { groups: string[][] } | null
-const rangeClip = ref(null) // { tag: string, ranges: Array<{min,max,color}> } | null
 // { slotKey, tag, decimals: number|null, params: { <ключ>: string } } | null
 const valueClip = ref(null)
 
 const hasState = computed(() => !!stateClip.value)
 const hasDeps = computed(() => !!depsClip.value)
-const hasRange = computed(() => !!rangeClip.value)
 const hasValue = computed(() => !!valueClip.value)
 
 /**
@@ -70,30 +67,19 @@ export function applyValueClip(
   return next
 }
 
-/** Буфер диапазонов → новый tms (null у статичного). Клон на каждую цель. */
-export function applyRangeClip(tms, clip, { isStatic = false } = {}) {
-  if (!clip || isStatic) return null
-  return { ...tms, rangeSource: toPlain(clip) }
-}
-
 export function useAnimationClipboard() {
   return {
     stateClip,
     depsClip,
-    rangeClip,
     valueClip,
     hasState,
     hasDeps,
-    hasRange,
     hasValue,
     copyState(payload) {
       stateClip.value = payload
     },
     copyDeps(payload) {
       depsClip.value = payload
-    },
-    copyRange(payload) {
-      rangeClip.value = payload
     },
     copyValue(payload) {
       valueClip.value = payload

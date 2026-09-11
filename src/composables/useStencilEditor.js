@@ -14,6 +14,8 @@
 import { computed, reactive, ref } from 'vue'
 import { reorderIds } from '../utils/zOrder'
 import { snapToGrid } from '../utils/grid'
+import { cleanRangeRows, editRanges, newRangeRow, withZeroStart } from '../utils/rangeRows'
+import { RANGE_SLOT } from '../constants/ids'
 import {
   serializeSvg,
   buildStencilJson,
@@ -90,6 +92,14 @@ export function createStencilEditor() {
     // булева — 'true'/'false', режима значения — key из states. Пусто = состояние
     // меняет только видимость. Обесточивание с холста бьёт этот цвет.
     stateColors: {},
+    // Зоны диапазонов: [{ min, max, color }] — строки «пороги → цвет». НЕЗАВИСИМЫ от
+    // состояний: символ одновременно показывает положение по своему слоту и красится
+    // по числу другого тега. Тег зон привязывают на холсте (слот `range`), здесь
+    // задаются только границы и цвета. Единственное, что правится у программного
+    // символа (шина) — см. `locked`.
+    ranges: [],
+    // Символ программный (`locked` в определении): в редакторе доступны только зоны.
+    locked: false,
     // Сколько имён портов выдано. Имя порта — ВЕЧНЫЙ ключ: по нему провод держится за
     // порт и оно уезжает в `data-tms-meta`, поэтому имена не переиспользуются. Иначе
     // провод, оставшийся на прежнем имени в другой форме, сядет на новый порт.
@@ -522,6 +532,28 @@ export function createStencilEditor() {
     commit() // дискретная операция (кнопка «+ состояние»), не ввод в поле
   }
 
+  // ─── Зоны диапазонов (цвет по числу тега; тег привязывают на холсте) ───
+  // Правила те же, что у диапазонов на проводе: новая строка берёт первый свободный
+  // цвет-пресет, пороги пустые, низ первой строки фиксирован нулём (`withZeroStart`).
+
+  function addRange() {
+    meta.ranges = withZeroStart([...meta.ranges, newRangeRow(meta.ranges)])
+    commit() // кнопка «+ диапазон» — дискретная операция
+  }
+
+  /** Правка строки зоны: `min`/`max` (пустой ввод = порога нет) либо `color`. */
+  function updateRange(idx, field, value) {
+    const next = editRanges(meta.ranges, idx, field, value)
+    if (!next) return
+    meta.ranges = withZeroStart(next)
+    commit()
+  }
+
+  function removeRange(idx) {
+    meta.ranges = withZeroStart(meta.ranges.filter((_, i) => i !== idx))
+    commit()
+  }
+
   function updateState(key, patch) {
     meta.states = meta.states.map((s) => (s.key === key ? { ...s, ...patch } : s))
   }
@@ -586,6 +618,10 @@ export function createStencilEditor() {
   function loadStencil(def) {
     editingId.value = def.id
     meta.id = def.id
+    // Программный символ (шина): геометрия и порты заданы кодом, редактор открывает его
+    // только ради зон диапазонов — остальное в UI скрыто, сохранение идёт через
+    // outputRangesOnly.
+    meta.locked = !!def.locked
     meta.label = def.label || ''
     meta.category = def.category || ''
     meta.domains = normalizeDomains(def.domains)
@@ -602,6 +638,8 @@ export function createStencilEditor() {
       ? def.states.map((s) => ({ key: s.key, label: s.label || '', code: s.code ?? '' }))
       : []
     meta.stateColors = def.stateColors ? { ...def.stateColors } : {}
+    // Зоны диапазонов живут своим полем и от режима состояний не зависят.
+    meta.ranges = Array.isArray(def.ranges) ? def.ranges.map((r) => ({ ...r })) : []
     const loadedKey = def.slots?.find((s) => s.type !== 'Text')?.key
     const fallbackKey = hasValueStates ? 'value' : 'onoff'
     meta.stateSlot = { key: loadedKey && loadedKey !== 'state' ? loadedKey : fallbackKey }
@@ -632,6 +670,7 @@ export function createStencilEditor() {
   // «создании» состояние прошлой сессии надо очистить (правка идёт через loadStencil).
   function reset() {
     meta.id = ''
+    meta.locked = false
     meta.label = ''
     meta.category = ''
     meta.domains = []
@@ -645,6 +684,7 @@ export function createStencilEditor() {
     meta.stateSlot = boolSlot()
     meta.states = []
     meta.stateColors = {}
+    meta.ranges = []
     meta.portSeq = 0
     previewState.value = 'all'
     shapes.value = []
@@ -666,6 +706,28 @@ export function createStencilEditor() {
       json: buildStencilJson(croppedMeta, cropped.ports, cropped.shapes),
       svg: serializeSvg(cropped.shapes, croppedMeta),
     }
+  }
+
+  /**
+   * Артефакты программного символа (`locked`): определение берётся как есть, меняются
+   * только зоны и слот `range` под них. Через `output()` такой символ не проходит —
+   * его рисунок и порты не из фигур редактора, и пересборка их бы потеряла.
+   *
+   * @param {object} def — текущее определение из реестра (с `svgText`)
+   */
+  function outputRangesOnly(def) {
+    const { svgText, ...json } = def
+    const rows = cleanRangeRows(meta.ranges)
+    const slots = (json.slots || []).filter((s) => s.key !== RANGE_SLOT)
+    if (rows.length) {
+      json.ranges = rows
+      json.slots = [...slots, { key: RANGE_SLOT, type: 'Value' }]
+    } else {
+      delete json.ranges
+      if (slots.length) json.slots = slots
+      else delete json.slots
+    }
+    return { json, svg: svgText }
   }
 
   // Затравка истории — пустой черновик (первый undo возвращает к чистому холсту).
@@ -709,6 +771,9 @@ export function createStencilEditor() {
     pasteShapes,
     setAnimationMode,
     addState,
+    addRange,
+    updateRange,
+    removeRange,
     updateState,
     removeState,
     setStateColor,
@@ -722,6 +787,7 @@ export function createStencilEditor() {
     undo,
     redo,
     output,
+    outputRangesOnly,
   }
 }
 

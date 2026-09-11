@@ -20,6 +20,7 @@ import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor
 import { normalizeStateColor } from '../constants/animation'
 import { STENCIL_DOMAINS } from '../constants/domains'
 import { ALIGN_OPTIONS } from '../constants/text'
+import RangeRows from './RangeRows.vue'
 import { isFillableShape, TEXT_SHAPE_SIZE } from '../utils/stencilSvg'
 import { FONT_FAMILIES, normalizeFont } from '../utils/textMetrics'
 
@@ -40,6 +41,9 @@ const {
   removeState,
   setStateColor,
   applyPositionPreset,
+  addRange,
+  updateRange,
+  removeRange,
 } = useStencilEditor()
 
 // Свойства фигуры правятся сразу по ВСЕМУ выделению; поля геометрии и подписи — только
@@ -310,10 +314,16 @@ function clearStateColor(key, which) {
       </div>
 
       <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-4">
+        <!-- Программный символ (шина): все свойства показаны как есть, но заданы кодом
+             (контролы disabled) — в редакторе правятся только зоны диапазонов. -->
+        <p v-if="meta.locked" class="text-[11px] text-surface-500 leading-snug">
+          Программный символ: тело и порты задаёт код, правятся только диапазоны значений.
+        </p>
         <label class="block">
           <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Название</div>
           <InputText
             v-model="meta.label"
+            :disabled="meta.locked"
             size="small"
             class="w-full"
             placeholder="Задвижка"
@@ -340,6 +350,7 @@ function clearStateColor(key, which) {
           <Select
             v-model="meta.category"
             :options="categories"
+            :disabled="meta.locked"
             editable
             placeholder="Выберите или впишите"
             size="small"
@@ -359,12 +370,14 @@ function clearStateColor(key, which) {
               v-for="d in STENCIL_DOMAINS"
               :key="d.key"
               type="button"
-              class="cursor-pointer rounded-full border px-2 py-0.5 text-[11px] transition-colors"
-              :class="
+              :disabled="meta.locked"
+              class="rounded-full border px-2 py-0.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+              :class="[
+                meta.locked ? '' : 'cursor-pointer',
                 meta.domains.includes(d.key)
                   ? 'border-primary-500 bg-primary-50 text-primary-700'
-                  : 'border-surface-300 text-surface-500 hover:text-surface-800'
-              "
+                  : 'border-surface-300 text-surface-500 hover:text-surface-800',
+              ]"
               @click="toggleDomain(d.key)"
             >
               {{ d.label }}
@@ -375,18 +388,20 @@ function clearStateColor(key, which) {
         <!-- Флаги поведения — прямо после категории, без отдельной секции. Поворот и
              отражение раздельно: карточке значения, например, поворот нужен (её ставят
              вдоль вертикальных участков), а отражение зеркалило бы надпись. -->
-        <label class="flex items-center gap-2 cursor-pointer">
+        <label class="flex items-center gap-2" :class="meta.locked ? '' : 'cursor-pointer'">
           <Checkbox
             v-model="meta.noRotate"
+            :disabled="meta.locked"
             binary
             input-id="se-norotate"
             @update:model-value="commit"
           />
           <span class="text-surface-700">Запретить поворот</span>
         </label>
-        <label class="flex items-center gap-2 cursor-pointer">
+        <label class="flex items-center gap-2" :class="meta.locked ? '' : 'cursor-pointer'">
           <Checkbox
             v-model="meta.noFlip"
+            :disabled="meta.locked"
             binary
             input-id="se-noflip"
             @update:model-value="commit"
@@ -404,6 +419,7 @@ function clearStateColor(key, which) {
             option-label="label"
             option-value="value"
             :allow-empty="false"
+            :disabled="meta.locked"
             size="small"
             class="mb-2"
           />
@@ -594,6 +610,26 @@ function clearStateColor(key, which) {
               <span class="text-surface-700">Учитывать качество сигнала (Quality)</span>
             </label>
           </template>
+
+          <!-- Зоны диапазонов — НЕЗАВИСИМО от анимации состояния (символ показывает
+               положение по своему тегу и красится по числу другого), поэтому блок вне
+               `stateful`-ветки. Тег зон привязывают на холсте. У программного символа
+               это единственное, что правится. -->
+          <div class="mt-4 border-t border-surface-200 pt-3">
+            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
+              Диапазоны значений
+            </div>
+            <p class="text-[11px] text-surface-500 mb-2 leading-snug">
+              Цвет символа по числу тега. Тег привязывается на холсте; границы включаются в
+              диапазон.
+            </p>
+            <RangeRows
+              :ranges="meta.ranges"
+              @update-range="updateRange"
+              @add-range="addRange"
+              @remove-range="removeRange"
+            />
+          </div>
         </div>
       </div>
     </div>

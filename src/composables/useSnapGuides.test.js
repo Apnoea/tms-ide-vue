@@ -71,6 +71,21 @@ describe('useSnapGuides', () => {
     expect(lead.position).toHaveBeenCalledWith(100, 300)
   })
 
+  it('притяжение, уводящее ведущую с сетки, отбрасывается вместе с линией', () => {
+    // Сосед стоит криво (x = 101): встав на его край, ведущая ушла бы на 101 — порты
+    // слезли бы с сетки, и провод к ним шёл бы наклонно. Ось Y (300 → 300) не задета.
+    const lead = makeCell('lead', 100, 297)
+    elements.value = [lead, makeCell('other', 101, 300)]
+    selection.value = [{ kind: 'cell', id: 'lead' }]
+
+    sim.beginGuides('lead')
+    sim.updateGuides(lead, {})
+
+    expect(lead.position).toHaveBeenCalledWith(100, 300)
+    expect(sim.guideLines.value).toHaveLength(1)
+    expect(sim.guideLines.value[0]).toMatchObject({ y1: 300, y2: 300 })
+  })
+
   it('Alt отключает притяжение и гасит линии', () => {
     const lead = makeCell('lead', 97, 300)
     elements.value = [lead, makeCell('other', 100, 100)]

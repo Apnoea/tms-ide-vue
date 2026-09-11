@@ -1,6 +1,11 @@
-import { dia, shapes, anchors, connectionPoints, routers } from '@joint/core'
+import { dia, shapes, anchors, connectionPoints, connectors, routers } from '@joint/core'
 import { tmsNamespace } from './tmsStencil'
-import { LINK_DEFAULTS, gridRightAngleRouter, linkStyleAttrs } from './linkDefaults'
+import {
+  LINK_DEFAULTS,
+  arrowInsetJumpover,
+  gridRightAngleRouter,
+  linkStyleAttrs,
+} from './linkDefaults'
 
 const GRID_COLOR_ON_LIGHT = '#e2e8f0' // slate-200
 const GRID_COLOR_ON_DARK = '#334155' // slate-700
@@ -86,6 +91,11 @@ export function createCanvasPaper({
     // LinkView резолвит имя роутера через routerNamespace, а не через опцию `routers`:
     // спредим встроенные и добавляем свой, чтобы имя работало и при загрузке из JSON.
     routerNamespace: { ...routers, gridRightAngle: gridRightAngleRouter },
+    // `jumpover` подменён обёрткой: у концов с наконечником путь укорочен на его длину
+    // (остриё в точке соединения, тело — до основания). Под тем же именем, чтобы
+    // провода прежних форм (имя коннектора лежит в graphJson) подхватили это без
+    // миграции.
+    connectorNamespace: { ...connectors, jumpover: arrowInsetJumpover },
     drawGrid: {
       name: 'dot',
       color: gridColorFor(background),

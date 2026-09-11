@@ -5,6 +5,7 @@ import { parseSvgProject } from './projectLoader'
 import { LINK_Z } from '../stencils/linkDefaults'
 import { computeBusPorts } from '../stencils/busCell'
 import { CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
+import { registerStencil, unregisterStencil } from '../stencils/registry'
 
 // Мок-граф: минимальный интерфейс JointJS-graph'а, который дёргает exporter.
 // Не зависит от реального dia.Graph — тесты быстрые и не требуют jsdom-setup'а
@@ -186,14 +187,20 @@ describe('exportProject', () => {
     )
     const svg = exportProject(graph).svgText
     expect(svg).toMatch(/<g id="animation-wire-l1">/)
-    // Размер от толщины: сторона = 2.5×3 = 7.5, раствор 90° (len === half).
-    expect(svg).toContain('d="M 0 0 L 7.5 7.5 L 7.5 -7.5 Z"')
+    // Размер от толщины: сторона треугольника = 2×3 = 6, раствор 90° (len === half); основание в
+    // конце пути, остриё на 6 впереди.
+    expect(svg).toContain('d="M -6 0 L 0 6 L 0 -6 Z"')
     // Треугольник заливается цветом линии и помечен opt-in классом заливки.
     expect(svg).toContain('class="tms-range-fill"')
     // Провод горизонтальный (c1 → c2 вправо), наконечник на конце: тело рисуется в +X,
     // поэтому его разворачивают на 180° — остриё остаётся в точке соединения, тело
     // уходит назад по линии. Экспорт считает это сам, без JointJS-маркеров.
     expect(svg).toContain('rotate(180)')
+    // Путь под наконечником укорочен на его длину (как коннектор холста): центры
+    // символов (10,10) и (110,10) → линия кончается в x = 104, стрелка стоит там же и
+    // остриём достаёт точку соединения 110.
+    expect(svg).toContain('L 104,10')
+    expect(svg).toContain('translate(104 10)')
   })
 
   it('свободный конец провода помечается точкой в группе провода', () => {
@@ -205,9 +212,9 @@ describe('exportProject', () => {
     )
     const svg = exportProject(graph).svgText
     expect(svg).toMatch(/<g id="animation-wire-l1">/)
-    // Радиус от толщины: 2.5×2 / 2 = 2.5. Привязанный конец точки не получает.
+    // Радиус от толщины: 1.5×2 / 2 = 1.5. Привязанный конец точки не получает.
     expect(svg).toContain('<circle class="tms-range-fill"')
-    expect(svg).toContain('r="2.5"')
+    expect(svg).toContain('r="1.5"')
     expect(svg.match(/<circle/g)).toHaveLength(1)
   })
 
@@ -282,8 +289,9 @@ describe('exportProject', () => {
       ]
     )
     const svg = exportProject(graph).svgText
-    // Слот p_1 → x=40, середина толщины 20 → cy=10; обводка цветом провода.
-    expect(svg).toMatch(/cx="40" cy="10" r="5" fill="#ffffff" stroke="#ff8800"/)
+    // Слот p_1 → x=40, середина толщины 20 → cy=10; радиус один на все провода,
+    // обводка цветом провода.
+    expect(svg).toMatch(/cx="40" cy="10" r="3" fill="#ffffff" stroke="#ff8800"/)
     // Свободные слоты (p_0 → x=20, p_2 → x=60) точку не получают.
     expect(svg).not.toMatch(/cx="20" cy="10"/)
     expect(svg).not.toMatch(/cx="60" cy="10"/)
@@ -461,6 +469,34 @@ describe('exportProject', () => {
     expect(anims[wireKey].bindings[0].when.cases.false.apply.addClass).toBe('animation-off')
     // detailTags на wire-карточке — рантайм откроет popup со связанным тегом
     expect(anims[wireKey].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
+  })
+
+  it('провод и точка наследуют диапазоны шины: карточка есть, в мету не пишется', () => {
+    const BUS = { tag: 'BUS.U', ranges: [{ min: 0, max: 5, color: '#10b981' }] }
+    const bus = mockCell({ id: 'b1', stencilId: 'cell_bus', w: 80, h: 8, rangeSource: BUS })
+    const node = mockCell({ id: 'n1', stencilId: 'cell_node', x: 0, y: 100, w: 20, h: 20 })
+    const sym = mockCell({ id: 'q1', stencilId: 'cell_qw', x: 0, y: 200, w: 20, h: 20 })
+    const links = [
+      mockLink({ id: 'l1', source: { id: 'b1' }, target: { id: 'n1' } }),
+      mockLink({ id: 'l2', source: { id: 'n1' }, target: { id: 'q1' } }),
+      mockLink({ id: 'l3', source: { id: 'b1' }, target: { id: 'q1' } }),
+    ]
+    const result = exportProject(mockGraph([bus, node, sym], links))
+    const anims = result.animations.animations
+    // Второй провод с шиной не соприкасается — источник найден через точку и провод.
+    for (const key of ['animation-wire-l1', 'animation-wire-l2', 'animation-cell_node-n1']) {
+      expect(anims[key].bindings[0].tag).toBe('BUS.U')
+      expect(anims[key].bindings[0].when.type).toBe('range')
+      expect(anims[key].detailTags).toEqual([{ tag: 'BUS.U' }])
+    }
+    // Мета — только СВОЯ настройка: при загрузке провод должен продолжать следовать за
+    // шиной, а не получить копию её строк. Смотрим прямой провод l3: точку загрузчик
+    // растворяет и l1/l2 сшивает в новый.
+    const parsed = parseSvgProject(result.svgText)
+    const l3 = parsed.cells.find((c) => c.id === 'l3')
+    expect(l3).toBeTruthy()
+    expect(l3.tms?.rangeSource).toBeUndefined()
+    expect(parsed.cells.find((c) => c.id === 'b1').tms.rangeSource).toEqual(BUS)
   })
 
   it('boolSource 2 группы по 1 тегу: multi, серый только когда ВСЕ открыты', () => {
@@ -1218,5 +1254,61 @@ describe('exportProject: фигуры-разметка', () => {
     expect(out.cells.map((c) => c.id)).toEqual(['s4'])
     expect(out.cells[0].tms.shape.strokeWidth).toBe(2)
     expect(out.errors.length).toBeGreaterThan(0)
+  })
+})
+
+describe('диапазоны из зон символа', () => {
+  // Зоны задаются в определении символа, тег — на холсте в слоте `range`.
+  const ZONES = [
+    { min: 0, max: 5, color: '#10b981' },
+    { min: 5.01, max: 10, color: '#ef4444' },
+  ]
+
+  function withZonesStencil(fn) {
+    registerStencil(
+      { id: 'cell_zones', label: 'Zones', category: 'Тест', width: 20, height: 20, ranges: ZONES },
+      '<g><rect width="20" height="20"/></g>'
+    )
+    try {
+      return fn()
+    } finally {
+      unregisterStencil('cell_zones')
+    }
+  }
+
+  it('карточка строится из зон символа и тега слота', () => {
+    withZonesStencil(() => {
+      const graph = mockGraph([
+        mockCell({
+          id: 'c1',
+          stencilId: 'cell_zones',
+          slots: { range: 'PT1.VALUE' },
+          w: 20,
+          h: 20,
+        }),
+      ])
+      const { animations, svgText } = exportProject(graph)
+      const card = Object.entries(animations.animations).find(([key]) =>
+        key.startsWith('animation-cell_zones-')
+      )
+      const binding = card[1].bindings.find((b) => b.when?.type === 'range')
+      expect(binding.tag).toBe('PT1.VALUE')
+      expect(binding.when.cases.map((c) => [c.min, c.max])).toEqual([
+        [0, 5],
+        [5.01, 10],
+      ])
+      // CSS-правила собираются по фактически использованным цветам — включая зоны.
+      expect(svgText).toContain('#10b981')
+      expect(svgText).toContain('#ef4444')
+    })
+  })
+
+  it('без привязанного тега карточки диапазонов нет', () => {
+    withZonesStencil(() => {
+      const graph = mockGraph([mockCell({ id: 'c1', stencilId: 'cell_zones', w: 20, h: 20 })])
+      const { animations } = exportProject(graph)
+      const cards = Object.values(animations.animations).flatMap((c) => c.bindings || [])
+      expect(cards.some((b) => b.when?.type === 'range')).toBe(false)
+    })
   })
 })

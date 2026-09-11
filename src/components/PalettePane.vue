@@ -15,6 +15,7 @@ import {
   getAllStencils,
   isHiddenStencil,
   getCategories,
+  isBusStencil,
   registryVersion,
   unregisterStencil,
 } from '../stencils/registry'
@@ -362,13 +363,13 @@ async function removeStencil(id) {
                   {{ stencil.id }}
                 </div>
               </div>
-              <!-- Правка — у всех, кроме залоченных (`locked`: программные,
-                   анимированные, с текстом — их SVG в наш формат не разбирается).
-                   Открывает редактор с id. -->
+              <!-- Правка — у всех, кроме залоченных (`locked`: программные — их SVG в
+                   наш формат не разбирается). Исключение — шина: редактор открывает её
+                   в режиме «только диапазоны». Открывает редактор с id. -->
               <button
-                v-if="!stencil.locked"
+                v-if="!stencil.locked || isBusStencil(stencil)"
                 type="button"
-                v-tooltip.bottom="'Редактировать символ'"
+                v-tooltip.bottom="stencil.locked ? 'Диапазоны шины' : 'Редактировать символ'"
                 class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
                 @pointerdown.stop
                 @click="ui.openStencilEditor(stencil.id)"

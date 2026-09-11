@@ -9,17 +9,16 @@ import {
   useAnimationClipboard,
   applyStateClip,
   applyDepsClip,
-  applyRangeClip,
   applyValueClip,
 } from '../composables/useAnimationClipboard'
 import { useAlign } from '../composables/useAlign'
 import { useBoolGroups } from '../composables/useBoolGroups'
-import { useValueRanges } from '../composables/useValueRanges'
 import { ALIGN_OPTIONS, BOLD_OPTIONS, TEXT_FONT_SIZE } from '../constants/text'
 import { useNavigationField } from '../composables/useNavigationField'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { getStencilById, stateSlotOf, textSlotOf } from '../stencils/registry'
+import { inheritedRangeSource, jointGraphAccess } from '../utils/rangeSource'
 import { injectStencilSvg } from '../stencils/svgInjector'
 import { isShapeCell, shapeTypeLabel, applyShapePatch } from '../stencils/shapeElement'
 import { BUS_COLOR_DEFAULT, BUS_THICKNESS_MAX, setBusThickness } from '../stencils/busCell'
@@ -38,7 +37,7 @@ import ShapeBlock from './ShapeBlock.vue'
 import ValueBlock from './ValueBlock.vue'
 import AlignBlock from './AlignBlock.vue'
 import BodyStyleFields from './BodyStyleFields.vue'
-import { previewOuterKey } from '../constants/ids'
+import { NODE_STENCIL_ID, RANGE_SLOT, previewOuterKey } from '../constants/ids'
 import {
   isDefaultWireValue,
   syncLinkEndMarkers,
@@ -255,6 +254,12 @@ const details = computed(() => {
         value: slotValues[s.key] || '',
       })),
       rangeSource: tms.rangeSource || null,
+      // Зоны диапазонов из ОПРЕДЕЛЕНИЯ символа (границы и цвета задаются в редакторе);
+      // на холсте к ним привязывают тег — слот `range`.
+      rangeZones: stencil?.ranges?.length ? stencil.ranges : null,
+      rangeTag: slotValues[RANGE_SLOT] || '',
+      // Точка соединения диапазоны наследует по цепи проводов (как и сам провод).
+      rangeInherited: tms.stencilId === NODE_STENCIL_ID ? inheritedRangeOf(cell) : null,
       boolSource: tms.boolSource || null,
       navigation: tms.navigation || '',
     }
@@ -268,15 +273,28 @@ const details = computed(() => {
       // Толщина и цвет линии — из JointJS-attr, то есть реально отрисованные.
       strokeWidth: cell.attr('line/strokeWidth') ?? 2,
       strokeColor: cell.attr('line/stroke') || '#000000',
-      arrowStart: cell.get('tms')?.arrowStart || null,
-      arrowEnd: cell.get('tms')?.arrowEnd || null,
+      arrowStart: tms.arrowStart || null,
+      arrowEnd: tms.arrowEnd || null,
+      isWire: true,
+      // Своя настройка провода — legacy прошлых схем (читается, снимается, не правится);
+      // штатно провод наследует источник по цепи: шина или символ на конце.
       rangeSource: tms.rangeSource || null,
+      rangeInherited: inheritedRangeOf(cell),
       boolSource: tms.boolSource || null,
     }
   }
 
   return null
 })
+
+/** Унаследованный источник диапазонов провода/точки — тем же обходом, что экспорт. */
+function inheritedRangeOf(cell) {
+  const access = jointGraphAccess(canvas.graphRef.value)
+  return inheritedRangeSource(access.of(cell), access, getStencilById)
+}
+
+/** Подпись источника наследования для блока диапазонов. */
+const INHERITED_FROM_LABEL = { bus: 'от шины', symbol: 'от символа', wire: 'от провода' }
 
 // Слот-драйвер состояния символа: единственный не-Text слот (`onoff` у булевых, `value`
 // у «по значению»). Режим задан в определении символа, на холсте привязывают только тег —
@@ -337,6 +355,40 @@ function slotPickerTags(slot) {
   if (isBooleanType(slot?.type)) return project.booleanTags
   if (slot?.type === 'Text') return project.numericTags
   return project.tags
+}
+
+/**
+ * Тег для ЗОН символа: границы и цвета живут в определении, на холсте привязывается
+ * только тег — в слот `range`, как любой другой слот символа.
+ */
+function openRangeSlotPicker() {
+  openPicker({
+    tags: () => project.numericTags,
+    selected: details.value?.rangeTag || '',
+    header: 'Выберите тег (диапазоны значений)',
+    onSelect: bindRangeSlotTag,
+  })
+}
+
+/**
+ * Привязка тега зон = patchSlotTag(RANGE_SLOT) плюс снятие собственного источника
+ * прошлых схем: с тегом слота он больше не читается (effectiveRangeSource), и в мете
+ * лежал бы мусором.
+ */
+function bindRangeSlotTag(tag) {
+  withSelectedCell(
+    ({ cell, tms }) => {
+      const nextSlots = { ...(tms.slots || {}) }
+      if (tag) nextSlots[RANGE_SLOT] = tag
+      else delete nextSlots[RANGE_SLOT]
+      const next = { ...tms }
+      if (Object.keys(nextSlots).length) next.slots = nextSlots
+      else delete next.slots
+      if (tag) delete next.rangeSource
+      cell.set('tms', next)
+    },
+    { reinject: true }
+  )
 }
 
 function openSlotPicker(slot) {
@@ -711,23 +763,26 @@ function mutateSelectedTms(updater) {
   canvas.requestSnapshot()
 }
 
-// ─── Диапазоны значений (rangeSource) ───
-// Секция целиком в useValueRanges: одиночный режим + мульти-шаблон.
-const {
-  openRangePicker,
-  updateRange,
-  addRange,
-  removeRange,
-  removeRangeSource,
-  toggleRangeHighlight,
-  multiRange,
-  openMultiRangePicker,
-  updateMultiRange,
-  addMultiRange,
-  removeMultiRangeRow,
-  removeMultiRange,
-  toggleMultiRangeHighlight,
-} = useValueRanges({ details, mutateSelectedTms, openPicker })
+// ─── Диапазоны значений ───
+// Строки на холсте не правятся (зоны — в определении символа, см. RangeBlock).
+// Собственная настройка элемента (`tms.rangeSource`) — только прошлых схем: её можно
+// снять, заново не создать.
+function removeRangeSource() {
+  mutateSelectedTms((tms) => {
+    const next = { ...tms }
+    delete next.rangeSource
+    return next
+  })
+}
+
+/** Пояснение пустого блока диапазонов — где задаются зоны для этого элемента. */
+const rangeHint = computed(() => {
+  const d = details.value
+  if (d?.isWire || d?.isNode) {
+    return 'Провод и точка красятся как шина или символ с диапазонами, к которым подключены. Источника по цепи не найдено.'
+  }
+  return 'Диапазоны задаются в редакторе символов (границы и цвета), на холсте к ним привязывается тег.'
+})
 
 // ─── boolSource: зависимости-теги ГРУППАМИ (DNF) ───
 // Секция целиком в useBoolGroups (форма { groups }, picker, add/edit/remove).
@@ -836,14 +891,6 @@ function copyDeps() {
   notify.success('Скопировано', 'Зависимости от других элементов')
 }
 
-/** Копировать диапазоны выделенного (rangeSource целиком: тег + пороги). */
-function copyRange() {
-  const d = details.value
-  if (!d?.rangeSource) return
-  animClip.copyRange(toPlain(d.rangeSource))
-  notify.success('Скопировано', 'Диапазоны значений')
-}
-
 /**
  * Вставить тег состояния на всё выделение — только символам с ТЕМ ЖЕ ключом слота
  * (`onoff` или `value`): режимы анимации разные, а тег булев либо числовой. Остальные
@@ -884,14 +931,6 @@ function pasteDeps() {
   pasteClip(animClip.depsClip.value, (tms) =>
     applyDepsClip(tms, animClip.depsClip.value, { isStatic: isStatic(tms) })
   )('Зависимости вставлены')
-}
-
-/** Вставить диапазоны из буфера на всё текущее выделение (rangeSource целиком,
- *  свежий клон на ячейку). Статичные символы пропускаем. */
-function pasteRange() {
-  pasteClip(animClip.rangeClip.value, (tms) =>
-    applyRangeClip(tms, animClip.rangeClip.value, { isStatic: isStatic(tms) })
-  )('Диапазоны вставлены')
 }
 
 /**
@@ -1032,7 +1071,7 @@ const {
                и порогов раздаётся на всё выделение). Зависимости — DependencyBlock без
                групп: «+ группа» раздаёт тег новой группой на всё выделение. Тега
                состояния тут нет: слоты у выделенных символов бывают разного типа.
-               Range — шаблон multiRange: задаёшь тег → правишь пороги → на все. -->
+               Диапазонов тут нет: зоны живут в определении символа, тег — у экземпляра. -->
           <div class="space-y-2">
             <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
             <DependencyBlock
@@ -1042,18 +1081,6 @@ const {
               :pasteable="animClip.hasDeps.value"
               @add-group="openMultiBoolPicker"
               @paste="pasteDeps"
-            />
-            <RangeBlock
-              :range-source="multiRange"
-              :tags-loaded="!!project.tags.length"
-              :pasteable="animClip.hasRange.value"
-              @open-tag-picker="openMultiRangePicker"
-              @update-range="updateMultiRange"
-              @add-range="addMultiRange"
-              @remove-range="removeMultiRangeRow"
-              @highlight="toggleMultiRangeHighlight"
-              @remove="removeMultiRange"
-              @paste="pasteRange"
             />
           </div>
 
@@ -1280,22 +1307,36 @@ const {
               @paste="pasteDeps"
             />
 
-            <!-- Значение тега → класс: диапазоны либо точные значения (свитч в блоке).
-                 rangeSource создаётся лениво при выборе тега (onPickTag),
-                 очищается через × (виден при непустом). -->
+            <!-- Значение тега → класс по диапазонам. Границы и цвета — в определении
+                 символа (шина тоже символ), на холсте только привязка тега.
+                 Зоны символа: тег — слот `range`. Пока тег слота не выбран, а у ячейки
+                 ещё лежит собственный источник прошлых схем, работает и показывается ОН
+                 (ветка ниже): иначе цвет шёл бы от невидимой настройки. -->
             <RangeBlock
-              :range-source="details.rangeSource"
+              v-if="details.rangeZones && (details.rangeTag || !details.rangeSource)"
+              :range-source="{ tag: details.rangeTag, ranges: details.rangeZones }"
               :tags-loaded="!!project.tags.length"
-              :copyable="!!details.rangeSource"
-              :pasteable="animClip.hasRange.value"
-              @open-tag-picker="openRangePicker"
-              @update-range="updateRange"
-              @add-range="addRange"
-              @remove-range="removeRange"
-              @highlight="toggleRangeHighlight"
+              @open-tag-picker="openRangeSlotPicker"
+              @highlight="canvas.toggleHighlightedTag(details.rangeTag)"
+              @remove="bindRangeSlotTag('')"
+            />
+            <!-- Провод и точка без своей настройки: показываем унаследованное по цепи
+                 (шина / символ / провод прошлых схем) — только чтение, снимать нечего. -->
+            <RangeBlock
+              v-else-if="details.rangeInherited && !details.rangeSource"
+              :range-source="details.rangeInherited"
+              :inherited-from="INHERITED_FROM_LABEL[details.rangeInherited.from]"
+              @highlight="canvas.toggleHighlightedTag(details.rangeInherited.tag)"
+            />
+            <!-- Собственная настройка прошлых схем (у любого элемента): видно, × убирает
+                 целиком — заново своё не задать. Пусто — подсказка, где задаются зоны. -->
+            <RangeBlock
+              v-else
+              :range-source="details.rangeSource"
+              :pickable="false"
+              :hint="rangeHint"
+              @highlight="canvas.toggleHighlightedTag(details.rangeSource?.tag)"
               @remove="removeRangeSource"
-              @copy="copyRange"
-              @paste="pasteRange"
             />
           </div>
         </div>

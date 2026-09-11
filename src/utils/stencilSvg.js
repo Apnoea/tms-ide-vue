@@ -14,9 +14,16 @@
  * перекраске: CSS исключает `<text>` селектором `*:not(text)`.
  */
 
-import { ATTR_PARAM, ATTR_SUFFIX, STENCIL_ID_RE, isValidParamKey } from '../constants/ids'
+import {
+  ATTR_PARAM,
+  ATTR_SUFFIX,
+  RANGE_SLOT,
+  STENCIL_ID_RE,
+  isValidParamKey,
+} from '../constants/ids'
 import { STATE_FILL_CLASS, normalizeStateColor } from '../constants/animation'
 import { normalizeDomains } from '../constants/domains'
+import { cleanRangeRows } from './rangeRows'
 import { escapeAttr, escapeXml } from './xml'
 import { measureTextWidth, normalizeFont } from './textMetrics'
 
@@ -733,6 +740,7 @@ export function buildStencilJson(meta, ports, shapes = []) {
   }
   buildParams(json, shapes)
   buildValueTextSlot(json, shapes)
+  buildRangeZones(json, meta)
   if (meta.stateful) {
     if (meta.stateMode === 'value') buildValueState(json, meta, shapes)
     else buildBooleanState(json, meta, shapes)
@@ -775,6 +783,19 @@ function buildParams(json, shapes) {
 /** Суффикс и ключ слота у текста, показывающего значение тега. */
 const VALUE_TEXT_SUFFIX = '.value'
 const VALUE_TEXT_SLOT = 'value_text'
+
+/**
+ * Зоны диапазонов символа: границы и цвета едут полем `ranges`, тег привязывают на
+ * холсте в слот `range`. Строки без цвета и без обеих границ не пишем — в анимацию они
+ * всё равно не попадают. Карточки здесь нет: её собирает exporter из зон и тега слота,
+ * тем же путём, что диапазоны провода.
+ */
+function buildRangeZones(json, meta) {
+  const rows = cleanRangeRows(meta.ranges)
+  if (!rows.length) return
+  addSlot(json, { key: RANGE_SLOT, type: 'Value' })
+  json.ranges = rows
+}
 
 /** Слоты складываются, а не перетираются: у символа их может быть несколько. */
 function addSlot(json, slot) {

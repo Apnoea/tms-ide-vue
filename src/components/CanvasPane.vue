@@ -6,7 +6,12 @@ import ContextMenu from 'primevue/contextmenu'
 import Tag from 'primevue/tag'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
-import { normalizeLinkZ, attachLinkTools, syncLinkEndMarkers } from '../stencils/linkDefaults'
+import {
+  normalizeLinkZ,
+  attachLinkTools,
+  snapFreeLinkEnds,
+  syncLinkEndMarkers,
+} from '../stencils/linkDefaults'
 import { getStencilById } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
 import {
@@ -190,6 +195,8 @@ const {
   restoreForm: guardedRestoreForm,
   renameForm: guardedRenameForm,
   moveFormNode: guardedMoveForm,
+  migrateRangesToStencils,
+  cleanupInheritedRanges,
   trash: formTrash,
   refreshTrash,
 } = useProject({
@@ -645,6 +652,11 @@ onMounted(async () => {
   }
   graph.on('add remove change:source change:target', refreshBusMarks)
 
+  // Конец, оставленный на холсте, JointJS ставит в точку отпускания как есть — на
+  // дробную координату. Порты символов всегда кратны шагу, поэтому такой провод идёт
+  // к точке наклонной линией; снапим сразу, пока жест не закончился.
+  graph.on('change:source change:target', (link) => snapFreeLinkEnds(link, paper.options.gridSize))
+
   // graph/paper прокидываются ДО restoreProject: useAutosave и useUndoRedo читают их
   // через canvas.graphRef.value.
   canvas.setCanvasRefs(graph, paper)
@@ -667,6 +679,13 @@ onMounted(async () => {
       'Локальные данные формы повреждены — открыт пустой холст. Переключите форму или переоткройте проект.'
     )
   }
+
+  // Диапазоны прошлого порядка (строки на КАЖДОЙ ячейке) переезжают в символы: разово,
+  // сразу после восстановления проекта. Переносить нечего — операция молчит.
+  await migrateRangesToStencils()
+  // Провода и точки диапазоны наследуют: их собственные настройки, совпадающие с
+  // источником, снимаются — после переноса зон, чтобы совпадение с символом засчиталось.
+  await cleanupInheritedRanges()
 
   // ─── История: снимок на «стабильных» событиях ───
   // Только pointerup (после действия) и add/remove: на 'change' JointJS шлёт десятки

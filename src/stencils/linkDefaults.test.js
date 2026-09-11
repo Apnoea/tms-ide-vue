@@ -7,7 +7,11 @@ import {
   isInsideBBox,
   arrowPath,
   arrowMarker,
+  arrowInset,
+  arrowInsetEnds,
+  insetTowards,
   syncLinkEndMarkers,
+  snapFreeLinkEnds,
   renderEndDots,
   arrowExportSvg,
   linkStyleAttrs,
@@ -92,32 +96,80 @@ describe('rightAngleDirections', () => {
 
 describe('наконечники провода', () => {
   it('размер пропорционален толщине линии', () => {
-    expect(arrowSize(2)).toEqual({ len: 5, half: 5 })
-    expect(arrowSize(4)).toEqual({ len: 10, half: 10 })
+    expect(arrowSize(2)).toEqual({ len: 3, half: 3 })
+    expect(arrowSize(4)).toEqual({ len: 6, half: 6 })
+    // Треугольник крупнее галочки: 2 толщины против 1.5.
+    expect(arrowSize(2, 'solid')).toEqual({ len: 4, half: 4 })
+    expect(arrowSize(2, 'open')).toEqual({ len: 3, half: 3 })
     // Мусор и ноль → дефолтная толщина линии (2).
-    expect(arrowSize(undefined)).toEqual({ len: 5, half: 5 })
+    expect(arrowSize(undefined)).toEqual({ len: 3, half: 3 })
     // Раствор 90°: длина равна полуширине, каждая сторона идёт под 45°.
     const { len, half } = arrowSize(3)
     expect(len).toBe(half)
   })
 
   it('solid — замкнутый треугольник, open — две линии; раствор у обоих 90°', () => {
-    // Вершина в точке конца линии (0 0), тело — вдоль оси X внутрь линии.
-    expect(arrowPath('solid', 2)).toBe('M 0 0 L 5 5 L 5 -5 Z')
-    expect(arrowPath('open', 2)).toBe('M 5 5 L 0 0 L 5 -5')
+    // Треугольник: основание в конце ПУТИ (x = 0), остриё на `len` впереди — в точке
+    // соединения: путь под ним укорочен (arrowInsetJumpover), тело до острия не доходит.
+    expect(arrowPath('solid', 2)).toBe('M -4 0 L 0 4 L 0 -4 Z')
+    // Галочка: вершина в конце пути, тело упирается в неё; остриё — miter-выступ.
+    expect(arrowPath('open', 2)).toBe('M 3 3 L 0 0 L 3 -3')
     expect(arrowPath(undefined, 2)).toBeNull()
   })
 
-  it('маркеры ОБОИХ концов одинаковы: тело в +X, остриё в точке соединения', () => {
+  it('arrowInset: путь не доходит до точки соединения ровно на вынос острия', () => {
+    // Треугольник — на всю длину; галочка — на miter-выступ w/√2 (сотые).
+    expect(arrowInset('solid', 2)).toBe(4)
+    expect(arrowInset('open', 2)).toBe(1.41)
+    expect(arrowInset('open', 4)).toBe(2.83)
+    expect(arrowInset(null, 2)).toBe(0)
+    expect(arrowInset(undefined, 2)).toBe(0)
+  })
+
+  it('маркеры ОБОИХ концов одинаковы: тело в +X, остриё впереди конца пути', () => {
     // `marker-start` ориентируется по направлению пути, а `target-marker` JointJS
     // отдаёт с `rotate(180)`, поэтому внутрь линии у обоих указывает +X. Зеркальный
     // путь увёл бы наконечник конца ЗА точку соединения, под символ.
     const line = linkStyleAttrs({ arrowStart: 'solid', arrowEnd: 'solid' }).line
-    expect(line.sourceMarker.d).toBe('M 0 0 L 5 5 L 5 -5 Z')
-    expect(line.targetMarker.d).toBe('M 0 0 L 5 5 L 5 -5 Z')
+    expect(line.sourceMarker.d).toBe('M -4 0 L 0 4 L 0 -4 Z')
+    expect(line.targetMarker.d).toBe('M -4 0 L 0 4 L 0 -4 Z')
     // Тот же путь, что ставит инспектор при выборе наконечника — иначе вид провода
     // зависел бы от того, только что его настроили или загрузили из архива.
     expect(line.targetMarker.d).toBe(arrowMarker('solid', { strokeWidth: 2 }).d)
+  })
+
+  it('insetTowards сдвигает конец внутрь на длину наконечника, но не дальше середины', () => {
+    expect(insetTowards({ x: 0, y: 0 }, { x: 100, y: 0 }, 5)).toEqual({ x: 5, y: 0 })
+    expect(insetTowards({ x: 0, y: 40 }, { x: 0, y: 0 }, 10)).toEqual({ x: 0, y: 30 })
+    // Короткий провод: два наконечника иначе поменяли бы концы местами.
+    expect(insetTowards({ x: 0, y: 0 }, { x: 6, y: 0 }, 5)).toEqual({ x: 3, y: 0 })
+    // Нулевой отрезок / нулевой сдвиг — точка как есть.
+    expect(insetTowards({ x: 1, y: 1 }, { x: 1, y: 1 }, 5)).toEqual({ x: 1, y: 1 })
+    expect(insetTowards({ x: 1, y: 1 }, { x: 9, y: 1 }, 0)).toEqual({ x: 1, y: 1 })
+  })
+
+  it('arrowInsetEnds режет путь под наконечником к ближайшему излому', () => {
+    const s = { x: 0, y: 0 }
+    const t = { x: 100, y: 50 }
+    // Начало — на len = 4 к первому излому (вниз), конец без стрелки не тронут.
+    expect(arrowInsetEnds(s, t, [{ x: 0, y: 50 }], { arrowStart: 'solid' })).toEqual({
+      start: { x: 0, y: 4 },
+      end: { x: 100, y: 50 },
+    })
+    // Без изломов ориентир — противоположный конец; толщина 4 → len = 8.
+    const both = arrowInsetEnds(s, { x: 100, y: 0 }, [], {
+      arrowStart: 'solid',
+      arrowEnd: 'solid',
+      strokeWidth: 4,
+    })
+    expect(both).toEqual({ start: { x: 8, y: 0 }, end: { x: 92, y: 0 } })
+    // Галочка режет только на miter-выступ (w = 2 → 1.41).
+    const open = arrowInsetEnds(s, { x: 100, y: 0 }, [], { arrowStart: 'open', arrowEnd: 'open' })
+    expect(open).toEqual({ start: { x: 1.41, y: 0 }, end: { x: 98.59, y: 0 } })
+    // Без наконечников концы как есть.
+    expect(arrowInsetEnds(s, t, [], {})).toEqual({ start: s, end: t })
+    // Без наконечников и без tms — концы как есть.
+    expect(arrowInsetEnds(s, t, [], undefined)).toEqual({ start: s, end: t })
   })
 
   it('стиль линии несёт маркеры только для заданных концов', () => {
@@ -258,5 +310,31 @@ describe('syncLinkEndMarkers', () => {
     const l = link({ arrowEnd: 'solid' }, { x: 10, y: 20 })
     syncLinkEndMarkers(l)
     expect(l.attrs['line/targetMarker']).toMatchObject({ type: 'path', fill: '#000' })
+  })
+})
+
+describe('snapFreeLinkEnds', () => {
+  const linkWith = (source, target) => {
+    const model = { source, target }
+    return {
+      get: (key) => model[key],
+      set: (key, value) => (model[key] = value),
+      model,
+    }
+  }
+
+  it('свободный конец с дробной координаты садится на сетку', () => {
+    // JointJS ставит его в точку отпускания мыши как есть, а порты символов кратны
+    // шагу — иначе провод идёт к точке наклонной линией.
+    const link = linkWith({ id: 'c1' }, { x: 203, y: 97 })
+    expect(snapFreeLinkEnds(link, 5)).toBe(true)
+    expect(link.model.target).toEqual({ x: 205, y: 95 })
+    // Привязанный конец не трогаем: он следует за портом.
+    expect(link.model.source).toEqual({ id: 'c1' })
+  })
+
+  it('конец уже на сетке не переписывается', () => {
+    const link = linkWith({ x: 20, y: 40 }, { id: 'c2' })
+    expect(snapFreeLinkEnds(link, 5)).toBe(false)
   })
 })

@@ -10,6 +10,19 @@ import { cssColor, rangeRowColor } from './animation'
 import { ARROW_KINDS, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from './wire'
 
 /**
+ * Ключ слота, в который на холсте привязывают тег ЗОН диапазонов символа. Отдельный
+ * от слота состояния: зоны независимы от положения, и оба слота живут у символа разом.
+ */
+export const RANGE_SLOT = 'range'
+
+/**
+ * id программных символов: у них тело и порты считает код, а не definitions/. Шина —
+ * источник диапазонов для проводов, точка соединения — прозрачное звено цепи.
+ */
+export const BUS_STENCIL_ID = 'cell_bus'
+export const NODE_STENCIL_ID = 'cell_node'
+
+/**
  * Санитайзеры значений meta. `normalize` в дескрипторе применяется на ОБОИХ концах
  * round-trip'а, поэтому мусор из чужого архива не попадает ни в модель, ни в
  * экспорт: `fontSize: "huge"` ломал замер габарита, `decimals: 500` — валил

@@ -2,10 +2,11 @@
 // выделенного. Конфиг применяется и при рисовании из порта (defaultLink), и при
 // восстановлении из SVG/JSON — на дефолтах JointJS провод выглядел бы иначе.
 
-import { dia, routers, linkTools } from '@joint/core'
+import { dia, routers, connectors, linkTools, g } from '@joint/core'
 import { LINK_META_FIELDS } from '../constants/ids'
 import { RANGE_FILL_CLASS, cssColor } from '../constants/animation'
 import { svgEl } from '../utils/xml'
+import { snapToGrid } from '../utils/grid'
 import { ARROW_KINDS, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire'
 
 const { Directions } = routers.rightAngle
@@ -171,6 +172,26 @@ export function endPoint(end) {
 }
 
 /**
+ * Свободные концы провода — на сетку. Конец, оставленный на холсте, JointJS ставит в
+ * точку отпускания как есть, поэтому он садится на дробную координату: провод к нему
+ * идёт наклонной линией, а порт символа всегда кратен шагу. Возврат — было ли что
+ * править (вызывающий решает, нужен ли снимок истории).
+ */
+export function snapFreeLinkEnds(link, grid = 5) {
+  let changed = false
+  for (const end of ['source', 'target']) {
+    const point = endPoint(link?.get?.(end))
+    if (!point) continue
+    const x = snapToGrid(point.x, grid)
+    const y = snapToGrid(point.y, grid)
+    if (x === point.x && y === point.y) continue
+    link.set(end, { x, y })
+    changed = true
+  }
+  return changed
+}
+
+/**
  * Полоса z проводов — ниже символов (у тех дно 0). Внутри полосы порядок значим:
  * `jumpover` рисует мостик на том, кто в коллекции позже, то есть больший z =
  * «этот провод сверху».
@@ -194,32 +215,129 @@ export function normalizeLinkZ(z) {
 }
 
 /**
+ * Сторона наконечника в толщинах линии, по виду. Галочка рисуется штрихом той же
+ * толщины и визуально «тяжелее» треугольника того же размера, поэтому она меньше;
+ * 2.5 на широких проводах у обоих выглядела громоздко. `open` — и дефолт для точки
+ * свободного конца (dotRadius).
+ */
+const ARROW_SIDE_PER_STROKE = { solid: 2, open: 1.5 }
+
+/**
  * Длина и полуширина наконечника — пропорционально толщине линии. Длина РАВНА
  * полуширине: это раствор 90° (по 45° на сторону) — «тупой» наконечник, как на
  * присланных схемах. Оба вида строятся из одной пары, поэтому угол у стрелки-линий и у
  * треугольника одинаков по построению, а не «на глаз».
+ *
+ * @param {'solid'|'open'} [kind] — вид наконечника (коэффициент стороны); без него `open`
  */
-export function arrowSize(strokeWidth) {
-  const w = Number(strokeWidth)
-  const base = Number.isFinite(w) && w > 0 ? w : LINK_DEFAULTS.attrs.line.strokeWidth
-  const side = base * 2.5
+export function arrowSize(strokeWidth, kind = 'open') {
+  const base = strokeBase(strokeWidth)
+  const side = base * (ARROW_SIDE_PER_STROKE[kind] ?? ARROW_SIDE_PER_STROKE.open)
   return { len: side, half: side }
 }
 
+/** Толщина линии к расчётам: мусор и ноль → дефолт провода. */
+function strokeBase(strokeWidth) {
+  const w = Number(strokeWidth)
+  return Number.isFinite(w) && w > 0 ? w : LINK_DEFAULTS.attrs.line.strokeWidth
+}
+
 /**
- * Геометрия наконечника в системе маркера: начало в точке конца линии, ось X смотрит
- * В точку соединения. `solid` — замкнутый треугольник (заливается цветом линии),
- * `open` — две линии (незамкнутая «галочка», красится обводкой). Раствор у обоих
- * одинаковый — 90°, см. arrowSize.
+ * Геометрия наконечника в системе маркера: начало координат — конец ПУТИ провода, ось
+ * X смотрит внутрь линии. Раствор у обоих видов 90° (arrowSize), одна функция на холст
+ * и экспорт: JointJS рисует `d` как маркер линка, exporter — тем же путём в группе
+ * провода. Путь под наконечником укорочен на `arrowInset` (`arrowInsetJumpover`), и
+ * остриё у обоих видов садится ровно в точку соединения — не уходит под символ.
  *
- * Одна функция на холст и экспорт: JointJS рисует `d` как маркер линка, exporter — тем
- * же путём в группе провода.
+ * `solid` — замкнутый треугольник (заливается цветом линии): основание в конце пути
+ * (x = 0), остриё на `len` впереди. У вершины треугольник тоньше линии, и без укорочения
+ * по бокам острия торчал бы торец провода.
+ *
+ * `open` — две линии (незамкнутая «галочка», красится обводкой той же толщины),
+ * вершина в конце пути (0, 0): тело провода упирается в неё, и торец накрыт штрихами
+ * галочки. Остриё — выступ miter-стыка на `w/√2` впереди вершины (см. arrowInset).
  */
 export function arrowPath(kind, strokeWidth) {
-  const { len, half } = arrowSize(strokeWidth)
-  if (kind === 'solid') return `M 0 0 L ${len} ${half} L ${len} ${-half} Z`
+  const { len, half } = arrowSize(strokeWidth, kind)
+  if (kind === 'solid') return `M ${-len} 0 L 0 ${half} L 0 ${-half} Z`
   if (kind === 'open') return `M ${len} ${half} L 0 0 L ${len} ${-half}`
   return null
+}
+
+/**
+ * На сколько путь провода не доходит до точки соединения под наконечником: ровно на
+ * вынос острия за конец пути, чтобы остриё стояло в точке соединения. `solid` — длина
+ * треугольника; `open` — выступ miter-стыка двух линий под 90°: `(w/2) / sin 45°` =
+ * `w/√2` (округлено до сотых — значение уходит в `d` экспорта). 0 — наконечника нет.
+ */
+export function arrowInset(kind, strokeWidth) {
+  if (kind === 'solid') return arrowSize(strokeWidth, kind).len
+  if (kind === 'open') return Math.round((strokeBase(strokeWidth) / Math.SQRT2) * 100) / 100
+  return 0
+}
+
+/**
+ * Точка, сдвинутая от `point` к `ref` на `dist`, но не дальше половины отрезка: у
+ * провода короче двух наконечников концы иначе поменялись бы местами.
+ *
+ * @returns {{x: number, y: number}}
+ */
+export function insetTowards(point, ref, dist) {
+  const dx = ref.x - point.x
+  const dy = ref.y - point.y
+  const length = Math.hypot(dx, dy)
+  if (!(length > 0) || !(dist > 0)) return { x: point.x, y: point.y }
+  const k = Math.min(dist, length / 2) / length
+  return { x: point.x + dx * k, y: point.y + dy * k }
+}
+
+/**
+ * Коннектор провода: `jumpover` (мостики на пересечениях), у концов с наконечником путь
+ * укорочен на `arrowInset` — остриё садится в точку соединения, а не под символ (см.
+ * arrowPath). Работает и для привязанного, и для свободного конца, потому что режет уже
+ * готовые точки пути, а не точку соединения: `connectionPoint` для свободного конца
+ * (точка на холсте) JointJS не вызывает. Подменяет `jumpover` в `connectorNamespace`
+ * холста — провода из прежних форм несут это имя в graphJson и подхватывают укорочение
+ * без миграции.
+ *
+ * Сигнатура — коннектора JointJS: `this` = linkView.
+ */
+export function arrowInsetJumpover(sourcePoint, targetPoint, route, args, linkView) {
+  const points = route || []
+  const { start, end } = arrowInsetEnds(
+    sourcePoint,
+    targetPoint,
+    points,
+    linkView?.model?.get?.('tms')
+  )
+  return connectors.jumpover.call(
+    this,
+    new g.Point(start),
+    new g.Point(end),
+    points,
+    args,
+    linkView
+  )
+}
+
+/**
+ * Концы пути с учётом наконечников (чистая часть arrowInsetJumpover): конец со стрелкой
+ * сдвинут к ближайшему излому (без изломов — к противоположному концу) на `arrowInset`;
+ * без стрелки — как есть.
+ */
+export function arrowInsetEnds(sourcePoint, targetPoint, route, tms) {
+  const t = tms || {}
+  const points = route || []
+  const startInset = arrowInset(t.arrowStart, t.strokeWidth)
+  const endInset = arrowInset(t.arrowEnd, t.strokeWidth)
+  return {
+    start: startInset
+      ? insetTowards(sourcePoint, points[0] || targetPoint, startInset)
+      : { x: sourcePoint.x, y: sourcePoint.y },
+    end: endInset
+      ? insetTowards(targetPoint, points[points.length - 1] || sourcePoint, endInset)
+      : { x: targetPoint.x, y: targetPoint.y },
+  }
 }
 
 /**
@@ -374,7 +492,12 @@ function endpointHandleUpdate(base) {
     const anchor = isSource ? view?.sourceAnchor : view?.targetAnchor
     const endView = isSource ? view?.sourceView : view?.targetView
     const bbox = endView?.model?.isElement?.() ? endView.model.getBBox() : null
-    if (anchor && isInsideBBox(anchor, bbox)) {
+    // Ручка стоит в ТОЧКЕ СОЕДИНЕНИЯ, а не в конце пути, когда они расходятся: anchor
+    // внутри тела (слот шины) либо конец с наконечником — путь под ним укорочен, и
+    // ручка по концу пути села бы на основание стрелки вместо острия.
+    const tms = view?.model?.get?.('tms') || {}
+    const inset = arrowInset(isSource ? tms.arrowStart : tms.arrowEnd, tms.strokeWidth)
+    if (anchor && (inset > 0 || isInsideBBox(anchor, bbox))) {
       this.vel.attr('transform', `translate(${anchor.x} ${anchor.y})`)
       return this
     }

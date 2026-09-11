@@ -4,7 +4,7 @@
 import { instantiate } from './parser'
 import { getStencilById } from './registry'
 import { TMSStencil } from './tmsStencil'
-import { normalizeLinkZ, syncLinkEndMarkers } from './linkDefaults'
+import { normalizeLinkZ, snapFreeLinkEnds, syncLinkEndMarkers } from './linkDefaults'
 import { svgEl } from '../utils/xml'
 import { snapToGrid } from '../utils/grid'
 import { portPointAt } from '../utils/portGeom'
@@ -452,6 +452,9 @@ export function reinjectAllStencils(graph, paper, { sync = false } = {}) {
   for (const link of graph.getLinks()) {
     const z = normalizeLinkZ(link.get('z'))
     if (link.get('z') !== z) link.set('z', z)
+    // Свободный конец из прошлых схем мог остаться на дробной координате — провод к
+    // нему шёл наклонной линией, хотя порты символов всегда кратны шагу.
+    snapFreeLinkEnds(link, paper?.options?.gridSize)
     // Маркеры концов — по фактической привязке: `attrs` приезжают из graphJson, а
     // точка свободного конца выводится из source/target и пересобирается здесь.
     syncLinkEndMarkers(link, paper)

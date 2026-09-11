@@ -88,11 +88,12 @@ export function setBusThickness(cell, paper, value, min) {
 /** Заливка маркера соединения: «дырка» в теле шины, видна на любом тёмном цвете. */
 export const BUS_MARKER_FILL = '#ffffff'
 
-/** Не меньше порта на холсте (r=3), у толстого провода — чуть шире линии. */
-export function busMarkerRadius(strokeWidth) {
-  const w = Number(strokeWidth)
-  return Math.max(3, Math.round((Number.isFinite(w) && w > 0 ? w : 2) + 1))
-}
+/**
+ * Радиус маркера соединения — тот же, что у порта на холсте, и ОДИН на все провода:
+ * маркер обозначает факт соединения, а не толщину линии. Считать его от толщины нельзя
+ * — на тонкой шине маркер толстого провода накрывает тело целиком.
+ */
+export const BUS_MARKER_R = 3
 
 /**
  * Атрибуты маркера соединения: слот стоит в СЕРЕДИНЕ толщины, конец провода уходит под
@@ -101,13 +102,13 @@ export function busMarkerRadius(strokeWidth) {
  *
  * Заливка контрастная, обводка — цветом провода; цвет чистится здесь же (busColor).
  *
- * @param {{index: number, color?: string, strokeWidth?: number}} mark
+ * @param {{index: number, color?: string}} mark
  */
 function busMarkerAttrs(mark, y) {
   return {
     cx: busPortX(mark.index),
     cy: y,
-    r: busMarkerRadius(mark.strokeWidth),
+    r: BUS_MARKER_R,
     fill: BUS_MARKER_FILL,
     stroke: busColor(mark.color),
     'stroke-width': 1,
@@ -115,7 +116,7 @@ function busMarkerAttrs(mark, y) {
 }
 
 /**
- * Занятые слоты шины: `{ index, color, strokeWidth }` по одному на слот. Несколько
+ * Занятые слоты шины: `{ index, color }` по одному на слот. Несколько
  * проводов в один порт — штатно (слот = одна точка цепи), обводка берётся от первого.
  */
 export function collectBusMarks(graph, cellId) {
@@ -127,7 +128,7 @@ export function collectBusMarks(graph, cellId) {
       if (ref?.id !== cellId || !ref.port) continue
       const index = busPortIndex(ref.port)
       if (!Number.isFinite(index) || byIndex.has(index)) continue
-      byIndex.set(index, { index, color: tms.strokeColor, strokeWidth: tms.strokeWidth })
+      byIndex.set(index, { index, color: tms.strokeColor })
     }
   }
   return [...byIndex.values()]
