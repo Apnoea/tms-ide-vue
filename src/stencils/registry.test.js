@@ -5,6 +5,7 @@ import {
   registerStencil,
   unregisterStencil,
   getStencilById,
+  nextStencilId,
   registryVersion,
   isHiddenStencil,
 } from './registry'
@@ -223,6 +224,30 @@ describe('unregisterStencil', () => {
     const before = registryVersion.value
     unregisterStencil('cell_does_not_exist_xyz')
     expect(registryVersion.value).toBe(before)
+  })
+})
+
+// Имя копии предварительное (автор правит его до сохранения), но занятым быть не
+// должно: иначе дубль перетёр бы чужой символ.
+describe('nextStencilId', () => {
+  it('свободное имя — `_copy`, занятое — со счётчиком', () => {
+    expect(nextStencilId('cell_qw')).toBe('cell_qw_copy')
+    registerStencil(
+      { id: 'cell_qw_copy', label: 'C', category: 'Т', width: 20, height: 20 },
+      '<g/>'
+    )
+    expect(nextStencilId('cell_qw')).toBe('cell_qw_copy2')
+    unregisterStencil('cell_qw_copy')
+  })
+
+  it('копия копии не наращивает суффикс', () => {
+    expect(nextStencilId('cell_qw_copy')).toBe('cell_qw_copy')
+    expect(nextStencilId('cell_qw_copy7')).toBe('cell_qw_copy')
+  })
+
+  it('имя остаётся в маске id (латиница, цифры, _)', () => {
+    expect(nextStencilId('cell_qw')).toMatch(/^[a-z0-9_]+$/)
+    expect(nextStencilId(undefined)).toBe('cell_copy')
   })
 })
 

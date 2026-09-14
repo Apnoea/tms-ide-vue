@@ -643,32 +643,41 @@ export function parseStencilSvg(svgText) {
 }
 
 /**
- * Проверка черновика перед сохранением. Чистая: uniqueness сверяем по
- * переданному списку существующих id (реестр знает caller). Возвращает массив
- * человекочитаемых проблем; пустой — можно сохранять.
+ * Проверка черновика перед сохранением. Чистая: uniqueness сверяем по переданному
+ * списку существующих id (реестр знает caller). Каждая проблема помечена ПОЛЕМ, к
+ * которому относится (`id`/`label`/`category`/`shapes`/`width`/`height`) — инспектор
+ * подсвечивает его прямо во время ввода, а не сообщает тостом на сохранении.
+ *
+ * @returns {Array<{field: string, message: string}>} пусто — можно сохранять
  */
-export function stencilDraftIssues(meta, shapes, existingIds = []) {
-  const issues = []
+export function stencilDraftProblems(meta, shapes, existingIds = []) {
+  const problems = []
+  const add = (field, message) => problems.push({ field, message })
   const id = (meta.id || '').trim()
-  if (!id) issues.push('Укажите id')
-  else if (!STENCIL_ID_RE.test(id)) issues.push('id: только латиница в нижнем регистре, цифры и _')
-  else if (existingIds.includes(id)) issues.push(`id «${id}» уже занят`)
-  if (!(meta.label || '').trim()) issues.push('Укажите название')
-  if (!(meta.category || '').trim()) issues.push('Укажите категорию')
-  if (!shapes?.length) issues.push('Добавьте хотя бы одну фигуру')
+  if (!id) add('id', 'Укажите id')
+  else if (!STENCIL_ID_RE.test(id)) add('id', 'id: только латиница в нижнем регистре, цифры и _')
+  else if (existingIds.includes(id)) add('id', `id «${id}» уже занят`)
+  if (!(meta.label || '').trim()) add('label', 'Укажите название')
+  if (!(meta.category || '').trim()) add('category', 'Укажите категорию')
+  if (!shapes?.length) add('shapes', 'Добавьте хотя бы одну фигуру')
   // Слот и суффикс у текста со значением один, поэтому вторая такая подпись в схему
   // не уедет.
   if ((shapes || []).filter((s) => s.type === 'text' && s.valueText).length > 1) {
-    issues.push('Значение тега показывает только одна подпись')
+    add('shapes', 'Значение тега показывает только одна подпись')
   }
   // Обе метки на одной подписи: холст подставил бы параметр, рантайм — значение тега.
   if ((shapes || []).some((s) => s.valueText && s.param)) {
-    issues.push('Подпись со значением тега не может правиться на холсте')
+    add('shapes', 'Подпись со значением тега не может правиться на холсте')
   }
   // Кратность 5 = шаг сетки схемы (PORT_GRID в useStencilEditor); минимум 10.
-  if (!(meta.width >= 10) || meta.width % 5 !== 0) issues.push('Ширина кратна 5')
-  if (!(meta.height >= 10) || meta.height % 5 !== 0) issues.push('Высота кратна 5')
-  return issues
+  if (!(meta.width >= 10) || meta.width % 5 !== 0) add('width', 'Ширина кратна 5')
+  if (!(meta.height >= 10) || meta.height % 5 !== 0) add('height', 'Высота кратна 5')
+  return problems
+}
+
+/** Те же проблемы строками — для тоста на сохранении. */
+export function stencilDraftIssues(meta, shapes, existingIds = []) {
+  return stencilDraftProblems(meta, shapes, existingIds).map((p) => p.message)
 }
 
 // Карточка animationTemplate для состояния: элемент виден только в «своём»
@@ -834,10 +843,9 @@ function buildBooleanState(json, meta, shapes) {
   const states = new Set(
     (shapes || []).map((s) => s.state).filter((st) => st === 'true' || st === 'false')
   )
-  // Слот нужен и без state-фигур, если задан цвет состояния (символ реагирует на
-  // тег только перекраской) — иначе тег некуда привязать и цвет ничем не драйвится.
-  const hasColor = !!(meta.stateColors?.true || meta.stateColors?.false)
-  if (!states.size && !hasColor) return
+  // Слот пишется при ВКЛЮЧЁННОЙ анимации всегда, даже без state-фигур и цветов: он и
+  // есть признак режима (по нему `loadStencil` его восстанавливает), а на холсте — точка
+  // привязки тега. Карточки добавляются только там, где есть что прятать.
   const key = meta.stateSlot?.key || 'onoff'
   const tag = `{slot.${key}}`
   addSlot(json, { key, type: 'Boolean' })
@@ -849,15 +857,15 @@ function buildBooleanState(json, meta, shapes) {
 
 // Режим «по значению»: слот value + список состояний (states — редакторные
 // подписи/коды для round-trip, рантайм игнорит) + по карточке на каждое состояние
-// С ФИГУРАМИ (прячется на кодах остальных). Слот/states пишем при любых
-// объявленных состояниях (чтобы канвас мог привязать тег), карточки — только когда
-// есть что анимировать. Смена кода → другой список cases, суффиксы/фигуры не трогаются.
+// С ФИГУРАМИ (прячется на кодах остальных). Слот — признак режима, поэтому пишется
+// всегда; `states` — при объявленных состояниях, карточки — когда есть что анимировать.
+// Смена кода → другой список cases, суффиксы/фигуры не трогаются.
 function buildValueState(json, meta, shapes) {
   const declared = meta.states || []
-  if (!declared.length) return
   const key = meta.stateSlot?.key || 'value'
   const tag = `{slot.${key}}`
   addSlot(json, { key, type: 'Value' })
+  if (!declared.length) return
   json.states = declared.map((s) => ({ key: s.key, label: s.label || '', code: s.code ?? '' }))
   const shapeStates = new Set((shapes || []).map((s) => s.state).filter(Boolean))
   const coded = declared.filter((s) => s.code !== '' && s.code != null)

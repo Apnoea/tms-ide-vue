@@ -52,6 +52,15 @@ const props = defineProps({
   cursor: { type: String, default: null },
   /** Запас hit-обводки в user-координатах (вызывающий знает масштаб). */
   hitWidth: { type: Number, default: 6 },
+  /**
+   * Метка «фигура принадлежит состоянию»: пунктирная обводка ПО КОНТУРУ фигуры (та же
+   * геометрия, что у halo) — видно именно ту линию, которая появится в состоянии, а не
+   * её габарит. Пусто — метки нет.
+   */
+  markStroke: { type: String, default: '' },
+  /** Толщина и шаг пунктира метки в user-координатах. */
+  markWidth: { type: Number, default: 3 },
+  markDash: { type: Number, default: 1 },
 })
 
 const emit = defineEmits(['select'])
@@ -225,6 +234,33 @@ const capJoin = computed(() => {
     fill="none"
     :style="{ stroke: haloStroke }"
     :stroke-width="haloWidth"
+    :stroke-linecap="shape.rounded ? 'round' : 'butt'"
+    :stroke-linejoin="shape.rounded ? 'round' : 'miter'"
+  >
+    <component :is="haloGeom.tag" v-bind="haloGeom.attrs" />
+  </g>
+  <!-- Метка состояния — под фигурой, как halo: рисунок остаётся читаемым, а пунктир
+       обводит сам контур (у подписи — её bbox, широкая обводка дала бы контур вокруг
+       глифов). -->
+  <rect
+    v-if="markStroke && textHalo"
+    pointer-events="none"
+    fill="none"
+    :stroke="markStroke"
+    :stroke-width="markWidth / 2"
+    :stroke-dasharray="`${markDash} ${markDash}`"
+    :x="textHalo.x"
+    :y="textHalo.y"
+    :width="textHalo.w"
+    :height="textHalo.h"
+  />
+  <g
+    v-else-if="markStroke"
+    pointer-events="none"
+    fill="none"
+    :stroke="markStroke"
+    :stroke-width="markWidth"
+    :stroke-dasharray="`${markDash} ${markDash}`"
     :stroke-linecap="shape.rounded ? 'round' : 'butt'"
     :stroke-linejoin="shape.rounded ? 'round' : 'miter'"
   >

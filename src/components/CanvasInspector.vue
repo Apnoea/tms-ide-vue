@@ -1329,9 +1329,11 @@ const {
               @highlight="canvas.toggleHighlightedTag(details.rangeInherited.tag)"
             />
             <!-- Собственная настройка прошлых схем (у любого элемента): видно, × убирает
-                 целиком — заново своё не задать. Пусто — подсказка, где задаются зоны. -->
+                 целиком — заново своё не задать. Пустым блок остаётся только у провода и
+                 точки: там подсказка объясняет, откуда берётся цвет. У символа без зон
+                 настраивать на холсте нечего — зоны задают в редакторе символов. -->
             <RangeBlock
-              v-else
+              v-else-if="details.rangeSource || details.isWire || details.isNode"
               :range-source="details.rangeSource"
               :pickable="false"
               :hint="rangeHint"

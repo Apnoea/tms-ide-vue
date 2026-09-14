@@ -230,3 +230,30 @@ body,
     transition: none;
   }
 }
+
+/* Сворачивание блока (режимы анимации символа): высота содержимого заранее неизвестна,
+   поэтому анимируем `grid-template-rows` 0fr→1fr — в отличие от `max-height` это точная
+   высота без рывка в конце. Внутренний слой режет переполнение на промежуточных кадрах;
+   вне анимации элемент остаётся обычным блоком с высотой auto. */
+.tms-collapse-enter-active,
+.tms-collapse-leave-active {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 180ms ease;
+}
+.tms-collapse-enter-from,
+.tms-collapse-leave-to {
+  grid-template-rows: 0fr;
+}
+.tms-collapse-enter-active > *,
+.tms-collapse-leave-active > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tms-collapse-enter-active,
+  .tms-collapse-leave-active {
+    transition: none;
+  }
+}

@@ -347,7 +347,7 @@ async function removeStencil(id) {
             <div
               v-for="stencil in stencilsByCategory.get(cat)"
               :key="stencil.id"
-              class="group flex items-center gap-3 p-2 rounded hover:bg-surface-100 cursor-grab active:cursor-grabbing select-none"
+              class="group flex items-center gap-2 p-2 rounded hover:bg-surface-100 cursor-grab active:cursor-grabbing select-none"
               v-tooltip.right="stencilTooltip(stencil)"
               @pointerdown="onStencilPointerDown($event, stencil)"
             >
@@ -363,34 +363,52 @@ async function removeStencil(id) {
                   {{ stencil.id }}
                 </div>
               </div>
-              <!-- Правка — у всех, кроме залоченных (`locked`: программные — их SVG в
-                   наш формат не разбирается). Исключение — шина: редактор открывает её
-                   в режиме «только диапазоны». Открывает редактор с id. -->
-              <button
-                v-if="!stencil.locked || isBusStencil(stencil)"
-                type="button"
-                v-tooltip.bottom="stencil.locked ? 'Диапазоны шины' : 'Редактировать символ'"
-                class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
-                @pointerdown.stop
-                @click="ui.openStencilEditor(stencil.id)"
-              >
-                <i class="pi pi-pencil text-sm!" />
-              </button>
-              <!-- Удаление — у всех, кроме залоченных (`locked`). Видно по ховеру
-                   строки. @pointerdown.stop глушит старт drag'а (строка тащится по
-                   pointerdown). Клик БЕЗ .stop: ConfirmPopup выравнивается по target
-                   только в своём document-click листенере — с .stop клик не всплыл бы
-                   и попап упал бы в (0,0). Drag уже погашен на pointerdown, click безопасен. -->
-              <button
-                v-if="!stencil.locked"
-                type="button"
-                v-tooltip.bottom="'Удалить символ'"
-                class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-red-600 group-hover:opacity-100"
-                @pointerdown.stop
-                @click="confirmDeleteStencil($event, stencil)"
-              >
-                <i class="pi pi-trash text-sm!" />
-              </button>
+              <!-- Кнопки строки СВОЕЙ группой: общий gap-3 строки развёл бы их на
+                   12px каждую, и три кнопки не оставляли места названию (список ушёл
+                   в горизонтальный скролл). Здесь они стоят вплотную. -->
+              <div class="flex shrink-0 items-center">
+                <!-- Правка — у всех, кроме залоченных (`locked`: программные — их SVG в
+                     наш формат не разбирается). Исключение — шина: редактор открывает
+                     её в режиме «только диапазоны». Открывает редактор с id. -->
+                <button
+                  v-if="!stencil.locked || isBusStencil(stencil)"
+                  type="button"
+                  v-tooltip.bottom="stencil.locked ? 'Диапазоны шины' : 'Редактировать символ'"
+                  class="flex h-7 w-7 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
+                  @pointerdown.stop
+                  @click="ui.openStencilEditor(stencil.id)"
+                >
+                  <i class="pi pi-pencil text-xs!" />
+                </button>
+                <!-- Дублирование — у тех же, кого редактор воспроизводит целиком
+                     (незалоченные): копия открывается как НОВЫЙ символ со своим id и
+                     названием, менять их можно до сохранения. -->
+                <button
+                  v-if="!stencil.locked"
+                  type="button"
+                  v-tooltip.bottom="'Дублировать символ'"
+                  class="flex h-7 w-7 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
+                  @pointerdown.stop
+                  @click="ui.openStencilEditor(stencil.id, { duplicate: true })"
+                >
+                  <i class="pi pi-clone text-xs!" />
+                </button>
+                <!-- Удаление — у всех, кроме залоченных (`locked`). Видно по ховеру
+                     строки. @pointerdown.stop глушит старт drag'а (строка тащится по
+                     pointerdown). Клик БЕЗ .stop: ConfirmPopup выравнивается по target
+                     только в своём document-click листенере — с .stop клик не всплыл бы
+                     и попап упал бы в (0,0). Drag уже погашен на pointerdown, click безопасен. -->
+                <button
+                  v-if="!stencil.locked"
+                  type="button"
+                  v-tooltip.bottom="'Удалить символ'"
+                  class="flex h-7 w-7 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-red-600 group-hover:opacity-100"
+                  @pointerdown.stop
+                  @click="confirmDeleteStencil($event, stencil)"
+                >
+                  <i class="pi pi-trash text-xs!" />
+                </button>
+              </div>
             </div>
           </AccordionContent>
         </AccordionPanel>

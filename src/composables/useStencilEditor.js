@@ -16,6 +16,7 @@ import { reorderIds } from '../utils/zOrder'
 import { snapToGrid } from '../utils/grid'
 import { cleanRangeRows, editRanges, newRangeRow, withZeroStart } from '../utils/rangeRows'
 import { RANGE_SLOT } from '../constants/ids'
+import { nextStencilId, stateSlotOf } from '../stencils/registry'
 import {
   serializeSvg,
   buildStencilJson,
@@ -466,6 +467,25 @@ export function createStencilEditor() {
     return added
   }
 
+  /**
+   * Дублировать выделенное (Ctrl+D, как на холсте) — тем же сдвигом, что вставка, но
+   * БЕЗ буфера: он держит фигуры для переноса в другой символ, и дубликат не должен
+   * его затирать.
+   */
+  function duplicateShapes() {
+    const picked = shapes.value.filter((s) => selectedSet.value.has(s.id))
+    if (!picked.length) return []
+    const added = picked.map((s) => {
+      const copy = JSON.parse(JSON.stringify({ ...s, id: undefined }))
+      return makeShape(translateShape(copy, SHAPE_GRID, SHAPE_GRID))
+    })
+    shapes.value = [...shapes.value, ...added]
+    selectedIds.value = added.map((s) => s.id)
+    tool.value = 'select'
+    commit()
+    return added
+  }
+
   // ─── Режим «по значению»: список состояний {key, label, code} ───
   // Смена режима переустанавливает слот и сбрасывает видимость фигур на `always`:
   // ключи состояний в булевом (true/false) и value-режиме разные, старые назначения
@@ -613,16 +633,23 @@ export function createStencilEditor() {
     ports.value = ports.value.map((p) => (p.id === id ? { ...p, x: px, y: py } : p))
   }
 
-  // Правка существующего символа (только незалоченные — их SVG в нашем формате).
-  // История сбрасывается: загруженное состояние = базовая точка для undo.
-  function loadStencil(def) {
-    editingId.value = def.id
-    meta.id = def.id
+  /**
+   * Правка существующего символа (только незалоченные — их SVG в нашем формате).
+   * История сбрасывается: загруженное состояние = базовая точка для undo.
+   *
+   * `asCopy` — ДУБЛИРОВАНИЕ: та же модель, но символ новый. `editingId` пуст (id
+   * правится, сохранение идёт как создание, экземпляров у копии нет), id и название
+   * предварительные — автор меняет их до сохранения.
+   */
+  function loadStencil(def, { asCopy = false } = {}) {
+    editingId.value = asCopy ? null : def.id
+    meta.id = asCopy ? nextStencilId(def.id) : def.id
     // Программный символ (шина): геометрия и порты заданы кодом, редактор открывает его
     // только ради зон диапазонов — остальное в UI скрыто, сохранение идёт через
-    // outputRangesOnly.
-    meta.locked = !!def.locked
-    meta.label = def.label || ''
+    // outputRangesOnly. Копия программным символом не бывает: её рисунок собирается из
+    // фигур редактора.
+    meta.locked = !asCopy && !!def.locked
+    meta.label = asCopy ? `${def.label || def.id} (копия)` : def.label || ''
     meta.category = def.category || ''
     meta.domains = normalizeDomains(def.domains)
     meta.width = def.width || 40
@@ -630,27 +657,33 @@ export function createStencilEditor() {
     meta.noRotate = !!def.noRotate
     meta.noFlip = !!def.noFlip
     meta.quality = !!def.quality
-    // Режим «по значению» опознаётся по полю `states` в json, иначе булев. Ключ слота
-    // сохраняется как есть: переименование сломает привязку у расставленных экземпляров.
+    // Режим опознаётся по слоту-драйверу (`stateSlotOf` — не-`Text` и не `range`): он
+    // пишется при включённой анимации всегда, даже когда настраивать ещё нечего.
+    // `states` — второй признак value-режима (у символов, сохранённых до слота).
+    // Ключ слота сохраняется как есть: переименование сломает привязку у расставленных
+    // экземпляров.
+    const driverSlot = stateSlotOf(def.slots)
     const hasValueStates = Array.isArray(def.states) && def.states.length > 0
-    meta.stateMode = hasValueStates ? 'value' : 'boolean'
+    meta.stateMode = hasValueStates || driverSlot?.type === 'Value' ? 'value' : 'boolean'
     meta.states = hasValueStates
       ? def.states.map((s) => ({ key: s.key, label: s.label || '', code: s.code ?? '' }))
       : []
     meta.stateColors = def.stateColors ? { ...def.stateColors } : {}
     // Зоны диапазонов живут своим полем и от режима состояний не зависят.
     meta.ranges = Array.isArray(def.ranges) ? def.ranges.map((r) => ({ ...r })) : []
-    const loadedKey = def.slots?.find((s) => s.type !== 'Text')?.key
-    const fallbackKey = hasValueStates ? 'value' : 'onoff'
+    const loadedKey = driverSlot?.key
+    const fallbackKey = meta.stateMode === 'value' ? 'value' : 'onoff'
     meta.stateSlot = { key: loadedKey && loadedKey !== 'state' ? loadedKey : fallbackKey }
     // Присваиваем внутренние id — без них не работают выделение/ручки/удаление.
     const parsed = parseStencilSvg(def.svgText)
     shapes.value = parsed.map((s) => ({ id: nextId(), ...s }))
-    // Анимация состояния — по её собственным признакам: состояния «по значению»,
-    // фигуры, привязанные к состоянию, или цвет состояния. Слот с карточкой признаком
-    // не годится — они есть и у подписи со значением тега, а от флага зависит метка
-    // `tms-state-fill` в shape.svg (иначе файл «дышит» на каждом пересохранении).
+    // Анимация состояния — по её признакам: слот-драйвер, состояния «по значению»,
+    // фигуры, привязанные к состоянию, или цвет состояния. Слот подписи со значением
+    // тега (`Text`) и слот зон (`range`) сюда не считаются — их отсекает `stateSlotOf`;
+    // от флага зависит метка `tms-state-fill` в shape.svg (иначе файл «дышит» на
+    // каждом пересохранении).
     meta.stateful =
+      !!driverSlot ||
       hasValueStates ||
       parsed.some((s) => s.state && s.state !== 'always') ||
       Object.keys(meta.stateColors).length > 0
@@ -769,6 +802,7 @@ export function createStencilEditor() {
     flipShapes,
     copyShapes,
     pasteShapes,
+    duplicateShapes,
     setAnimationMode,
     addState,
     addRange,

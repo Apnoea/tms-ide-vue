@@ -5,6 +5,29 @@
   "shapeFile": "shape.svg",
   "width": 20,
   "height": 20,
+  "ports": [
+    {
+      "name": "p1",
+      "x": 10,
+      "y": 0
+    },
+    {
+      "name": "p2",
+      "x": 20,
+      "y": 10
+    },
+    {
+      "name": "p3",
+      "x": 10,
+      "y": 20
+    },
+    {
+      "name": "p4",
+      "x": 0,
+      "y": 10
+    }
+  ],
+  "portSeq": 4,
   "slots": [
     {
       "key": "value",
@@ -31,6 +54,27 @@
       "key": "invalid",
       "label": "Недостоверно",
       "code": ""
+    }
+  ],
+  "animationTemplate": [
+    {
+      "idSuffix": ".on",
+      "type": "shape",
+      "bindings": [
+        {
+          "tag": "{slot.value}",
+          "when": {
+            "source": "value",
+            "type": "map",
+            "cases": {}
+          }
+        }
+      ],
+      "detailTags": [
+        {
+          "tag": "{slot.value}"
+        }
+      ]
     }
   ]
 }

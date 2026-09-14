@@ -718,6 +718,37 @@ describe('loadStencil: анимация состояния', () => {
     expect(ed.meta.stateful).toBe(false)
   })
 
+  it('режим восстанавливается по слоту-драйверу, даже когда настраивать нечего', () => {
+    // Автор включил анимацию и вышел, ничего не привязав: слот — единственный след
+    // выбора, и без него режим сбрасывался бы на «Выкл».
+    const bool = createStencilEditor()
+    bool.loadStencil({ ...base, slots: [{ key: 'onoff', type: 'Boolean' }] })
+    expect([bool.meta.stateful, bool.meta.stateMode, bool.meta.stateSlot.key]).toEqual([
+      true,
+      'boolean',
+      'onoff',
+    ])
+
+    const byValue = createStencilEditor()
+    byValue.loadStencil({ ...base, slots: [{ key: 'value', type: 'Value' }] })
+    expect([byValue.meta.stateful, byValue.meta.stateMode, byValue.meta.states]).toEqual([
+      true,
+      'value',
+      [],
+    ])
+  })
+
+  it('слот зон `range` драйвером состояния не считается', () => {
+    const ed = createStencilEditor()
+    ed.loadStencil({
+      ...base,
+      ranges: [{ min: 0, max: 5, color: '#10b981' }],
+      slots: [{ key: 'range', type: 'Value' }],
+    })
+    expect(ed.meta.stateful).toBe(false)
+    expect(ed.meta.stateSlot.key).toBe('onoff')
+  })
+
   it('фигура с состоянием, состояния «по значению» и цвет состояния — включают', () => {
     const withShapeState = createStencilEditor()
     withShapeState.loadStencil({
@@ -735,6 +766,86 @@ describe('loadStencil: анимация состояния', () => {
     const withColor = createStencilEditor()
     withColor.loadStencil({ ...base, stateColors: { true: '#10b981' } })
     expect(withColor.meta.stateful).toBe(true)
+  })
+})
+
+// Дубль — НОВЫЙ символ: сохранение идёт как создание, поэтому `editingId` пуст, id
+// свободен, а модель копируется целиком.
+describe('duplicateShapes', () => {
+  it('копия выделенного со сдвигом, буфер не трогается', () => {
+    const ed = createStencilEditor()
+    const a = ed.addShape({ type: 'rect', x: 10, y: 10, w: 20, h: 20, fill: '#f00' })
+    ed.select(a.id)
+    ed.copyShapes()
+    ed.updateShape(a.id, { fill: '#0f0' }) // буфер держит СТАРУЮ копию
+
+    const [dup] = ed.duplicateShapes()
+    expect(ed.shapes.value).toHaveLength(2)
+    expect(dup.id).not.toBe(a.id)
+    expect(dup.fill).toBe('#0f0') // дубль — с текущего состояния фигуры
+    expect(dup.x).not.toBe(a.x)
+    expect(ed.selectedIds.value).toEqual([dup.id])
+
+    // Буфер остался прежним: Ctrl+V после Ctrl+D вставляет то, что копировали.
+    const [pasted] = ed.pasteShapes()
+    expect(pasted.fill).toBe('#f00')
+  })
+
+  it('без выделения — пусто, шаг истории не пишется', () => {
+    const ed = createStencilEditor()
+    ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    ed.select(null)
+    expect(ed.duplicateShapes()).toEqual([])
+    expect(ed.shapes.value).toHaveLength(1)
+  })
+})
+
+describe('loadStencil: дублирование (asCopy)', () => {
+  const src = {
+    id: 'cell_qw',
+    label: 'Выключатель',
+    category: 'Коммутация',
+    width: 20,
+    height: 20,
+    noRotate: true,
+    ports: [{ name: 'top', x: 10, y: 0 }],
+    portSeq: 3,
+    ranges: [{ min: 0, max: 5, color: '#10b981' }],
+    states: [{ key: 'on', label: 'Вкл', code: '1' }],
+    svgText:
+      '<svg xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="10" height="10"/></svg>',
+  }
+
+  it('id и название предварительные, editingId пуст, модель скопирована', () => {
+    const ed = createStencilEditor()
+    ed.loadStencil(src, { asCopy: true })
+
+    expect(ed.editingId.value).toBeNull()
+    expect(ed.meta.id).toBe('cell_qw_copy')
+    expect(ed.meta.label).toBe('Выключатель (копия)')
+    expect(ed.meta.category).toBe('Коммутация')
+    expect(ed.meta.noRotate).toBe(true)
+    expect(ed.shapes.value).toHaveLength(1)
+    expect(ed.ports.value.map((p) => p.name)).toEqual(['top'])
+    expect(ed.meta.portSeq).toBe(3)
+    expect(ed.meta.states).toEqual([{ key: 'on', label: 'Вкл', code: '1' }])
+    // Зоны копируются значением: правка копии не должна уехать в исходный символ.
+    expect(ed.meta.ranges).toEqual(src.ranges)
+    expect(ed.meta.ranges[0]).not.toBe(src.ranges[0])
+  })
+
+  it('копия не бывает программной: `locked` снимается', () => {
+    const ed = createStencilEditor()
+    ed.loadStencil({ ...src, locked: true }, { asCopy: true })
+    expect(ed.meta.locked).toBe(false)
+  })
+
+  it('без asCopy — правка на месте: id и название исходные', () => {
+    const ed = createStencilEditor()
+    ed.loadStencil(src)
+    expect(ed.editingId.value).toBe('cell_qw')
+    expect(ed.meta.id).toBe('cell_qw')
+    expect(ed.meta.label).toBe('Выключатель')
   })
 })
 

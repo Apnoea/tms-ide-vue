@@ -91,7 +91,7 @@ function cancelRename() {
   editingId.value = null
 }
 
-// Клик кнопки × ДОЛЖЕН всплыть до document: ConfirmPopup выравнивается по target
+// Клик кнопки удаления ДОЛЖЕН всплыть до document: ConfirmPopup выравнивается по target
 // только в своём document-click listener'е, и с @click.stop попап встаёт в (0,0). У
 // строки нет @click, поэтому всплытие безопасно.
 function confirmDelete(event, id) {
@@ -370,16 +370,8 @@ onBeforeUnmount(() => {
                   />
                   <span class="truncate">{{ row.id }}</span>
                 </button>
-                <button
-                  v-if="!row.broken"
-                  type="button"
-                  data-nodrag
-                  v-tooltip.bottom="'Дублировать форму'"
-                  class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
-                  @click.stop="canvas.duplicateForm(row.id)"
-                >
-                  <i class="pi pi-clone text-[10px]!" />
-                </button>
+                <!-- Порядок и вид кнопок — как в палитре символов (правка, копия,
+                     удаление): строки в двух списках читаются одинаково. -->
                 <button
                   v-if="!row.broken"
                   type="button"
@@ -391,14 +383,24 @@ onBeforeUnmount(() => {
                   <i class="pi pi-pencil text-[10px]!" />
                 </button>
                 <button
+                  v-if="!row.broken"
+                  type="button"
+                  data-nodrag
+                  v-tooltip.bottom="'Дублировать форму'"
+                  class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
+                  @click.stop="canvas.duplicateForm(row.id)"
+                >
+                  <i class="pi pi-clone text-[10px]!" />
+                </button>
+                <button
                   v-if="!row.broken && workspace.formIds.length > 1"
                   type="button"
                   data-nodrag
                   v-tooltip.bottom="'Удалить форму'"
-                  class="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
+                  class="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-red-600 group-hover:opacity-100"
                   @click="confirmDelete($event, row.id)"
                 >
-                  <i class="pi pi-times text-[10px]!" />
+                  <i class="pi pi-trash text-[10px]!" />
                 </button>
               </template>
             </div>

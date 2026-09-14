@@ -14,7 +14,6 @@ import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useElementSize, useEventListener } from '@vueuse/core'
 import interact from 'interactjs'
 import Button from 'primevue/button'
-import Select from 'primevue/select'
 import ContextMenu from 'primevue/contextmenu'
 import InputNumber from 'primevue/inputnumber'
 import { useConfirm } from 'primevue/useconfirm'
@@ -26,6 +25,7 @@ import {
   stencilDraftIssues,
   isFillableShape,
   radii,
+  shapeBounds,
   shapesBounds,
   canRotateShapes,
   canFlipShapes,
@@ -114,13 +114,48 @@ function pickTool(key) {
 }
 
 // Превью внутренней анимации: animation-hidden эмулируется прямо в редакторе, чтобы
-// автор видел каждое положение. previewState живёт в синглтоне useStencilEditor.
-const previewOptions = computed(() => {
-  const head = { label: 'Все', value: 'all' }
+// автор видел каждое положение. Состояние выбирают в списке состояний инспектора,
+// здесь — только подпись активного для плашки над столом. previewState живёт в
+// синглтоне useStencilEditor.
+// Метка состояния на столе — фиолетовая: cyan занят выделением, амбер — цветом
+// предупреждений, чёрный сливается с рисунком символа.
+const STATE_MARK_STROKE = '#a855f7' // purple-500
+
+/** Подпись состояния: у булева — Вкл/Выкл, у «по значению» — заданная автором. */
+function stateLabelOf(key) {
+  if (meta.stateMode === 'value') return meta.states?.find((s) => s.key === key)?.label || key
+  return key === 'true' ? 'Вкл' : 'Выкл'
+}
+
+/**
+ * Показывать ли метки состояний: рисунок символа сам по себе не говорит, что линия
+ * видна только во «Вкл». Пока включено превью, меток нет — там на столе и так только
+ * фигуры выбранного состояния, а пунктир вокруг каждой был бы шумом.
+ */
+const showStateMarks = computed(() => meta.stateful && previewState.value === 'all')
+
+/** Цвет метки фигуры: пусто — фигура статична, метки нет. */
+function markStrokeFor(s) {
+  return showStateMarks.value && s.state && s.state !== 'always' ? STATE_MARK_STROKE : ''
+}
+
+/** Подписи состояний — по габариту фигуры, над её левым верхним углом. */
+const stateLabels = computed(() => {
+  if (!showStateMarks.value) return []
+  return shapes.value
+    .filter((s) => s.state && s.state !== 'always')
+    .map((s) => {
+      const box = shapeBounds(s)
+      return { id: s.id, label: stateLabelOf(s.state), x: box.x, y: box.y }
+    })
+})
+
+const previewLabel = computed(() => {
+  const key = previewState.value
   if (meta.stateMode === 'value') {
-    return [head, ...(meta.states || []).map((s) => ({ label: s.label || s.key, value: s.key }))]
+    return meta.states?.find((s) => s.key === key)?.label || key
   }
-  return [head, { label: 'Вкл', value: 'true' }, { label: 'Выкл', value: 'false' }]
+  return key === 'true' ? 'Вкл' : 'Выкл'
 })
 const renderShapes = computed(() => {
   if (!meta.stateful || previewState.value === 'all') return shapes.value
@@ -163,25 +198,28 @@ watch(
 const SEL_STROKE = 'var(--p-primary-500)'
 
 // Режим задаёт таргет из стора: есть id — правка (символ грузится в модель, id
-// блокируется), иначе создание нового с префиллом `cell_`. Правка доступна только у
-// незалоченных: их SVG в нашем формате и разбирается однозначно.
+// блокируется) либо ДУБЛИРОВАНИЕ (та же модель, но символ новый — id свободен), иначе
+// создание нового с префиллом `cell_`. Правка доступна только у незалоченных: их SVG
+// в нашем формате и разбирается однозначно.
 // Синглтон переживает закрытие редактора, поэтому при входе состояние либо
 // перезаписывается loadStencil, либо сбрасывается reset.
 const editTarget = ui.stencilEditorTargetId ? getStencilById(ui.stencilEditorTargetId) : null
+const isDuplicate = !!editTarget && ui.stencilEditorDuplicate
 if (editTarget) {
-  loadStencil(editTarget)
+  loadStencil(editTarget, { asCopy: isDuplicate })
 } else {
   reset()
   meta.id = 'cell_'
 }
 // Программный символ (шина): тело и порты считает код, здесь правятся только зоны
 // диапазонов — стол и инструменты скрыты, сохранение не пересобирает определение.
-const rangesOnly = !!editTarget?.locked
+const rangesOnly = !isDuplicate && !!editTarget?.locked
 
 // Есть ли несохранённые изменения: берём canUndo — после открытия история = базовый
 // снимок (false), любая правка даёт true, откат к базе снова false. Так закрытие без
-// правок не переспрашивает.
-const isDirty = computed(() => canUndo.value)
+// правок не переспрашивает. Копия «грязная» с самого начала: она ещё не существует, и
+// молча терять её на Esc нельзя.
+const isDirty = computed(() => isDuplicate || canUndo.value)
 
 // Закрытие с подтверждением, если черновик непустой. Попап якорится на кнопку
 // «Закрыть» — для Esc, где DOM-таргета нет, через closeBtn-реф.
@@ -734,8 +772,8 @@ function isInInput(t) {
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
 }
 
-// Стрелки в фокусе Select'а (превью состояния) листают его опции — сдвиг фигур там
-// был бы вторым, невидимым эффектом одного нажатия.
+// Стрелки в фокусе Select'а (подпись состояния, шрифт, категория) листают его опции —
+// сдвиг фигур там был бы вторым, невидимым эффектом одного нажатия.
 function isInListWidget(t) {
   return !!t?.closest?.('[role="combobox"], [role="listbox"]')
 }
@@ -756,7 +794,14 @@ useEventListener(window, 'keydown', (e) => {
       redo()
       return
     }
-    // У программного символа фигур не правят: Ctrl+C/V/A ниже двигали бы невидимую
+    // Ctrl+S — сохранить символ (у браузера это «сохранить страницу», перехватываем).
+    // Доступен и программному символу: его зоны тоже сохраняются.
+    if (e.code === 'KeyS') {
+      e.preventDefault()
+      save()
+      return
+    }
+    // У программного символа фигур не правят: Ctrl+C/V/D/A ниже двигали бы невидимую
     // модель (стол скрыт), а сохранение всё равно её не берёт.
     if (rangesOnly) return
     // Ctrl+C / Ctrl+V — копировать/вставить выделенное (со свойствами).
@@ -768,6 +813,12 @@ useEventListener(window, 'keydown', (e) => {
     if (e.code === 'KeyV') {
       e.preventDefault()
       ed.pasteShapes()
+      return
+    }
+    // Ctrl+D — дублировать выделенное, как на холсте; буфер при этом не трогается.
+    if (e.code === 'KeyD') {
+      e.preventDefault()
+      ed.duplicateShapes()
       return
     }
     // Ctrl+A — все фигуры (порты в выделение не входят, у них свой режим).
@@ -988,7 +1039,7 @@ onBeforeUnmount(() => {
     <!-- Тулбар -->
     <div class="flex min-h-14 items-center gap-2 border-b border-surface-200 px-3">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-surface-900">
-        {{ rangesOnly ? 'Диапазоны символа' : 'Редактор' }}
+        {{ rangesOnly ? 'Диапазоны символа' : isDuplicate ? 'Копия символа' : 'Редактор' }}
       </h2>
       <!-- Инструменты рисования, размер и удаление — только у рисуемого символа; у
            программного (шина) правятся лишь зоны. -->
@@ -1092,7 +1143,16 @@ onBeforeUnmount(() => {
 
       <div class="flex-1"></div>
 
-      <Button label="Сохранить" icon="pi pi-check" size="small" @click="save" />
+      <!-- Приглушена, пока правок нет: по кнопке видно, есть ли несохранённое (тот же
+           `isDirty`, которым закрытие решает, переспрашивать ли). -->
+      <Button
+        label="Сохранить"
+        icon="pi pi-check"
+        size="small"
+        :severity="isDirty ? 'primary' : 'secondary'"
+        :outlined="!isDirty"
+        @click="save"
+      />
       <Button
         ref="closeBtn"
         label="Закрыть"
@@ -1157,27 +1217,25 @@ onBeforeUnmount(() => {
       </div>
       <!-- Левая линейка (Y) + холст -->
       <div class="relative flex flex-1 min-h-0">
-        <!-- Превью состояния — плавающий контрол слева-сверху НА холсте (эмуляция
-             видимости состояния; на экспорт не влияет). Виден при включённой анимации. -->
+        <!-- Превью состояния выбирается в СТРОКЕ состояния (StencilInspector): «какая
+             строка ↔ что видно на столе» — одна и та же вещь, отдельный контрол над
+             столом эту связь разрывал. Плашка-напоминание висит, пока превью включено:
+             иначе «часть фигур пропала» читается как баг. -->
         <div
-          v-if="meta.stateful"
-          class="absolute top-2 z-10 flex items-center gap-2 rounded border border-surface-200 bg-surface-0/90 px-2 py-1 shadow-sm backdrop-blur-sm"
+          v-if="meta.stateful && previewState !== 'all'"
+          class="absolute top-2 z-10 flex items-center gap-2 rounded border border-primary-200 bg-primary-50/90 px-2 py-1 text-xs text-primary-700 shadow-sm backdrop-blur-sm"
           :style="{ left: `${RULER + 8}px` }"
         >
-          <span
-            v-tooltip.bottom="'Эмуляция: как символ выглядит в состоянии (только превью)'"
-            class="text-xs text-surface-500"
+          <i class="pi pi-eye text-[11px]!" />
+          <span>Превью: {{ previewLabel }}</span>
+          <button
+            type="button"
+            v-tooltip.bottom="'Показать все фигуры'"
+            class="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-primary-400 hover:text-primary-700"
+            @click="previewState = 'all'"
           >
-            Превью
-          </span>
-          <Select
-            v-model="previewState"
-            :options="previewOptions"
-            option-label="label"
-            option-value="value"
-            size="small"
-            class="w-32"
-          />
+            <i class="pi pi-times text-[10px]!" />
+          </button>
         </div>
         <div
           class="shrink-0 overflow-hidden border-r border-surface-200 bg-surface-0"
@@ -1302,8 +1360,27 @@ onBeforeUnmount(() => {
                 :pointer-events="shapePointerEvents"
                 :cursor="tool === 'select' ? 'move' : null"
                 :hit-width="hitWidth"
+                :mark-stroke="markStrokeFor(s)"
+                :mark-width="haloWidthFor(s)"
+                :mark-dash="3 / scale"
                 @select="onShapeSelect(s.id, $event)"
               />
+
+              <!-- Подписи состояний — отдельным слоем поверх фигур: сама пометка
+                   (пунктир по контуру) живёт в ShapePrimitive, здесь только ключ, и он
+                   не должен уходить под соседние фигуры. -->
+              <text
+                v-for="l in stateLabels"
+                :key="`sl${l.id}`"
+                pointer-events="none"
+                :x="l.x"
+                :y="l.y - 3 / scale"
+                :font-size="10 / scale"
+                font-family="monospace"
+                :fill="STATE_MARK_STROKE"
+              >
+                {{ l.label }}
+              </text>
 
               <!-- Превью тянущейся фигуры -->
               <rect

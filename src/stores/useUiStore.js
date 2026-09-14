@@ -67,6 +67,9 @@ export const useUiStore = defineStore('ui', () => {
   // id символа, открытого на правку (null = создание нового): редактор читает его при
   // монтировании и грузит модель через loadStencil.
   const stencilEditorTargetId = ref(null)
+  // Таргет открыт на ДУБЛИРОВАНИЕ: модель берётся из него, но сохраняется новым
+  // символом (`loadStencil(def, { asCopy: true })`).
+  const stencilEditorDuplicate = ref(false)
 
   // Идёт проектная операция (экспорт/импорт/переключение формы/CRUD): живой граф
   // между await'ами держит ЧУЖУЮ форму, поэтому App гейтит область редактирования
@@ -101,8 +104,9 @@ export const useUiStore = defineStore('ui', () => {
     searchOpen.value = false
   }
 
-  function openStencilEditor(id = null) {
+  function openStencilEditor(id = null, { duplicate = false } = {}) {
     stencilEditorTargetId.value = id
+    stencilEditorDuplicate.value = !!id && duplicate
     stencilEditorOpen.value = true
     // Свойства символа живут в ПРАВОЙ колонке (InspectorPane → StencilInspector): со
     // свёрнутой колонкой редактор открылся бы без единственной панели правки.
@@ -112,6 +116,7 @@ export const useUiStore = defineStore('ui', () => {
   function closeStencilEditor() {
     stencilEditorOpen.value = false
     stencilEditorTargetId.value = null
+    stencilEditorDuplicate.value = false
   }
 
   function setProjectBusy(value) {
@@ -150,6 +155,7 @@ export const useUiStore = defineStore('ui', () => {
     searchOpen,
     stencilEditorOpen,
     stencilEditorTargetId,
+    stencilEditorDuplicate,
     projectBusy,
     setProjectBusy,
     setLastTagListPickerStartIn,

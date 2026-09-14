@@ -453,18 +453,24 @@ describe('внутренняя анимация (state)', () => {
     expect(parsed[0].valueText).toBe(true)
   })
 
-  it('buildStencilJson не эмитит анимацию, если stateful выключен или нет true/false', () => {
+  it('выключенный тумблер не эмитит ни слота, ни анимации', () => {
     const base = { id: 'cell_x', label: 'X', category: 'C', width: 20, height: 20 }
-    const staticShapes = [{ type: 'rect', x: 0, y: 0, w: 10, h: 10 }]
     const offToggle = buildStencilJson({ ...base, stateful: false }, [], shapes)
     expect(offToggle.slots).toBeUndefined()
     expect(offToggle.animationTemplate).toBeUndefined()
-    const noStates = buildStencilJson(
-      { ...base, stateful: true, stateSlot: { key: 'state', label: 'X' } },
+  })
+
+  it('включённый тумблер без state-фигур: слот есть, карточек нет', () => {
+    // Слот — признак режима: по нему loadStencil восстановит «Булево значение», даже
+    // когда фигуры к состояниям ещё не привязаны.
+    const base = { id: 'cell_x', label: 'X', category: 'C', width: 20, height: 20 }
+    const json = buildStencilJson(
+      { ...base, stateful: true, stateSlot: { key: 'onoff' } },
       [],
-      staticShapes
+      [{ type: 'rect', x: 0, y: 0, w: 10, h: 10 }]
     )
-    expect(noStates.slots).toBeUndefined()
+    expect(json.slots).toEqual([{ key: 'onoff', type: 'Boolean' }])
+    expect(json.animationTemplate).toBeUndefined()
   })
 
   it('эмитит только используемые состояния (одно из двух)', () => {
@@ -538,6 +544,18 @@ describe('внутренняя анимация по значению (stateMode
     expect(json.slots).toEqual([{ key: 'value', type: 'Value' }])
     expect(json.states).toHaveLength(2)
     expect(json.animationTemplate).toBeUndefined()
+  })
+
+  it('режим без объявленных состояний: слот есть, states нет', () => {
+    // Слот держит выбранный режим (`loadStencil` читает его тип), пустой `states` в
+    // json не пишется.
+    const json = buildStencilJson(
+      { id: 'cell_x', label: 'X', category: 'C', width: 20, height: 40, ...meta, states: [] },
+      [],
+      []
+    )
+    expect(json.slots).toEqual([{ key: 'value', type: 'Value' }])
+    expect(json.states).toBeUndefined()
   })
 })
 

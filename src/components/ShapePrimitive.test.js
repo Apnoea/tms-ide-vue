@@ -133,6 +133,30 @@ describe('ShapePrimitive', () => {
     expect(w.find('g').exists()).toBe(false)
   })
 
+  it('метка состояния обводит КОНТУР фигуры пунктиром, а не её габарит', () => {
+    // Габаритная рамка у круга или диагональной линии говорила бы не о той геометрии,
+    // которая появится в состоянии.
+    const w = mountShape(
+      { id: 's19', type: 'circle', cx: 10, cy: 10, r: 5, strokeWidth: 2 },
+      { markStroke: '#a855f7', markWidth: 4, markDash: 0.5 }
+    )
+    const mark = w.find('g')
+    expect(mark.attributes('stroke')).toBe('#a855f7')
+    expect(mark.attributes('stroke-dasharray')).toBe('0.5 0.5')
+    expect(mark.find('circle').attributes('r')).toBe('5') // тот же контур, не bbox
+    expect(w.find('rect').exists()).toBe(false)
+  })
+
+  it('метка у подписи — по её bbox: широкая обводка обвела бы глифы', () => {
+    const w = mountShape(
+      { id: 's20', type: 'text', x: 0, y: 10, text: 'Ia', fontSize: 10 },
+      { markStroke: '#a855f7', markWidth: 4, markDash: 0.5 }
+    )
+    const mark = w.find('rect')
+    expect(mark.attributes('stroke')).toBe('#a855f7')
+    expect(Number(mark.attributes('width'))).toBeGreaterThan(0)
+  })
+
   it('pointerdown по фигуре эмитит select', async () => {
     const w = mountShape({ id: 's7', type: 'rect', x: 0, y: 0, w: 10, h: 10 })
     await w.find('[data-se-move="shape"]').trigger('pointerdown')

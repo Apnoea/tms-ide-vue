@@ -254,6 +254,19 @@ export function getAllStencils() {
   return Array.from(registry.values())
 }
 
+/**
+ * Свободный id для КОПИИ символа: `<base>_copy`, дальше `_copy2`, `_copy3`… Дубль
+ * повторного дубля не наращивает суффикс бесконечно (`cell_qw_copy` → `cell_qw_copy2`).
+ * Имя предварительное — в редакторе его правят до сохранения.
+ */
+export function nextStencilId(baseId) {
+  const base = String(baseId || 'cell').replace(/_copy\d*$/, '')
+  for (let n = 1; ; n++) {
+    const candidate = n === 1 ? `${base}_copy` : `${base}_copy${n}`
+    if (!registry.has(candidate)) return candidate
+  }
+}
+
 export function getStencilById(id) {
   return registry.get(id)
 }

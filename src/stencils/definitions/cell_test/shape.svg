@@ -2,6 +2,8 @@
   <g>
     <circle class="tms-state-fill" cx="10" cy="10" r="9" fill="none" stroke="#000" stroke-width="2"/>
     <circle class="tms-state-fill" cx="10" cy="10" r="4" fill="none" stroke="#000" stroke-width="1"/>
+  </g>
+  <g data-anim-suffix=".on">
     <circle class="tms-state-fill" cx="10" cy="6" r="1" fill="none" stroke="#000" stroke-width="2"/>
   </g>
 </svg>

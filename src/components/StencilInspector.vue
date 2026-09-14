@@ -1,9 +1,15 @@
 <script setup>
 /**
  * Свойства символа — контент правой панели в режиме редактора. Секции:
- * идентификация (название/id/категория), поведение (флаги),
- * анимация состояния (свитч Выкл/Булево/По значению + список состояний) и
- * фигура (свойства выделенного элемента + его видимость по состоянию).
+ * идентификация (название/id/категория), поведение (флаги), «Анимации» — ДВА
+ * сворачиваемых блока состояния (булево / по значению; открыт максимум один, оба
+ * закрытых = анимации нет) и диапазоны значений, и фигура (свойства выделенного
+ * элемента + его видимость по состоянию).
+ *
+ * Анимации оформлены КАРТОЧКАМИ как в инспекторе холста (StateBlock/RangeBlock): это
+ * одна настройка с двух сторон — здесь задаётся поведение символа, там у экземпляра
+ * привязывается тег.
+ *
  * Стейт — синглтон useStencilEditor (тот же инстанс, что рисуется в центре).
  */
 import { computed, ref, watch } from 'vue'
@@ -15,13 +21,13 @@ import Checkbox from 'primevue/checkbox'
 import SelectButton from 'primevue/selectbutton'
 import Button from 'primevue/button'
 import ColorField from './ColorField.vue'
-import { getCategories, registryVersion } from '../stencils/registry'
+import { getAllStencils, getCategories, registryVersion } from '../stencils/registry'
 import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor'
 import { normalizeStateColor } from '../constants/animation'
 import { STENCIL_DOMAINS } from '../constants/domains'
 import { ALIGN_OPTIONS } from '../constants/text'
 import RangeRows from './RangeRows.vue'
-import { isFillableShape, TEXT_SHAPE_SIZE } from '../utils/stencilSvg'
+import { isFillableShape, stencilDraftProblems, TEXT_SHAPE_SIZE } from '../utils/stencilSvg'
 import { FONT_FAMILIES, normalizeFont } from '../utils/textMetrics'
 
 const {
@@ -41,10 +47,45 @@ const {
   removeState,
   setStateColor,
   applyPositionPreset,
+  previewState,
   addRange,
   updateRange,
   removeRange,
 } = useStencilEditor()
+
+/**
+ * Проблемы черновика ЖИВЬЁМ, по полям: занятый id или пустая категория видны сразу,
+ * а не тостом после клика «Сохранить». Те же правила, что проверяет сохранение
+ * (`stencilDraftProblems`) — разойтись они не могут.
+ *
+ * Правится существующий символ — его собственный id из списка занятых исключается.
+ * Пустой черновик (редактор только открыли) не краснеет: ошибок там ещё нет, а
+ * подсвеченная панель на старте читается как поломка.
+ */
+const problemByField = computed(() => {
+  registryVersion.value // список символов мог измениться, пока редактор открыт
+  const existingIds = getAllStencils()
+    .map((s) => s.id)
+    .filter((id) => id !== editingId.value)
+  const map = new Map()
+  if (!meta.id && !meta.label && !shapes.value.length) return map
+  for (const p of stencilDraftProblems(meta, shapes.value, existingIds)) {
+    if (!map.has(p.field)) map.set(p.field, p.message)
+  }
+  return map
+})
+
+const problemOf = (field) => problemByField.value.get(field) || ''
+
+/**
+ * Превью состояния: стол показывает только фигуры выбранного (эмуляция
+ * `animation-hidden` + цвет состояния, см. StencilEditor.renderShapes). Живёт в строке
+ * состояния, а не отдельным контролом над столом: «строка ↔ что видно» — одна и та же
+ * вещь, и связь читается без объяснений. Повторный клик возвращает «все».
+ */
+function togglePreview(key) {
+  previewState.value = previewState.value === key ? 'all' : key
+}
 
 // Свойства фигуры правятся сразу по ВСЕМУ выделению; поля геометрии и подписи — только
 // при одной выделенной (selectedShape). Расхождение значений показывается, см. *Mixed.
@@ -177,6 +218,12 @@ const hasFillableShapes = computed(() => shapes.value.some(isFillableShape))
 const stateStroke = (key) => normalizeStateColor(meta.stateColors[key]).stroke
 const stateFill = (key) => normalizeStateColor(meta.stateColors[key]).fill
 
+// Заглушки свотчей состояния — что показывать, пока цвет не задан (свотч при этом
+// приглушён). Заливка НЕ белая: на светлой панели белый квадрат сливается с фоном и
+// колонка выглядит пустой.
+const STATE_STROKE_PLACEHOLDER = '#64748b' // slate-500
+const STATE_FILL_PLACEHOLDER = '#cbd5e1' // slate-300
+
 // Свотч цвета требует 6-значный #rrggbb: разворачиваем #rgb, «none»/пусто →
 // запасной цвет (сам факт заливки регулируется отдельной галкой).
 function normHex(c, fallback) {
@@ -234,15 +281,28 @@ function toggleRounded(on) {
 
 // Единый свитч анимации состояния: Выкл / Булево / По значению. Тумблер + режим
 // меняет setAnimationMode — одной операцией, одним шагом истории.
-const ANIM_MODE_OPTIONS = [
-  { label: 'Выкл', value: 'off' },
-  { label: 'Булево', value: 'boolean' },
-  { label: 'По значению', value: 'value' },
+/**
+ * Режимы анимации состояния — ДВА сворачиваемых блока, а не таб: у символа работает
+ * ровно один (`stateMode`), поэтому открыт тоже ровно один, а закрытые оба = анимация
+ * выключена. Заголовок блока и есть переключатель — отдельного «Выкл» не нужно.
+ */
+const ANIM_MODES = [
+  { value: 'boolean', label: 'Булево значение', icon: 'pi-power-off' },
+  { value: 'value', label: 'Состояние по значению', icon: 'pi-sliders-h' },
 ]
-const animMode = computed({
-  get: () => (meta.stateful ? meta.stateMode : 'off'),
-  set: (v) => setAnimationMode(v),
-})
+
+/** Какой блок раскрыт: `null` — анимации нет. */
+const openMode = computed(() => (meta.stateful ? meta.stateMode : null))
+
+/**
+ * Клик по заголовку: открыть режим либо закрыть открытый (= выключить анимацию).
+ * Смена режима сбрасывает видимость фигур и цвета — ключи состояний у режимов разные
+ * (`applyStateMode`), поэтому это одна операция и один шаг истории.
+ */
+function toggleMode(mode) {
+  if (meta.locked) return
+  setAnimationMode(openMode.value === mode ? 'off' : mode)
+}
 // Булев режим — те же две строки «подпись → значение», что у «по значению», но
 // read-only: значения фиксированы (true/false), редактировать/удалять нельзя.
 const BOOLEAN_STATES = [
@@ -319,19 +379,31 @@ function clearStateColor(key, which) {
         <p v-if="meta.locked" class="text-[11px] text-surface-500 leading-snug">
           Программный символ: тело и порты задаёт код, правятся только диапазоны значений.
         </p>
-        <label class="block">
+        <!-- Проблемы черновика подсвечиваются ЖИВЬЁМ (`problemOf`): иначе занятый id
+             или пустая категория всплывали только тостом после клика «Сохранить». -->
+        <label class="relative block">
           <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Название</div>
           <InputText
             v-model="meta.label"
             :disabled="meta.locked"
+            :invalid="!!problemOf('label')"
             size="small"
             class="w-full"
             placeholder="Задвижка"
             @change="commit"
           />
+          <!-- Сообщение — в строке заголовка поля и АБСОЛЮТОМ: в потоке оно сдвигало бы
+               остальные поля панели при каждом вводе. -->
+          <p
+            v-if="problemOf('label')"
+            v-tooltip.left="problemOf('label')"
+            class="pointer-events-auto absolute right-0 top-0 max-w-[70%] truncate text-[11px] text-red-500"
+          >
+            {{ problemOf('label') }}
+          </p>
         </label>
 
-        <label class="block">
+        <label class="relative block">
           <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">id</div>
           <!-- Нативный <input> (не PrimeVue): @input гарантированно нативный, onIdInput
              правит e.target.value напрямую (обходя Vue-диффинг). -->
@@ -340,23 +412,43 @@ function clearStateColor(key, which) {
             :disabled="!!editingId"
             placeholder="cell_valve"
             class="p-inputtext p-component p-inputtext-sm w-full font-mono"
+            :class="{ 'p-invalid': !!problemOf('id') }"
             @input="onIdInput"
             @change="commit"
           />
+          <!-- Сообщение — в строке заголовка поля и АБСОЛЮТОМ: в потоке оно сдвигало бы
+               остальные поля панели при каждом вводе. -->
+          <p
+            v-if="problemOf('id')"
+            v-tooltip.left="problemOf('id')"
+            class="pointer-events-auto absolute right-0 top-0 max-w-[70%] truncate text-[11px] text-red-500"
+          >
+            {{ problemOf('id') }}
+          </p>
         </label>
 
-        <label class="block">
+        <label class="relative block">
           <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Категория</div>
           <Select
             v-model="meta.category"
             :options="categories"
             :disabled="meta.locked"
+            :invalid="!!problemOf('category')"
             editable
             placeholder="Выберите или впишите"
             size="small"
             class="w-full"
             @change="commit"
           />
+          <!-- Сообщение — в строке заголовка поля и АБСОЛЮТОМ: в потоке оно сдвигало бы
+               остальные поля панели при каждом вводе. -->
+          <p
+            v-if="problemOf('category')"
+            v-tooltip.left="problemOf('category')"
+            class="pointer-events-auto absolute right-0 top-0 max-w-[70%] truncate text-[11px] text-red-500"
+          >
+            {{ problemOf('category') }}
+          </p>
         </label>
 
         <!-- Область применения: фильтр палитры, а не вторая категория — символ может
@@ -409,219 +501,311 @@ function clearStateColor(key, which) {
           <span class="text-surface-700">Запретить отражение</span>
         </label>
 
-        <div class="border-t border-surface-200 pt-4">
-          <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
-            Анимация состояния
-          </div>
-          <SelectButton
-            v-model="animMode"
-            :options="ANIM_MODE_OPTIONS"
-            option-label="label"
-            option-value="value"
-            :allow-empty="false"
-            :disabled="meta.locked"
-            size="small"
-            class="mb-2"
-          />
+        <!-- Анимации — карточками, как в инспекторе холста (StateBlock/RangeBlock):
+             это две стороны одной настройки, здесь задаётся поведение символа, там у
+             экземпляра привязывается тег. Одинаковый вид показывает эту пару. -->
+        <div class="space-y-2 border-t border-surface-200 pt-4">
+          <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
 
-          <template v-if="meta.stateful">
-            <div v-if="meta.stateMode === 'boolean'" class="space-y-1.5 mb-2">
-              <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
-                <span class="flex-1 min-w-0">Подпись</span>
-                <span class="w-16">Значение</span>
-                <span class="w-14 shrink-0 text-center">
-                  {{ hasFillableShapes ? 'Контур' : 'Цвет' }}
-                </span>
-                <span v-if="hasFillableShapes" class="w-14 shrink-0 text-center">Заливка</span>
-              </div>
-              <div v-for="st in BOOLEAN_STATES" :key="st.value" class="flex items-center gap-1.5">
-                <InputText
-                  :model-value="st.label"
-                  disabled
-                  size="small"
-                  class="flex-1 min-w-0 text-xs!"
-                />
-                <InputText
-                  :model-value="st.value"
-                  disabled
-                  size="small"
-                  class="w-16 font-mono text-xs!"
-                />
-                <div class="flex w-14 shrink-0 items-center justify-center gap-0.5">
-                  <ColorField
-                    v-tooltip.top="'Цвет контуров символа в этом состоянии'"
-                    swatch-class="h-6 w-6"
-                    :model-value="stateStroke(st.value) || '#64748b'"
-                    :class="{ 'opacity-40': !stateStroke(st.value) }"
-                    @update:model-value="setStateColor(st.value, $event, 'stroke')"
-                    @change="commit"
-                  />
-                  <button
-                    v-if="stateStroke(st.value)"
-                    type="button"
-                    v-tooltip.top="'Убрать цвет'"
-                    class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
-                    @click="clearStateColor(st.value, 'stroke')"
-                  >
-                    <i class="pi pi-times text-[9px]!" />
-                  </button>
-                  <span v-else class="w-4 shrink-0" aria-hidden="true"></span>
-                </div>
-                <div
-                  v-if="hasFillableShapes"
-                  class="flex w-14 shrink-0 items-center justify-center gap-0.5"
-                >
-                  <ColorField
-                    v-tooltip.top="'Цвет заливки фигур в этом состоянии'"
-                    swatch-class="h-6 w-6"
-                    :model-value="stateFill(st.value) || '#ffffff'"
-                    :class="{ 'opacity-40': !stateFill(st.value) }"
-                    @update:model-value="setStateColor(st.value, $event, 'fill')"
-                    @change="commit"
-                  />
-                  <button
-                    v-if="stateFill(st.value)"
-                    type="button"
-                    v-tooltip.top="'Убрать заливку'"
-                    class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
-                    @click="clearStateColor(st.value, 'fill')"
-                  >
-                    <i class="pi pi-times text-[9px]!" />
-                  </button>
-                  <span v-else class="w-4 shrink-0" aria-hidden="true"></span>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="meta.stateMode === 'value'" class="space-y-1.5 mb-2">
-              <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
-                <span class="flex-1 min-w-0">Подпись</span>
-                <span class="w-16">Значение</span>
-                <span class="w-14 shrink-0 text-center">
-                  {{ hasFillableShapes ? 'Контур' : 'Цвет' }}
-                </span>
-                <span v-if="hasFillableShapes" class="w-14 shrink-0 text-center">Заливка</span>
-                <span class="w-6 shrink-0" aria-hidden="true"></span>
-              </div>
-              <div v-for="st in meta.states" :key="st.key" class="flex items-center gap-1.5">
-                <Select
-                  :model-value="st.label"
-                  :options="PRESET_LABELS"
-                  editable
-                  placeholder="состояние"
-                  size="small"
-                  class="flex-1 min-w-0"
-                  @update:model-value="updateState(st.key, { label: $event })"
-                  @change="commit"
-                />
-                <InputText
-                  :model-value="st.code"
-                  placeholder="код"
-                  size="small"
-                  class="w-16 font-mono text-xs!"
-                  @update:model-value="updateState(st.key, { code: $event })"
-                  @change="commit"
-                />
-                <div class="flex w-14 shrink-0 items-center justify-center gap-0.5">
-                  <ColorField
-                    v-tooltip.top="'Цвет контуров символа в этом состоянии'"
-                    swatch-class="h-6 w-6"
-                    :model-value="stateStroke(st.key) || '#64748b'"
-                    :class="{ 'opacity-40': !stateStroke(st.key) }"
-                    @update:model-value="setStateColor(st.key, $event, 'stroke')"
-                    @change="commit"
-                  />
-                  <button
-                    v-if="stateStroke(st.key)"
-                    type="button"
-                    v-tooltip.top="'Убрать цвет'"
-                    class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
-                    @click="clearStateColor(st.key, 'stroke')"
-                  >
-                    <i class="pi pi-times text-[9px]!" />
-                  </button>
-                  <span v-else class="w-4 shrink-0" aria-hidden="true"></span>
-                </div>
-                <div
-                  v-if="hasFillableShapes"
-                  class="flex w-14 shrink-0 items-center justify-center gap-0.5"
-                >
-                  <ColorField
-                    v-tooltip.top="'Цвет заливки фигур в этом состоянии'"
-                    swatch-class="h-6 w-6"
-                    :model-value="stateFill(st.key) || '#ffffff'"
-                    :class="{ 'opacity-40': !stateFill(st.key) }"
-                    @update:model-value="setStateColor(st.key, $event, 'fill')"
-                    @change="commit"
-                  />
-                  <button
-                    v-if="stateFill(st.key)"
-                    type="button"
-                    v-tooltip.top="'Убрать заливку'"
-                    class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-700"
-                    @click="clearStateColor(st.key, 'fill')"
-                  >
-                    <i class="pi pi-times text-[9px]!" />
-                  </button>
-                  <span v-else class="w-4 shrink-0" aria-hidden="true"></span>
-                </div>
-                <Button
-                  v-tooltip.bottom="'Убрать состояние'"
-                  icon="pi pi-times"
-                  severity="secondary"
-                  text
-                  size="small"
-                  class="p-1! w-6! h-6!"
-                  @click="removeState(st.key)"
-                />
-              </div>
-              <div class="flex gap-1.5">
-                <button
-                  type="button"
-                  class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
-                  @click="addState"
-                >
-                  <i class="pi pi-plus text-[10px]!" />
-                  состояние
-                </button>
-                <button
-                  type="button"
-                  v-tooltip.bottom="
-                    '4 состояния: Включен / Отключен / Промежуточное / Недостоверно'
-                  "
-                  class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
-                  @click="applyPositionPreset"
-                >
-                  <i class="pi pi-bolt text-[10px]!" />
-                  Сигнал положения
-                </button>
-              </div>
-            </div>
-
-            <!-- Quality: серость + «показать все положения» при bad-качестве
-                 драйвящего тега. Осмыслен только при анимации (нужен тег). -->
-            <label class="mt-2 flex items-center gap-2 cursor-pointer">
-              <Checkbox
-                v-model="meta.quality"
-                binary
-                input-id="se-quality"
-                @update:model-value="commit"
+          <!-- Режимы состояния — два сворачиваемых блока: открыт максимум один, оба
+               закрыты = анимации нет. Заголовок и есть переключатель. -->
+          <div
+            v-for="mode in ANIM_MODES"
+            :key="mode.value"
+            class="rounded border bg-surface-0"
+            :class="openMode === mode.value ? 'border-primary-200' : 'border-surface-200'"
+          >
+            <button
+              type="button"
+              data-test="anim-mode"
+              class="flex w-full items-center gap-2 p-3 text-left"
+              :class="meta.locked ? 'cursor-not-allowed' : 'cursor-pointer'"
+              :disabled="meta.locked"
+              @click="toggleMode(mode.value)"
+            >
+              <i
+                class="pi"
+                :class="[mode.icon, openMode === mode.value ? 'text-cyan-500' : 'text-surface-400']"
               />
-              <span class="text-surface-700">Учитывать качество сигнала (Quality)</span>
-            </label>
-          </template>
+              <span
+                class="flex-1 text-xs font-medium"
+                :class="openMode === mode.value ? 'text-surface-700' : 'text-surface-500'"
+              >
+                {{ mode.label }}
+              </span>
+              <i
+                class="pi text-[10px]! text-surface-400"
+                :class="openMode === mode.value ? 'pi-chevron-down' : 'pi-chevron-right'"
+              />
+            </button>
+
+            <!-- Раскрытие анимируется grid-строкой (см. `.tms-collapse-*` в style.css):
+                 содержимое режима остаётся в DOM только пока блок открыт. -->
+            <Transition name="tms-collapse">
+              <div v-if="openMode === mode.value">
+                <div class="px-3 pb-3">
+                  <p class="text-[11px] text-surface-500 mb-2 leading-snug">
+                    {{
+                      mode.value === 'boolean'
+                        ? 'Два положения по булеву тегу: какие фигуры видны и каким цветом.'
+                        : 'Свои состояния с кодами значений: какие фигуры видны в каждом и каким цветом.'
+                    }}
+                  </p>
+
+                  <div v-if="mode.value === 'boolean'" class="space-y-1.5 mb-2">
+                    <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
+                      <span class="w-[30px] shrink-0" aria-hidden="true"></span>
+                      <span class="flex-1 min-w-0">Подпись</span>
+                      <span class="w-12">Значение</span>
+                      <span class="flex w-[30px] shrink-0 justify-center">
+                        <i
+                          v-tooltip.top="hasFillableShapes ? 'Цвет контуров' : 'Цвет символа'"
+                          class="pi pi-circle text-[11px]!"
+                        />
+                      </span>
+                      <span v-if="hasFillableShapes" class="flex w-[30px] shrink-0 justify-center">
+                        <i v-tooltip.top="'Цвет заливки'" class="pi pi-circle-fill text-[11px]!" />
+                      </span>
+                      <!-- Резерв под колонку удаления состояния: в режиме «по значению»
+                           там кнопка, и без него колонки двух блоков не совпадали бы. -->
+                      <span class="w-6 shrink-0" aria-hidden="true"></span>
+                    </div>
+                    <div
+                      v-for="st in BOOLEAN_STATES"
+                      :key="st.value"
+                      class="flex items-center gap-1.5"
+                    >
+                      <!-- Глаз = превью этого состояния на столе (повторный клик — все). -->
+                      <button
+                        type="button"
+                        v-tooltip.top="
+                          previewState === st.value
+                            ? 'Показать все фигуры'
+                            : 'Показать символ в этом состоянии'
+                        "
+                        class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded transition-colors"
+                        :class="
+                          previewState === st.value
+                            ? 'bg-primary-50 text-primary-600'
+                            : 'text-surface-300 hover:text-surface-600'
+                        "
+                        @click="togglePreview(st.value)"
+                      >
+                        <i class="pi pi-eye text-xs!" />
+                      </button>
+                      <InputText
+                        :model-value="st.label"
+                        disabled
+                        size="small"
+                        class="flex-1 min-w-0 text-xs!"
+                      />
+                      <InputText
+                        :model-value="st.value"
+                        disabled
+                        size="small"
+                        class="w-12 font-mono text-xs!"
+                      />
+                      <!-- Колонка — ровно по свотчу (30px): сброс цвета висит бейджем
+                           на его углу (как у вида шины), отдельная кнопка рядом
+                           требовала бы места и в строках, где цвет не задан. -->
+                      <div class="flex w-[30px] shrink-0 items-center justify-center">
+                        <ColorField
+                          v-tooltip.top="'Цвет контуров символа в этом состоянии'"
+                          :model-value="stateStroke(st.value) || STATE_STROKE_PLACEHOLDER"
+                          :class="{ 'opacity-40': !stateStroke(st.value) }"
+                          @update:model-value="setStateColor(st.value, $event, 'stroke')"
+                          @change="commit"
+                        >
+                          <template #badge>
+                            <button
+                              v-if="stateStroke(st.value)"
+                              type="button"
+                              v-tooltip.top="'Убрать цвет'"
+                              class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+                              @click.stop="clearStateColor(st.value, 'stroke')"
+                            >
+                              <i class="pi pi-times text-[7px]!" />
+                            </button>
+                          </template>
+                        </ColorField>
+                      </div>
+                      <div
+                        v-if="hasFillableShapes"
+                        class="flex w-[30px] shrink-0 items-center justify-center"
+                      >
+                        <ColorField
+                          v-tooltip.top="'Цвет заливки фигур в этом состоянии'"
+                          :model-value="stateFill(st.value) || STATE_FILL_PLACEHOLDER"
+                          :class="{ 'opacity-40': !stateFill(st.value) }"
+                          @update:model-value="setStateColor(st.value, $event, 'fill')"
+                          @change="commit"
+                        >
+                          <template #badge>
+                            <button
+                              v-if="stateFill(st.value)"
+                              type="button"
+                              v-tooltip.top="'Убрать заливку'"
+                              class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+                              @click.stop="clearStateColor(st.value, 'fill')"
+                            >
+                              <i class="pi pi-times text-[7px]!" />
+                            </button>
+                          </template>
+                        </ColorField>
+                      </div>
+                      <!-- Булевы состояния не удаляются (их ровно два) — место колонки
+                           держим пустым, чтобы строки обоих блоков стояли одинаково. -->
+                      <span class="w-6 shrink-0" aria-hidden="true"></span>
+                    </div>
+                  </div>
+
+                  <div v-else class="space-y-1.5 mb-2">
+                    <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
+                      <span class="w-[30px] shrink-0" aria-hidden="true"></span>
+                      <span class="flex-1 min-w-0">Подпись</span>
+                      <span class="w-12">Значение</span>
+                      <span class="flex w-[30px] shrink-0 justify-center">
+                        <i
+                          v-tooltip.top="hasFillableShapes ? 'Цвет контуров' : 'Цвет символа'"
+                          class="pi pi-circle text-[11px]!"
+                        />
+                      </span>
+                      <span v-if="hasFillableShapes" class="flex w-[30px] shrink-0 justify-center">
+                        <i v-tooltip.top="'Цвет заливки'" class="pi pi-circle-fill text-[11px]!" />
+                      </span>
+                      <!-- Колонка кнопки удаления состояния. -->
+                      <span class="w-6 shrink-0" aria-hidden="true"></span>
+                    </div>
+                    <div v-for="st in meta.states" :key="st.key" class="flex items-center gap-1.5">
+                      <!-- Глаз = превью этого состояния на столе (повторный клик — все). -->
+                      <button
+                        type="button"
+                        v-tooltip.top="
+                          previewState === st.key
+                            ? 'Показать все фигуры'
+                            : 'Показать символ в этом состоянии'
+                        "
+                        class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded transition-colors"
+                        :class="
+                          previewState === st.key
+                            ? 'bg-primary-50 text-primary-600'
+                            : 'text-surface-300 hover:text-surface-600'
+                        "
+                        @click="togglePreview(st.key)"
+                      >
+                        <i class="pi pi-eye text-xs!" />
+                      </button>
+                      <Select
+                        :model-value="st.label"
+                        :options="PRESET_LABELS"
+                        editable
+                        placeholder="состояние"
+                        size="small"
+                        class="flex-1 min-w-0"
+                        @update:model-value="updateState(st.key, { label: $event })"
+                        @change="commit"
+                      />
+                      <InputText
+                        :model-value="st.code"
+                        placeholder="код"
+                        size="small"
+                        class="w-12 font-mono text-xs!"
+                        @update:model-value="updateState(st.key, { code: $event })"
+                        @change="commit"
+                      />
+                      <div class="flex w-[30px] shrink-0 items-center justify-center">
+                        <ColorField
+                          v-tooltip.top="'Цвет контуров символа в этом состоянии'"
+                          :model-value="stateStroke(st.key) || STATE_STROKE_PLACEHOLDER"
+                          :class="{ 'opacity-40': !stateStroke(st.key) }"
+                          @update:model-value="setStateColor(st.key, $event, 'stroke')"
+                          @change="commit"
+                        >
+                          <template #badge>
+                            <button
+                              v-if="stateStroke(st.key)"
+                              type="button"
+                              v-tooltip.top="'Убрать цвет'"
+                              class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+                              @click.stop="clearStateColor(st.key, 'stroke')"
+                            >
+                              <i class="pi pi-times text-[7px]!" />
+                            </button>
+                          </template>
+                        </ColorField>
+                      </div>
+                      <div
+                        v-if="hasFillableShapes"
+                        class="flex w-[30px] shrink-0 items-center justify-center"
+                      >
+                        <ColorField
+                          v-tooltip.top="'Цвет заливки фигур в этом состоянии'"
+                          :model-value="stateFill(st.key) || STATE_FILL_PLACEHOLDER"
+                          :class="{ 'opacity-40': !stateFill(st.key) }"
+                          @update:model-value="setStateColor(st.key, $event, 'fill')"
+                          @change="commit"
+                        >
+                          <template #badge>
+                            <button
+                              v-if="stateFill(st.key)"
+                              type="button"
+                              v-tooltip.top="'Убрать заливку'"
+                              class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+                              @click.stop="clearStateColor(st.key, 'fill')"
+                            >
+                              <i class="pi pi-times text-[7px]!" />
+                            </button>
+                          </template>
+                        </ColorField>
+                      </div>
+                      <Button
+                        v-tooltip.bottom="'Убрать состояние'"
+                        icon="pi pi-times"
+                        severity="secondary"
+                        text
+                        size="small"
+                        class="p-1! w-6! h-6!"
+                        @click="removeState(st.key)"
+                      />
+                    </div>
+                    <div class="flex gap-1.5">
+                      <button
+                        type="button"
+                        class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
+                        @click="addState"
+                      >
+                        <i class="pi pi-plus text-[10px]!" />
+                        состояние
+                      </button>
+                      <button
+                        type="button"
+                        v-tooltip.bottom="
+                          '4 состояния: Включен / Отключен / Промежуточное / Недостоверно'
+                        "
+                        class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
+                        @click="applyPositionPreset"
+                      >
+                        <i class="pi pi-bolt text-[10px]!" />
+                        Сигнал положения
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Transition>
+          </div>
 
           <!-- Зоны диапазонов — НЕЗАВИСИМО от анимации состояния (символ показывает
-               положение по своему тегу и красится по числу другого), поэтому блок вне
-               `stateful`-ветки. Тег зон привязывают на холсте. У программного символа
-               это единственное, что правится. -->
-          <div class="mt-4 border-t border-surface-200 pt-3">
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
-              Диапазоны значений
+               положение по своему тегу и красится по числу другого), поэтому карточка вне
+               `stateful`-ветки. У программного символа это единственное, что правится. -->
+          <div class="border border-surface-200 rounded p-3 bg-surface-0">
+            <div class="flex items-center gap-2 mb-2 min-h-6">
+              <i class="pi pi-chart-bar text-yellow-500" />
+              <div class="text-xs font-medium text-surface-700">Диапазоны значений</div>
             </div>
             <p class="text-[11px] text-surface-500 mb-2 leading-snug">
-              Цвет символа по числу тега. Тег привязывается на холсте; границы включаются в
-              диапазон.
+              Цвет символа по числу тега. Границы включаются в диапазон: одинаковые («3 — 3») задают
+              точное значение.
             </p>
             <RangeRows
               :ranges="meta.ranges"
@@ -630,6 +814,25 @@ function clearStateColor(key, which) {
               @remove-range="removeRange"
             />
           </div>
+
+          <!-- Quality — свойство символа, а не отдельной анимации: серость и «показать
+               все положения» при bad-качестве драйвящего тега работают в любом режиме,
+               поэтому галка стоит ПОСЛЕ всех блоков. Без анимации состояния цепляться
+               не за что (нужен её тег). -->
+          <label
+            v-if="meta.stateful"
+            class="flex items-center gap-2 px-1 pt-1"
+            :class="meta.locked ? '' : 'cursor-pointer'"
+          >
+            <Checkbox
+              v-model="meta.quality"
+              :disabled="meta.locked"
+              binary
+              input-id="se-quality"
+              @update:model-value="commit"
+            />
+            <span class="text-surface-700">Учитывать качество сигнала (Quality)</span>
+          </label>
         </div>
       </div>
     </div>
