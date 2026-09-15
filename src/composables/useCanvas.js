@@ -46,6 +46,11 @@ const exportArchiveFn = shallowRef(null)
 // контейнера), зовётся после импорта и переключения формы.
 const fitViewFn = shallowRef(null)
 
+// Разнести правку символа по формам, кроме активной: зовёт редактор символов после
+// сохранения, оркестрацию (прогон форм через живой paper, запись в IDB) держит
+// useProject.
+const syncStencilFormsFn = shallowRef(null)
+
 // CRUD форм и DnD-перенос узла дерева; оркестрацию (стор, IDB, перезагрузка холста)
 // держит useProject.
 const createFormFn = shallowRef(null)
@@ -204,6 +209,17 @@ export function useCanvas() {
     },
     fitToContent() {
       return fitViewFn.value?.()
+    },
+    setSyncStencilFormsFn(fn) {
+      syncStencilFormsFn.value = fn
+    },
+    /** @returns {Promise<{forms: number, changed: number, detached: number}>} */
+    async syncStencilInClosedForms(stencilId, prev) {
+      // Прогон обёрнут проектным гейтом: занято другой операцией или упало внутри —
+      // вернётся undefined. Нормализуем здесь, иначе вызывающий читал бы поля у него
+      // (Ctrl+S в редакторе работает и при `projectBusy` — `inert` гасит только клики).
+      const report = await syncStencilFormsFn.value?.(stencilId, prev)
+      return report || { forms: 0, changed: 0, detached: 0 }
     },
     setFormCrudFns({
       createForm,

@@ -31,6 +31,14 @@ import {
  * получает: они тянут две оси независимо, а геометрия живёт в локальных координатах.
  */
 
+/**
+ * На сколько ЭКРАННЫХ px угловая ручка символа отодвигается наружу габарита. Порт может
+ * стоять ровно в углу, а ручки лежат в overlay поверх холста — стоя на углу, ручка
+ * перехватывала бы и ховер, и протяжку провода от такого порта (z-index не помогает:
+ * порты внутри SVG холста). Половина ручки плюс запас — угол остаётся за портом.
+ */
+const CORNER_OUTSET = 8
+
 const HANDLES = [
   { key: 'nw', fx: 0, fy: 0 },
   { key: 'n', fx: 0.5, fy: 0 },
@@ -128,6 +136,7 @@ export function useCanvasResize({ scheduleSnapshot, dragging }) {
     }
     const handles = scaleMode ? CORNER_HANDLES : HANDLES
     const center = { x: pos.x + size.width / 2, y: pos.y + size.height / 2 }
+    const centerScreen = projectToScreen(paper, center.x, center.y)
     return handles.map((h) => {
       const corner = rotatePoint(
         { x: pos.x + size.width * h.fx, y: pos.y + size.height * h.fy },
@@ -135,10 +144,20 @@ export function useCanvasResize({ scheduleSnapshot, dragging }) {
         angle
       )
       const p = projectToScreen(paper, corner.x, corner.y)
+      // Смещение наружу считаем в ЭКРАННЫХ координатах: направление от центра уже
+      // учитывает и поворот ячейки, и зум холста, а отступ должен быть постоянным на
+      // экране. Жест это не трогает — `onHandleDown` считает всё от модели.
+      const outset = scaleMode ? CORNER_OUTSET : 0
+      const dx = p.x - centerScreen.x
+      const dy = p.y - centerScreen.y
+      const len = Math.hypot(dx, dy) || 1
       return {
         key: h.key,
         cursor: handleCursor(h, angle),
-        style: { left: `${p.x}px`, top: `${p.y}px` },
+        style: {
+          left: `${p.x + (dx / len) * outset}px`,
+          top: `${p.y + (dy / len) * outset}px`,
+        },
       }
     })
   })

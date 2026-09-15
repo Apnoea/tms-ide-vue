@@ -184,15 +184,24 @@ export function injectStencilSvg(cellView, stencil) {
     height: stencil.height || 0,
   }
 
-  // Hit-area по всему bbox: клик мимо тонких линий тоже выделяет. stroke="none",
-  // иначе она подхватит animation-color в симуляции.
+  // База масштаба контента — размер определения; у программных символов рисунок уже
+  // построен по фактическому размеру, поэтому базой служит он сам (масштаб = 1).
+  const scalesContent = contentScales(stencil)
+  const baseWidth = scalesContent ? stencil.width : currentSize.width
+  const baseHeight = scalesContent ? stencil.height : currentSize.height
+
+  // Hit-area по всему bbox: клик мимо тонких линий тоже выделяет. Размер — БАЗОВЫЙ:
+  // она лежит в той же группе, что контент, и масштаб группы растянет её ровно до
+  // габарита ячейки (по размеру экземпляра её раздуло бы ещё раз, и у увеличенного
+  // символа она перекрывала бы соседей). stroke="none", иначе она подхватит
+  // animation-color в симуляции.
   target.appendChild(
     svgEl('rect', {
       class: 'tms-hit-area',
       x: 0,
       y: 0,
-      width: currentSize.width,
-      height: currentSize.height,
+      width: baseWidth,
+      height: baseHeight,
       fill: 'transparent',
       stroke: 'none',
       'pointer-events': 'all',
@@ -218,12 +227,9 @@ export function injectStencilSvg(cellView, stencil) {
   // flip и масштаб — только визуал контента (порты считает buildPortItems). Атрибут
   // снимается явно: старый transform иначе останется после reinject.
   const tmsView = cellView.model.get('tms') || {}
-  // База масштаба — размер определения; у программных символов контент уже нарисован
-  // по фактическому размеру, поэтому базой служит он сам (масштаб = 1).
-  const scalesContent = contentScales(stencil)
   const ct = contentTransform({
-    baseWidth: scalesContent ? stencil.width : currentSize.width,
-    baseHeight: scalesContent ? stencil.height : currentSize.height,
+    baseWidth,
+    baseHeight,
     width: currentSize.width,
     height: currentSize.height,
     flipH: !!tmsView.flipH,

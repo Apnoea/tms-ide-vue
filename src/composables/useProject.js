@@ -1,5 +1,5 @@
 import { ref, nextTick } from 'vue'
-import { reinjectAllStencils } from '../stencils/svgInjector'
+import { reinjectAllStencils, syncStencilInstances } from '../stencils/svgInjector'
 import { getStencilById, registerStencil } from '../stencils/registry'
 import {
   migrateFormsRanges,
@@ -554,6 +554,65 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
   }
 
   /**
+   * Правка символа → во ВСЕ формы проекта, а не только в открытую. Активную сверяет
+   * сам редактор (ему нужно выделить отцепленные концы), здесь — остальные: раньше
+   * они догоняли изменение при открытии, и провод, потерявший порт, отваливался
+   * спустя дни, без связи с правкой.
+   *
+   * Каждая форма прогоняется через живой граф — как в экспорте: сверка правит модель
+   * (порты, габарит, концы проводов), поэтому её результат сразу пишется обратно.
+   * Всё под restoreGuard: это не действие пользователя, в undo ему делать нечего.
+   *
+   * @returns {Promise<{forms: number, changed: number, detached: number}>}
+   */
+  async function syncStencilInClosedForms(stencilId, prev = null) {
+    const graph = canvas.graphRef.value
+    const paper = canvas.paperRef.value
+    const stencil = getStencilById(stencilId)
+    const report = { forms: 0, changed: 0, detached: 0 }
+    if (!graph || !paper || !stencil) return report
+
+    const activeId = workspace.activeFormId
+    const others = [...workspace.formIds].filter((id) => id !== activeId)
+    if (!others.length) return report
+
+    // Отложенный snapshot гасим: его таймер выстрелил бы, когда в графе чужая форма.
+    cancelPendingSnapshot()
+    try {
+      await saveActiveForm()
+      for (const id of others) {
+        let json = workspace.getFormGraph(id) || { cells: [] }
+        let synced = { changed: 0, detached: [] }
+        withRestoreGuard(restoringHistory, () => {
+          withPaperFrozen(paper, () => graph.fromJSON(json))
+          synced = syncStencilInstances(graph, paper, stencil, prev) || synced
+        })
+        if (!synced.changed && !synced.detached.length) continue
+        json = graph.toJSON()
+        workspace.setFormGraph(id, json)
+        flagIfNotSaved(await persistForm(id, json))
+        report.forms += 1
+        report.changed += synced.changed
+        report.detached += synced.detached.length
+      }
+    } finally {
+      // Активная форма возвращается в любом случае: при ошибке посреди цикла холст не
+      // должен остаться на чужой.
+      const liveGraph = canvas.graphRef.value
+      const livePaper = canvas.paperRef.value
+      if (liveGraph && livePaper) {
+        const activeJson = workspace.getFormGraph(activeId) || { cells: [] }
+        withRestoreGuard(restoringHistory, () => {
+          withPaperFrozen(livePaper, () => liveGraph.fromJSON(activeJson))
+          reinjectAllStencils(liveGraph, livePaper)
+          canvas.bumpVersion()
+        })
+      }
+    }
+    return report
+  }
+
+  /**
    * Прогон всех форм через живой paper → бандл проекта, затем `deliver(bundle)`.
    * Геометрию провода exporter берёт с отрисованного paper, а там живёт только активная
    * форма, поэтому каждая прогоняется через живой граф (под restoreGuard, без autosave
@@ -707,6 +766,7 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     restoreForm: withProjectBusy(restoreForm),
     renameForm: withProjectBusy(renameForm),
     moveFormNode: withProjectBusy(moveFormNode),
+    syncStencilInClosedForms: withProjectBusy(syncStencilInClosedForms),
     migrateRangesToStencils: withProjectBusy(migrateRangesToStencils),
     cleanupInheritedRanges: withProjectBusy(cleanupInheritedRanges),
     trash,

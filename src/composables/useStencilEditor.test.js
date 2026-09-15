@@ -771,6 +771,187 @@ describe('loadStencil: анимация состояния', () => {
 
 // Дубль — НОВЫЙ символ: сохранение идёт как создание, поэтому `editingId` пуст, id
 // свободен, а модель копируется целиком.
+// Размер холста правят инпутами тулбара уже после расстановки портов: без переноса
+// выводы оставались на прежней границе, то есть ВНУТРИ тела символа.
+describe('setCanvasSize', () => {
+  function editorWithPorts() {
+    const ed = createStencilEditor()
+    ed.meta.width = 20
+    ed.meta.height = 20
+    ed.addShape({ type: 'rect', x: 0, y: 0, w: 20, h: 20 })
+    ed.addPort(10, 0) // верх
+    ed.addPort(20, 10) // право
+    ed.addPort(10, 20) // низ
+    ed.addPort(0, 10) // лево
+    return ed
+  }
+
+  const byXY = (ed) => ed.ports.value.map((p) => [p.x, p.y])
+
+  it('увеличение: порты переезжают на новую границу, вдоль грани стоят как стояли', () => {
+    const ed = editorWithPorts()
+    expect(ed.setCanvasSize(40, 40)).toBe(true)
+    expect(byXY(ed)).toEqual([
+      [10, 0], // верх — на месте
+      [40, 10], // право — на новой правой грани
+      [10, 40], // низ — на новой нижней
+      [0, 10], // лево — на месте
+    ])
+  })
+
+  it('уменьшение: порты остаются в габарите, совпавшие схлопываются в один', () => {
+    const ed = editorWithPorts()
+    ed.setCanvasSize(10, 10)
+    // Правый и нижний прижались к одному углу (10,10) — остаётся первый из них.
+    expect(byXY(ed)).toEqual([
+      [10, 0],
+      [10, 10],
+      [0, 10],
+    ])
+  })
+
+  it('уменьшение: ряд портов за новым краем не оставляет стопку на границе', () => {
+    const ed = createStencilEditor()
+    ed.meta.width = 60
+    ed.meta.height = 20
+    ed.addShape({ type: 'rect', x: 0, y: 0, w: 60, h: 20 })
+    for (let x = 0; x <= 60; x += 10) ed.addPort(x, 0)
+    ed.setCanvasSize(40, 20)
+    // 50 и 60 прижались к 40, где уже стоял свой порт: три штуки в точке → один.
+    expect(byXY(ed)).toEqual([
+      [0, 0],
+      [10, 0],
+      [20, 0],
+      [30, 0],
+      [40, 0],
+    ])
+  })
+
+  it('дедуп чистит выделение от съеденных портов', () => {
+    const ed = editorWithPorts()
+    const [, right, bottom] = ed.ports.value
+    ed.selectPort(right.id)
+    ed.selectPort(bottom.id, true)
+    ed.setCanvasSize(10, 10)
+    expect(ed.selectedPortIds.value).toEqual([right.id])
+  })
+
+  it('размер снапится к шагу габарита (BOX_GRID), повтор ничего не меняет', () => {
+    // Тот же шаг, по которому габарит обрезается на сохранении: иначе заданные 35
+    // превратились бы в 40 уже в файле символа.
+    const ed = editorWithPorts()
+    ed.setCanvasSize(37, 3)
+    expect([ed.meta.width, ed.meta.height]).toEqual([40, 10])
+    expect(ed.setCanvasSize(40, 10)).toBe(false)
+  })
+
+  it('порты на границе переживают сохранение: bbox считается вместе с ними', () => {
+    const ed = editorWithPorts()
+    ed.meta.id = 'cell_probe'
+    ed.meta.label = 'P'
+    ed.meta.category = 'T'
+    ed.setCanvasSize(40, 40)
+    const { json } = ed.output()
+    expect([json.width, json.height]).toEqual([40, 40])
+    expect(json.ports.map((p) => [p.x, p.y])).toEqual([
+      [10, 0],
+      [40, 10],
+      [10, 40],
+      [0, 10],
+    ])
+  })
+})
+
+// Контент, торчащий за границу символа, на сохранении раздувает габарит
+// (cropToContent). Холст подсвечивает выступ, чтобы «поставил 30 — получил 40» не
+// выглядело потерей ввода.
+// Индикатор «есть несохранённое» на кнопке сохранения: он про РАЗНИЦУ с исходным
+// состоянием, а не про число шагов истории.
+describe('hasChanges', () => {
+  it('пустой черновик и правка, отменённая руками, изменениями не считаются', () => {
+    const ed = createStencilEditor()
+    ed.reset()
+    expect(ed.hasChanges.value).toBe(false)
+
+    const s = ed.addShape({ type: 'rect', x: 0, y: 0, w: 20, h: 20 })
+    expect(ed.hasChanges.value).toBe(true)
+
+    // Вернули руками: шагов в истории три, отличий от базы ноль.
+    ed.removeShapes([s.id])
+    expect(ed.canUndo.value).toBe(true)
+    expect(ed.hasChanges.value).toBe(false)
+  })
+
+  it('undo до базы тоже гасит признак, повторная правка — зажигает', () => {
+    const ed = createStencilEditor()
+    ed.reset()
+    ed.addShape({ type: 'rect', x: 0, y: 0, w: 20, h: 20 })
+    ed.undo()
+    expect(ed.hasChanges.value).toBe(false)
+    ed.redo()
+    expect(ed.hasChanges.value).toBe(true)
+  })
+
+  it('правка меты (без фигур) тоже считается', () => {
+    const ed = createStencilEditor()
+    ed.reset()
+    ed.meta.label = 'Насос'
+    ed.commit()
+    expect(ed.hasChanges.value).toBe(true)
+  })
+})
+
+describe('contentOverflow', () => {
+  function editorWith(shape, w = 40, h = 40) {
+    const ed = createStencilEditor()
+    ed.meta.width = w
+    ed.meta.height = h
+    ed.addShape(shape)
+    return ed
+  }
+
+  it('без выступа — null', () => {
+    expect(createStencilEditor().contentOverflow.value).toBe(null)
+    expect(editorWith({ type: 'rect', x: 10, y: 10, w: 20, h: 20 }).contentOverflow.value).toBe(
+      null
+    )
+  })
+
+  it('фигура за краем: подсвечивается объединение холста и будущего габарита', () => {
+    const ed = editorWith({ type: 'rect', x: 0, y: 0, w: 55, h: 20 })
+    expect(ed.contentOverflow.value).toEqual({ x: 0, y: 0, w: 60, h: 40 })
+  })
+
+  it('уменьшение холста под фигурами оставляет выступ', () => {
+    const ed = editorWith({ type: 'rect', x: 0, y: 0, w: 40, h: 40 })
+    ed.setCanvasSize(30, 30)
+    // Фигуры не трогаем — их только подсвечивает холст.
+    expect(ed.shapes.value[0]).toMatchObject({ x: 0, y: 0, w: 40, h: 40 })
+    expect(ed.contentOverflow.value).toEqual({ x: 0, y: 0, w: 40, h: 40 })
+  })
+
+  it('контент левее нуля попадает в зону подсветки', () => {
+    const ed = editorWith({ type: 'rect', x: -15, y: 0, w: 20, h: 20 })
+    expect(ed.contentOverflow.value).toEqual({ x: -20, y: 0, w: 60, h: 40 })
+  })
+
+  // Цифра в тулбаре обязана совпасть с файлом: на сохранении поля обрезаются, поэтому
+  // «объединение с холстом» показало бы размер больше реального.
+  it('savedBox — габарит после сохранения, а не подсвеченная зона', () => {
+    const ed = editorWith({ type: 'rect', x: -15, y: 0, w: 20, h: 20 })
+    expect(ed.savedBox.value).toEqual({ x: -20, y: 0, w: 30, h: 20 })
+  })
+
+  it('savedBox совпадает с размером в выходном json', () => {
+    const ed = editorWith({ type: 'rect', x: 0, y: 0, w: 55, h: 20 })
+    ed.meta.id = 'cell_probe'
+    ed.meta.label = 'P'
+    ed.meta.category = 'T'
+    const { json } = ed.output()
+    expect([json.width, json.height]).toEqual([ed.savedBox.value.w, ed.savedBox.value.h])
+  })
+})
+
 describe('duplicateShapes', () => {
   it('копия выделенного со сдвигом, буфер не трогается', () => {
     const ed = createStencilEditor()

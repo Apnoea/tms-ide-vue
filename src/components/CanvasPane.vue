@@ -197,6 +197,7 @@ const {
   moveFormNode: guardedMoveForm,
   migrateRangesToStencils,
   cleanupInheritedRanges,
+  syncStencilInClosedForms,
   trash: formTrash,
   refreshTrash,
 } = useProject({
@@ -720,6 +721,9 @@ onMounted(async () => {
   })
   // Вписать контент в область видимости — импорт зовёт canvas.fitToContent.
   canvas.setFitViewFn(fitToContent)
+  // Разнести правку символа по закрытым формам — зовёт редактор символов после
+  // сохранения (canvas.syncStencilInClosedForms).
+  canvas.setSyncStencilFormsFn(syncStencilInClosedForms)
   // CRUD форм и DnD-перенос — FormTree зовёт canvas.createForm/…/moveFormNode.
   canvas.setFormCrudFns({
     createForm: guardedCreateForm,
@@ -948,10 +952,14 @@ function performClearCanvas(count) {
       <!-- Слева — заголовок, инструменты рисования, затем симуляция (глобальное
            действие над всей схемой; остаётся на холсте, это взаимодействие с ним, а
            не проектное действие для шапки). Порядок и шаг кнопок — как в тулбаре
-           редактора символов; отступ у заголовка отыгрывает более короткое слово
-           «Холст», чтобы инструменты не прижимались к нему. -->
+           редактора символов; ширина заголовка фиксирована тем же значением, поэтому
+           ряды инструментов обоих тулбаров начинаются с одной точки. -->
       <div class="flex items-center gap-2">
-        <h2 class="mr-6 text-sm font-semibold text-surface-900 uppercase tracking-wide">Холст</h2>
+        <h2
+          class="w-[75px] shrink-0 truncate text-sm font-semibold text-surface-900 uppercase tracking-wide"
+        >
+          Холст
+        </h2>
         <div class="flex items-center gap-1">
           <Button
             v-for="t in DRAW_TOOLS"
@@ -1025,31 +1033,9 @@ function performClearCanvas(count) {
         </template>
       </div>
 
-      <!-- Справа — инструменты группами: история │ вид (поиск + зум) │ удаление. -->
+      <!-- Справа — инструменты группами: вид формы (фон + поиск) │ история │ зум │
+           удаление. История стоит вплотную к зуму, как в тулбаре редактора символов. -->
       <div class="flex items-center gap-2">
-        <Button
-          v-tooltip.bottom="'Отменить · Ctrl+Z'"
-          icon="pi pi-undo"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-icon-btn"
-          :disabled="!canvas.canUndo.value"
-          @click="undo"
-        />
-        <Button
-          v-tooltip.bottom="'Повторить · Ctrl+Y'"
-          icon="pi pi-refresh"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-icon-btn"
-          :disabled="!canvas.canRedo.value"
-          @click="redo"
-        />
-
-        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
-
         <!-- Фон АКТИВНОЙ ФОРМЫ (см. workspace.formBg): общее поле цвета, но триггер
              свой — иконка палитры в тулбаре вместо свотча. Палитра ведёт живое превью
              (в стор ничего не пишется), запись в мету — по завершении жеста. -->
@@ -1095,6 +1081,29 @@ function performClearCanvas(count) {
           size="small"
           class="tms-icon-btn"
           @click="toggleSearch"
+        />
+
+        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+
+        <Button
+          v-tooltip.bottom="'Отменить · Ctrl+Z'"
+          icon="pi pi-undo"
+          severity="secondary"
+          text
+          size="small"
+          class="tms-icon-btn"
+          :disabled="!canvas.canUndo.value"
+          @click="undo"
+        />
+        <Button
+          v-tooltip.bottom="'Повторить · Ctrl+Y'"
+          icon="pi pi-refresh"
+          severity="secondary"
+          text
+          size="small"
+          class="tms-icon-btn"
+          :disabled="!canvas.canRedo.value"
+          @click="redo"
         />
 
         <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>

@@ -2,10 +2,10 @@
   "id": "cell_qk",
   "label": "Короткозамыкатель",
   "category": "Коммутация",
-  "domains": ["energy"],
   "shapeFile": "shape.svg",
   "width": 20,
   "height": 40,
+  "domains": ["energy"],
   "quality": true,
   "ports": [
     {
@@ -16,12 +16,29 @@
   ],
   "slots": [
     {
-      "key": "onoff",
-      "type": "Boolean"
-    },
-    {
       "key": "range",
       "type": "Value"
+    },
+    {
+      "key": "onoff",
+      "type": "Boolean"
+    }
+  ],
+  "ranges": [
+    {
+      "min": 0,
+      "max": 3.99,
+      "color": "#10b981"
+    },
+    {
+      "min": 4,
+      "max": 6.99,
+      "color": "#f59e0b"
+    },
+    {
+      "min": 7,
+      "max": 10,
+      "color": "#ef4444"
     }
   ],
   "animationTemplate": [
@@ -74,23 +91,6 @@
           "tag": "{slot.onoff}"
         }
       ]
-    }
-  ],
-  "ranges": [
-    {
-      "min": 0,
-      "max": 3.99,
-      "color": "#10b981"
-    },
-    {
-      "min": 4,
-      "max": 6.99,
-      "color": "#f59e0b"
-    },
-    {
-      "min": 7,
-      "max": 10,
-      "color": "#ef4444"
     }
   ]
 }

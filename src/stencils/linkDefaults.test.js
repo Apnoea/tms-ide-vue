@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   insideApproachDirection,
+  edgeApproachDirection,
   rightAngleDirections,
   arrowSize,
   isInsideBBox,
@@ -45,23 +46,67 @@ describe('insideApproachDirection', () => {
     expect(insideApproachDirection(center, node, { x: 300, y: 52 })).toBe('right')
   })
 
-  it('порт на границе тела — направление остаётся за роутером', () => {
-    // Обычный символ: порт на краю габарита, сторона однозначна и без нас.
+  it('порт на границе тела этой функции не касается (её ведёт edgeApproachDirection)', () => {
     expect(insideApproachDirection({ x: 20, y: 100 }, bus, { x: 20, y: 40 })).toBeNull()
     expect(insideApproachDirection({ x: 0, y: 104 }, bus, { x: 20, y: 40 })).toBeNull()
     expect(insideApproachDirection(null, bus, { x: 0, y: 0 })).toBeNull()
   })
 })
 
+// Вывод символа стоит НА ГРАНИ, и провод обязан выходить перпендикулярно ей: без
+// явного направления роутер выбирает сторону по положению цели и уводит первый сегмент
+// вдоль тела.
+describe('edgeApproachDirection', () => {
+  const box = { x: 100, y: 100, width: 20, height: 20 } // символ 20×20
+
+  it('порт на грани: перпендикуляр наружу, куда бы ни шёл провод', () => {
+    const bottom = { x: 110, y: 120 }
+    expect(edgeApproachDirection(bottom, box, { x: 300, y: 130 })).toBe('bottom')
+    expect(edgeApproachDirection(bottom, box, { x: -50, y: 121 })).toBe('bottom')
+    expect(edgeApproachDirection({ x: 100, y: 110 }, box, { x: 300, y: 110 })).toBe('left')
+    expect(edgeApproachDirection({ x: 120, y: 110 }, box, { x: 0, y: 110 })).toBe('right')
+    expect(edgeApproachDirection({ x: 110, y: 100 }, box, { x: 110, y: 300 })).toBe('top')
+  })
+
+  it('масштабированный символ: доля пикселя от грани — всё ещё грань', () => {
+    // Координаты портов пересчитываются делением, попадание ровно в границу не
+    // гарантировано.
+    expect(edgeApproachDirection({ x: 110, y: 119.6 }, box, { x: 300, y: 130 })).toBe('bottom')
+  })
+
+  it('угол: из ДВУХ наружных перпендикуляров берётся ведущий к цели', () => {
+    // Правый нижний угол: наружу ведут только «вправо» и «вниз» — влево/вверх было бы
+    // внутрь тела.
+    const rb = { x: 120, y: 120 }
+    expect(edgeApproachDirection(rb, box, { x: 300, y: 118 })).toBe('right') // цель правее
+    expect(edgeApproachDirection(rb, box, { x: 50, y: 300 })).toBe('bottom') // цель ниже и левее
+    // Оба перпендикуляра ведут к цели — ось по преобладающей дельте.
+    expect(edgeApproachDirection(rb, box, { x: 400, y: 130 })).toBe('right')
+    expect(edgeApproachDirection(rb, box, { x: 130, y: 400 })).toBe('bottom')
+
+    const lt = { x: 100, y: 100 }
+    expect(edgeApproachDirection(lt, box, { x: -200, y: 105 })).toBe('left')
+    expect(edgeApproachDirection(lt, box, { x: 105, y: -200 })).toBe('top')
+  })
+
+  it('порт в глубине тела гранью не считается', () => {
+    expect(edgeApproachDirection({ x: 110, y: 110 }, box, { x: 300, y: 110 })).toBeNull()
+  })
+})
+
 describe('rightAngleDirections', () => {
-  const elementView = (bbox) => ({ model: { isElement: () => true, getBBox: () => bbox } })
+  // `stencilId` в моке значим: внутренняя логика слота включается только у шины.
+  const elementView = (bbox, stencilId = 'cell_qw') => ({
+    model: { isElement: () => true, getBBox: () => bbox, get: () => ({ stencilId }) },
+  })
+  const busView = (bbox) => elementView(bbox, 'cell_bus')
   const bus = { x: 0, y: 100, width: 80, height: 8 }
 
   it('оба конца на шинах получают свою сторону', () => {
     const dirs = rightAngleDirections([], {
-      sourceView: elementView(bus),
+      sourceView: busView(bus),
       sourceAnchor: { x: 20, y: 104 },
-      targetView: elementView({ ...bus, y: 300 }),
+      targetView: busView({ ...bus, y: 300 }),
       targetAnchor: { x: 20, y: 304 },
     })
     // Источник выше цели: из него выходим вниз, в цель заходим сверху.
@@ -70,7 +115,7 @@ describe('rightAngleDirections', () => {
 
   it('сторону задаёт ближайший ручной излом, а не противоположный конец', () => {
     const linkView = {
-      sourceView: elementView(bus),
+      sourceView: busView(bus),
       sourceAnchor: { x: 20, y: 104 },
       targetView: null,
       targetAnchor: { x: 400, y: 50 },
@@ -91,6 +136,31 @@ describe('rightAngleDirections', () => {
       })
     ).toEqual({})
     expect(rightAngleDirections([], null)).toEqual({})
+  })
+
+  it('обычный символ: выход перпендикулярно грани, а не вдоль неё', () => {
+    // Вывод снизу, цель сбоку: без явного направления роутер уводил первый сегмент
+    // вправо, и провод шёл вдоль тела символа.
+    const symbol = { x: 100, y: 100, width: 20, height: 20 }
+    const dirs = rightAngleDirections([], {
+      sourceView: elementView(symbol),
+      sourceAnchor: { x: 110, y: 120 },
+      targetView: null,
+      targetAnchor: { x: 400, y: 125 },
+    })
+    expect(dirs.sourceDirection).toBe('bottom')
+  })
+
+  it('у НЕ-шины середина тела направления не задаёт — решает роутер', () => {
+    // Выводы стоят на грани; точка в глубине тела бывает только у слота шины.
+    const symbol = { x: 100, y: 100, width: 20, height: 20 }
+    const dirs = rightAngleDirections([], {
+      sourceView: elementView(symbol),
+      sourceAnchor: { x: 110, y: 110 },
+      targetView: null,
+      targetAnchor: { x: 400, y: 110 },
+    })
+    expect(dirs).toEqual({})
   })
 })
 

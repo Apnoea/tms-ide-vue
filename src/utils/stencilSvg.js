@@ -403,33 +403,38 @@ export function shapesBounds(shapes, ports = []) {
 }
 
 /**
- * Обрезка пустых полей: считаем bbox фигур + портов, расширяем до кратных grid
- * границ (min — вниз, max — вверх, чтобы контент не срезался), сдвигаем всё в
- * (0,0). Итоговый символ = ровно контент, размеры кратны grid. Обводку в bbox
- * не учитываем — как в рукописных символах (rect x=0 со stroke срезается вьюбоксом).
+ * Габарит контента, кратный grid: bbox фигур + портов, расширенный до сетки (min —
+ * вниз, max — вверх, чтобы контент не срезался). Тот же счёт, по которому символ
+ * обрезается на сохранении, поэтому редактор берёт отсюда же будущий размер. Обводку
+ * в bbox не учитываем — как в рукописных символах (rect x=0 со stroke срезается
+ * вьюбоксом).
+ *
+ * @returns {{x:number, y:number, w:number, h:number}|null} null — считать нечего
+ */
+export function contentBox(shapes, ports = [], grid = 10) {
+  const b = shapesBounds(shapes, ports)
+  if (!b) return null
+  const x0 = Math.floor(b.x / grid) * grid
+  const y0 = Math.floor(b.y / grid) * grid
+  const x1 = Math.ceil((b.x + b.w) / grid) * grid
+  const y1 = Math.ceil((b.y + b.h) / grid) * grid
+  return { x: x0, y: y0, w: Math.max(grid, x1 - x0), h: Math.max(grid, y1 - y0) }
+}
+
+/**
+ * Обрезка пустых полей: контент сдвигается в (0,0), размер = его габарит по сетке.
  *
  * @returns {{shapes:Array, ports:Array, width:number, height:number}}
  */
 export function cropToContent(shapes, ports = [], grid = 10) {
   if (!shapes?.length) return { shapes: shapes || [], ports: ports || [], width: 0, height: 0 }
-  const bounds = shapesBounds(shapes, ports)
-  if (!bounds) return { shapes, ports, width: 0, height: 0 }
-  const minX = bounds.x
-  const minY = bounds.y
-  const maxX = bounds.x + bounds.w
-  const maxY = bounds.y + bounds.h
-
-  const x0 = Math.floor(minX / grid) * grid
-  const y0 = Math.floor(minY / grid) * grid
-  const x1 = Math.ceil(maxX / grid) * grid
-  const y1 = Math.ceil(maxY / grid) * grid
-  const dx = -x0
-  const dy = -y0
+  const box = contentBox(shapes, ports, grid)
+  if (!box) return { shapes, ports, width: 0, height: 0 }
   return {
-    shapes: shapes.map((s) => translateShape(s, dx, dy)),
-    ports: ports.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })),
-    width: Math.max(grid, x1 - x0),
-    height: Math.max(grid, y1 - y0),
+    shapes: shapes.map((s) => translateShape(s, -box.x, -box.y)),
+    ports: ports.map((p) => ({ ...p, x: p.x - box.x, y: p.y - box.y })),
+    width: box.w,
+    height: box.h,
   }
 }
 

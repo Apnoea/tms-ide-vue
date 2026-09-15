@@ -10,7 +10,7 @@
  * — только ради зон диапазонов (`rangesOnly`). Сохранение валидирует, регистрирует в
  * реестре и пишет на диск dev-плагином.
  */
-import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useElementSize, useEventListener } from '@vueuse/core'
 import interact from 'interactjs'
 import Button from 'primevue/button'
@@ -41,9 +41,14 @@ import { syncStencilInstances } from '../stencils/svgInjector'
 import { nplural } from '../utils/plural'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
 import { upsertStencilOverride } from '../services/stencilOverrides'
-import { useStencilEditor, SHAPE_GRID, PORT_GRID } from '../composables/useStencilEditor'
+import { useStencilEditor, SHAPE_GRID, PORT_GRID, BOX_GRID } from '../composables/useStencilEditor'
+import { ZOOM_STEP } from '../composables/useCanvasZoom'
 import { useEditorLasso } from '../composables/useEditorLasso'
 import ShapePrimitive from './ShapePrimitive.vue'
+
+// Шаблон двухкорневой: кнопки сохранения уезжают Teleport'ом в подвал инспектора,
+// поэтому класс позиции с места использования вешаем на окно редактора сами.
+defineOptions({ inheritAttrs: false })
 
 const ui = useUiStore()
 const notify = useNotify()
@@ -63,6 +68,7 @@ const {
   editingId,
   previewState,
   canUndo,
+  hasChanges,
   canRedo,
   snapShapeX,
   snapShapeY,
@@ -78,9 +84,13 @@ const {
   updateShapes,
   removeShapes,
   addPort,
-  movePort,
+  movePorts,
+  dedupePorts,
   removePorts,
   selectPort,
+  setCanvasSize,
+  contentOverflow,
+  savedBox,
   commit,
   undo,
   redo,
@@ -101,12 +111,17 @@ const DRAW_TOOLS = [
     glyph: TEXT_ICON,
     tip: 'Подпись (клик — поставить, текст правится в инспекторе)',
   },
-  {
-    key: 'port',
-    icon: 'pi pi-map-marker',
-    tip: 'Порт (клик по существующему — выделить, Del — удалить)',
-  },
 ]
+
+/**
+ * Порт стоит отдельной группой: он не рисунок символа, а точка подключения провода —
+ * то же деление, что на холсте, где симуляция отбита от инструментов схемы.
+ */
+const PORT_TOOL = {
+  key: 'port',
+  icon: 'pi pi-map-marker',
+  tip: 'Порт (клик по существующему — выделить, Del — удалить)',
+}
 
 // Тогл инструментов: повторный клик по активному возвращает к select.
 function pickTool(key) {
@@ -177,20 +192,94 @@ const renderShapes = computed(() => {
   })
 })
 
+/**
+ * Подсветка контента, вылезшего за границу символа. На сохранении габарит
+ * раздувается до него (`cropToContent`), и «поставил 30 — получил 40» иначе выглядит
+ * потерей ввода: торчащие части ФИГУР штрихуются, будущий габарит обводится
+ * пунктиром.
+ *
+ * Косая штриховка, а не полупрозрачная заливка: alpha смешивает цвет с рисунком, и
+ * подсвеченная фигура меняет свой цвет — по ней уже не сказать, что нарисовано.
+ * Штрих оставляет фигуру между линиями нетронутой.
+ *
+ * Штрих кладётся слоем паттерна поверх рисунка и режется дважды: clip-path'ом «всё,
+ * кроме холста» (дыра через evenodd) — чтобы не заходил внутрь символа, и МАСКОЙ из
+ * копий фигур — чтобы ложился на их чернила, а не на пустое поле вокруг. Маска, а не
+ * заливка копий: у контурной фигуры `fill: none`, и паттерном красить нечего, тогда
+ * как обводка в маске участвует своей толщиной. Шаг штриха делим на масштаб: на
+ * экране он постоянный, зум его не растягивает.
+ */
+// Розовый, а не амбер: тот несут предупреждения формы, и на столе выступ путался бы
+// с ними; cyan занят выделением, purple — метками состояний.
+const OVERFLOW_STROKE = '#f43f5e' // rose-500
+const OVERFLOW_CLIP_ID = 'tms-se-overflow-clip'
+const OVERFLOW_HATCH_ID = 'tms-se-overflow-hatch'
+const OVERFLOW_MASK_ID = 'tms-se-overflow-mask'
+const hatchStep = computed(() => 7 / scale.value)
+// Копии фигур для маски: белое = сюда штрих ложится. Обводка своей толщины, заливка
+// только у заливаемых — пустое нутро контурной фигуры штриховать не за что. В маску
+// идут ТОЛЬКО вылезшие фигуры: остальные всё равно отрезал бы clip-path.
+const overflowMaskShapes = computed(() => {
+  if (!contentOverflow.value) return []
+  return renderShapes.value
+    .filter((s) => {
+      const b = shapeBounds(s)
+      if (!b) return false
+      // Запас в половину обводки: bbox считается по геометрии, а рисуется линия шире.
+      const pad = (s.strokeWidth ?? 2) / 2
+      return (
+        b.x - pad < 0 ||
+        b.y - pad < 0 ||
+        b.x + b.w + pad > meta.width ||
+        b.y + b.h + pad > meta.height
+      )
+    })
+    .map((s) => ({
+      ...s,
+      stroke: '#fff',
+      fill: s.type === 'text' || (s.fill && s.fill !== 'none') ? '#fff' : 'none',
+    }))
+})
+// Габарит выступа с запасом: обводка фигуры выходит за bbox на половину толщины.
+const overflowArea = computed(() => {
+  const b = contentOverflow.value
+  if (!b) return null
+  const pad = 20
+  return { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 }
+})
+const overflowClip = computed(() => {
+  const a = overflowArea.value
+  if (!a) return null
+  const [x1, y1] = [a.x + a.w, a.y + a.h]
+  return `M ${a.x} ${a.y} H ${x1} V ${y1} H ${a.x} Z M 0 0 H ${meta.width} V ${meta.height} H 0 Z`
+})
+
 // При активном инструменте рисования фигуры прозрачны для указателя: pointerdown
 // уходит на холст, interact-драг над фигурой не стартует. В режиме select они
 // интерактивны; порты и ручки не трогаются.
 const shapePointerEvents = computed(() => (tool.value === 'select' ? null : 'none'))
 
-// Размер холста символа кратен шагу сетки схемы (PORT_GRID), чтобы порты и сам символ
-// садились на неё. Инпуты размера в тулбаре, снап — здесь.
-watch(
-  () => [meta.width, meta.height],
-  () => {
-    meta.width = Math.max(PORT_GRID, snapToGrid(meta.width, PORT_GRID))
-    meta.height = Math.max(PORT_GRID, snapToGrid(meta.height, PORT_GRID))
+// Размер холста символа: снап к PORT_GRID и перенос портов на новую границу — в
+// модели (`setCanvasSize`), здесь только кнопки тулбара. Через watch за `meta` это
+// делать нельзя: `loadStencil` ставит размер и порты одной операцией, и хендлер
+// «переклеил» бы загруженные порты.
+// Размер меняется ТОЛЬКО степперами, шагом BOX_GRID: набранное вручную число всё равно
+// снапится (и к тому же шагу обрезается габарит на сохранении), а «набрал 31 — получил
+// 30» читалось как потеря ввода. Шаг — дискретная операция, поэтому коммитим сразу.
+function setSize(axis, value) {
+  if (
+    setCanvasSize(axis === 'width' ? value : meta.width, axis === 'height' ? value : meta.height)
+  ) {
+    commit()
   }
-)
+}
+
+// Поле степпера — только табло: курсор в него не ставится (`pointer-events: none` на
+// самом input, кнопки при этом кликаются), клавиатурный ввод глушится. `readonly`
+// не подходит — он гасит и кнопки InputNumber.
+function blockSizeTyping(e) {
+  e.preventDefault()
+}
 
 // Цвет halo выделения и превью рисования — primary темы через токен
 // var(--p-primary-500), а не литерал. Применяется через :style: SVG-АТРИБУТ stroke
@@ -215,11 +304,12 @@ if (editTarget) {
 // диапазонов — стол и инструменты скрыты, сохранение не пересобирает определение.
 const rangesOnly = !isDuplicate && !!editTarget?.locked
 
-// Есть ли несохранённые изменения: берём canUndo — после открытия история = базовый
-// снимок (false), любая правка даёт true, откат к базе снова false. Так закрытие без
-// правок не переспрашивает. Копия «грязная» с самого начала: она ещё не существует, и
-// молча терять её на Esc нельзя.
-const isDirty = computed(() => isDuplicate || canUndo.value)
+// Есть ли несохранённые изменения: сравниваем черновик с исходным состоянием
+// (`hasChanges`), а не считаем шаги истории — иначе правка, отменённая руками
+// (подвинул фигуру и вернул), навсегда оставляла бы кнопку подсвеченной, а закрытие
+// переспрашивало бы впустую. Копия «грязная» с самого начала: она ещё не существует,
+// и молча терять её на Esc нельзя.
+const isDirty = computed(() => isDuplicate || hasChanges.value)
 
 // Закрытие с подтверждением, если черновик непустой. Попап якорится на кнопку
 // «Закрыть» — для Esc, где DOM-таргета нет, через closeBtn-реф.
@@ -272,9 +362,13 @@ async function save() {
   }
 
   if (editing) {
+    // Остальные формы правятся тем же сохранением, а не при своём открытии: иначе
+    // провод, потерявший порт, отваливался через дни и без связи с этой правкой.
+    // Идёт ПЕРВЫМ: прогон гасит отложенный снимок (в графе побывают чужие формы), и
+    // запрошенный до него шаг истории активной формы пропал бы.
+    const closed = await canvas.syncStencilInClosedForms(json.id, prev)
     // Экземпляры на холсте подтягивают новую версию символа целиком (рисунок, порты,
-    // габарит) одной операцией — значит один шаг undo. Закрытые формы сверяются при
-    // открытии через reinjectAllStencils с `sync`.
+    // габарит) одной операцией — значит один шаг undo.
     const { changed, detached } = syncStencilInstances(
       canvas.graphRef.value,
       canvas.paperRef.value,
@@ -286,14 +380,25 @@ async function save() {
     // Отцепленные концы выделяются: иначе их пришлось бы искать по схеме глазами.
     if (detached.length) canvas.setSelection(detached.map((id) => ({ kind: 'link', id })))
     const what = []
-    if (changed) what.push(`обновлено ${nplural(changed, 'символ', 'символа', 'символов')}`)
-    if (detached.length) {
-      what.push(`отцеплено ${nplural(detached.length, 'провод', 'провода', 'проводов')}`)
+    const total = changed + closed.changed
+    if (total) what.push(`обновлено ${nplural(total, 'символ', 'символа', 'символов')}`)
+    // Активную считаем, только если правка её задела: символ мог стоять лишь в
+    // закрытых формах.
+    const forms = closed.forms + (changed ? 1 : 0)
+    if (forms > 1) what.push(`на ${nplural(forms, 'форме', 'формах', 'формах')}`)
+    const detachedTotal = detached.length + closed.detached
+    if (detachedTotal) {
+      what.push(`отцеплено ${nplural(detachedTotal, 'провод', 'провода', 'проводов')}`)
     }
-    // Отцепленный провод — потеря соединения, поэтому warn, а не success.
+    // Отцепленный провод — потеря соединения, поэтому warn, а не success. На активной
+    // форме концы выделены, на остальных их придётся искать — об этом и говорим.
     const detail = what.length ? what.join(', ') : json.id
-    if (detached.length) notify.warn('Символ обновлён', `${detail} — порт удалён, перецепите`)
-    else notify.success('Символ обновлён', detail)
+    if (detachedTotal) {
+      const where = closed.detached
+        ? ' — порт удалён, проверьте другие формы'
+        : ' — порт удалён, перецепите'
+      notify.warn('Символ обновлён', detail + where)
+    } else notify.success('Символ обновлён', detail)
   } else if (ok) {
     notify.success('Символ создан', json.id)
   } else {
@@ -310,12 +415,79 @@ async function save() {
 // от раздувания до пикселизации, а крупные — в пределах области.
 const stageEl = ref(null)
 const { width: stageW, height: stageH } = useElementSize(stageEl)
-const scale = computed(() => {
-  const availW = Math.max(1, stageW.value - 48)
-  const availH = Math.max(1, stageH.value - 48)
-  const fit = Math.min(availW / meta.width, availH / meta.height)
+// Доступная под символ область стола (за вычетом полей).
+const stageAvail = computed(() => ({
+  w: Math.max(1, stageW.value - 48),
+  h: Math.max(1, stageH.value - 48),
+}))
+const fitScale = computed(() => {
+  const { w, h } = stageAvail.value
+  const fit = Math.min(w / meta.width, h / meta.height)
   return Math.max(3, Math.min(24, fit))
 })
+/**
+ * Опорная точка шкалы: 100% = символ 50×50 вписан в стол. Считать проценты от
+ * натуральной величины (1 единица = 1 пиксель схемы) бессмысленно — типовой символ
+ * показывал бы «1200%». От типового же размера цифра читается сразу: 40×40 вписанный
+ * даёт ~125%, 100×100 — ~50%.
+ */
+const ZOOM_BASE_SIZE = 50
+const baseScale = computed(() => {
+  const { w, h } = stageAvail.value
+  return Math.min(w, h) / ZOOM_BASE_SIZE
+})
+/**
+ * Ручной зум поверх авто-вписывания: жесты и кнопки те же, что на холсте схемы
+ * (Ctrl/Cmd+колесо к курсору, ± шагом ZOOM_STEP, клик по проценту вписывает).
+ * `null` — «вписано», тогда масштаб сам следует за размером символа и окна.
+ *
+ * Пределы держим в единицах scale (пикселей на единицу модели), а не в процентах: от
+ * размера стола они не зависят, поэтому символ не уедет в пиксельную кашу и не
+ * схлопнется в точку на любом окне.
+ */
+const MIN_SCALE = 1
+const MAX_SCALE = 48
+const manualScale = ref(null)
+const scale = computed(() => manualScale.value ?? fitScale.value)
+const zoomPercent = computed(() => Math.round((scale.value / baseScale.value) * 100))
+
+/**
+ * Зум с якорем: точка модели под курсором остаётся под ним. Пересчитываем по bbox
+ * SVG уже ПОСЛЕ перерисовки — стол центрирует контент флексом, и предсказать новые
+ * поля по scrollLeft/Top нельзя.
+ */
+async function zoomAt(clientX, clientY, factor) {
+  const stage = stageEl.value
+  const svg = svgEl.value
+  if (!stage || !svg) return
+  const before = scale.value
+  const next = Math.max(MIN_SCALE, Math.min(MAX_SCALE, before * factor))
+  if (next === before) return
+  const rect = svg.getBoundingClientRect()
+  const ux = (clientX - rect.left) / before
+  const uy = (clientY - rect.top) / before
+  manualScale.value = next
+  await nextTick()
+  const after = svg.getBoundingClientRect()
+  stage.scrollLeft += after.left + ux * next - clientX
+  stage.scrollTop += after.top + uy * next - clientY
+}
+
+/** Кнопки ±: якорь — центр видимой области стола. */
+function zoomByStep(factor) {
+  const rect = stageEl.value?.getBoundingClientRect()
+  if (!rect) return
+  zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor)
+}
+
+// Голое колесо оставляем нативной прокрутке стола (у него overflow-auto) — как на
+// холсте, где оно панорамирует; зум только с Ctrl/Cmd, он же трекпадный pinch.
+function onStageWheel(e) {
+  if (!e.ctrlKey && !e.metaKey) return
+  e.preventDefault()
+  zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1 / ZOOM_STEP : ZOOM_STEP)
+}
+useEventListener(stageEl, 'wheel', onStageWheel, { passive: false })
 const pxW = computed(() => meta.width * scale.value)
 const pxH = computed(() => meta.height * scale.value)
 // Ручки константного размера на экране (в user-единицах = px/scale).
@@ -705,7 +877,14 @@ function setupInteract() {
           const role = el.dataset.seMove
           const id = el.dataset.id
           dragCtx = { role, id, hKey: el.dataset.h }
-          if (role === 'shape') {
+          if (role === 'port') {
+            // Порт тащится вместе с ВЫДЕЛЕНИЕМ, как фигуры: клик по невыделенному
+            // (его уже обработал onPortDown) оставляет в наборе только его.
+            dragCtx.ports = ports.value
+              .filter((p) => selectedPortSet.value.has(p.id) || p.id === id)
+              .map((p) => ({ id: p.id, x: p.x, y: p.y }))
+            dragCtx.start = unitsFromEvent(e)
+          } else if (role === 'shape') {
             // Ведущая фигура задаёт сдвиг и снап. Если она в выделении — тащим всё
             // выделение, иначе переключаемся на неё.
             if (!selectedSet.value.has(id)) select(id)
@@ -720,7 +899,11 @@ function setupInteract() {
           if (!dragCtx) return
           const cur = unitsFromEvent(e)
           if (dragCtx.role === 'port') {
-            movePort(dragCtx.id, cur.x, cur.y)
+            // Дельта считается от снимка (без дрейфа), проекцию на грань каждому порту
+            // делает модель.
+            const dx = cur.x - dragCtx.start.x
+            const dy = cur.y - dragCtx.start.y
+            movePorts(dragCtx.ports.map((p) => ({ id: p.id, x: p.x + dx, y: p.y + dy })))
           } else if (dragCtx.role === 'handle') {
             reshape(dragCtx.snapshot, dragCtx.hKey, cur)
           } else if (dragCtx.role === 'shape') {
@@ -737,6 +920,9 @@ function setupInteract() {
           }
         },
         end() {
+          // Порты, брошенные друг на друга, сводим к одному — как при сжатии холста.
+          // На `move` этого не делаем: порт, проехавший СКВОЗЬ соседа, съел бы его.
+          if (dragCtx?.role === 'port') dedupePorts()
           // Один снимок истории на весь жест (move'ы шли без коммита); commit
           // сам дедупит, если фигуру/порт по факту не сдвинули.
           if (dragCtx) commit()
@@ -751,12 +937,19 @@ function setupInteract() {
  * фигур. Раньше удалением был повторный клик в режиме «Порт»: жест не совпадал ни с чем
  * другим в редакторе и срабатывал мимоходом при попытке порт подвинуть.
  *
- * stopPropagation обязателен: в режиме «Порт» pointerdown по холсту создаёт новый порт,
- * и без него клик по существующему тут же добавлял бы второй рядом.
+ * Всплытие НЕ гасим: interact.js слушает pointerdown на документе, и с
+ * `stopPropagation` перетаскивание порта не стартовало вовсе. Чужие обработчики порт
+ * пропускают сами — `onDrawDown` по `[data-se-move="port"]`, лассо и рамка по
+ * `[data-se-move]`.
  */
 function onPortDown(e, id) {
-  e.stopPropagation()
-  selectPort(id, e.ctrlKey || e.metaKey)
+  const additive = e.ctrlKey || e.metaKey
+  // Клик по порту ИЗ выделения набор не трогает — как у фигур (`start` их тоже
+  // переключает только когда взялись за невыделенную). Иначе pointerdown схлопывал
+  // бы группу до одного порта раньше, чем interact соберёт её в `start`, и
+  // групповое перетаскивание тащило бы один порт.
+  if (!additive && selectedPortSet.value.has(id)) return
+  selectPort(id, additive)
 }
 
 const ARROW_DIRS = {
@@ -1035,11 +1228,49 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex flex-col bg-surface-0">
+  <!-- Сохранение и закрытие — в подвале панели свойств: это действия над символом
+       целиком, там же автор заполняет его поля. В тулбаре они читались как ещё одна
+       кнопка рисования, а поверх стола закрывали рисунок. Кнопка «Сохранить»
+       приглушена, пока правок нет — по ней видно, есть ли несохранённое (тот же
+       `isDirty`, которым закрытие решает, переспрашивать ли). -->
+  <Teleport to="#tms-editor-actions" defer>
+    <div class="grid grid-cols-2 items-center gap-2 p-3">
+      <Button
+        label="Сохранить"
+        icon="pi pi-check"
+        size="small"
+        :severity="isDirty ? 'primary' : 'secondary'"
+        :outlined="!isDirty"
+        @click="save"
+      />
+      <Button
+        ref="closeBtn"
+        label="Закрыть"
+        icon="pi pi-times"
+        severity="secondary"
+        outlined
+        size="small"
+        @click="requestClose"
+      />
+    </div>
+  </Teleport>
+  <!-- `relative` на корне НЕ ставить: оверлею с места использования приходит
+       `absolute inset-0`, а в Tailwind `.relative` объявлен позже `.absolute` и
+       перебил бы его — редактор выпал бы из позиционирования. -->
+  <div v-bind="$attrs" class="flex flex-col bg-surface-0">
     <!-- Тулбар -->
-    <div class="flex min-h-14 items-center gap-2 border-b border-surface-200 px-3">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-surface-900">
-        {{ rangesOnly ? 'Диапазоны символа' : isDuplicate ? 'Копия символа' : 'Редактор' }}
+    <!-- Поля и высота — как в тулбаре холста (min-h-14, px-4): тулбары стоят один под
+         другим при открытии редактора, и разный отступ у крайних кнопок бросался в
+         глаза. -->
+    <div class="flex min-h-14 items-center gap-2 border-b border-surface-200 px-4">
+      <!-- Ширина фиксирована: от длины заголовка зависело, откуда начинается ряд
+         инструментов. У режима зон инструментов нет, там заголовок занимает место по
+         тексту. -->
+      <h2
+        class="text-sm font-semibold uppercase tracking-wide text-surface-900"
+        :class="rangesOnly ? '' : 'w-[75px] shrink-0 truncate'"
+      >
+        {{ rangesOnly ? 'Диапазоны символа' : 'Редактор' }}
       </h2>
       <!-- Инструменты рисования, размер и удаление — только у рисуемого символа; у
            программного (шина) правятся лишь зоны. -->
@@ -1078,33 +1309,71 @@ onBeforeUnmount(() => {
 
         <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
 
-        <!-- Размер символа (словом «холст» в UI зовётся холст СХЕМЫ). На сохранении
-           контент обрезается до bbox (cropToContent), поэтому итог может отличаться. -->
+        <!-- Порт — не рисунок, а точка подключения провода, поэтому своей группой. -->
+        <Button
+          v-tooltip.bottom="PORT_TOOL.tip"
+          :icon="PORT_TOOL.icon"
+          :severity="tool === PORT_TOOL.key ? 'primary' : 'secondary'"
+          :text="tool !== PORT_TOOL.key"
+          size="small"
+          class="tms-icon-btn"
+          @click="pickTool(PORT_TOOL.key)"
+        />
+
+        <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
+
+        <!-- Размер символа (словом «холст» в UI зовётся холст СХЕМЫ). Меняется только
+           шагом сетки портов: вручную набранная 31 всё равно снапится, и автор видел
+           бы «обрезание» без объяснений. На сохранении контент обрезается до bbox
+           (cropToContent), поэтому итог может отличаться и от заданного размера. -->
         <div class="flex items-center gap-1.5 text-xs text-surface-500">
           <span>Символ</span>
           <InputNumber
-            v-model="meta.width"
-            :min="10"
-            :step="10"
-            :use-grouping="false"
+            v-tooltip.bottom="`Ширина символа, шаг ${BOX_GRID}`"
+            :model-value="meta.width"
+            :min="BOX_GRID"
+            :step="BOX_GRID"
+            show-buttons
+            button-layout="horizontal"
             size="small"
-            input-class="w-14! text-center"
-            @blur="commit"
+            input-class="w-10! text-center pointer-events-none select-none"
+            @update:model-value="setSize('width', $event)"
+            @keydown="blockSizeTyping"
+            @paste.prevent
           />
           <span class="text-surface-400">×</span>
           <InputNumber
-            v-model="meta.height"
-            :min="10"
-            :step="10"
-            :use-grouping="false"
+            v-tooltip.bottom="`Высота символа, шаг ${BOX_GRID}`"
+            :model-value="meta.height"
+            :min="BOX_GRID"
+            :step="BOX_GRID"
+            show-buttons
+            button-layout="horizontal"
             size="small"
-            input-class="w-14! text-center"
-            @blur="commit"
+            input-class="w-10! text-center pointer-events-none select-none"
+            @update:model-value="setSize('height', $event)"
+            @keydown="blockSizeTyping"
+            @paste.prevent
           />
+          <!-- Подпись к подсветке на столе: показывает, во что размер превратится на
+             сохранении, пока автор не уберёт выступающие фигуры. -->
+          <span
+            v-if="contentOverflow && savedBox"
+            v-tooltip.bottom="
+              'Фигуры выходят за границу: такой размер символ получит при сохранении'
+            "
+            class="flex items-center gap-1 font-medium"
+            :style="{ color: OVERFLOW_STROKE }"
+          >
+            <i class="pi pi-exclamation-triangle text-xs" />
+            {{ savedBox.w }}×{{ savedBox.h }}
+          </span>
         </div>
-
-        <div class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
       </template>
+
+      <!-- Инструменты рисования и размер прижаты влево, история │ вид │ удаление — к
+         правому краю, как в тулбаре холста. -->
+      <div class="flex-1"></div>
 
       <Button
         v-tooltip.bottom="'Отменить (Ctrl+Z)'"
@@ -1129,6 +1398,42 @@ onBeforeUnmount(() => {
 
       <div v-if="!rangesOnly" class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
 
+      <!-- Зум стола — та же группа и то же место, что на холсте схемы (история │ вид │
+         удаление): ±, центр показывает масштаб и по клику вписывает символ. -->
+      <div v-if="!rangesOnly" class="flex items-center">
+        <Button
+          v-tooltip.bottom="'Уменьшить'"
+          icon="pi pi-minus"
+          severity="secondary"
+          text
+          size="small"
+          class="tms-icon-btn"
+          :disabled="scale <= MIN_SCALE"
+          @click="zoomByStep(1 / ZOOM_STEP)"
+        />
+        <Button
+          v-tooltip.bottom="'Вписать символ · Ctrl+колесо — зум'"
+          :label="`${zoomPercent}%`"
+          severity="secondary"
+          text
+          size="small"
+          class="font-mono! min-w-[3.25rem]! justify-center!"
+          @click="manualScale = null"
+        />
+        <Button
+          v-tooltip.bottom="'Увеличить'"
+          icon="pi pi-plus"
+          severity="secondary"
+          text
+          size="small"
+          class="tms-icon-btn"
+          :disabled="scale >= MAX_SCALE"
+          @click="zoomByStep(ZOOM_STEP)"
+        />
+      </div>
+
+      <div v-if="!rangesOnly" class="mx-1 h-5 w-px bg-surface-200" aria-hidden="true"></div>
+
       <Button
         v-if="!rangesOnly"
         v-tooltip.bottom="'Удалить выделенное'"
@@ -1139,27 +1444,6 @@ onBeforeUnmount(() => {
         class="tms-icon-btn"
         :disabled="!selectedIds.length"
         @click="removeShapes(selectedIds)"
-      />
-
-      <div class="flex-1"></div>
-
-      <!-- Приглушена, пока правок нет: по кнопке видно, есть ли несохранённое (тот же
-           `isDirty`, которым закрытие решает, переспрашивать ли). -->
-      <Button
-        label="Сохранить"
-        icon="pi pi-check"
-        size="small"
-        :severity="isDirty ? 'primary' : 'secondary'"
-        :outlined="!isDirty"
-        @click="save"
-      />
-      <Button
-        ref="closeBtn"
-        label="Закрыть"
-        severity="secondary"
-        text
-        size="small"
-        @click="requestClose"
       />
     </div>
 
@@ -1265,9 +1549,12 @@ onBeforeUnmount(() => {
             </g>
           </svg>
         </div>
+        <!-- select-none: стол — рисунок, а не текст. Без запрета протяжка рамкой или
+           новым примитивом поверх подписи выделяет её глифы, и жест превращается в
+           «синее выделение» вместо фигуры. -->
         <div
           ref="stageEl"
-          class="flex flex-1 items-center justify-center overflow-auto bg-surface-100"
+          class="flex flex-1 items-center justify-center overflow-auto bg-surface-100 select-none"
           @scroll="updateRuler"
           @pointerdown="onStageDown"
           @pointermove="onStageMove"
@@ -1365,6 +1652,72 @@ onBeforeUnmount(() => {
                 :mark-dash="3 / scale"
                 @select="onShapeSelect(s.id, $event)"
               />
+
+              <!-- Выступ за границу символа: штрих по чернилам фигур (маска), обрезанный
+                 областью ВНЕ холста, и пунктир по габариту, до которого символ
+                 раздуется на сохранении. -->
+              <template v-if="contentOverflow">
+                <defs>
+                  <clipPath :id="OVERFLOW_CLIP_ID">
+                    <path :d="overflowClip" clip-rule="evenodd" />
+                  </clipPath>
+                  <pattern
+                    :id="OVERFLOW_HATCH_ID"
+                    patternUnits="userSpaceOnUse"
+                    :width="hatchStep"
+                    :height="hatchStep"
+                    patternTransform="rotate(45)"
+                  >
+                    <line
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      :y2="hatchStep"
+                      :stroke="OVERFLOW_STROKE"
+                      :stroke-width="hatchStep / 3.5"
+                    />
+                  </pattern>
+                  <!-- Область маски задаём явно: по умолчанию она равна 120% viewport'а,
+                     а выступ лежит как раз ЗА ним и обрезался бы. -->
+                  <mask
+                    :id="OVERFLOW_MASK_ID"
+                    maskUnits="userSpaceOnUse"
+                    :x="overflowArea.x"
+                    :y="overflowArea.y"
+                    :width="overflowArea.w"
+                    :height="overflowArea.h"
+                  >
+                    <ShapePrimitive
+                      v-for="s in overflowMaskShapes"
+                      :key="`ovm${s.id}`"
+                      :shape="s"
+                      decorative
+                    />
+                  </mask>
+                </defs>
+                <rect
+                  pointer-events="none"
+                  :clip-path="`url(#${OVERFLOW_CLIP_ID})`"
+                  :mask="`url(#${OVERFLOW_MASK_ID})`"
+                  :x="overflowArea.x"
+                  :y="overflowArea.y"
+                  :width="overflowArea.w"
+                  :height="overflowArea.h"
+                  :fill="`url(#${OVERFLOW_HATCH_ID})`"
+                />
+                <rect
+                  pointer-events="none"
+                  :x="contentOverflow.x"
+                  :y="contentOverflow.y"
+                  :width="contentOverflow.w"
+                  :height="contentOverflow.h"
+                  fill="none"
+                  :stroke="OVERFLOW_STROKE"
+                  stroke-width="1"
+                  stroke-dasharray="4 3"
+                  vector-effect="non-scaling-stroke"
+                />
+              </template>
 
               <!-- Подписи состояний — отдельным слоем поверх фигур: сама пометка
                    (пунктир по контуру) живёт в ShapePrimitive, здесь только ключ, и он

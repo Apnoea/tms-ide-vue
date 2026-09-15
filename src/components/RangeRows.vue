@@ -35,21 +35,24 @@ const cellText = (v) => (Number.isFinite(v) ? String(v) : '')
   <div>
     <!-- Полоска-превью: в столбике чисел не видно ни порядка, ни пропусков, ни того,
          какая полоса шире. Фон под сегментами остаётся там, где значения цвета не
-         получат. Пустую серую полосу и место под подписи держим всегда: иначе блок
-         подпрыгивает, как только заполнят первую строку. -->
-    <div class="relative mb-1 h-2 w-full overflow-hidden rounded-sm bg-surface-200">
-      <span
-        v-for="(s, i) in bar?.segments || []"
-        :key="i"
-        v-tooltip.top="`${s.from} – ${s.to}`"
-        class="absolute inset-y-0"
-        :style="{ left: `${s.left}%`, width: `${s.width}%`, background: s.color }"
-      />
-    </div>
-    <div class="mb-2 flex h-3 justify-between font-mono text-[10px] leading-3 text-surface-400">
-      <span>{{ bar ? bar.from : '' }}</span>
-      <span>{{ bar ? bar.to : '' }}</span>
-    </div>
+         получат. При ЗАДАННЫХ строках пустую серую полосу и место под подписи держим
+         всегда — иначе блок подпрыгивает, как только заполнят пороги; когда строк нет
+         вовсе, шкале нечего показывать. -->
+    <template v-if="ranges.length">
+      <div class="relative mb-1 h-2 w-full overflow-hidden rounded-sm bg-surface-200">
+        <span
+          v-for="(s, i) in bar?.segments || []"
+          :key="i"
+          v-tooltip.top="`${s.from} – ${s.to}`"
+          class="absolute inset-y-0"
+          :style="{ left: `${s.left}%`, width: `${s.width}%`, background: s.color }"
+        />
+      </div>
+      <div class="mb-2 flex h-3 justify-between font-mono text-[10px] leading-3 text-surface-400">
+        <span>{{ bar ? bar.from : '' }}</span>
+        <span>{{ bar ? bar.to : '' }}</span>
+      </div>
+    </template>
 
     <template v-if="!readonly">
       <div class="space-y-1">

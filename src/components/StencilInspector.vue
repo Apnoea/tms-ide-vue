@@ -1041,5 +1041,10 @@ function clearStateColor(key, which) {
         <p v-else class="text-xs text-surface-400">Выделите фигуру на холсте</p>
       </div>
     </div>
+
+    <!-- Действия над символом целиком (сохранить/закрыть) — в подвале панели, где
+         автор и заполняет его поля. Разметку телепортирует сюда StencilEditor: там
+         живут `save`/`requestClose` и признак несохранённого. -->
+    <div id="tms-editor-actions" class="shrink-0 border-t border-surface-200 bg-surface-0"></div>
   </aside>
 </template>

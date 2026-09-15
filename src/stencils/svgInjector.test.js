@@ -1,9 +1,11 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
 import { dia, shapes } from '@joint/core'
 import { TMSStencil, tmsNamespace } from './tmsStencil'
 import { LINK_Z, LINK_Z_TOP, normalizeLinkZ } from './linkDefaults'
 import { getStencilById } from './registry'
 import {
+  injectStencilSvg,
   reinjectAllStencils,
   syncStencilInstances,
   flipTransform,
@@ -520,5 +522,64 @@ describe('масштаб символа: применение к экземпл�
     const graph = cell.graph
     syncStencilInstances(graph, paper, getStencilById('cell_qw'))
     expect(cell.get('size')).toMatchObject({ width: 40, height: 40 })
+  })
+})
+
+// Контент символа лежит в координатах ОПРЕДЕЛЕНИЯ, а группу растягивает transform —
+// значит и hit-area обязана быть базового размера: по размеру экземпляра её масштаб
+// раздул бы второй раз, и увеличенный символ перекрывал бы соседей.
+describe('injectStencilSvg: hit-area и масштаб', () => {
+  function domPaper() {
+    const views = new Map()
+    return {
+      findViewByModel(cell) {
+        if (!views.has(cell.id)) {
+          const el = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+          const body = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+          el.appendChild(body)
+          views.set(cell.id, { model: cell, el, findBySelector: () => body, body })
+        }
+        return views.get(cell.id)
+      },
+    }
+  }
+
+  function injected(stencilId, { size, tms = {} } = {}) {
+    const stencil = getStencilById(stencilId)
+    const graph = new dia.Graph({}, { cellNamespace: tmsNamespace })
+    const box = size || { width: stencil.width, height: stencil.height }
+    const cell = new TMSStencil({
+      position: { x: 0, y: 0 },
+      size: box,
+      tms: { stencilId, ...tms },
+    })
+    graph.addCell(cell)
+    const view = domPaper().findViewByModel(cell)
+    injectStencilSvg(view, stencil)
+    return view.body
+  }
+
+  it('масштабированный символ: hit-area в базовых координатах, растягивает transform', () => {
+    const body = injected('cell_qw', { size: { width: 40, height: 40 }, tms: { scale: 2 } })
+    const hit = body.querySelector('rect.tms-hit-area')
+    // База cell_qw — 20×20; после scale(2 2) область попадания совпадёт с габаритом.
+    expect(hit.getAttribute('width')).toBe('20')
+    expect(hit.getAttribute('height')).toBe('20')
+    expect(body.getAttribute('transform')).toContain('scale(2 2)')
+  })
+
+  it('немасштабированный символ: hit-area по габариту, transform не нужен', () => {
+    const body = injected('cell_qw')
+    const hit = body.querySelector('rect.tms-hit-area')
+    expect(hit.getAttribute('width')).toBe('20')
+    expect(body.getAttribute('transform')).toBeNull()
+  })
+
+  it('программный символ (шина): hit-area по фактическому размеру, масштаба нет', () => {
+    const body = injected('cell_bus', { size: { width: 120, height: 8 } })
+    const hit = body.querySelector('rect.tms-hit-area')
+    expect(hit.getAttribute('width')).toBe('120')
+    expect(hit.getAttribute('height')).toBe('8')
+    expect(body.getAttribute('transform')).toBeNull()
   })
 })

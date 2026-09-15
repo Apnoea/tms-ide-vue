@@ -61,6 +61,12 @@ const props = defineProps({
   /** Толщина и шаг пунктира метки в user-координатах. */
   markWidth: { type: Number, default: 3 },
   markDash: { type: Number, default: 1 },
+  /**
+   * Только рисунок: без hit-слоя и без `data-se-move`/`data-id`. Для служебных копий
+   * фигуры (маска подсветки выступа) — они не кликаются, а дубли data-атрибутов в DOM
+   * попали бы под тот же селектор, по которому редактор ищет фигуры.
+   */
+  decorative: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['select'])
@@ -304,7 +310,7 @@ const capJoin = computed(() => {
     />
   </g>
   <rect
-    v-if="emptyText"
+    v-if="emptyText && !decorative"
     :x="emptyBox.x"
     :y="emptyBox.y"
     :width="emptyBox.w"
@@ -332,7 +338,7 @@ const capJoin = computed(() => {
     <template v-else-if="isText">{{ shape.text }}</template>
   </component>
   <component
-    v-if="!emptyText"
+    v-if="!emptyText && !decorative"
     :is="geom.tag"
     v-bind="geom.attrs"
     data-se-move="shape"

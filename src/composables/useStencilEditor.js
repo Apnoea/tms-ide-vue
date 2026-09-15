@@ -20,6 +20,7 @@ import { nextStencilId, stateSlotOf } from '../stencils/registry'
 import {
   serializeSvg,
   buildStencilJson,
+  contentBox,
   cropToContent,
   parseStencilSvg,
   translateShape,
@@ -40,7 +41,7 @@ export const PORT_GRID = 5
  * снапнутый к 5, попадает на полуклетку. Кратность 10 держит центр на сетке, а сдвиг
  * контента при кропе кратен 10, поэтому порты остаются кратными 5.
  */
-const BOX_GRID = 10
+export const BOX_GRID = 10
 
 // Слот-драйвер внутренней анимации: булев режим → ключ `onoff`, режим
 // «по значению» → ключ `value` (тег, значение которого выбирает состояние).
@@ -140,6 +141,24 @@ export function createStencilEditor() {
   const histIndex = ref(-1)
   const canUndo = computed(() => histIndex.value > 0)
   const canRedo = computed(() => histIndex.value < history.value.length - 1)
+  /**
+   * Отличается ли черновик от ИСХОДНОГО состояния (снимок №0: загруженный символ или
+   * пустая заготовка). `canUndo` для этого не годится — он остаётся true и когда
+   * правку отменили руками: подвинул фигуру и вернул на место, шага в истории два,
+   * изменений ноль.
+   *
+   * Сравниваем сериализацией всего черновика — тем же способом, каким `commit`
+   * дедупит no-op'ы. Ключи в снимке лежат в порядке объявления, у текущего состояния
+   * тоже, поэтому строки совпадают при равных данных; разойтись они могут лишь в
+   * сторону «есть изменения», а это безопасная сторона — переспросим лишний раз.
+   */
+  const hasChanges = computed(() => {
+    const base = history.value[0]
+    if (!base) return false
+    return (
+      JSON.stringify(base) !== JSON.stringify({ meta, shapes: shapes.value, ports: ports.value })
+    )
+  })
 
   function commit() {
     const snap = { meta: clone(meta), shapes: clone(shapes.value), ports: clone(ports.value) }
@@ -603,6 +622,90 @@ export function createStencilEditor() {
     commit()
   }
 
+  /**
+   * Размер холста символа (кнопки тулбара): порты, стоявшие НА ГРАНИ, переезжают на
+   * новую границу — координата вдоль грани сохраняется, поперёк становится новым краем.
+   * Без этого увеличенный холст оставлял выводы внутри тела, и на схеме провод приходил
+   * в пустоту.
+   *
+   * Размер снапится к BOX_GRID — тому же шагу, по которому габарит обрезается на
+   * сохранении (`cropToContent`): иначе заданные 35 превращались бы в 40 уже в файле.
+   *
+   * Фигуры не трогаем: торчащий за край контент подсвечивается на холсте
+   * (`contentOverflow`), а габарит ему подгоняет `cropToContent` на сохранении.
+   *
+   * @returns {boolean} менялось ли что-то (вызывающий решает, писать ли шаг истории)
+   */
+  function setCanvasSize(width, height) {
+    const w = Math.max(BOX_GRID, snapToGrid(Number(width) || 0, BOX_GRID))
+    const h = Math.max(BOX_GRID, snapToGrid(Number(height) || 0, BOX_GRID))
+    if (w === meta.width && h === meta.height) return false
+    const prevW = meta.width
+    const prevH = meta.height
+    meta.width = w
+    meta.height = h
+    ports.value = ports.value.map((p) => ({
+      ...p,
+      // `>=` а не `===`: порт мог остаться за краем после уменьшения холста.
+      x: p.x >= prevW ? w : Math.min(p.x, w),
+      y: p.y >= prevH ? h : Math.min(p.y, h),
+    }))
+    dedupePorts()
+    return true
+  }
+
+  /**
+   * Габарит символа после сохранения: `cropToContent` обрезает поля до контента, так
+   * что заданный размер холста — лишь верстак. Тот же счёт, что в экспорте, поэтому
+   * цифра в редакторе совпадает с файлом.
+   */
+  const savedBox = computed(() => contentBox(shapes.value, ports.value, BOX_GRID))
+
+  /**
+   * Область подсветки контента, торчащего за границу холста (null — всё внутри):
+   * объединение холста и будущего габарита. Без неё «поставил 30, сохранил, получил
+   * 40» читается как потеря ввода.
+   */
+  const contentOverflow = computed(() => {
+    const box = savedBox.value
+    if (!box) return null
+    if (box.x >= 0 && box.y >= 0 && box.x + box.w <= meta.width && box.y + box.h <= meta.height) {
+      return null
+    }
+    const x0 = Math.min(0, box.x)
+    const y0 = Math.min(0, box.y)
+    return {
+      x: x0,
+      y: y0,
+      w: Math.max(meta.width, box.x + box.w) - x0,
+      h: Math.max(meta.height, box.y + box.h) - y0,
+    }
+  })
+
+  /**
+   * Схлопнувшиеся порты (совпали координаты) сводятся к одному. Сжатие холста
+   * прижимает к новой границе всё, что оказалось за краем: ряд выводов вставал в одну
+   * точку — на вид один порт, на деле несколько, и провод цеплялся к невидимому
+   * соседу. Оставляем первый по порядку — у него меньший номер в авто-именах.
+   *
+   * @returns {number} сколько портов убрали
+   */
+  function dedupePorts() {
+    const seen = new Set()
+    const kept = ports.value.filter((p) => {
+      const key = `${p.x},${p.y}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    const removed = ports.value.length - kept.length
+    if (!removed) return 0
+    const ids = new Set(kept.map((p) => p.id))
+    ports.value = kept
+    selectedPortIds.value = selectedPortIds.value.filter((id) => ids.has(id))
+    return removed
+  }
+
   // Порт живёт на границе: снап к PORT_GRID + проекция на ближайшую сторону bbox,
   // поэтому клик «примерно туда» сажает порт на край.
   function portOnEdge(x, y) {
@@ -629,8 +732,25 @@ export function createStencilEditor() {
 
   // Как updateShape: идёт во время drag'а порта, историю коммитит компонент.
   function movePort(id, x, y) {
-    const { x: px, y: py } = portOnEdge(x, y)
-    ports.value = ports.value.map((p) => (p.id === id ? { ...p, x: px, y: py } : p))
+    movePorts([{ id, x, y }])
+  }
+
+  /**
+   * Перетаскивание ПАЧКИ портов (выделение тащится целиком, как фигуры): каждый порт
+   * проецируется на свою ближайшую грань отдельно — общий сдвиг увёл бы часть из них
+   * внутрь тела, как и у `nudgePorts`.
+   *
+   * @param {Array<{id: string, x: number, y: number}>} moves — новые позиции ДО проекции
+   */
+  function movePorts(moves) {
+    if (!moves?.length) return
+    const byId = new Map(moves.map((m) => [m.id, m]))
+    ports.value = ports.value.map((p) => {
+      const move = byId.get(p.id)
+      if (!move) return p
+      const { x, y } = portOnEdge(move.x, move.y)
+      return { ...p, x, y }
+    })
   }
 
   /**
@@ -780,6 +900,7 @@ export function createStencilEditor() {
     previewState,
     canUndo,
     canRedo,
+    hasChanges,
     snapShapeX,
     snapShapeY,
     setTool,
@@ -814,6 +935,11 @@ export function createStencilEditor() {
     applyPositionPreset,
     addPort,
     movePort,
+    movePorts,
+    dedupePorts,
+    setCanvasSize,
+    contentOverflow,
+    savedBox,
     removePorts,
     selectPort,
     nudgePorts,

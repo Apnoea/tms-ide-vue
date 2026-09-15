@@ -11,6 +11,7 @@ import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 // Отчёт сверки портов возвращаем как настоящая функция — вызывающий читает detached.
 vi.mock('../stencils/svgInjector', () => ({
   reinjectAllStencils: vi.fn(() => ({ changed: 0, detached: [] })),
+  syncStencilInstances: vi.fn(() => ({ changed: 0, detached: [] })),
 }))
 // registerStencil возвращает успех: false = id символа вне маски (реальный
 // реестр отклоняет такие), поэтому по умолчанию true.
@@ -55,7 +56,7 @@ const mockCanvas = {
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
 import { useProject } from './useProject'
-import { reinjectAllStencils } from '../stencils/svgInjector'
+import { reinjectAllStencils, syncStencilInstances } from '../stencils/svgInjector'
 import { parseSvgProject } from '../services/projectLoader'
 import { getStencilById, registerStencil } from '../stencils/registry'
 import { replaceStencilOverrides } from '../services/stencilOverrides'
@@ -449,6 +450,62 @@ describe('useProject', () => {
 
       expect(deps.autosave.persistForm.mock.calls.map((c) => c[0])).toEqual(['a', 'b'])
       expect(useWorkspaceStore().getFormGraph('b')).toEqual(expect.objectContaining({ cells: [] }))
+    })
+  })
+
+  // Правка символа доезжает до ВСЕХ форм сразу: раньше закрытые догоняли её при
+  // открытии, и провод, потерявший порт, отваливался спустя дни.
+  describe('syncStencilInClosedForms', () => {
+    beforeEach(() => {
+      getStencilById.mockReturnValue({ id: 'cell_x', ports: [] })
+    })
+
+    it('прогоняет закрытые формы, пишет изменённые, активную не трогает', async () => {
+      seedForms(
+        [
+          { id: 'a', graphJson: { cells: [] } },
+          { id: 'b', graphJson: { cells: [] } },
+          { id: 'c', graphJson: { cells: [] } },
+        ],
+        'a'
+      )
+      syncStencilInstances.mockReturnValue({ changed: 1, detached: ['l1'] })
+      const deps = makeDeps()
+      const { syncStencilInClosedForms } = useProject(deps)
+      const report = await syncStencilInClosedForms('cell_x')
+
+      // Активная ('a') остаётся на редакторе: её он сверяет сам.
+      expect(syncStencilInstances).toHaveBeenCalledTimes(2)
+      expect(deps.autosave.persistForm.mock.calls.map((c) => c[0])).toEqual(['b', 'c'])
+      expect(report).toEqual({ forms: 2, changed: 2, detached: 2 })
+      expect(useWorkspaceStore().activeFormId).toBe('a')
+    })
+
+    it('без изменений формы не перезаписываются', async () => {
+      seedForms(
+        [
+          { id: 'a', graphJson: { cells: [] } },
+          { id: 'b', graphJson: { cells: [] } },
+        ],
+        'a'
+      )
+      syncStencilInstances.mockReturnValue({ changed: 0, detached: [] })
+      const deps = makeDeps()
+      const { syncStencilInClosedForms } = useProject(deps)
+      const report = await syncStencilInClosedForms('cell_x')
+
+      expect(deps.autosave.persistForm).not.toHaveBeenCalled()
+      expect(report.forms).toBe(0)
+    })
+
+    it('одна форма в проекте — прогонять нечего', async () => {
+      seedForms([{ id: 'a', graphJson: { cells: [] } }], 'a')
+      const deps = makeDeps()
+      const { syncStencilInClosedForms } = useProject(deps)
+      await syncStencilInClosedForms('cell_x')
+
+      expect(deps.autosave.saveActiveForm).not.toHaveBeenCalled()
+      expect(syncStencilInstances).not.toHaveBeenCalled()
     })
   })
 

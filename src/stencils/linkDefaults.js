@@ -3,7 +3,7 @@
 // восстановлении из SVG/JSON — на дефолтах JointJS провод выглядел бы иначе.
 
 import { dia, routers, connectors, linkTools, g } from '@joint/core'
-import { LINK_META_FIELDS } from '../constants/ids'
+import { BUS_STENCIL_ID, LINK_META_FIELDS } from '../constants/ids'
 import { RANGE_FILL_CLASS, cssColor } from '../constants/animation'
 import { svgEl } from '../utils/xml'
 import { snapToGrid } from '../utils/grid'
@@ -11,17 +11,6 @@ import { ARROW_KINDS, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire
 
 const { Directions } = routers.rightAngle
 
-/**
- * Сторона подхода к порту, который лежит ВНУТРИ тела символа (слот шины стоит в
- * середине толщины). Дефолт роутера — ближайшая сторона bbox, а у слота в середине
- * тонкого тела top и bottom равноудалены; здесь возвращается сторона, с которой
- * провод реально идёт, поэтому к шине подключаются и сверху, и снизу.
- *
- * Ось перпендикулярна длинной стороне тела: у шины вход всегда вертикальный. Для тела
- * без вытянутости (точка соединения) — по преобладающей дельте.
- *
- * null = порт на границе тела (обычный символ) → направление за роутером.
- */
 /** Точка СТРОГО внутри bbox (границы не считаются): порт в теле, а не на контуре. */
 export function isInsideBBox(point, bbox) {
   if (!point || !bbox) return false
@@ -33,6 +22,18 @@ export function isInsideBBox(point, bbox) {
   )
 }
 
+/**
+ * Сторона подхода к слоту ШИНЫ: он лежит в середине толщины, то есть ВНУТРИ тела, и
+ * дефолт роутера (ближайшая сторона bbox) при равноудалённых top/bottom заводил все
+ * провода сверху. Здесь возвращается сторона, с которой провод реально идёт, поэтому к
+ * шине подключаются и сверху, и снизу.
+ *
+ * Ось перпендикулярна длинной стороне тела: у шины вход всегда вертикальный. Тело без
+ * вытянутости — по преобладающей дельте.
+ *
+ * null = точка не внутри тела (у прочих символов выводы на грани, см.
+ * `edgeApproachDirection`).
+ */
 export function insideApproachDirection(anchor, bbox, from) {
   if (!anchor || !bbox || !from) return null
   if (!isInsideBBox(anchor, bbox)) return null
@@ -49,8 +50,56 @@ export function insideApproachDirection(anchor, bbox, from) {
 }
 
 /**
- * `sourceDirection`/`targetDirection` для концов на портах внутри тела. «Откуда идёт
- * провод» — ближайший ручной излом, а без изломов противоположный конец.
+ * Допуск «порт на грани» в модельных единицах: у масштабированного символа координата
+ * порта пересчитывается делением, и попадание ровно в границу не гарантировано.
+ */
+const EDGE_TOLERANCE = 1
+
+/**
+ * Сторона выхода для порта НА ГРАНИ символа: провод обязан выходить ПЕРПЕНДИКУЛЯРНО
+ * той грани, на которой стоит вывод, а не вдоль неё. Без явного направления роутер
+ * выбирает сторону сам (по положению цели) и у порта, до которого от соседних граней
+ * тоже недалеко, может увести первый сегмент вбок — вывод визуально «прилипает» к телу.
+ *
+ * В УГЛУ перпендикуляров два (у правого нижнего это «вправо» и «вниз» — внутрь тела
+ * выхода нет), поэтому берётся тот, что совпадает по знаку с направлением на ориентир;
+ * если подходят оба или ни одного — ось по преобладающей дельте.
+ *
+ * null = порт не на грани (внутри тела или вне bbox).
+ */
+export function edgeApproachDirection(anchor, bbox, from) {
+  if (!anchor || !bbox) return null
+  const dist = {
+    [Directions.LEFT]: Math.abs(anchor.x - bbox.x),
+    [Directions.RIGHT]: Math.abs(bbox.x + bbox.width - anchor.x),
+    [Directions.TOP]: Math.abs(anchor.y - bbox.y),
+    [Directions.BOTTOM]: Math.abs(bbox.y + bbox.height - anchor.y),
+  }
+  const min = Math.min(...Object.values(dist))
+  if (min > EDGE_TOLERANCE) return null
+  const near = Object.keys(dist).filter((side) => dist[side] - min <= EDGE_TOLERANCE)
+  if (near.length === 1) return near[0]
+
+  const horizontal = near.find((s) => s === Directions.LEFT || s === Directions.RIGHT)
+  const vertical = near.find((s) => s === Directions.TOP || s === Directions.BOTTOM)
+  if (!horizontal) return vertical
+  if (!vertical) return horizontal
+  const dx = from ? from.x - anchor.x : 0
+  const dy = from ? from.y - anchor.y : 0
+  // «Ведёт к ориентиру» = наружная нормаль грани смотрит туда же, куда и дельта.
+  const towardH = horizontal === Directions.LEFT ? dx < 0 : dx > 0
+  const towardV = vertical === Directions.TOP ? dy < 0 : dy > 0
+  if (towardH !== towardV) return towardH ? horizontal : vertical
+  return Math.abs(dx) >= Math.abs(dy) ? horizontal : vertical
+}
+
+/**
+ * `sourceDirection`/`targetDirection` для концов на символах: выводы стоят НА ГРАНИ,
+ * и провод выходит перпендикулярно ей (`edgeApproachDirection`). Исключение одно —
+ * ШИНА: её слот физически внутри тела (середина толщины), сторону выбирает
+ * `insideApproachDirection` по тому, откуда провод идёт.
+ *
+ * Ориентир — ближайший ручной излом, а без изломов противоположный конец.
  */
 export function rightAngleDirections(vertices, linkView) {
   const out = {}
@@ -72,7 +121,11 @@ export function rightAngleDirections(vertices, linkView) {
   ]
   for (const [key, view, anchor, from] of ends) {
     if (!view?.model?.isElement?.()) continue
-    const dir = insideApproachDirection(anchor, view.model.getBBox(), from)
+    const bbox = view.model.getBBox()
+    const isBus = view.model.get?.('tms')?.stencilId === BUS_STENCIL_ID
+    const dir = isBus
+      ? insideApproachDirection(anchor, bbox, from)
+      : edgeApproachDirection(anchor, bbox, from)
     if (dir) out[key] = dir
   }
   return out
