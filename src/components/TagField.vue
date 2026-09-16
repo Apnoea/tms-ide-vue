@@ -56,7 +56,7 @@ const issueLabel = computed(() => tagIssueLabel(issue.value))
       severity="secondary"
       text
       size="small"
-      class="p-1! w-6! h-6!"
+      class="tms-row-btn"
       @click="$emit('highlight')"
     />
     <Button
@@ -66,7 +66,7 @@ const issueLabel = computed(() => tagIssueLabel(issue.value))
       severity="secondary"
       text
       size="small"
-      class="p-1! w-6! h-6!"
+      class="tms-row-btn"
       @click="$emit('remove')"
     />
   </div>

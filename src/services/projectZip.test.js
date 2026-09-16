@@ -3,28 +3,8 @@ import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('./fileSystem', () => ({ pickFile: vi.fn() }))
 
-import {
-  buildProjectZipBlob,
-  readProjectZipFile,
-  collectUsedStencilIds,
-  pickProjectArchive,
-} from './projectZip'
+import { buildProjectZipBlob, readProjectZipFile, pickProjectArchive } from './projectZip'
 import { pickFile } from './fileSystem'
-
-describe('collectUsedStencilIds', () => {
-  it('собирает уникальные stencilId из форм, игнорит линки и без stencilId', () => {
-    const forms = [
-      { cells: [{ tms: { stencilId: 'cell_qw' } }, { tms: { stencilId: 'cell_bus' } }] },
-      { cells: [{ tms: { stencilId: 'cell_qw' } }, { type: 'standard.Link', tms: {} }, {}] },
-    ]
-    expect(collectUsedStencilIds(forms).sort()).toEqual(['cell_bus', 'cell_qw'])
-  })
-
-  it('пустой ввод → пустой массив', () => {
-    expect(collectUsedStencilIds([])).toEqual([])
-    expect(collectUsedStencilIds([{ cells: [] }, {}])).toEqual([])
-  })
-})
 
 describe('projectZip', () => {
   it('round-trip: восстанавливает формы / символы / теги / иерархию', async () => {

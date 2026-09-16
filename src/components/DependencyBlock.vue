@@ -48,7 +48,7 @@ defineEmits([
           severity="secondary"
           text
           size="small"
-          class="p-1! w-6! h-6!"
+          class="tms-row-btn"
           @click="$emit('paste')"
         />
         <Button
@@ -58,7 +58,7 @@ defineEmits([
           severity="secondary"
           text
           size="small"
-          class="p-1! w-6! h-6!"
+          class="tms-row-btn"
           @click="$emit('copy')"
         />
         <Button
@@ -68,7 +68,7 @@ defineEmits([
           severity="secondary"
           text
           size="small"
-          class="p-1! w-6! h-6!"
+          class="tms-row-btn"
           @click="$emit('remove')"
         />
       </div>
@@ -76,7 +76,7 @@ defineEmits([
 
     <!-- Правило показываем, только когда группы есть: пустому блоку хватает кнопки, а
          абзац делал бы самым заметным то, что нужно реже всего. -->
-    <p v-if="groups.length" class="text-[11px] text-surface-500 mb-2 leading-snug">
+    <p v-if="groups.length" class="tms-hint mb-2">
       Активен, если выполнена любая группа условий. Иначе — тускнеет.
     </p>
 
@@ -136,7 +136,7 @@ defineEmits([
       группа (ИЛИ)
     </button>
 
-    <p v-if="!tagsLoaded" class="text-[11px] text-surface-400 leading-snug mt-1">
+    <p v-if="!tagsLoaded" class="tms-hint mt-1 text-surface-400">
       Загрузи tag-list, чтобы выбрать тег.
     </p>
   </div>

@@ -47,17 +47,17 @@ defineEmits(['open-tag-picker', 'highlight', 'remove'])
           severity="secondary"
           text
           size="small"
-          class="p-1! w-6! h-6!"
+          class="tms-row-btn"
           @click="$emit('remove')"
         />
       </div>
     </div>
 
-    <p v-if="pickable || rangeSource" class="text-[11px] text-surface-500 mb-2 leading-snug">
+    <p v-if="pickable || rangeSource" class="tms-hint mb-2">
       Цвет по диапазону значения. Одинаковые границы — точное значение: «3 — 3» сработает только на
       3.
     </p>
-    <p v-else class="text-[11px] text-surface-500 leading-snug">{{ hint }}</p>
+    <p v-else class="tms-hint">{{ hint }}</p>
 
     <div v-if="pickable || rangeSource" class="space-y-3">
       <div>

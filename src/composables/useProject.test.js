@@ -17,6 +17,8 @@ vi.mock('../stencils/svgInjector', () => ({
 // реестр отклоняет такие), поэтому по умолчанию true.
 vi.mock('../stencils/registry', () => ({
   getStencilById: vi.fn(() => null),
+  // Экспорт кладёт в архив ВСЮ палитру, а не только символы со схем.
+  getAllStencils: vi.fn(() => []),
   registerStencil: vi.fn(() => true),
 }))
 vi.mock('../services/exporter', () => ({
@@ -28,7 +30,6 @@ vi.mock('../services/projectZip', () => ({
   downloadBlob: vi.fn(),
   pickProjectArchive: vi.fn(),
   readProjectZipFile: vi.fn(),
-  collectUsedStencilIds: vi.fn(() => []),
 }))
 
 // Запись файлов в definitions/ — dev-плагин по HTTP; в тесте только факт вызова.
@@ -58,7 +59,7 @@ vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 import { useProject } from './useProject'
 import { reinjectAllStencils, syncStencilInstances } from '../stencils/svgInjector'
 import { parseSvgProject } from '../services/projectLoader'
-import { getStencilById, registerStencil } from '../stencils/registry'
+import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
 import { replaceStencilOverrides } from '../services/stencilOverrides'
 import { buildProjectZipBlob, pickProjectArchive, readProjectZipFile } from '../services/projectZip'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
@@ -430,6 +431,27 @@ describe('useProject', () => {
       expect(deps.undo.cancelPendingSnapshot).toHaveBeenCalled()
       // Сверка ничего не поправила — формы не перезаписываются.
       expect(deps.autosave.persistForm).not.toHaveBeenCalled()
+    })
+
+    // Проект — контейнер работы: символ, нарисованный про запас, обязан пережить
+    // перенос на другую машину, даже если на схемах его пока нет.
+    it('в library уезжает ВСЯ палитра, а не только символы со схем', async () => {
+      seedForms([{ id: 'a', graphJson: { cells: [] } }], 'a')
+      getAllStencils.mockReturnValue([
+        { id: 'cell_used', label: 'U', svgText: '<svg/>' },
+        { id: 'cell_idle', label: 'I', svgText: '<svg/>' },
+      ])
+      const { exportProjectToArchive } = useProject(makeDeps())
+      await exportProjectToArchive()
+
+      const bundleArg = buildProjectZipBlob.mock.calls[0][0]
+      expect(bundleArg.stencils.map((s) => s.id)).toEqual(['cell_used', 'cell_idle'])
+      // svgText уезжает отдельным файлом (shape.svg), в stencil.json его нет.
+      expect(bundleArg.stencils[0]).toEqual({
+        id: 'cell_used',
+        stencilJson: { id: 'cell_used', label: 'U' },
+        shapeSvg: '<svg/>',
+      })
     })
 
     it('сверенная сверкой форма сохраняется: архив не расходится с проектом', async () => {

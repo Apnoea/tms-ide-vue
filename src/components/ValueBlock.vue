@@ -51,7 +51,7 @@ const emit = defineEmits([
           severity="secondary"
           text
           size="small"
-          class="p-1! w-6! h-6!"
+          class="tms-row-btn"
           @click="emit('paste')"
         />
         <Button
@@ -61,7 +61,7 @@ const emit = defineEmits([
           severity="secondary"
           text
           size="small"
-          class="p-1! w-6! h-6!"
+          class="tms-row-btn"
           @click="emit('copy')"
         />
         <Button
@@ -71,7 +71,7 @@ const emit = defineEmits([
           severity="secondary"
           text
           size="small"
-          class="p-1! w-6! h-6!"
+          class="tms-row-btn"
           @click="emit('clear')"
         />
       </div>
@@ -87,7 +87,9 @@ const emit = defineEmits([
       @pick="emit('pick-tag')"
       @highlight="emit('highlight-tag', slotInfo.value)"
     />
-    <div class="mt-2 flex items-center gap-3">
+    <!-- Точность — свойство ЗНАЧЕНИЯ: без привязанного тега печатать нечего, и поле
+         спрашивало бы о формате несуществующих данных. -->
+    <div v-if="slotInfo.value" class="mt-2 flex items-center gap-3">
       <span class="text-[11px] text-surface-500 shrink-0">Знаков после запятой</span>
       <!-- Точность показываем ЧИСЛОМ, а не подсказкой в пустом поле: в `tms` дефолт не
            пишется, но в рантайме подпись всё равно печатается с ним, и пустое поле

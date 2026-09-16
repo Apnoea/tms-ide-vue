@@ -15,7 +15,12 @@ import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 import { sanitizeShape } from '../stencils/shapeElement'
 import { isBackgroundZ, BACKGROUND_Z_BOUNDS } from '../utils/zOrder'
 import { portPoints } from '../utils/portGeom'
-import { valueCellToParams, legacyBusPortId, dissolveNodeCells } from './legacyFormat'
+import { valueCellToParams, dissolveNodeCells } from './legacyFormat'
+
+// Габарит точки соединения прошлого формата: своего определения у неё больше нет, а
+// центр (куда встаёт конец провода) считается по размеру. Мета без width/height —
+// архивы тех версий, где размер узла был константой.
+const NODE_SIZE_LEGACY = 20
 
 /**
  * Первая и последняя точки пути провода — последняя линия обороны: если в meta конец
@@ -82,7 +87,7 @@ export function parseSvgProject(svgText) {
   const errors = []
   const stencilIds = new Set()
   const elementIds = new Set() // id успешно собранных ячеек — для отсева висячих проводов
-  const busIds = new Set() // id шин: только у них порт-рефы линков переводим на новую схему
+  const busIds = new Set() // id шин: по ним проверяем закрепление символов (tms.busId)
   const portIndex = new Map() // точка холста → { id, port }: чинит потерянные привязки
   // id ячейки → имена её портов: ловим провод на порту, которого у символа НЕТ (его
   // пересохранили с другими именами). JointJS такую привязку молча заменяет центром
@@ -144,6 +149,23 @@ export function parseSvgProject(svgText) {
       }
       const x = parseFloat(m[1])
       const y = parseFloat(m[2])
+
+      // Точка соединения прошлого формата: символа с таким id больше нет, поэтому
+      // ячейку не строим, а кладём заготовку — dissolveNodeCells ниже уберёт её и
+      // переставит концы подключённых проводов в её центр. Без этой ветки узел отсеяла
+      // бы проверка реестра, и провода остались бы привязаны к несуществующей ячейке.
+      if (meta.stencilId === 'cell_node') {
+        cells.push({
+          id: meta.id,
+          position: { x, y },
+          size: { width: meta.width ?? NODE_SIZE_LEGACY, height: meta.height ?? NODE_SIZE_LEGACY },
+          tms: { stencilId: 'cell_node' },
+        })
+        // В elementIds — чтобы привязку к узлу не отвязал resolveEnd: конец должен
+        // встать в ЦЕНТР узла, а не в конец пути (наконечник его укорачивает).
+        elementIds.add(meta.id)
+        continue
+      }
 
       stencilIds.add(meta.stencilId)
       const stencil = getStencilById(meta.stencilId)
@@ -212,17 +234,12 @@ export function parseSvgProject(svgText) {
       // выбрасывается: линия на схеме нарисована, терять её хуже.
       const pathEnds = pathEndpoints(p.getAttribute('d'))
       const resolveEnd = (end, fallback, which) => {
-        // Имя порта у собранной ячейки: у шины прошлой схемы порты переименованы
-        // (buildPortItems), без перевода конец повис бы на несуществующем `top_i`.
-        const wanted =
-          end?.id && busIds.has(end.id) ? legacyBusPortId(end.port) || end.port : end?.port
+        const wanted = end?.port
         const known = end?.id ? cellPorts.get(end.id) : null
         // Порта у символа нет (его пересохранили с другими именами): мёртвую
         // привязку не оставляем — JointJS молча уводит такой конец в центр символа.
         const portMissing = !!(wanted && known && !known.has(wanted))
-        if (end?.id && elementIds.has(end.id) && !portMissing) {
-          return wanted && wanted !== end.port ? { ...end, port: wanted } : end
-        }
+        if (end?.id && elementIds.has(end.id) && !portMissing) return end
         // Точка конца: своя, если в meta она есть (общий предикат — см. isFreeEnd),
         // иначе взятая из геометрии пути.
         const point = endPoint({ ...end, id: undefined }) || fallback
@@ -303,11 +320,6 @@ export function parseSvgProject(svgText) {
   // Точки соединения прошлого формата растворяем в свободные концы проводов — тем же
   // конвертером, что чинит формы в IDB (см. legacyFormat.dissolveNodeCells).
   const nodes = dissolveNodeCells(cells)
-  if (nodes.kept) {
-    errors.push(
-      `Точек соединения с 2+ проводами: ${nodes.kept} — оставлены символами, остальные стали точками проводов`
-    )
-  }
 
   // ok = SVG распарсился (см. docstring). Пустой cells — валидная пустая форма.
   // Подписи снятого символа `cell_text` сюда не доходят: их отсекает проверка реестра

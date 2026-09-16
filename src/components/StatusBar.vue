@@ -6,6 +6,8 @@
  * не в .zip» показывает амбер-точка на кнопке «Экспорт» — рядом с действием,
  * которое закрывает вопрос.
  */
+import Message from 'primevue/message'
+import Divider from 'primevue/divider'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from '../composables/useCanvas'
 
@@ -15,19 +17,27 @@ const canvas = useCanvas()
 
 <template>
   <div class="flex w-full items-center justify-end gap-3">
-    <div
+    <Message
       v-if="canvas.saveError.value"
       v-tooltip.bottom="
         'Браузер не сохраняет данные (квота / приватный режим). Экспортируйте проект (Ctrl+S), чтобы не потерять работу'
       "
-      class="flex items-center gap-1.5 text-[11px] font-medium text-red-600"
+      severity="error"
+      variant="simple"
+      size="small"
+      class="tms-status-message"
     >
-      <i class="pi pi-exclamation-triangle text-[10px]!" />
       Не сохранено
-    </div>
+    </Message>
 
-    <!-- Разделитель — только когда слева есть статус, иначе висел бы у края. -->
-    <div v-if="canvas.saveError.value" class="h-4 w-px bg-surface-200" aria-hidden="true"></div>
+    <!-- Разделитель — только когда слева есть статус, иначе висел бы у края. Высота
+         меньше тулбарной: строка статуса компактнее. -->
+    <Divider
+      v-if="canvas.saveError.value"
+      layout="vertical"
+      class="tms-toolbar-divider"
+      style="height: 1rem"
+    />
 
     <button
       v-tooltip.bottom="'Клавиши и приёмы · ? или F1'"
@@ -40,3 +50,16 @@ const canvas = useCanvas()
     </button>
   </div>
 </template>
+
+<style scoped>
+/* Статус стоит в строке шапки, поэтому от `Message` нужен только цвет severity:
+   собственные отступы и размер шрифта ужимаем до 11px, как у соседних элементов. */
+.tms-status-message :deep(.p-message-text) {
+  font-size: 11px;
+  font-weight: 500;
+}
+.tms-status-message :deep(.p-message-content) {
+  gap: 0.375rem;
+  padding: 0;
+}
+</style>

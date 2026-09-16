@@ -40,10 +40,9 @@ export function useSelectionOverlay({ scheduleSnapshot, dragging }) {
   function canCellFlip(cell, axis) {
     if (!cell || cell.get('tms')?.locked) return false
     if (isShapeCell(cell)) return canFlipShapeGeometry(cell, axis)
-    // Флаги НЕЗАВИСИМЫ: `noRotate` про поворот, `noFlip` про отражение. Раньше flip
-    // молча наследовал запрет поворота, и символу нельзя было разрешить одно без
-    // другого — карточке значения поворот нужен (её ставят вдоль вертикальных
-    // участков), а отражение зеркалило бы надпись.
+    // Флаги НЕЗАВИСИМЫ: `noRotate` про поворот, `noFlip` про отражение. Карточке
+    // значения поворот нужен (её ставят вдоль вертикальных участков), а отражение
+    // зеркалило бы надпись.
     const stencil = getStencilById(cell.get('tms')?.stencilId)
     return !!stencil && !stencil.noFlip
   }

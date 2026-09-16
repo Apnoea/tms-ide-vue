@@ -4,15 +4,11 @@
 //
 // Что конвертируется:
 //  • карточка значения: `valueTag`/`valueLabel`/`valueUnit` → слот и `params`;
-//  • символ-точка `cell_node` → свободный конец провода;
-//  • порты шины `top_i`/`bot_i` → единственный ряд `p_i` в середине толщины;
-//  • строки диапазонов: class-имя палитры (`animation-low`) → свой цвет.
+//  • символ-точка `cell_node` → свободный конец провода.
 //
 // Символ-подпись `cell_text` НЕ поддерживается: определения у него нет, такие ячейки
 // отбрасываются (`dropTextCells`) — рисунок задавался кодом, восстановить надпись нечем.
-import { computeBusPorts } from '../stencils/busCell'
 import { getStencilById } from '../stencils/registry'
-import { rangeRowColor } from '../constants/animation'
 
 /**
  * Карточка значения ПРОШЛОГО формата: тег в `tms.valueTag`, подпись и единица —
@@ -63,87 +59,18 @@ export function dropTextCells(cells) {
   return { cells: next, dropped: cells.length - next.length }
 }
 
-const BUS_PORT_LEGACY_RE = /^(?:top|bot)_(\d+)$/
-
 /**
- * Порт шины прошлой схемы (два ряда по краям) → единственный `p_i`; null, если id не
- * из той схемы. Оба ряда сходятся в один порт: слот — одна точка цепи.
+ * Символ «точка соединения» (`cell_node`) → точки на свободных концах проводов.
  *
- * Проверять, что цель именно шина, обязан вызывающий: у символа из редактора порт
- * может называться как угодно, в том числе `top_1`.
- */
-export function legacyBusPortId(portId) {
-  const m = BUS_PORT_LEGACY_RE.exec(String(portId ?? ''))
-  return m ? `p_${m[1]}` : null
-}
-
-/** Шина ли эта ячейка graphJson (для сбора id перед миграцией порт-рефов). */
-function isBusCellJson(cell) {
-  return cell?.tms?.stencilId === 'cell_bus'
-}
-
-/**
- * Линк-json: концы, привязанные к портам шины прошлой схемы, → новые id. null, если
- * менять нечего (вызывающий оставляет объект как есть, без копии).
- */
-function relinkBusPorts(cell, busIds) {
-  if (cell?.type && cell.type !== 'standard.Link') return null
-  let next = null
-  for (const end of ['source', 'target']) {
-    const ref = cell?.[end]
-    if (!ref?.id || !busIds.has(ref.id)) continue
-    const port = legacyBusPortId(ref.port)
-    if (!port) continue
-    next = next || { ...cell }
-    next[end] = { ...ref, port }
-  }
-  return next
-}
-
-/**
- * Шина прошлой схемы: пересобрать `ports.items`. Обязательно: `fromJSON` берёт порты
- * из json как есть, а sync с реестром набор шины не трогает (hasComputedPorts).
- */
-function rebuildBusPorts(cell) {
-  const items = cell?.ports?.items
-  if (!Array.isArray(items) || !items.some((p) => BUS_PORT_LEGACY_RE.test(String(p?.id)))) {
-    return null
-  }
-  const { width = 0, height = 0 } = cell.size || {}
-  return { ...cell, ports: { ...cell.ports, items: computeBusPorts(width, height) } }
-}
-
-/**
- * Строки источника значения с class-именем палитры (`animation-low`) → свой цвет
- * (его задаёт автор пикером). null, если менять нечего.
- */
-function recolorRanges(cell) {
-  const rows = cell?.tms?.rangeSource?.ranges
-  if (!Array.isArray(rows) || !rows.some((r) => r?.class)) return null
-  const next = rows.map((r) => {
-    if (!r?.class) return r
-    const out = { ...r, ...(rangeRowColor(r) ? { color: rangeRowColor(r) } : {}) }
-    delete out.class
-    return out
-  })
-  return { ...cell, tms: { ...cell.tms, rangeSource: { ...cell.tms.rangeSource, ranges: next } } }
-}
-
-/**
- * Символ «точка соединения» (`cell_node`) → точка на свободном конце провода.
+ * Связности провод-провод в модели нет (провод держится за ПОРТ символа), поэтому узел
+ * ничего не соединял: концы, сходящиеся в его центре, и есть соединение. Конец,
+ * оставленный на холсте, помечает себя сам (`linkDefaults.renderEndDots`), и несколько
+ * совпавших точек рисуют одну — вид схемы не меняется.
  *
- * Конец провода, оставленный на холсте, помечает себя сам (linkDefaults.renderEndDots),
- * поэтому отдельная ячейка с портом не нужна: узел с 0 или 1 проводом растворяется —
- * конец встаёт свободной точкой в центр узла.
- *
- * Узел с ДВУМЯ и более проводами остаётся ячейкой: он держит соединение, а растворение
- * дало бы несколько свободных концов в одной точке. Провода не сращиваются, число
- * таких узлов возвращается вызывающему.
- *
- * @returns {{ cells: Array, changed: boolean, kept: number }}
+ * @returns {{ cells: Array, changed: boolean }}
  */
 export function dissolveNodeCells(cells) {
-  if (!Array.isArray(cells)) return { cells, changed: false, kept: 0 }
+  if (!Array.isArray(cells)) return { cells, changed: false }
   const centers = new Map()
   for (const c of cells) {
     if (c?.tms?.stencilId !== 'cell_node') continue
@@ -151,23 +78,13 @@ export function dissolveNodeCells(cells) {
     const s = c.size || { width: 0, height: 0 }
     centers.set(c.id, { x: p.x + s.width / 2, y: p.y + s.height / 2 })
   }
-  if (!centers.size) return { cells, changed: false, kept: 0 }
-
-  const uses = new Map([...centers.keys()].map((id) => [id, 0]))
-  for (const c of cells) {
-    for (const end of [c?.source, c?.target]) {
-      if (end?.id && uses.has(end.id)) uses.set(end.id, uses.get(end.id) + 1)
-    }
-  }
-  const dissolved = new Set([...uses].filter(([, n]) => n <= 1).map(([id]) => id))
-  const kept = uses.size - dissolved.size
-  if (!dissolved.size) return { cells, changed: false, kept }
+  if (!centers.size) return { cells, changed: false }
 
   const next = []
   for (const c of cells) {
-    if (dissolved.has(c.id)) continue
-    const src = c?.source?.id && dissolved.has(c.source.id) ? centers.get(c.source.id) : null
-    const tgt = c?.target?.id && dissolved.has(c.target.id) ? centers.get(c.target.id) : null
+    if (centers.has(c.id)) continue
+    const src = c?.source?.id ? centers.get(c.source.id) : null
+    const tgt = c?.target?.id ? centers.get(c.target.id) : null
     if (!src && !tgt) {
       next.push(c)
       continue
@@ -178,7 +95,7 @@ export function dissolveNodeCells(cells) {
       ...(tgt ? { target: { x: tgt.x, y: tgt.y } } : {}),
     })
   }
-  return { cells: next, changed: true, kept }
+  return { cells: next, changed: true }
 }
 
 /**
@@ -190,19 +107,11 @@ export function migrateGraphJson(json) {
   const cells = json?.cells
   if (!Array.isArray(cells)) return { json, changed: false }
   let changed = false
-  // id шин собираются ДО обхода: линк в списке может стоять раньше своей шины.
-  const busIds = new Set(cells.filter(isBusCellJson).map((c) => c.id))
   const next = cells.map((c) => {
     const valueCell = valueCellToParams(c)
-    if (valueCell) {
-      changed = true
-      return valueCell
-    }
-    const migrated = isBusCellJson(c) ? rebuildBusPorts(c) : relinkBusPorts(c, busIds)
-    const recolored = recolorRanges(migrated || c)
-    if (!migrated && !recolored) return c
+    if (!valueCell) return c
     changed = true
-    return recolored || migrated
+    return valueCell
   })
   // Точки соединения растворяются на наборе целиком: нужны и ячейки, и линки.
   const nodes = dissolveNodeCells(next)

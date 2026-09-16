@@ -37,20 +37,6 @@ describe('inheritedRangeSource / resolveRangeSource', () => {
     expect(resolveRangeSource(legacy, access, getStencil)).toBe(OWN)
   })
 
-  it('цепь: провод → точка → провод → шина; точка наследует тоже', () => {
-    const access = graphJsonAccess({
-      cells: [
-        el('b', 'cell_bus', { rangeSource: BUS }),
-        el('n', 'cell_node'),
-        el('q', 'cell_qw'),
-        wire('w1', 'b', 'n'),
-        wire('w2', 'n', 'q'),
-      ],
-    })
-    expect(resolveRangeSource(access.node('w2'), access, getStencil)).toMatchObject(BUS)
-    expect(resolveRangeSource(access.node('n'), access, getStencil)).toMatchObject(BUS)
-  })
-
   it('на одном уровне шина сильнее символа, иначе — source раньше target', () => {
     const sym = el('q', 'cell_qw', { slots: { range: 'Q.VAL' } })
     const busFirst = graphJsonAccess({
@@ -68,11 +54,11 @@ describe('inheritedRangeSource / resolveRangeSource', () => {
   })
 
   it('ближний источник побеждает дальний, свободный конец и цикл безопасны', () => {
-    // Символ прямо на конце (уровень 1) против шины за точкой (уровень 3).
+    // Символ прямо на конце (уровень 1) против шины за символом без источника.
     const access = graphJsonAccess({
       cells: [
         el('q', 'cell_qw', { slots: { range: 'Q.VAL' } }),
-        el('n', 'cell_node'),
+        el('n', 'cell_qw'),
         el('b', 'cell_bus', { rangeSource: BUS }),
         wire('w', 'q', 'n'),
         wire('w2', 'n', 'b'),

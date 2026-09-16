@@ -67,7 +67,7 @@ export function createCanvasGraph() {
 
 /**
  * Создаёт `dia.Paper` холста со всей проектной конфигурацией (интерактив, снап связей,
- * anchor'ы cell_node, валидация соединений). Подписка на события — в CanvasPane.
+ * anchor'ы, валидация соединений). Подписка на события — в CanvasPane.
  *
  * @param {object} opts
  * @param {HTMLElement} opts.el — контейнер холста
@@ -133,25 +133,18 @@ export function createCanvasPaper({
     // Не заставляем целиться в кружок порта — бросок рядом подтягивается сам.
     snapLinks: { radius: 30 },
     // Конец линии — в позиции anchor'а порта, а не на boundary магнита (там offset =
-    // portRadius). У cell_node anchor на стороне bbox (см. ниже), но линию доводим до
-    // центра, где нарисована точка.
+    // portRadius).
     defaultConnectionPoint: function (line, view) {
-      const stencilId = view?.model?.get?.('tms')?.stencilId
-      if (stencilId === 'cell_node') return view.model.getBBox().center()
       // Шина: слот в СЕРЕДИНЕ толщины, поэтому линия заканчивается на границе тела —
       // иначе она и наконечник уходят под тело. Соединение обозначает маркер на
       // занятом слоте (collectBusMarks).
-      if (stencilId === 'cell_bus') return connectionPoints.bbox.apply(this, arguments)
+      if (view?.model?.get?.('tms')?.stencilId === 'cell_bus') {
+        return connectionPoints.bbox.apply(this, arguments)
+      }
       return connectionPoints.anchor.apply(this, arguments)
     },
-    // Anchor — точка, от которой роутер строит путь. У cell_node порт в ЦЕНТРЕ bbox, а
-    // rightAngle с внутренним anchor'ом заходит всегда с одной стороны, поэтому берём
-    // `midSide` — середину ближайшей стороны. `apply`: anchors.* ждут `this` = linkView.
-    defaultAnchor: function (view) {
-      const stencilId = view?.model?.get?.('tms')?.stencilId
-      const fn = stencilId === 'cell_node' ? anchors.midSide : anchors.center
-      return fn.apply(this, arguments)
-    },
+    // Anchor — точка, от которой роутер строит путь: центр порта.
+    defaultAnchor: anchors.center,
     // Новый провод рождается в «липких» настройках инструмента (workspace.wireStyle).
     // Стиль пишется и в tms (round-trip), и в attrs (по ним рисует JointJS).
     defaultLink: () => {

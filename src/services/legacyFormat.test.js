@@ -10,7 +10,6 @@ import {
   valueCellToParams,
   dropTextCells,
   migrateGraphJson,
-  legacyBusPortId,
   dissolveNodeCells,
 } from './legacyFormat'
 
@@ -79,93 +78,14 @@ describe('migrateGraphJson', () => {
   })
 })
 
-describe('порты шины: два ряда → один', () => {
-  const busJson = (ports) => ({
-    type: 'tms.Stencil',
-    id: 'bus',
-    position: { x: 0, y: 0 },
-    size: { width: 80, height: 20 },
-    tms: { stencilId: 'cell_bus' },
-    ports: { items: ports },
-  })
-  const legacyPorts = [
-    { id: 'top_0', group: 'port', args: { x: 20, y: 0 } },
-    { id: 'bot_0', group: 'port', args: { x: 20, y: 20 } },
-  ]
-
-  it('legacyBusPortId переводит оба ряда в один слот', () => {
-    expect(legacyBusPortId('top_3')).toBe('p_3')
-    expect(legacyBusPortId('bot_3')).toBe('p_3')
-    // Не та схема — трогать нельзя: у символа из редактора порт зовётся как угодно.
-    expect(legacyBusPortId('p_3')).toBeNull()
-    expect(legacyBusPortId('top')).toBeNull()
-    expect(legacyBusPortId(undefined)).toBeNull()
-  })
-
-  it('порты шины пересобираются: fromJSON берёт их из json как есть', () => {
-    const { json: next, changed } = migrateGraphJson({ cells: [busJson(legacyPorts)] })
-    expect(changed).toBe(true)
-    // 80/20-1 = 3 слота, все в середине толщины 20.
-    expect(next.cells[0].ports.items.map((p) => p.id)).toEqual(['p_0', 'p_1', 'p_2'])
-    expect(next.cells[0].ports.items[0].args).toEqual({ x: 20, y: 10 })
-  })
-
-  it('порт-рефы линков переводятся — но только у шин', () => {
-    const { json: next } = migrateGraphJson({
-      cells: [
-        { type: 'standard.Link', id: 'l1', source: { id: 'bus', port: 'bot_1' }, target: {} },
-        { type: 'standard.Link', id: 'l2', source: { id: 'sym', port: 'top_1' }, target: {} },
-        busJson(legacyPorts),
-        { type: 'tms.Stencil', id: 'sym', tms: { stencilId: 'cell_qw' } },
-      ],
-    })
-    // Линк идёт в списке ДО своей шины — id шин собираются отдельным проходом.
-    expect(next.cells[0].source).toEqual({ id: 'bus', port: 'p_1' })
-    // Символ из редактора с портом «top_1» — не наша схема, оставляем как есть.
-    expect(next.cells[1].source).toEqual({ id: 'sym', port: 'top_1' })
-  })
-
-  it('оба ряда одного слота сливаются в один порт', () => {
-    const { json: next } = migrateGraphJson({
-      cells: [
-        busJson(legacyPorts),
-        { type: 'standard.Link', id: 'l1', source: { id: 'bus', port: 'top_0' }, target: {} },
-        { type: 'standard.Link', id: 'l2', source: { id: 'bus', port: 'bot_0' }, target: {} },
-      ],
-    })
-    expect(next.cells[1].source.port).toBe('p_0')
-    expect(next.cells[2].source.port).toBe('p_0')
-  })
-
-  it('идемпотентна: новая схема второй раз не мигрирует', () => {
-    const first = migrateGraphJson({
-      cells: [
-        busJson(legacyPorts),
-        { type: 'standard.Link', id: 'l1', source: { id: 'bus', port: 'bot_2' }, target: {} },
-      ],
-    })
-    const second = migrateGraphJson(first.json)
-    expect(second.changed).toBe(false)
-    expect(second.json).toBe(first.json)
-  })
-})
-
-describe('строки диапазонов: class палитры → цвет', () => {
+describe('строки диапазонов', () => {
   const cellWithRanges = (ranges) => ({
     type: 'tms.Stencil',
     id: 'c1',
     tms: { stencilId: 'cell_qw', rangeSource: { tag: 'V.U', ranges } },
   })
 
-  it('прежнее class-имя переезжает в свой цвет', () => {
-    const { json, changed } = migrateGraphJson({
-      cells: [cellWithRanges([{ min: 0, max: 5, class: 'animation-low' }])],
-    })
-    expect(changed).toBe(true)
-    expect(json.cells[0].tms.rangeSource.ranges).toEqual([{ min: 0, max: 5, color: '#10b981' }])
-  })
-
-  it('строки со своим цветом не трогаем — второго прохода нет', () => {
+  it('форма со своими цветами не пересобирается', () => {
     const json = { cells: [cellWithRanges([{ min: 0, max: 5, color: '#123456' }])] }
     expect(migrateGraphJson(json)).toEqual({ json, changed: false })
   })
@@ -184,12 +104,11 @@ describe('cell_node → точка на свободном конце', () => {
   const link = (id, source, target) => ({ type: 'standard.Link', id, source, target })
 
   it('узел с одним проводом: конец встаёт свободной точкой в его центр', () => {
-    const { cells, changed, kept } = dissolveNodeCells([
+    const { cells, changed } = dissolveNodeCells([
       nodeCell('n1', 100, 200),
       link('l1', { id: 'a', port: 'bottom' }, { id: 'n1', port: 'center' }),
     ])
     expect(changed).toBe(true)
-    expect(kept).toBe(0)
     expect(cells.find((c) => c.id === 'n1')).toBeUndefined()
     // Центр ячейки 20×20 в (100,200) — там и был порт `center`.
     expect(cells.find((c) => c.id === 'l1').target).toEqual({ x: 110, y: 210 })
@@ -203,21 +122,22 @@ describe('cell_node → точка на свободном конце', () => {
     expect(cells).toEqual([])
   })
 
-  it('узел с двумя проводами остаётся символом и попадает в счётчик', () => {
-    const cells = [
+  it('узел с двумя проводами: оба конца встают свободными точками в его центр', () => {
+    const out = dissolveNodeCells([
       nodeCell('n1', 0, 0),
       link('l1', { id: 'a' }, { id: 'n1', port: 'center' }),
       link('l2', { id: 'n1', port: 'center' }, { id: 'b' }),
-    ]
-    const out = dissolveNodeCells(cells)
-    expect(out.changed).toBe(false)
-    expect(out.kept).toBe(1)
-    expect(out.cells).toBe(cells)
+    ])
+    expect(out.changed).toBe(true)
+    expect(out.cells.find((c) => c.id === 'n1')).toBeUndefined()
+    // Совпавшие точки рисуются одной — соединение на схеме остаётся видимым.
+    expect(out.cells.find((c) => c.id === 'l1').target).toEqual({ x: 10, y: 10 })
+    expect(out.cells.find((c) => c.id === 'l2').source).toEqual({ x: 10, y: 10 })
   })
 
   it('схема без узлов не пересобирается', () => {
     const cells = [link('l1', { id: 'a' }, { id: 'b' })]
-    expect(dissolveNodeCells(cells)).toEqual({ cells, changed: false, kept: 0 })
+    expect(dissolveNodeCells(cells)).toEqual({ cells, changed: false })
   })
 
   it('migrateGraphJson растворяет узлы вместе с прочими миграциями', () => {

@@ -12,7 +12,7 @@ import './style.css'
 import App from './App.vue'
 
 // Сдвигаем primary с дефолтного Aura-emerald на cyan — зелёный занят семантикой
-// напряжения (animation-low #10b981). Cyan визуально отделяет UI-акценты от
+// напряжения (первый пресет диапазонов #10b981). Cyan визуально отделяет UI-акценты от
 // power-flow цветов. Все компоненты (Button, Toggle, focus-ring, ...) и Tailwind
 // `*-primary-*` утилиты автоматически подхватывают через CSS-токены `{cyan.*}`.
 const TmsTheme = definePreset(Aura, {

@@ -164,15 +164,3 @@ export async function readProjectZipFile(file) {
 
   return { forms, stencils, tagsText, hierarchy, project }
 }
-
-/** Уникальные stencilId, используемые формами (по graphJson). Для GC бандла. */
-export function collectUsedStencilIds(formGraphs) {
-  const ids = new Set()
-  for (const g of formGraphs) {
-    for (const cell of g?.cells || []) {
-      const id = cell?.tms?.stencilId
-      if (id) ids.add(id)
-    }
-  }
-  return [...ids]
-}

@@ -22,7 +22,6 @@ import { inheritedRangeSource, jointGraphAccess } from '../utils/rangeSource'
 import { injectStencilSvg } from '../stencils/svgInjector'
 import { isShapeCell, shapeTypeLabel, applyShapePatch } from '../stencils/shapeElement'
 import { BUS_COLOR_DEFAULT, BUS_THICKNESS_MAX, setBusThickness } from '../stencils/busCell'
-import { NODE_SIZE_DEFAULT, NODE_SIZE_MAX } from '../stencils/nodeCell'
 import { nplural } from '../utils/plural'
 import { normalizeBoolSource } from '../utils/boolSource'
 import { normalizeFont } from '../utils/textMetrics'
@@ -37,7 +36,7 @@ import ShapeBlock from './ShapeBlock.vue'
 import ValueBlock from './ValueBlock.vue'
 import AlignBlock from './AlignBlock.vue'
 import BodyStyleFields from './BodyStyleFields.vue'
-import { NODE_STENCIL_ID, RANGE_SLOT, previewOuterKey } from '../constants/ids'
+import { RANGE_SLOT, previewOuterKey } from '../constants/ids'
 import {
   isDefaultWireValue,
   syncLinkEndMarkers,
@@ -214,15 +213,10 @@ const details = computed(() => {
       locked: !!tms.locked,
       color: tms.color || '',
       isBus: tms.stencilId === 'cell_bus',
-      isNode: tms.stencilId === 'cell_node',
-      // Толщина: у шины это высота ячейки, у точки — диаметр в tms (габарит держит
-      // hit-area и порт).
-      thickness:
-        tms.stencilId === 'cell_node'
-          ? (tms.dotSize ?? NODE_SIZE_DEFAULT)
-          : cell.get('size').height,
-      thicknessMin: tms.stencilId === 'cell_node' ? NODE_SIZE_DEFAULT : (stencil?.height ?? 1),
-      thicknessMax: tms.stencilId === 'cell_node' ? NODE_SIZE_MAX : BUS_THICKNESS_MAX,
+      // Толщина шины — высота ячейки.
+      thickness: cell.get('size').height,
+      thicknessMin: stencil?.height ?? 1,
+      thicknessMax: BUS_THICKNESS_MAX,
       decimals: Number.isFinite(tms.decimals) ? tms.decimals : null,
       // id outer-карточки в animations.json/SVG (тот же, что эмитит exporter).
       exportId: previewOuterKey(tms.stencilId, cell.id),
@@ -258,8 +252,6 @@ const details = computed(() => {
       // на холсте к ним привязывают тег — слот `range`.
       rangeZones: stencil?.ranges?.length ? stencil.ranges : null,
       rangeTag: slotValues[RANGE_SLOT] || '',
-      // Точка соединения диапазоны наследует по цепи проводов (как и сам провод).
-      rangeInherited: tms.stencilId === NODE_STENCIL_ID ? inheritedRangeOf(cell) : null,
       boolSource: tms.boolSource || null,
       navigation: tms.navigation || '',
     }
@@ -401,6 +393,24 @@ function openSlotPicker(slot) {
 }
 
 /**
+ * Экземпляры ТОГО ЖЕ символа на активной форме: счёт — для кнопки «выделить такие
+ * же», сам список — для неё же. Массовая правка одинаковых символов (цвет, слот,
+ * замок) иначе начинается с ручного Ctrl+клика по всей схеме.
+ */
+const sameStencilCells = computed(() => {
+  canvas.graphVersion.value // touch: символы могли появиться/исчезнуть
+  const graph = canvas.graphRef.value
+  const d = details.value
+  if (!graph || d?.kind !== 'cell' || !d.stencilId) return []
+  return graph.getElements().filter((c) => c.get('tms')?.stencilId === d.stencilId)
+})
+
+function selectSameStencil() {
+  const items = sameStencilCells.value.map((c) => ({ kind: 'cell', id: c.id }))
+  if (items.length) canvas.setSelection(items)
+}
+
+/**
  * Каркас правки выделенной ЯЧЕЙКИ (не линка): резолвит cell и её stencil, отдаёт
  * { cell, stencil, tms, d } в fn, а мутирует cell сама fn. Вернула false — выходим без
  * перерисовки и снимка. reinject:true — перерисовать SVG ячейки после fn. В конце один
@@ -459,23 +469,11 @@ function patchShape(patch) {
   canvas.markDirty()
 }
 
-/**
- * Толщина тела: у шины — высота ячейки (порты едут следом, busCell), у точки
- * соединения — диаметр в tms.
- */
+/** Толщина тела шины — высота ячейки (порты едут следом, busCell). */
 function applyThickness(v) {
   if (!Number.isFinite(v)) return
   withSelectedCell(
-    ({ cell, stencil, tms, d }) => {
-      // У точки диаметр живёт в tms; дефолт не пишем — отсутствие поля и есть он.
-      if (d.isNode) {
-        const next = { ...tms }
-        if (v !== NODE_SIZE_DEFAULT) next.dotSize = v
-        else delete next.dotSize
-        if (next.dotSize === tms.dotSize) return false
-        cell.set('tms', next)
-        return true
-      }
+    ({ cell, stencil, d }) => {
       if (!d.isBus) return false
       return setBusThickness(cell, canvas.paperRef.value, v, stencil.height)
     },
@@ -483,11 +481,11 @@ function applyThickness(v) {
   )
 }
 
-/** Цвет тела шины и точки соединения: дефолт в tms не пишем (отсутствие = он же). */
+/** Цвет тела шины: дефолт в tms не пишем (отсутствие = он же). */
 function applyBodyColor(value) {
   withSelectedCell(
     ({ cell, tms, d }) => {
-      if (!d.isBus && !d.isNode) return false
+      if (!d.isBus) return false
       const next = { ...tms }
       // Дефолт в tms не пишем — отсутствие поля и есть он.
       if (value && value !== BUS_COLOR_DEFAULT) next.color = value
@@ -707,8 +705,8 @@ function onToggleLock() {
 }
 
 /**
- * Точность значения. Пустое поле = дефолт протокола, поэтому не пишем 0, а удаляем
- * ключ — иначе «вернуть как было» стало бы невозможно.
+ * Точность значения. Пустое поле = дефолт протокола, поэтому ключ удаляем, а не пишем
+ * 0: иначе дефолт уже не вернуть.
  */
 function applyValueDecimals(v) {
   withSelectedCell(
@@ -778,8 +776,8 @@ function removeRangeSource() {
 /** Пояснение пустого блока диапазонов — где задаются зоны для этого элемента. */
 const rangeHint = computed(() => {
   const d = details.value
-  if (d?.isWire || d?.isNode) {
-    return 'Провод и точка красятся как шина или символ с диапазонами, к которым подключены. Источника по цепи не найдено.'
+  if (d?.isWire) {
+    return 'Провод красится как шина или символ с диапазонами, к которым подключён. Источника по цепи не найдено.'
   }
   return 'Диапазоны задаются в редакторе символов (границы и цвета), на холсте к ним привязывается тег.'
 })
@@ -853,11 +851,9 @@ function onPickMultiBoolTag(tag) {
 
 // ─── Копирование настроек анимаций между элементами ───
 // Буфер (useAnimationClipboard) держит четыре независимых слота — тег состояния,
-// карточку значения, зависимости и диапазоны, — копируются/вставляются раздельно
-// кнопками в шапке своего блока. Копируем ЦЕЛИКОМ, включая тег (предсказуемый «тот же источник»); тег при нужде
-// меняют вручную после вставки. toPlain снимает reactive-прокси — иначе вставка
-// делила бы одну ссылку между ячейками. Вставка идёт на ВСЁ текущее выделение
-// (одиночное и мульти), со счётчиком пропущенных (несовместимые цели).
+// карточку значения, зависимости и диапазоны; каждый копируется кнопкой в шапке своего
+// блока. Копируем ЦЕЛИКОМ, вместе с тегом. `toPlain` снимает reactive-прокси, иначе
+// цели делили бы одну ссылку. Вставка идёт на ВСЁ выделение, со счётчиком пропущенных.
 
 /** Копировать тег состояния выделенного вместе с ключом слота: вставка проверит, что у
  *  цели слот тот же (булев тег в символ «по значению» не годится). */
@@ -934,15 +930,14 @@ function pasteDeps() {
 }
 
 /**
- * Общий каркас вставки буфера на всё выделение: для каждой цели зовёт apply(tms) →
- * новый tms либо null (несовместимо → пропуск со счётчиком). Заблокированные
- * отсекает `writableItems`. Пустой буфер — no-op.
+ * Каркас вставки буфера на всё выделение: для каждой цели зовёт apply(tms) → новый tms
+ * либо null (несовместимо → пропуск со счётчиком). Заблокированные отсекает
+ * `writableItems`, пустой буфер — no-op.
  *
- * `reinject: true` перерисовывает SVG цели — обязателен, когда вставка меняет слоты:
- * тег уходит в bindings разметки, и без перерисовки они остались бы от прежнего тега
- * (то же делает `withSelectedCell` при правке слота из инспектора).
+ * `reinject: true` обязателен, когда вставка меняет слоты: тег уходит в bindings
+ * разметки, и без перерисовки они остались бы от прежнего.
  *
- * Возвращает функцию-финализатор (принимает заголовок тоста).
+ * @returns {(title: string) => void} финализатор с заголовком тоста
  */
 function pasteClip(clip, apply, { reinject = false } = {}) {
   return (title) => {
@@ -1073,7 +1068,7 @@ const {
                состояния тут нет: слоты у выделенных символов бывают разного типа.
                Диапазонов тут нет: зоны живут в определении символа, тег — у экземпляра. -->
           <div class="space-y-2">
-            <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
+            <div class="tms-field-label">Анимации</div>
             <DependencyBlock
               :groups="[]"
               :removable="false"
@@ -1099,10 +1094,10 @@ const {
 
       <template v-else-if="!details">
         <div>
-          <div class="flex flex-col items-center text-center text-surface-400 pb-6 pt-8">
+          <div class="tms-empty">
             <i class="pi pi-mouse text-3xl mb-3 opacity-60" />
-            <div class="text-sm font-medium text-surface-500 mb-1">Ничего не выделено</div>
-            <p class="text-[11px] leading-relaxed max-w-[180px]">
+            <div class="tms-empty-title">Ничего не выделено</div>
+            <p class="tms-hint max-w-[180px]">
               Кликните по символу или проводу на холсте — здесь появятся свойства
             </p>
           </div>
@@ -1155,9 +1150,24 @@ const {
 
           <template v-else-if="details.kind === 'cell'">
             <div>
-              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Символ</div>
-              <div class="font-medium text-surface-900">
-                {{ details.stencilLabel }}
+              <div class="tms-field-label mb-1">Символ</div>
+              <!-- Кнопка рядом с названием: «такие же» — свойство символа, а не
+                   выделения. Иконка та же, что у подсветки по тегу — оба жеста ищут
+                   на схеме родню выделенного. -->
+              <div class="flex items-center gap-1">
+                <div class="min-w-0 flex-1 truncate font-medium text-surface-900">
+                  {{ details.stencilLabel }}
+                </div>
+                <Button
+                  v-if="sameStencilCells.length > 1"
+                  v-tooltip.bottom="`Выделить такие же на форме (${sameStencilCells.length})`"
+                  icon="pi pi-search-plus"
+                  severity="secondary"
+                  text
+                  size="small"
+                  class="tms-row-btn shrink-0"
+                  @click="selectSameStencil"
+                />
               </div>
               <div class="text-[11px] text-surface-500 font-mono">
                 {{ details.stencilId }}
@@ -1169,14 +1179,13 @@ const {
               </div>
             </div>
 
-            <!-- Вид тела шины / точки соединения одним блоком. Цвет БАЗОВЫЙ:
-                 привязанные диапазоны и обесточивание заливают его поверх, поэтому в
-                 рантайме свой цвет виден, пока ни один animation-класс не активен.
-                 Толщина: у шины = высота ячейки, у точки = диаметр; минимум ОН ЖЕ дефолт
-                 (тоньше тело сливается с проводами, точка — с их пересечением), поэтому
+            <!-- Вид тела шины одним блоком. Цвет БАЗОВЫЙ: привязанные диапазоны и
+                 обесточивание заливают его поверх, поэтому в рантайме свой цвет виден,
+                 пока ни один animation-класс не активен. Толщина = высота ячейки;
+                 минимум ОН ЖЕ дефолт (тоньше тело сливается с проводами), поэтому
                  крестик сброса ведёт к нему. -->
             <BodyStyleFields
-              v-if="details.isBus || details.isNode"
+              v-if="details.isBus"
               :color="details.color || BUS_COLOR_DEFAULT"
               :color-default="BUS_COLOR_DEFAULT"
               :thickness="details.thickness"
@@ -1195,7 +1204,7 @@ const {
             <div class="space-y-2">
               <div class="flex items-center justify-between gap-2">
                 <div>
-                  <div class="text-[11px] uppercase tracking-wider text-surface-500">Навигация</div>
+                  <div class="tms-field-label">Навигация</div>
                   <div class="text-[11px] text-surface-500">переход при клике</div>
                 </div>
                 <ToggleSwitch
@@ -1232,9 +1241,7 @@ const {
           <template v-else>
             <div class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4">
               <div>
-                <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
-                  Элемент
-                </div>
+                <div class="tms-field-label mb-1">Элемент</div>
                 <div class="font-medium text-surface-900">Провод</div>
               </div>
 
@@ -1250,7 +1257,7 @@ const {
           <!-- Анимации: не у подписи и не у фигуры-разметки (у последней их
                нет вовсе — exporter не эмитит для неё карточек, привязка вела бы в никуда). -->
           <div v-if="!details.isShape" class="space-y-2">
-            <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
+            <div class="tms-field-label">Анимации</div>
 
             <!-- Состояние символа: тег слота-драйвера. Заголовок и справка следуют типу
                  слота («Булево значение» либо «Состояние по значению») — режим задан в
@@ -1333,7 +1340,7 @@ const {
                  точки: там подсказка объясняет, откуда берётся цвет. У символа без зон
                  настраивать на холсте нечего — зоны задают в редакторе символов. -->
             <RangeBlock
-              v-else-if="details.rangeSource || details.isWire || details.isNode"
+              v-else-if="details.rangeSource || details.isWire"
               :range-source="details.rangeSource"
               :pickable="false"
               :hint="rangeHint"

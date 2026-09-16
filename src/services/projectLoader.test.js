@@ -64,6 +64,23 @@ describe('parseSvgProject', () => {
     expect(out.errors.join(' ')).toContain('cell_text')
   })
 
+  it('cell_node из старого архива растворяется: конец провода встаёт в его центр', () => {
+    // Символа больше нет, но ячейку нельзя просто отсеять проверкой реестра: провод
+    // остался бы привязан к несуществующему id. Узел разбирается отдельной веткой и
+    // растворяется (legacyFormat.dissolveNodeCells) — конец уходит в ЦЕНТР узла, а не
+    // в конец пути (его укорачивает наконечник).
+    const node = { id: 'n1', stencilId: 'cell_node', width: 20, height: 20 }
+    const link = { id: 'L1', source: { id: 'c1', port: 'p1' }, target: { id: 'n1' } }
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+      ${cellG('c1')}
+      <g transform="translate(100,200)" data-tms-meta='${attr(node)}'/>
+      <path d="M 0 0 L 90 190" data-tms-meta='${attr(link)}'/>
+    </svg>`
+    const out = parseSvgProject(svg)
+    expect(out.cells.find((c) => c.id === 'n1')).toBeUndefined()
+    expect(out.cells.find((c) => c.id === 'L1').target).toEqual({ x: 110, y: 210 })
+  })
+
   it('round-trip angle/navigation/boolSource/rangeSource на ячейке', () => {
     const meta = {
       id: 'c1',
@@ -75,7 +92,7 @@ describe('parseSvgProject', () => {
       locked: true,
       groupId: 'grp-xyz',
       boolSource: { groups: [['A.ONOFF'], ['B.ONOFF']] },
-      rangeSource: { tag: 'V.U', ranges: [{ min: 0, max: 5, class: 'animation-low' }] },
+      rangeSource: { tag: 'V.U', ranges: [{ min: 0, max: 5, color: '#10b981' }] },
     }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
       <g transform="translate(0,0)" data-tms-meta='${JSON.stringify(meta).replace(/"/g, '&quot;')}'/>
@@ -86,8 +103,7 @@ describe('parseSvgProject', () => {
     expect(cell.tms.locked).toBe(true)
     expect(cell.tms.groupId).toBe('grp-xyz')
     expect(cell.tms.boolSource).toEqual({ groups: [['A.ONOFF'], ['B.ONOFF']] })
-    // Строка приходит с прежним class-именем палитры и читается как цвет: в модели
-    // остаётся одно поле, класс перекраса генерируется из него при экспорте.
+    // Цвет строки едет как есть; класс перекраса генерируется из него при экспорте.
     expect(cell.tms.rangeSource).toEqual({
       tag: 'V.U',
       ranges: [{ min: 0, max: 5, color: '#10b981' }],
@@ -322,7 +338,7 @@ describe('parseSvgProject', () => {
       fontSize: 'huge',
       align: 'sideways',
       fontFamily: 'Comic Sans MS',
-      rangeSource: { tag: 'PS031.U', ranges: [{ min: 'x', max: '5', class: 'animation-low' }] },
+      rangeSource: { tag: 'PS031.U', ranges: [{ min: 'x', max: '5', color: '#10b981' }] },
     }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
       <g transform="translate(0,0)" data-tms-meta='${attr(meta)}'/>

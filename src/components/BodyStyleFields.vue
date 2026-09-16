@@ -1,10 +1,9 @@
 <script setup>
 /**
- * Вид тела шины и точки соединения: цвет и толщина. Цвет БАЗОВЫЙ — привязанные
- * диапазоны и обесточивание заливают его поверх, поэтому в рантайме свой цвет виден,
- * пока ни один animation-класс не активен. Толщина у шины — высота ячейки, у точки —
- * диаметр; минимум задаёт вызывающий (тоньше тело сливается с проводами, точка — с
- * пересечением линий).
+ * Вид тела шины: цвет и толщина. Цвет БАЗОВЫЙ — привязанные диапазоны и обесточивание
+ * заливают его поверх, поэтому в рантайме свой цвет виден, пока ни один
+ * animation-класс не активен. Толщина — высота ячейки; минимум задаёт вызывающий
+ * (тоньше тело сливается с проводами).
  */
 import { computed } from 'vue'
 import InputNumber from 'primevue/inputnumber'
@@ -34,7 +33,7 @@ const isCustomThickness = computed(() => props.thickness !== props.thicknessDefa
 <template>
   <div class="space-y-2.5">
     <div class="flex items-center gap-3">
-      <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">Цвет</span>
+      <span class="tms-field-label shrink-0">Цвет</span>
       <ColorField
         :model-value="color"
         class="ml-auto"
@@ -57,9 +56,7 @@ const isCustomThickness = computed(() => props.thickness !== props.thicknessDefa
     </div>
 
     <div class="flex items-center gap-3">
-      <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-        Толщина, px
-      </span>
+      <span class="tms-field-label shrink-0">Толщина, px</span>
       <!-- Крестик поверх поля — сброс к дефолту, как у толщины провода. -->
       <span class="relative ml-auto inline-flex">
         <InputNumber

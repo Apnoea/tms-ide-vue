@@ -290,7 +290,7 @@ const sections = [
     <!-- Скролл внутри: секций много, иначе на 768px-экране диалог вылезает за окно. -->
     <div class="space-y-5 max-h-[68vh] overflow-y-auto pr-1">
       <div v-for="section in sections" :key="section.title">
-        <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-2">
+        <div class="tms-field-label mb-2">
           {{ section.title }}
         </div>
         <ul class="space-y-1.5">

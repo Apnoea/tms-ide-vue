@@ -433,7 +433,6 @@ describe('масштаб символа: чистые функции', () => {
     // Их билдеры рисуют по ФАКТИЧЕСКОМУ размеру, поэтому база масштаба = он сам.
     // Иначе тело шины, растянутой за края, уезжало бы во всю ширину холста.
     expect(contentScales(getStencilById('cell_bus'))).toBe(false)
-    expect(contentScales(getStencilById('cell_node'))).toBe(false)
     expect(contentScales(getStencilById('cell_qw'))).toBe(true)
     // База = фактический размер → трансформа нет вообще.
     expect(contentTransform({ baseWidth: 260, baseHeight: 8, width: 260, height: 8 })).toBeNull()
@@ -469,12 +468,11 @@ describe('масштаб символа: применение к экземпл�
     return cell
   }
 
-  it('масштабируются обычные символы и карточка значения, но не шина / точка / залоченные', () => {
+  it('масштабируются обычные символы и карточка значения, но не шина / залоченные', () => {
     expect(scalableStencil(cellOf('cell_qw'))).toMatchObject({ id: 'cell_qw' })
     // Карточка значения — тем же жестом, что остальные: своей ширины у неё больше нет.
     expect(scalableStencil(cellOf('cell_value'))).toMatchObject({ id: 'cell_value' })
     expect(scalableStencil(cellOf('cell_bus'))).toBeNull()
-    expect(scalableStencil(cellOf('cell_node'))).toBeNull()
     expect(scalableStencil(cellOf('cell_qw', { locked: true }))).toBeNull()
   })
 

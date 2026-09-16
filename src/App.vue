@@ -2,6 +2,7 @@
 import { computed, watch, defineAsyncComponent } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import Button from 'primevue/button'
+import Divider from 'primevue/divider'
 import Toast from 'primevue/toast'
 import ConfirmPopup from 'primevue/confirmpopup'
 
@@ -114,7 +115,7 @@ useEventListener(window, 'keydown', (event) => {
         :inert="ui.stencilEditorOpen || ui.projectBusy"
       >
         <ProjectActions />
-        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+        <Divider layout="vertical" class="tms-toolbar-divider" />
         <TagListControl />
       </div>
       <div

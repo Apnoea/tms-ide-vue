@@ -44,9 +44,8 @@ describe('buildStateColorCssRules', () => {
 })
 
 describe('цвет строки диапазона', () => {
-  it('свой цвет приоритетнее прежнего class-имени палитры', () => {
-    expect(rangeRowColor({ color: '#123456', class: 'animation-low' })).toBe('#123456')
-    expect(rangeRowColor({ class: 'animation-mid' })).toBe('#f59e0b')
+  it('цвет строки — только своё валидное значение', () => {
+    expect(rangeRowColor({ color: '#123456' })).toBe('#123456')
     expect(rangeRowColor({})).toBe('')
     // Мусор из чужого архива цветом не считаем (значение уедет в CSS).
     expect(rangeRowColor({ color: 'url(#evil)' })).toBe('')

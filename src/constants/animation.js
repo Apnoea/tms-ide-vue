@@ -1,14 +1,9 @@
-// Class-имена диапазонов ПРОШЛОГО формата: старые проекты и символы из чужих архивов
-// несут их вместо цвета строки — читаем как цвета. Палитра Tailwind 500 (emerald/amber/red); зелёный намеренно не primary
-// темы (cyan), чтобы UI-акценты не путались с состоянием схемы.
-const ANIMATION_CLASS_COLORS = {
-  'animation-low': '#10b981',
-  'animation-mid': '#f59e0b',
-  'animation-high': '#ef4444',
-}
-
-/** Цвета, которые получают новые строки диапазонов, — по порядку, до первого свободного. */
-export const RANGE_COLOR_PRESETS = Object.values(ANIMATION_CLASS_COLORS)
+/**
+ * Цвета, которые получают новые строки диапазонов, — по порядку, до первого свободного.
+ * Палитра Tailwind 500 (emerald/amber/red); зелёный намеренно не primary темы (cyan),
+ * чтобы UI-акценты не путались с состоянием схемы.
+ */
+export const RANGE_COLOR_PRESETS = ['#10b981', '#f59e0b', '#ef4444']
 
 /**
  * Класс перекраса по цвету строки диапазона. Ключ — сам цвет, поэтому правило одно на
@@ -25,9 +20,9 @@ export function rangeColorClass(color) {
   return safe ? `${RANGE_COLOR_PREFIX}${safe}` : ''
 }
 
-/** Цвет строки: своё значение либо прежний class-имя из старого проекта. */
+/** Цвет строки диапазона; пустая строка = цвета нет (такая строка нигде не красит). */
 export function rangeRowColor(row) {
-  return cssColor(row?.color) || ANIMATION_CLASS_COLORS[row?.class] || ''
+  return cssColor(row?.color) || ''
 }
 
 // «Выключено»: slate-500, тот же уровень насыщенности, что у палитры диапазонов.

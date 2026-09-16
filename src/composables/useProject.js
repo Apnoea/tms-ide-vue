@@ -1,6 +1,6 @@
 import { ref, nextTick } from 'vue'
 import { reinjectAllStencils, syncStencilInstances } from '../stencils/svgInjector'
-import { getStencilById, registerStencil } from '../stencils/registry'
+import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
 import {
   migrateFormsRanges,
   planRangeMigration,
@@ -13,7 +13,6 @@ import {
   downloadBlob,
   pickProjectArchive,
   readProjectZipFile,
-  collectUsedStencilIds,
 } from '../services/projectZip'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
 import {
@@ -554,14 +553,12 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
   }
 
   /**
-   * Правка символа → во ВСЕ формы проекта, а не только в открытую. Активную сверяет
-   * сам редактор (ему нужно выделить отцепленные концы), здесь — остальные: раньше
-   * они догоняли изменение при открытии, и провод, потерявший порт, отваливался
-   * спустя дни, без связи с правкой.
+   * Правка символа → во ВСЕ формы проекта. Активную сверяет сам редактор (ему нужно
+   * выделить отцепленные концы), здесь — остальные.
    *
-   * Каждая форма прогоняется через живой граф — как в экспорте: сверка правит модель
-   * (порты, габарит, концы проводов), поэтому её результат сразу пишется обратно.
-   * Всё под restoreGuard: это не действие пользователя, в undo ему делать нечего.
+   * Каждая форма прогоняется через живой граф, как в экспорте: сверка правит модель
+   * (порты, габарит, концы проводов), поэтому результат сразу пишется обратно. Под
+   * restoreGuard — это не действие пользователя, в undo ему делать нечего.
    *
    * @returns {Promise<{forms: number, changed: number, detached: number}>}
    */
@@ -631,7 +628,6 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     try {
       await saveActiveForm() // зафиксировать текущую форму перед прогоном
       const formsOut = []
-      const graphs = []
       // Предупреждения exporter'а копим по всем формам: иначе в .zip молча не хватает
       // части оборудования.
       const exportWarnings = []
@@ -653,7 +649,6 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
           workspace.setFormGraph(id, json)
           flagIfNotSaved(await persistForm(id, json))
         }
-        graphs.push(json)
         // Отцепленный конец меняет схему связей — в сводку предупреждений экспорта.
         if (synced.detached.length) {
           exportWarnings.push(`${id}: отцеплено проводов (порт удалён): ${synced.detached.length}`)
@@ -664,15 +659,14 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
         for (const w of result.warnings || []) exportWarnings.push(`${id}: ${w}`)
       }
 
-      // Используемые символы из реестра (def→stencil.json без svgText, svgText→shape.svg).
-      const stencils = collectUsedStencilIds(graphs)
-        .map((sid) => {
-          const def = getStencilById(sid)
-          if (!def) return null
-          const { svgText, ...stencilJson } = def
-          return { id: sid, stencilJson, shapeSvg: svgText || '' }
-        })
-        .filter(Boolean)
+      // В `library/` уезжает ВСЯ палитра, а не только символы со схем: проект —
+      // контейнер работы, и символ, нарисованный про запас, обязан пережить перенос на
+      // другую машину. (def→stencil.json без svgText, svgText→shape.svg)
+      const stencils = getAllStencils().map(({ svgText, ...stencilJson }) => ({
+        id: stencilJson.id,
+        stencilJson,
+        shapeSvg: svgText || '',
+      }))
 
       const tagsText = await readTagsText()
       await deliver({

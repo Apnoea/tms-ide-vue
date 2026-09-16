@@ -36,13 +36,13 @@ function toggleFill(on) {
 
 <template>
   <div>
-    <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Фигура</div>
+    <div class="tms-field-label mb-1">Фигура</div>
     <div class="font-medium text-surface-900">{{ values.shapeLabel }}</div>
   </div>
 
   <div class="space-y-2.5">
     <div v-if="values.isShapeText">
-      <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
+      <div class="tms-field-label mb-1">Текст</div>
       <!-- Пустое поле = удалить подпись (по коммиту, не на каждый символ: иначе
            стирание текста «под новый» сносило бы фигуру). Textarea, а не InputText:
            подпись многострочная, Enter добавляет строку — поэтому шаг истории
@@ -59,7 +59,7 @@ function toggleFill(on) {
     </div>
 
     <div v-if="!values.isShapeText" class="flex items-center gap-3">
-      <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+      <span class="tms-field-label shrink-0">
         {{ values.isShapeFillable ? 'Цвет линии' : 'Цвет' }}
       </span>
       <ColorField
@@ -70,9 +70,7 @@ function toggleFill(on) {
     </div>
 
     <div v-if="!values.isShapeText" class="flex items-center gap-3">
-      <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-        Толщина, px
-      </span>
+      <span class="tms-field-label shrink-0">Толщина, px</span>
       <InputNumber
         :model-value="values.strokeWidth"
         :min="0.5"
@@ -100,7 +98,7 @@ function toggleFill(on) {
           input-id="shape-fill"
           @update:model-value="toggleFill"
         />
-        <span class="text-[11px] uppercase tracking-wider text-surface-500">Заливка</span>
+        <span class="tms-field-label">Заливка</span>
       </label>
       <ColorField
         v-if="values.fill"
@@ -112,9 +110,7 @@ function toggleFill(on) {
 
     <template v-if="values.isShapeText">
       <div class="flex items-center gap-3">
-        <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-          Размер, pt
-        </span>
+        <span class="tms-field-label shrink-0">Размер, pt</span>
         <InputNumber
           :model-value="values.fontSize"
           :min="6"
@@ -130,7 +126,7 @@ function toggleFill(on) {
       </div>
 
       <div class="flex items-center gap-3">
-        <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">Шрифт</span>
+        <span class="tms-field-label shrink-0">Шрифт</span>
         <Select
           :model-value="values.fontFamily"
           :options="FONT_FAMILIES"
@@ -147,7 +143,7 @@ function toggleFill(on) {
       </div>
 
       <div class="flex items-center gap-3">
-        <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">Жирность</span>
+        <span class="tms-field-label shrink-0">Жирность</span>
         <SelectButton
           :model-value="values.bold ? 'bold' : null"
           :options="boldOptions"
@@ -164,7 +160,7 @@ function toggleFill(on) {
       </div>
 
       <div class="flex items-center gap-3">
-        <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">Цвет</span>
+        <span class="tms-field-label shrink-0">Цвет</span>
         <ColorField
           :model-value="values.stroke"
           class="ml-auto"
@@ -175,9 +171,7 @@ function toggleFill(on) {
       <!-- Выравнивание = якорь роста: точка привязки стоит на месте, текст растёт от
            неё, а не перекладывается внутри рамки. -->
       <div class="flex items-center gap-3">
-        <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
-          Выравнивание
-        </span>
+        <span class="tms-field-label shrink-0">Выравнивание</span>
         <SelectButton
           :model-value="values.shapeAlign"
           :options="alignOptions"

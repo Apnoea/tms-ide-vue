@@ -6,6 +6,7 @@ import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
 import Badge from 'primevue/badge'
+import Chip from 'primevue/chip'
 import Accordion from 'primevue/accordion'
 import AccordionPanel from 'primevue/accordionpanel'
 import AccordionHeader from 'primevue/accordionheader'
@@ -13,7 +14,6 @@ import AccordionContent from 'primevue/accordioncontent'
 import { useConfirm } from 'primevue/useconfirm'
 import {
   getAllStencils,
-  isHiddenStencil,
   getCategories,
   isBusStencil,
   registryVersion,
@@ -97,9 +97,7 @@ const stencilsByCategory = computed(() => {
   const map = new Map()
   for (const cat of allCategories.value) map.set(cat, [])
   for (const stencil of getAllStencils()) {
-    // Символ прошлого формата (см. LEGACY_HIDDEN_IDS) держится в реестре только ради
-    // открытия старых форм — в палитру он не попадает.
-    if (isHiddenStencil(stencil) || !matchesSearch(stencil)) continue
+    if (!matchesSearch(stencil)) continue
     if (domainFilterActive.value && !matchesDomains(stencil, domainFilter.value)) continue
     map.get(stencil.category)?.push(stencil)
   }
@@ -117,6 +115,13 @@ const categories = computed(() => {
 
 const noResults = computed(
   () => (!!search.value.trim() || domainFilterActive.value) && categories.value.length === 0
+)
+
+// Пусто по запросу или по фильтру областей — причина разная, подсказка тоже.
+const noResultsText = computed(() =>
+  search.value.trim()
+    ? `Ничего не нашлось по «${search.value.trim()}»`
+    : 'В выбранных областях символов нет'
 )
 
 // Активные (раскрытые) категории — persist в localStorage чтобы UI не
@@ -288,25 +293,18 @@ async function removeStencil(id) {
       <!-- Область применения: фильтр-чипы, а не подкатегории. Символ может годиться
            сразу нескольким областям, а в дереве лежал бы только в одной. Ни один чип
            не выбран = показываем всё. -->
-      <div class="px-3 py-2 border-b border-surface-200 bg-surface-0 flex flex-wrap gap-1">
-        <button
+      <div
+        class="px-3 py-2 border-b border-surface-200 bg-surface-0 flex flex-wrap items-center gap-1"
+      >
+        <Chip
           v-for="d in STENCIL_DOMAINS"
           :key="d.key"
-          type="button"
-          class="cursor-pointer rounded-full border px-2 py-0.5 text-[11px] transition-colors"
-          :class="
-            domainFilter.includes(d.key)
-              ? 'border-primary-500 bg-primary-50 text-primary-700'
-              : 'border-surface-300 text-surface-500 hover:text-surface-800'
-          "
+          :label="d.label"
+          class="tms-domain-chip"
+          :class="{ 'tms-domain-chip-on': domainFilter.includes(d.key) }"
           @click="toggleDomain(d.key)"
-        >
-          {{ d.label }}
-        </button>
-        <span
-          v-if="domainFilter.length && search.trim()"
-          class="text-[11px] text-surface-400 py-0.5"
-        >
+        />
+        <span v-if="domainFilter.length && search.trim()" class="tms-hint text-surface-400">
           поиск по всем областям
         </span>
       </div>
@@ -314,18 +312,17 @@ async function removeStencil(id) {
 
     <div class="flex-1 p-2 overflow-auto">
       <template v-if="!allCategories.length">
-        <div class="flex flex-col items-center text-center text-surface-400 py-10">
+        <div class="tms-empty">
           <i class="pi pi-inbox text-3xl mb-3 opacity-60" />
-          <div class="text-sm font-medium text-surface-500">Реестр символов пуст</div>
-          <p class="text-[11px] mt-1 max-w-[180px]">Добавь папку в src/stencils/definitions/</p>
+          <div class="tms-empty-title">Реестр символов пуст</div>
+          <p class="tms-hint max-w-[180px]">Добавь папку в src/stencils/definitions/</p>
         </div>
       </template>
 
       <template v-else-if="noResults">
-        <div class="flex flex-col items-center text-center text-surface-400 py-8">
-          <i class="pi pi-search text-2xl mb-2 opacity-60" />
-          <div v-if="search.trim()" class="text-xs">Ничего не нашлось по «{{ search }}»</div>
-          <div v-else class="text-xs">В выбранных областях символов нет</div>
+        <div class="tms-empty">
+          <i class="pi pi-search text-3xl mb-3 opacity-60" />
+          <div class="tms-empty-title">{{ noResultsText }}</div>
         </div>
       </template>
 

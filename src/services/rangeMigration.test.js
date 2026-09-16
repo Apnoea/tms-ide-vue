@@ -53,7 +53,7 @@ describe('planRangeMigration', () => {
   it('не трогает залоченный символ, символ с зонами и незнакомый', () => {
     const forms = [
       form('f1', [
-        cell('c1', 'cell_node', { tag: 'A', ranges: ROWS }),
+        cell('c1', 'cell_locked', { tag: 'A', ranges: ROWS }),
         cell('c2', 'cell_zoned', { tag: 'B', ranges: ROWS }),
         cell('c3', 'cell_ghost', { tag: 'C', ranges: ROWS }),
       ]),
@@ -61,7 +61,7 @@ describe('planRangeMigration', () => {
     const plan = planRangeMigration(
       forms,
       registry({
-        cell_node: { id: 'cell_node', locked: true },
+        cell_locked: { id: 'cell_locked', locked: true },
         cell_zoned: { id: 'cell_zoned', ranges: ROWS },
       })
     )
@@ -70,7 +70,7 @@ describe('planRangeMigration', () => {
     expect(plan.moved).toBe(0)
     expect(plan.skipped.map((s) => s.stencilId).sort()).toEqual([
       'cell_ghost',
-      'cell_node',
+      'cell_locked',
       'cell_zoned',
     ])
   })
@@ -146,17 +146,15 @@ describe('planRangeMigration', () => {
       form('f1', [
         cell('b', 'cell_bus', BUS),
         cell('q', 'cell_qw'),
-        cell('n', 'cell_node', same),
-        wire('w1', 'b', 'n', { rangeSource: same, strokeWidth: 4 }),
-        wire('w2', 'n', 'q', { rangeSource: { tag: 'FEEDER.I', ranges: ROWS } }),
+        wire('w1', 'b', 'q', { rangeSource: same, strokeWidth: 4 }),
+        wire('w2', 'b', 'q', { rangeSource: { tag: 'FEEDER.I', ranges: ROWS } }),
         wire('w3', 'q', 'q', { rangeSource: BUS }), // источника по цепи нет — остаётся
       ]),
     ]
     const plan = planWireRangeCleanup(forms, registry({ cell_bus: { id: 'cell_bus' } }))
-    expect(plan.cleared).toBe(2)
+    expect(plan.cleared).toBe(1)
     const cells = plan.forms[0].graphJson.cells
     expect(cells.find((c) => c.id === 'w1').tms).toEqual({ strokeWidth: 4 })
-    expect(cells.find((c) => c.id === 'n').tms.rangeSource).toBeUndefined()
     // Свой тег (ток фидера) и провод без источника — нетронуты, вход не мутирован.
     expect(cells.find((c) => c.id === 'w2').tms.rangeSource.tag).toBe('FEEDER.I')
     expect(cells.find((c) => c.id === 'w3').tms.rangeSource).toBe(BUS)

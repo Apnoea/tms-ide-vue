@@ -4,6 +4,7 @@ import { useEventListener, useResizeObserver } from '@vueuse/core'
 import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
 import Tag from 'primevue/tag'
+import Divider from 'primevue/divider'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
 import { useConfirm } from 'primevue/useconfirm'
 import {
@@ -418,9 +419,9 @@ function onPanMouseUp() {
  * Заменяет выделение на cells + «мостовые» провода между ними (computeBridgeLinks —
  * общая логика с useCanvas).
  *
- * keepLinks — провода, выделенные вручную: нужен для toggle-веток (Ctrl+клик,
- * additive-лассо), иначе они слетали бы, ведь selection пересобирается из ячеек и
- * мостов. Дедуп по id: мост мог совпасть с уже выделённым проводом.
+ * keepLinks — провода, выделенные вручную: selection пересобирается из ячеек и мостов,
+ * и в toggle-ветках (Ctrl+клик, additive-лассо) они иначе слетают. Дедуп по id — мост
+ * мог совпасть с уже выделённым проводом.
  */
 function selectCellsWithBridges(cellItems, keepLinks = []) {
   const cellIds = cellItems.map((c) => c.id)
@@ -749,20 +750,15 @@ onMounted(async () => {
     )
   }
 
-  // Сообщаем о восстановлении уже после монтирования (toast service готов).
-  //
-  // Только на ПЕРВОМ монтировании за загрузку страницы: в dev правка любого нашего
-  // `.js` поднимает hot-update до этого компонента, он перемонтируется, и тост с
-  // центрированием повторялись бы на каждое сохранение файла. Флаг переживает
-  // hot-update через `hot.data`; в проде `hot` нет и условие всегда истинно.
+  // Тост о восстановлении — после монтирования (toast service готов) и только на
+  // ПЕРВОМ за загрузку страницы: в dev hot-update перемонтирует компонент на каждое
+  // сохранение файла. Флаг живёт в `hot.data`; в проде `hot` нет и условие истинно.
   const firstMount = !import.meta.hot?.data.restoreShown
   if (import.meta.hot) import.meta.hot.data.restoreShown = true
   if (restored > 0) {
-    // Тост — только на первом монтировании (см. выше). Вписывание в область
-    // видимости — на КАЖДОМ: paper всегда стартует с translate(0,0), и форма,
-    // нарисованная где-нибудь в (500, 800), иначе оказывается за кадром — холст
-    // выглядит пустым, будто содержимое уехало в левый верхний угол.
-    // nextTick — чтобы paperContainer успел получить итоговые clientWidth/Height.
+    // Вписывание — на КАЖДОМ монтировании: paper стартует с translate(0,0), и форма,
+    // нарисованная в (500, 800), осталась бы за кадром. nextTick — чтобы контейнер
+    // успел получить итоговые clientWidth/Height.
     if (firstMount) {
       notify.info(
         'Автосейв восстановлен',
@@ -989,7 +985,7 @@ function performClearCanvas(count) {
           </Button>
         </div>
 
-        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+        <Divider layout="vertical" class="tms-toolbar-divider" />
 
         <Button
           v-tooltip.bottom="simulating ? 'Остановить симуляцию' : 'Запустить симуляцию'"
@@ -1083,7 +1079,7 @@ function performClearCanvas(count) {
           @click="toggleSearch"
         />
 
-        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+        <Divider layout="vertical" class="tms-toolbar-divider" />
 
         <Button
           v-tooltip.bottom="'Отменить · Ctrl+Z'"
@@ -1106,7 +1102,7 @@ function performClearCanvas(count) {
           @click="redo"
         />
 
-        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+        <Divider layout="vertical" class="tms-toolbar-divider" />
 
         <div class="flex items-center">
           <Button
@@ -1142,7 +1138,7 @@ function performClearCanvas(count) {
           />
         </div>
 
-        <div class="w-px h-5 bg-surface-200 mx-1" aria-hidden="true"></div>
+        <Divider layout="vertical" class="tms-toolbar-divider" />
 
         <Button
           v-tooltip.bottom="'Очистить холст'"
@@ -1259,7 +1255,7 @@ function performClearCanvas(count) {
           severity="secondary"
           rounded
           size="small"
-          class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
+          class="tms-overlay-btn"
           :style="overlayBtns.rotateCcw"
           @click="rotateSelectedBy(-90)"
         />
@@ -1270,7 +1266,7 @@ function performClearCanvas(count) {
           severity="secondary"
           rounded
           size="small"
-          class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
+          class="tms-overlay-btn"
           :style="overlayBtns.rotateCw"
           @click="rotateSelectedBy(90)"
         />
@@ -1281,7 +1277,7 @@ function performClearCanvas(count) {
           severity="secondary"
           rounded
           size="small"
-          class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
+          class="tms-overlay-btn"
           :style="overlayBtns.flipH"
           @click="flipSelected('h')"
         />
@@ -1292,7 +1288,7 @@ function performClearCanvas(count) {
           severity="secondary"
           rounded
           size="small"
-          class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
+          class="tms-overlay-btn"
           :style="overlayBtns.flipV"
           @click="flipSelected('v')"
         />
@@ -1303,7 +1299,7 @@ function performClearCanvas(count) {
           severity="secondary"
           rounded
           size="small"
-          class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
+          class="tms-overlay-btn"
           :style="overlayBtns.delete"
           @click="onDeleteSelected"
         />
@@ -1315,7 +1311,7 @@ function performClearCanvas(count) {
           :severity="overlayBtns.locked ? 'primary' : 'secondary'"
           rounded
           size="small"
-          class="absolute! z-20! w-8! h-8! p-0! min-w-0! border! border-surface-300! hover:!border-surface-400"
+          class="tms-overlay-btn"
           :style="overlayBtns.lock"
           @click="toggleLockSelected"
         />

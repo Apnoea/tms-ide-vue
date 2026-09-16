@@ -128,6 +128,140 @@ body,
   padding: 0;
 }
 
+/* Два текстовых стиля инспекторов, которые раньше набирались утилитами и разъезжались:
+   `tms-field-label` — ПОДПИСЬ поля (капс, разрядка), `tms-hint` — пояснение к блоку
+   (обычный регистр, плотный интерлиньяж). Разница смысловая, поэтому имя, а не набор
+   утилит: одинаковые на вид строки означали разное.
+   В `@layer components`, чтобы утилиты из шаблона (`mb-2`, `text-surface-400`) их
+   перебивали — слой utilities идёт после. */
+@layer components {
+  /* line-height НЕ задаём: `text-[11px]` его не ставил, и подпись наследовала строку
+     родителя — фиксация сжала бы вертикальные отступы во всех инспекторах. */
+  .tms-field-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--p-surface-500);
+  }
+
+  .tms-hint {
+    font-size: 11px;
+    line-height: 1.375;
+    color: var(--p-surface-500);
+  }
+
+  /* Пустое состояние панели (нет выделения, пустой реестр, поиск без результатов):
+     иконка — заголовок — пояснение по центру. Отступы и размеры у четырёх таких
+     блоков разъезжались (py-8 / py-10 / pb-6 pt-8), поэтому канон один на всех. */
+  .tms-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-block: 2rem;
+    text-align: center;
+    color: var(--p-surface-400);
+  }
+
+  .tms-empty-title {
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--p-surface-500);
+  }
+}
+
+/* Классы кнопок — ВНЕ `@layer`, в отличие от текстовых выше: они перебивают стили
+   PrimeVue, а те тоже объявлены вне слоёв, и правило из слоя проиграло бы им.
+   Кнопка действия В СТРОКЕ списка (убрать тег, удалить диапазон / состояние /
+   условие) — 24×24 против 32×32 у тулбарных: она стоит внутри строки и не должна
+   распирать её по высоте. */
+.p-button.tms-row-btn {
+  width: 1.5rem;
+  height: 1.5rem;
+  min-width: 1.5rem;
+  padding: 0.25rem;
+}
+
+/* Фильтр областей применения (палитра и свойства символа) на `Chip`: своего состояния
+   «выбран» у него нет (он не контрол), поэтому клик и класс вешает вызывающий, а вид
+   обоих состояний задан здесь. Селектор ДВОЙНОЙ (`.p-chip.tms-…`): стили PrimeVue
+   инжектятся в `<head>` в рантайме, то есть после этого файла, и при равной
+   специфичности побеждали бы они. */
+.p-chip.tms-domain-chip {
+  cursor: pointer;
+  padding: 0.125rem 0.5rem;
+  font-size: 11px;
+  line-height: 1rem;
+  border: 1px solid var(--p-surface-300);
+  background: transparent;
+  color: var(--p-surface-500);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+.p-chip.tms-domain-chip:hover {
+  color: var(--p-surface-800);
+}
+.p-chip.tms-domain-chip-on {
+  border-color: var(--p-primary-500);
+  background: var(--p-primary-50);
+  color: var(--p-primary-700);
+}
+
+/* Разделитель групп в тулбарах. Вертикальный `Divider` тянется на всю высоту родителя
+   (`min-height: 100%`) и несёт собственные поля — в 56px-тулбаре это линия во всю
+   высоту, поэтому задаём фиксированные 20px и узкие отступы. */
+.p-divider.tms-toolbar-divider {
+  height: 1.25rem;
+  min-height: 0;
+  margin: 0 0.25rem;
+  padding: 0;
+}
+
+/* Overlay-кнопки НАД холстом (поворот, отражение, удаление выделения — те же в
+   редакторе символов): позицию каждой считает `overlayButtonPositions` и отдаёт
+   инлайн-стилем, поэтому здесь только размер и рамка — она отделяет кнопку от
+   рисунка под ней. */
+.p-button.tms-overlay-btn {
+  position: absolute;
+  z-index: 20;
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  padding: 0;
+  border: 1px solid var(--p-surface-300);
+}
+.p-button.tms-overlay-btn:hover {
+  border-color: var(--p-surface-400);
+}
+
+/* «Добавить строку» в списках инспектора (состояния символа, диапазоны, пресет
+   состояний) — пунктирный плейсхолдер во всю ширину блока: он читается как пустое
+   место, которое можно заполнить, и не спорит с обычными кнопками действий рядом.
+   Класс, а не повтор утилит в каждом шаблоне — три места разъезжались по стилю. */
+.tms-add-row {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px dashed var(--p-surface-300);
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--p-surface-500);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.tms-add-row:hover {
+  border-color: var(--p-primary-400);
+  color: var(--p-surface-700);
+}
+
 /* Единая высота компактных контролов (инпуты / селекты / степперы) — 30px, чтобы
    поля в инспекторах не «плавали» по высоте. .p-inputtext покрывает и обычные
    инпуты, и внутренний input у InputNumber; у Select центрируем label. */
@@ -226,33 +360,6 @@ body,
 @media (prefers-reduced-motion: reduce) {
   .tms-pane-enter-active,
   .tms-pane-leave-active {
-    transition: none;
-  }
-}
-
-/* Сворачивание блока (режимы анимации символа): высота содержимого заранее неизвестна,
-   поэтому анимируем `grid-template-rows` 0fr→1fr — в отличие от `max-height` это точная
-   высота без рывка в конце. Внутренний слой режет переполнение на промежуточных кадрах;
-   вне анимации элемент остаётся обычным блоком с высотой auto. */
-.tms-collapse-enter-active,
-.tms-collapse-leave-active {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition: grid-template-rows 180ms ease;
-}
-.tms-collapse-enter-from,
-.tms-collapse-leave-to {
-  grid-template-rows: 0fr;
-}
-.tms-collapse-enter-active > *,
-.tms-collapse-leave-active > * {
-  min-height: 0;
-  overflow: hidden;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tms-collapse-enter-active,
-  .tms-collapse-leave-active {
     transition: none;
   }
 }

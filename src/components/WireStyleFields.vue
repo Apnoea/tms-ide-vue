@@ -39,7 +39,7 @@ const isCustom = (key) =>
          Крестик поверх пикера — сброс к дефолту, как у кнопки фона холста: виден
          только когда цвет свой, иначе висел бы пустым обещанием. -->
     <div class="flex items-center gap-3">
-      <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+      <span class="tms-field-label shrink-0">
         Цвет
         <span v-if="mixed('strokeColor')" class="text-surface-400">разные</span>
       </span>
@@ -64,7 +64,7 @@ const isCustom = (key) =>
 
     <!-- Толщина линии — InputNumber со степперами, как в редакторе символов. -->
     <div class="flex items-center gap-3">
-      <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+      <span class="tms-field-label shrink-0">
         Толщина, px
         <span v-if="mixed('strokeWidth')" class="text-surface-400">разные</span>
       </span>
@@ -96,7 +96,7 @@ const isCustom = (key) =>
     <!-- Наконечники смотрят В точку соединения, размер — от толщины линии.
          Концы независимы: бывает и один, и оба. -->
     <div v-for="end in arrowEnds" :key="end.key" class="flex items-center gap-3">
-      <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+      <span class="tms-field-label shrink-0">
         {{ end.label }}
         <span v-if="mixed(end.key)" class="text-surface-400">разные</span>
       </span>

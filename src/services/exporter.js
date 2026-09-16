@@ -4,7 +4,6 @@ import { contentTransform, contentScales } from '../stencils/svgInjector'
 import { isShapeCell } from '../stencils/shapeElement'
 import { serializeShape } from '../utils/stencilSvg'
 import { buildBusExportSvg, collectBusMarks } from '../stencils/busCell'
-import { buildNodeExportSvg } from '../stencils/nodeCell'
 import {
   LINK_Z,
   arrowExportSvg,
@@ -217,8 +216,6 @@ export function exportProject(graph, paper = null) {
         tms.color,
         collectBusMarks(graph, cell.id)
       )
-    } else if (tms.stencilId === 'cell_node') {
-      cellSvg = buildNodeExportSvg(size.width, size.height, tms)
     } else {
       // parser.instantiate интерполирует {slot.X} → tms.slots[X] в bindings и собирает
       // SVG с id="animation-{stencilId}-{animId}{suffix}"; animId — короткий.
@@ -258,14 +255,14 @@ export function exportProject(graph, paper = null) {
       // инспектора берут их отсюда.
       params: tms.params || null,
       // В мету — только СВОЯ настройка (round-trip); действующий источник (зоны символа
-      // с тегом слота, наследование у точки) — в `rangeEffective`, для карточек. Запиши
+      // с тегом слота, наследование у провода) — в `rangeEffective`, для карточек. Запиши
       // его в мету — при загрузке он стал бы своим и перестал следовать за источником.
       rangeSource: tms.rangeSource || null,
       rangeEffective: resolveRangeSource(access.of(cell), access, getStencilById),
       boolSource: tms.boolSource || null,
       // navigation — имя view, на которую рантайм переходит по клику.
       navigation: tms.navigation || null,
-      // Цвет тела шины и точки соединения (у подписи-разметки свой, в tms.shape).
+      // Цвет тела шины (у подписи-разметки свой, в tms.shape).
       color: tms.color,
       // locked — «замок» ячейки: read-only на холсте, переживает экспорт/импорт.
       locked: tms.locked,
@@ -279,8 +276,6 @@ export function exportProject(graph, paper = null) {
       valueLabel: tms.valueLabel,
       valueUnit: tms.valueUnit,
       decimals: tms.decimals,
-      // Диаметр точки соединения (cell_node) — вид, заданный автором.
-      dotSize: tms.dotSize,
       // Геометрический трансформ для round-trip: angle применяется как rotate вокруг
       // центра ячейки на outer-`<g>`.
       angle: cell.angle ? cell.angle() : 0,
@@ -540,19 +535,13 @@ export function exportProject(graph, paper = null) {
   }
 
   // ─── Quality (OPC DA): non-good → animation-off ───
-  // quality тега: 192-255 = good, 64-191 = uncertain, 0-63 = bad. Символы с
-  // флагом `quality: true` в stencil.json (cell_qk/qr/qf) получают range-кейс
-  // [0, 191] → addClass: animation-off — cell станет серым, если данные
-  // ненадёжны. WebScada сравнивает inclusive (>=min && <=max), поэтому
-  // max=191 — последнее non-good значение, 192 уже good и в range не попадёт.
+  // Шкала: 192-255 good, 64-191 uncertain, 0-63 bad. Символы с `quality: true` в
+  // stencil.json получают range-кейс [0, 191] → addClass `animation-off`; сравнение в
+  // рантайме inclusive, поэтому max=191 — последнее non-good значение.
   //
-  // Биндинги кладём ТОЛЬКО на outer-карточку — оттуда CSS-каскад
-  // `.animation-off *:not(text) { stroke }` затемняет ВСЕ stroke-элементы
-  // символа. На inner-карточках (.true / .false) серым стал бы только
-  // текущий видимый рычаг — остальной корпус остался бы чёрным.
-  //
-  // Outer-карточку создаём если её ещё нет (аналогично navigation-логике
-  // выше). text/value-карточки сюда не включаются — у них своя
+  // Биндинги только на OUTER-карточку: оттуда каскад `.animation-off *:not(text)`
+  // затемняет весь символ, а на inner-карточках серым стал бы один видимый рычаг.
+  // Outer создаём, если её ещё нет; text/value-карточки не трогаем — у них своя
   // quality-семантика в рантайме.
   for (const c of cellExports) {
     if (needsMulti(c)) continue
@@ -698,13 +687,11 @@ export function exportProject(graph, paper = null) {
   const background = renderCells(cellExports.filter((c) => isBackgroundZ(c.z)))
   const groups = renderCells(cellExports.filter((c) => !isBackgroundZ(c.z)))
 
-  // Инлайн-стили — рантайм только навешивает классы, CSS должен быть в SVG.
-  // Descendant-селектор `* { stroke }` нужен из-за inline presentation-атрибутов
-  // внутри ячеек. animation-off объявлен ПОСЛЕ правил диапазонов — перебивает по каскаду.
-  // цвет по диапазонам (stroke + opt-in fill) + animation-off серым поверх.
-  // Чистый SVG: без scope и без live-DOM исключений (см. buildRangeCssRules).
-  // Правила — по цветам, реально выбранным в этой форме: состав задаёт схема, поэтому
-  // собираем со всех источников (ячейки + провода), включая прежние class-имена.
+  // Стили инлайном: рантайм только навешивает классы, CSS обязан быть в SVG.
+  // Descendant-селектор `* { stroke }` нужен из-за presentation-атрибутов внутри
+  // ячеек; `animation-off` объявлен ПОСЛЕ диапазонов и перебивает их по каскаду.
+  // Правила собираются по цветам, реально выбранным в этой форме — со всех источников
+  // (ячейки и провода).
   const rangeCss = buildRangeCssRules(
     [...cellExports, ...linkExports].flatMap((s) =>
       (s.rangeEffective?.ranges || []).map((r) => rangeRowColor(r))

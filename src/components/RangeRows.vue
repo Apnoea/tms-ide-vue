@@ -88,21 +88,18 @@ const cellText = (v) => (Number.isFinite(v) ? String(v) : '')
             severity="secondary"
             text
             size="small"
-            class="ml-auto p-1! w-6! h-6! shrink-0"
+            class="tms-row-btn ml-auto shrink-0"
             @click="$emit('remove-range', idx)"
           />
         </div>
       </div>
 
-      <Button
-        label="Добавить диапазон"
-        icon="pi pi-plus"
-        severity="secondary"
-        text
-        size="small"
-        class="mt-1 p-1! text-xs!"
-        @click="$emit('add-range')"
-      />
+      <!-- Пунктирный плейсхолдер `tms-add-row` — тот же, что у «+ состояние» в
+           инспекторе символа: оба блока стоят рядом и добавляют строку в список. -->
+      <button type="button" class="tms-add-row mt-1 w-full" @click="$emit('add-range')">
+        <i class="pi pi-plus text-[10px]!" />
+        диапазон
+      </button>
     </template>
   </div>
 </template>

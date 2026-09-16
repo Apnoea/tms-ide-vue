@@ -16,11 +16,10 @@ import { ARROW_KINDS, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from './wire'
 export const RANGE_SLOT = 'range'
 
 /**
- * id программных символов: у них тело и порты считает код, а не definitions/. Шина —
- * источник диапазонов для проводов, точка соединения — прозрачное звено цепи.
+ * id шины: тело и порты ей считает код, а не definitions/. Она же — источник
+ * диапазонов для подключённых проводов.
  */
 export const BUS_STENCIL_ID = 'cell_bus'
-export const NODE_STENCIL_ID = 'cell_node'
 
 /**
  * Санитайзеры значений meta. `normalize` в дескрипторе применяется на ОБОИХ концах
@@ -49,10 +48,9 @@ const normalizeRangeSource = (v) => {
     ...v,
     ranges: v.ranges.map((r) => {
       const out = { ...r }
-      // Цвет строки: своё значение либо прежний class-имя (архив до пикера цвета) —
-      // class после конверсии не держим, чтобы в модели было одно поле.
+      // Цвет — только валидный CSS: строка из чужого архива уехала бы в CSS-селектор
+      // экспорта. Невалидный = цвета нет, такая строка нигде не красит.
       const color = rangeRowColor(out)
-      delete out.class
       if (color) out.color = color
       else delete out.color
       out.min = bound(out.min)
@@ -153,11 +151,9 @@ export const CELL_META_FIELDS = [
   { key: 'slots', keep: Boolean, clone: true },
   // Значения подписей-параметров символа. Пустое = текст из определения.
   { key: 'params', keep: Boolean, clone: true, normalize: normalizeParams },
-  // Цвет тела шины и точки соединения. Уезжает в атрибут `fill` экспортного SVG, а
-  // архив чужой — мусор отбрасываем целиком (поля нет = дефолтный цвет).
+  // Цвет тела шины. Уезжает в атрибут `fill` экспортного SVG, а архив чужой — мусор
+  // отбрасываем целиком (поля нет = дефолтный цвет).
   { key: 'color', keep: (v) => v !== undefined, normalize: (v) => cssColor(v) || undefined },
-  // Диаметр точки соединения. Дефолт не пишем — отсутствие поля и есть он.
-  { key: 'dotSize', keep: (v) => v !== undefined, normalize: clampNumber(2, 20, undefined) },
   // Масштаб экземпляра символа (множитель к размеру из определения). Хранится
   // НАМЕРЕНИЕ, а не готовый размер: правку самого символа увеличенный экземпляр
   // должен переживать пропорционально, а по одному габариту «40×40» не понять, чего

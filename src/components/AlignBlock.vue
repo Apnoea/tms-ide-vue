@@ -19,7 +19,7 @@ const emit = defineEmits(['align', 'distribute'])
 <template>
   <div class="space-y-2.5">
     <div v-for="row in rows" :key="row.label" class="flex items-center gap-3">
-      <span class="text-[11px] uppercase tracking-wider text-surface-500 shrink-0">
+      <span class="tms-field-label shrink-0">
         {{ row.label }}
       </span>
       <div class="ml-auto flex items-center gap-1">

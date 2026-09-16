@@ -1,16 +1,12 @@
 <script setup>
 /**
- * Свойства символа — контент правой панели в режиме редактора. Секции:
- * идентификация (название/id/категория), поведение (флаги), «Анимации» — ДВА
- * сворачиваемых блока состояния (булево / по значению; открыт максимум один, оба
- * закрытых = анимации нет) и диапазоны значений, и фигура (свойства выделенного
- * элемента + его видимость по состоянию).
+ * Свойства символа — правая панель редактора: идентификация, флаги поведения,
+ * «Анимации» (два сворачиваемых блока состояния, открыт максимум один; оба закрытых =
+ * анимации нет) и свойства выделенной фигуры.
  *
- * Анимации оформлены КАРТОЧКАМИ как в инспекторе холста (StateBlock/RangeBlock): это
- * одна настройка с двух сторон — здесь задаётся поведение символа, там у экземпляра
- * привязывается тег.
- *
- * Стейт — синглтон useStencilEditor (тот же инстанс, что рисуется в центре).
+ * Анимации оформлены карточками как в инспекторе холста (StateBlock/RangeBlock): одна
+ * настройка с двух сторон — здесь поведение символа, там привязка тега у экземпляра.
+ * Стейт — синглтон useStencilEditor, тот же, что рисует стол.
  */
 import { computed, ref, watch } from 'vue'
 import InputText from 'primevue/inputtext'
@@ -19,7 +15,13 @@ import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
 import SelectButton from 'primevue/selectbutton'
+import Chip from 'primevue/chip'
+import Message from 'primevue/message'
 import Button from 'primevue/button'
+import Accordion from 'primevue/accordion'
+import AccordionPanel from 'primevue/accordionpanel'
+import AccordionHeader from 'primevue/accordionheader'
+import AccordionContent from 'primevue/accordioncontent'
 import ColorField from './ColorField.vue'
 import { getAllStencils, getCategories, registryVersion } from '../stencils/registry'
 import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor'
@@ -121,7 +123,7 @@ function setText(v) {
   if (selectedShape.value) updateShape(selectedShape.value.id, { text: next })
 }
 
-// Чип области применения: тогл + шаг истории (мета символа входит в undo-снимок).
+// Области применения: мета символа входит в undo-снимок, поэтому свой шаг истории.
 function toggleDomain(key) {
   const next = new Set(meta.domains)
   if (!next.delete(key)) next.add(key)
@@ -187,6 +189,17 @@ function nextParamKey() {
     .map(Number)
   return `p${Math.max(0, ...used) + 1}`
 }
+
+/**
+ * Колонки таблицы состояний: глаз — подпись — значение — цвет контура — [цвет заливки]
+ * — удаление. Шапка и строки живут в ОДНОЙ сетке: раньше это были две flex-раскладки с
+ * ручными ширинами, и при смене ширины панели заголовки уезжали относительно колонок.
+ * Колонка удаления есть и в булевом режиме (там кнопки нет) — иначе два блока не
+ * совпали бы между собой.
+ */
+const stateGridCols = computed(
+  () => `30px minmax(0, 1fr) 3rem 30px${hasFillableShapes.value ? ' 30px' : ''} 1.5rem`
+)
 
 // Флаг стоит у нескольких подписей: слот и суффикс один, поэтому в схему уехала бы
 // только одна из них.
@@ -294,15 +307,8 @@ const ANIM_MODES = [
 /** Какой блок раскрыт: `null` — анимации нет. */
 const openMode = computed(() => (meta.stateful ? meta.stateMode : null))
 
-/**
- * Клик по заголовку: открыть режим либо закрыть открытый (= выключить анимацию).
- * Смена режима сбрасывает видимость фигур и цвета — ключи состояний у режимов разные
- * (`applyStateMode`), поэтому это одна операция и один шаг истории.
- */
-function toggleMode(mode) {
-  if (meta.locked) return
-  setAnimationMode(openMode.value === mode ? 'off' : mode)
-}
+// Смена режима сбрасывает видимость фигур и цвета — ключи состояний у режимов разные
+// (`applyStateMode`), поэтому это одна операция и один шаг истории.
 // Булев режим — те же две строки «подпись → значение», что у «по значению», но
 // read-only: значения фиксированы (true/false), редактировать/удалять нельзя.
 const BOOLEAN_STATES = [
@@ -376,13 +382,13 @@ function clearStateColor(key, which) {
       <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-4">
         <!-- Программный символ (шина): все свойства показаны как есть, но заданы кодом
              (контролы disabled) — в редакторе правятся только зоны диапазонов. -->
-        <p v-if="meta.locked" class="text-[11px] text-surface-500 leading-snug">
+        <p v-if="meta.locked" class="tms-hint">
           Программный символ: тело и порты задаёт код, правятся только диапазоны значений.
         </p>
         <!-- Проблемы черновика подсвечиваются ЖИВЬЁМ (`problemOf`): иначе занятый id
              или пустая категория всплывали только тостом после клика «Сохранить». -->
         <label class="relative block">
-          <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Название</div>
+          <div class="tms-field-label mb-1">Название</div>
           <InputText
             v-model="meta.label"
             :disabled="meta.locked"
@@ -404,7 +410,7 @@ function clearStateColor(key, which) {
         </label>
 
         <label class="relative block">
-          <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">id</div>
+          <div class="tms-field-label mb-1">id</div>
           <!-- Нативный <input> (не PrimeVue): @input гарантированно нативный, onIdInput
              правит e.target.value напрямую (обходя Vue-диффинг). -->
           <input
@@ -428,7 +434,7 @@ function clearStateColor(key, which) {
         </label>
 
         <label class="relative block">
-          <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Категория</div>
+          <div class="tms-field-label mb-1">Категория</div>
           <Select
             v-model="meta.category"
             :options="categories"
@@ -454,26 +460,19 @@ function clearStateColor(key, which) {
         <!-- Область применения: фильтр палитры, а не вторая категория — символ может
              годиться сразу нескольким областям. Пусто = виден при любом фильтре. -->
         <div>
-          <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">
-            Область применения
-          </div>
+          <div class="tms-field-label mb-1">Область применения</div>
           <div class="flex flex-wrap gap-1">
-            <button
+            <Chip
               v-for="d in STENCIL_DOMAINS"
               :key="d.key"
-              type="button"
-              :disabled="meta.locked"
-              class="rounded-full border px-2 py-0.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-              :class="[
-                meta.locked ? '' : 'cursor-pointer',
-                meta.domains.includes(d.key)
-                  ? 'border-primary-500 bg-primary-50 text-primary-700'
-                  : 'border-surface-300 text-surface-500 hover:text-surface-800',
-              ]"
+              :label="d.label"
+              class="tms-domain-chip"
+              :class="{
+                'tms-domain-chip-on': meta.domains.includes(d.key),
+                'pointer-events-none opacity-60': meta.locked,
+              }"
               @click="toggleDomain(d.key)"
-            >
-              {{ d.label }}
-            </button>
+            />
           </div>
         </div>
 
@@ -505,46 +504,41 @@ function clearStateColor(key, which) {
              это две стороны одной настройки, здесь задаётся поведение символа, там у
              экземпляра привязывается тег. Одинаковый вид показывает эту пару. -->
         <div class="space-y-2 border-t border-surface-200 pt-4">
-          <div class="text-[11px] uppercase tracking-wider text-surface-500">Анимации</div>
+          <div class="tms-field-label">Анимации</div>
 
-          <!-- Режимы состояния — два сворачиваемых блока: открыт максимум один, оба
-               закрыты = анимации нет. Заголовок и есть переключатель. -->
-          <div
-            v-for="mode in ANIM_MODES"
-            :key="mode.value"
-            class="rounded border bg-surface-0"
-            :class="openMode === mode.value ? 'border-primary-200' : 'border-surface-200'"
+          <!-- Режимы состояния: открыт максимум один, оба закрыты = анимации нет.
+               `value = null` (клик по открытому) выключает анимацию. -->
+          <Accordion
+            :value="openMode"
+            class="tms-anim-accordion"
+            @update:value="setAnimationMode($event || 'off')"
           >
-            <button
-              type="button"
-              data-test="anim-mode"
-              class="flex w-full items-center gap-2 p-3 text-left"
-              :class="meta.locked ? 'cursor-not-allowed' : 'cursor-pointer'"
+            <AccordionPanel
+              v-for="mode in ANIM_MODES"
+              :key="mode.value"
+              :value="mode.value"
               :disabled="meta.locked"
-              @click="toggleMode(mode.value)"
             >
-              <i
-                class="pi"
-                :class="[mode.icon, openMode === mode.value ? 'text-cyan-500' : 'text-surface-400']"
-              />
-              <span
-                class="flex-1 text-xs font-medium"
-                :class="openMode === mode.value ? 'text-surface-700' : 'text-surface-500'"
-              >
-                {{ mode.label }}
-              </span>
-              <i
-                class="pi text-[10px]! text-surface-400"
-                :class="openMode === mode.value ? 'pi-chevron-down' : 'pi-chevron-right'"
-              />
-            </button>
-
-            <!-- Раскрытие анимируется grid-строкой (см. `.tms-collapse-*` в style.css):
-                 содержимое режима остаётся в DOM только пока блок открыт. -->
-            <Transition name="tms-collapse">
-              <div v-if="openMode === mode.value">
+              <AccordionHeader data-test="anim-mode">
+                <span class="flex w-full items-center gap-2">
+                  <i
+                    class="pi"
+                    :class="[
+                      mode.icon,
+                      openMode === mode.value ? 'text-cyan-500' : 'text-surface-400',
+                    ]"
+                  />
+                  <span
+                    class="flex-1 text-xs font-medium"
+                    :class="openMode === mode.value ? 'text-surface-700' : 'text-surface-500'"
+                  >
+                    {{ mode.label }}
+                  </span>
+                </span>
+              </AccordionHeader>
+              <AccordionContent>
                 <div class="px-3 pb-3">
-                  <p class="text-[11px] text-surface-500 mb-2 leading-snug">
+                  <p class="tms-hint mb-2">
                     {{
                       mode.value === 'boolean'
                         ? 'Два положения по булеву тегу: какие фигуры видны и каким цветом.'
@@ -553,27 +547,31 @@ function clearStateColor(key, which) {
                   </p>
 
                   <div v-if="mode.value === 'boolean'" class="space-y-1.5 mb-2">
-                    <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
-                      <span class="w-[30px] shrink-0" aria-hidden="true"></span>
-                      <span class="flex-1 min-w-0">Подпись</span>
-                      <span class="w-12">Значение</span>
-                      <span class="flex w-[30px] shrink-0 justify-center">
+                    <div
+                      class="grid items-center gap-1.5 text-[11px] text-surface-500"
+                      :style="{ gridTemplateColumns: stateGridCols }"
+                    >
+                      <span aria-hidden="true"></span>
+                      <span>Подпись</span>
+                      <span>Значение</span>
+                      <span class="flex justify-center">
                         <i
                           v-tooltip.top="hasFillableShapes ? 'Цвет контуров' : 'Цвет символа'"
                           class="pi pi-circle text-[11px]!"
                         />
                       </span>
-                      <span v-if="hasFillableShapes" class="flex w-[30px] shrink-0 justify-center">
+                      <span v-if="hasFillableShapes" class="flex justify-center">
                         <i v-tooltip.top="'Цвет заливки'" class="pi pi-circle-fill text-[11px]!" />
                       </span>
                       <!-- Резерв под колонку удаления состояния: в режиме «по значению»
                            там кнопка, и без него колонки двух блоков не совпадали бы. -->
-                      <span class="w-6 shrink-0" aria-hidden="true"></span>
+                      <span aria-hidden="true"></span>
                     </div>
                     <div
                       v-for="st in BOOLEAN_STATES"
                       :key="st.value"
-                      class="flex items-center gap-1.5"
+                      class="grid items-center gap-1.5"
+                      :style="{ gridTemplateColumns: stateGridCols }"
                     >
                       <!-- Глаз = превью этого состояния на столе (повторный клик — все). -->
                       <button
@@ -597,18 +595,18 @@ function clearStateColor(key, which) {
                         :model-value="st.label"
                         disabled
                         size="small"
-                        class="flex-1 min-w-0 text-xs!"
+                        class="min-w-0 text-xs!"
                       />
                       <InputText
                         :model-value="st.value"
                         disabled
                         size="small"
-                        class="w-12 font-mono text-xs!"
+                        class="min-w-0 font-mono text-xs!"
                       />
                       <!-- Колонка — ровно по свотчу (30px): сброс цвета висит бейджем
                            на его углу (как у вида шины), отдельная кнопка рядом
                            требовала бы места и в строках, где цвет не задан. -->
-                      <div class="flex w-[30px] shrink-0 items-center justify-center">
+                      <div class="flex items-center justify-center">
                         <ColorField
                           v-tooltip.top="'Цвет контуров символа в этом состоянии'"
                           :model-value="stateStroke(st.value) || STATE_STROKE_PLACEHOLDER"
@@ -629,10 +627,7 @@ function clearStateColor(key, which) {
                           </template>
                         </ColorField>
                       </div>
-                      <div
-                        v-if="hasFillableShapes"
-                        class="flex w-[30px] shrink-0 items-center justify-center"
-                      >
+                      <div v-if="hasFillableShapes" class="flex items-center justify-center">
                         <ColorField
                           v-tooltip.top="'Цвет заливки фигур в этом состоянии'"
                           :model-value="stateFill(st.value) || STATE_FILL_PLACEHOLDER"
@@ -655,28 +650,36 @@ function clearStateColor(key, which) {
                       </div>
                       <!-- Булевы состояния не удаляются (их ровно два) — место колонки
                            держим пустым, чтобы строки обоих блоков стояли одинаково. -->
-                      <span class="w-6 shrink-0" aria-hidden="true"></span>
+                      <span aria-hidden="true"></span>
                     </div>
                   </div>
 
                   <div v-else class="space-y-1.5 mb-2">
-                    <div class="flex items-center gap-1.5 text-[11px] text-surface-500">
-                      <span class="w-[30px] shrink-0" aria-hidden="true"></span>
-                      <span class="flex-1 min-w-0">Подпись</span>
-                      <span class="w-12">Значение</span>
-                      <span class="flex w-[30px] shrink-0 justify-center">
+                    <div
+                      class="grid items-center gap-1.5 text-[11px] text-surface-500"
+                      :style="{ gridTemplateColumns: stateGridCols }"
+                    >
+                      <span aria-hidden="true"></span>
+                      <span>Подпись</span>
+                      <span>Значение</span>
+                      <span class="flex justify-center">
                         <i
                           v-tooltip.top="hasFillableShapes ? 'Цвет контуров' : 'Цвет символа'"
                           class="pi pi-circle text-[11px]!"
                         />
                       </span>
-                      <span v-if="hasFillableShapes" class="flex w-[30px] shrink-0 justify-center">
+                      <span v-if="hasFillableShapes" class="flex justify-center">
                         <i v-tooltip.top="'Цвет заливки'" class="pi pi-circle-fill text-[11px]!" />
                       </span>
                       <!-- Колонка кнопки удаления состояния. -->
-                      <span class="w-6 shrink-0" aria-hidden="true"></span>
+                      <span aria-hidden="true"></span>
                     </div>
-                    <div v-for="st in meta.states" :key="st.key" class="flex items-center gap-1.5">
+                    <div
+                      v-for="st in meta.states"
+                      :key="st.key"
+                      class="grid items-center gap-1.5"
+                      :style="{ gridTemplateColumns: stateGridCols }"
+                    >
                       <!-- Глаз = превью этого состояния на столе (повторный клик — все). -->
                       <button
                         type="button"
@@ -709,11 +712,11 @@ function clearStateColor(key, which) {
                         :model-value="st.code"
                         placeholder="код"
                         size="small"
-                        class="w-12 font-mono text-xs!"
+                        class="min-w-0 font-mono text-xs!"
                         @update:model-value="updateState(st.key, { code: $event })"
                         @change="commit"
                       />
-                      <div class="flex w-[30px] shrink-0 items-center justify-center">
+                      <div class="flex items-center justify-center">
                         <ColorField
                           v-tooltip.top="'Цвет контуров символа в этом состоянии'"
                           :model-value="stateStroke(st.key) || STATE_STROKE_PLACEHOLDER"
@@ -734,10 +737,7 @@ function clearStateColor(key, which) {
                           </template>
                         </ColorField>
                       </div>
-                      <div
-                        v-if="hasFillableShapes"
-                        class="flex w-[30px] shrink-0 items-center justify-center"
-                      >
+                      <div v-if="hasFillableShapes" class="flex items-center justify-center">
                         <ColorField
                           v-tooltip.top="'Цвет заливки фигур в этом состоянии'"
                           :model-value="stateFill(st.key) || STATE_FILL_PLACEHOLDER"
@@ -764,16 +764,12 @@ function clearStateColor(key, which) {
                         severity="secondary"
                         text
                         size="small"
-                        class="p-1! w-6! h-6!"
+                        class="tms-row-btn"
                         @click="removeState(st.key)"
                       />
                     </div>
                     <div class="flex gap-1.5">
-                      <button
-                        type="button"
-                        class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
-                        @click="addState"
-                      >
+                      <button type="button" class="tms-add-row" @click="addState">
                         <i class="pi pi-plus text-[10px]!" />
                         состояние
                       </button>
@@ -782,7 +778,7 @@ function clearStateColor(key, which) {
                         v-tooltip.bottom="
                           '4 состояния: Включен / Отключен / Промежуточное / Недостоверно'
                         "
-                        class="flex flex-1 items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700 cursor-pointer"
+                        class="tms-add-row"
                         @click="applyPositionPreset"
                       >
                         <i class="pi pi-bolt text-[10px]!" />
@@ -791,9 +787,9 @@ function clearStateColor(key, which) {
                     </div>
                   </div>
                 </div>
-              </div>
-            </Transition>
-          </div>
+              </AccordionContent>
+            </AccordionPanel>
+          </Accordion>
 
           <!-- Зоны диапазонов — НЕЗАВИСИМО от анимации состояния (символ показывает
                положение по своему тегу и красится по числу другого), поэтому карточка вне
@@ -803,7 +799,7 @@ function clearStateColor(key, which) {
               <i class="pi pi-chart-bar text-yellow-500" />
               <div class="text-xs font-medium text-surface-700">Диапазоны значений</div>
             </div>
-            <p class="text-[11px] text-surface-500 mb-2 leading-snug">
+            <p class="tms-hint mb-2">
               Цвет символа по числу тега. Границы включаются в диапазон: одинаковые («3 — 3») задают
               точное значение.
             </p>
@@ -854,7 +850,7 @@ function clearStateColor(key, which) {
                и видимости по состоянию у неё нет — текст всегда статичен. -->
           <template v-if="isTextShape">
             <div>
-              <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Текст</div>
+              <div class="tms-field-label mb-1">Текст</div>
               <!-- Пустая подпись остаётся фигурой и рисуется иконкой (её текст
                    приходит с холста, если она помечена правимой); убрать её — Del,
                    как любую другую. Enter добавляет строку. -->
@@ -869,7 +865,7 @@ function clearStateColor(key, which) {
               />
             </div>
             <label class="flex items-center justify-between">
-              <span class="text-[11px] uppercase tracking-wider text-surface-500">Размер, pt</span>
+              <span class="tms-field-label">Размер, pt</span>
               <InputNumber
                 :model-value="textSize"
                 :min="4"
@@ -886,9 +882,7 @@ function clearStateColor(key, which) {
             <!-- Выравнивание = якорь роста: точка привязки стоит на месте, текст
                  растёт от неё (те же варианты, что у подписи на холсте). -->
             <label class="flex items-center justify-between">
-              <span class="text-[11px] uppercase tracking-wider text-surface-500">
-                Выравнивание
-              </span>
+              <span class="tms-field-label">Выравнивание</span>
               <SelectButton
                 :model-value="textAlign"
                 :options="ALIGN_OPTIONS"
@@ -904,7 +898,7 @@ function clearStateColor(key, which) {
               </SelectButton>
             </label>
             <label class="flex items-center justify-between">
-              <span class="text-[11px] uppercase tracking-wider text-surface-500">Шрифт</span>
+              <span class="tms-field-label">Шрифт</span>
               <!-- Пункты рисуются своим же семейством — выбор виден до применения. -->
               <Select
                 :model-value="textFont"
@@ -941,9 +935,9 @@ function clearStateColor(key, which) {
               />
               <span class="text-surface-700">Показывает значение тега</span>
             </label>
-            <p v-if="valueTextConflict" class="text-[11px] text-amber-600">
+            <Message v-if="valueTextConflict" severity="warn" variant="simple" size="small">
               Значение тега может показывать только одна подпись — снимите флаг с остальных.
-            </p>
+            </Message>
             <!-- Параметр: текст правится у каждого экземпляра на холсте, а здешний
                  остаётся значением по умолчанию и подписью поля в инспекторе. У
                  подписи со значением тега его нет: содержимое приходит из рантайма,
@@ -959,7 +953,7 @@ function clearStateColor(key, which) {
             </label>
           </template>
           <label class="flex items-center justify-between cursor-pointer">
-            <span class="text-[11px] uppercase tracking-wider text-surface-500">
+            <span class="tms-field-label">
               {{ isTextShape ? 'Цвет' : 'Цвет линии' }}
               <span v-if="strokeMixed" class="text-xs text-surface-400">разные</span>
             </span>
@@ -970,7 +964,7 @@ function clearStateColor(key, which) {
             />
           </label>
           <label v-if="hasStrokeWidth" class="flex items-center justify-between">
-            <span class="text-[11px] uppercase tracking-wider text-surface-500">Толщина, px</span>
+            <span class="tms-field-label">Толщина, px</span>
             <InputNumber
               :model-value="strokeWidth"
               :min="0.5"
@@ -1021,7 +1015,7 @@ function clearStateColor(key, which) {
           <!-- Видимость (в каком состоянии видна фигура) — только при включённой
                анимации состояния; опции зависят от режима (см. shapeStateOptions). -->
           <div v-if="hasShapeState" class="pt-1">
-            <div class="text-[11px] uppercase tracking-wider text-surface-500 mb-1">Видимость</div>
+            <div class="tms-field-label mb-1">Видимость</div>
             <Select
               v-model="shapeState"
               :options="shapeStateOptions"
@@ -1038,7 +1032,9 @@ function clearStateColor(key, which) {
             Размер и текст — при выделении одной фигуры.
           </p>
         </div>
-        <p v-else class="text-xs text-surface-400">Выделите фигуру на холсте</p>
+        <!-- Без иконки и отступов `tms-empty`: плашка «Фигура» занимает нижнюю
+             половину панели, развёрнутое пустое состояние съело бы её целиком. -->
+        <p v-else class="tms-hint">Выделите фигуру на холсте</p>
       </div>
     </div>
 
@@ -1048,3 +1044,29 @@ function clearStateColor(key, which) {
     <div id="tms-editor-actions" class="shrink-0 border-t border-surface-200 bg-surface-0"></div>
   </aside>
 </template>
+
+<style scoped>
+/* Дефолты Aura для блока анимаций слишком жирные: панели должны читаться карточками
+   инспектора (как StateBlock/RangeBlock на холсте), а не полосами аккордеона.
+   Раскрытая панель подсвечивается рамкой primary — по ней видно активный режим. */
+.tms-anim-accordion :deep(.p-accordionpanel) {
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--p-surface-200);
+  border-radius: 0.25rem;
+  background: var(--p-surface-0);
+}
+.tms-anim-accordion :deep(.p-accordionpanel:has([aria-expanded='true'])) {
+  border-color: var(--p-primary-200);
+}
+.tms-anim-accordion :deep(.p-accordionheader) {
+  padding: 0.75rem;
+  background: transparent;
+  border: 0;
+  border-radius: 0.25rem;
+}
+.tms-anim-accordion :deep(.p-accordioncontent-content) {
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+</style>

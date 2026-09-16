@@ -7,7 +7,6 @@ import {
   getStencilById,
   nextStencilId,
   registryVersion,
-  isHiddenStencil,
 } from './registry'
 
 // Минимальный валидный stencil — все required-поля. Используем как baseline,
@@ -276,34 +275,12 @@ describe('декл-флаги через registerStencil', () => {
   })
 })
 
-describe('символы прошлого формата скрыты из палитры', () => {
-  it('cell_node скрыт, даже когда чужой архив принёс своё определение', () => {
-    // Проект приносит `library/cell_node/stencil.json` без наших флагов, и он
-    // перекрывает встроенный — поэтому скрытость держится списком в коде, а не полем
-    // в json: иначе символ возвращался бы в палитру после каждого импорта.
-    expect(isHiddenStencil(getStencilById('cell_node'))).toBe(true)
-    registerStencil(
-      {
-        id: 'cell_node',
-        label: 'Точка соединения',
-        category: 'Разметка и значения',
-        width: 20,
-        height: 20,
-        shapeFile: 'shape.svg',
-      },
-      '<svg xmlns="http://www.w3.org/2000/svg"><g></g></svg>'
-    )
-    expect(isHiddenStencil(getStencilById('cell_node'))).toBe(true)
-  })
-
-  it('неподдерживаемого cell_text в реестре нет вовсе', () => {
-    // Подпись — не символ, а фигура-разметка; ячейки старых архивов отбрасываются на
-    // загрузке (legacyFormat.dropTextCells).
+describe('символов прошлого формата в реестре нет', () => {
+  it('cell_node и cell_text не зарегистрированы', () => {
+    // Оба — не символы: точку рисует свободный конец провода (legacyFormat
+    // .dissolveNodeCells), подпись отбрасывается на загрузке (dropTextCells).
+    expect(getStencilById('cell_node')).toBeUndefined()
     expect(getStencilById('cell_text')).toBeUndefined()
-  })
-
-  it('обычный символ остаётся видимым', () => {
-    expect(isHiddenStencil(getStencilById('cell_qw'))).toBe(false)
   })
 })
 

@@ -78,9 +78,6 @@ export function validateStencilJson(path, json, svgText) {
     'locked',
     'domains',
     'params',
-    // Поле прошлых версий (скрытие держит LEGACY_HIDDEN_IDS): в known остаётся,
-    // чтобы архивы с ним не сыпали предупреждением на каждом импорте.
-    'hidden',
   ])
   for (const key of Object.keys(json)) {
     if (!known.has(key)) {
@@ -234,22 +231,6 @@ export function textSlotOf(slots) {
   return (slots || []).find((s) => s.type === 'Text') || null
 }
 
-/**
- * Символы прошлого формата: реестр их держит, чтобы открывать старые формы, в палитре
- * их нет. Список в КОДЕ, а не полем json: чужой архив приносит своё
- * `library/<id>/stencil.json` и перекрыл бы поле.
- *
- * `cell_node` — точку рисует свободный конец провода; ячейки переводит legacyFormat
- * (`dissolveNodeCells`). Подпись `cell_text` в реестре не значится вовсе: её ячейки
- * отбрасываются на загрузке (`dropTextCells`).
- */
-const LEGACY_HIDDEN_IDS = new Set(['cell_node'])
-
-/** Скрыт ли символ из палитры. */
-export function isHiddenStencil(stencil) {
-  return !!stencil && LEGACY_HIDDEN_IDS.has(stencil.id)
-}
-
 export function getAllStencils() {
   return Array.from(registry.values())
 }
@@ -300,10 +281,7 @@ const PINNED_FIRST_CATEGORIES = ['Шины']
 
 export function getCategories() {
   const cats = new Set()
-  for (const stencil of registry.values()) {
-    if (isHiddenStencil(stencil)) continue
-    cats.add(stencil.category)
-  }
+  for (const stencil of registry.values()) cats.add(stencil.category)
   const pinned = PINNED_FIRST_CATEGORIES.filter((c) => cats.has(c))
   const rest = Array.from(cats)
     .filter((c) => !PINNED_FIRST_CATEGORIES.includes(c))

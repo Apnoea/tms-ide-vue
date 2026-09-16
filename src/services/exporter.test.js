@@ -155,19 +155,6 @@ describe('exportProject', () => {
     })
   })
 
-  it('cell_node прошлого формата: экспорт рисует точку, импорт её растворяет', () => {
-    // Точка соединения перестала быть символом — теперь ею помечает себя свободный
-    // конец провода (см. linkDefaults.renderEndDots). Экспорт старых узлов по-прежнему
-    // рисует кружок, а загрузка убирает ячейку (см. legacyFormat.dissolveNodeCells).
-    const graph = mockGraph([
-      mockCell({ id: 'n1', stencilId: 'cell_node', w: 20, h: 20, color: '#ff8800', dotSize: 8 }),
-    ])
-    const exported = exportProject(graph)
-    expect(exported.svgText).toContain('r="4"')
-    const parsed = parseSvgProject(exported.svgText)
-    expect(parsed.cells.find((c) => c.id === 'n1')).toBeUndefined()
-  })
-
   it('наконечники: провод уезжает группой, стрелки внутри неё', () => {
     // Внутри группы, а не <marker> в defs: иначе классы анимации (обесточивание,
     // цвет диапазона) не достали бы наконечник, и линия посерела бы без него.
@@ -278,7 +265,7 @@ describe('exportProject', () => {
       ports: { items: computeBusPorts(80, 20) },
     })
     const graph = mockGraph(
-      [bus, mockCell({ id: 'g1', stencilId: 'cell_node', y: 300, w: 20, h: 20 })],
+      [bus, mockCell({ id: 'g1', stencilId: 'cell_qw', y: 300, w: 20, h: 20 })],
       [
         mockLink({
           id: 'L1',
@@ -471,31 +458,22 @@ describe('exportProject', () => {
     expect(anims[wireKey].detailTags).toEqual([{ tag: 'PS031VK001.ONOFF' }])
   })
 
-  it('провод и точка наследуют диапазоны шины: карточка есть, в мету не пишется', () => {
+  it('провод наследует диапазоны шины: карточка есть, в мету не пишется', () => {
     const BUS = { tag: 'BUS.U', ranges: [{ min: 0, max: 5, color: '#10b981' }] }
     const bus = mockCell({ id: 'b1', stencilId: 'cell_bus', w: 80, h: 8, rangeSource: BUS })
-    const node = mockCell({ id: 'n1', stencilId: 'cell_node', x: 0, y: 100, w: 20, h: 20 })
     const sym = mockCell({ id: 'q1', stencilId: 'cell_qw', x: 0, y: 200, w: 20, h: 20 })
-    const links = [
-      mockLink({ id: 'l1', source: { id: 'b1' }, target: { id: 'n1' } }),
-      mockLink({ id: 'l2', source: { id: 'n1' }, target: { id: 'q1' } }),
-      mockLink({ id: 'l3', source: { id: 'b1' }, target: { id: 'q1' } }),
-    ]
-    const result = exportProject(mockGraph([bus, node, sym], links))
+    const links = [mockLink({ id: 'l1', source: { id: 'b1' }, target: { id: 'q1' } })]
+    const result = exportProject(mockGraph([bus, sym], links))
     const anims = result.animations.animations
-    // Второй провод с шиной не соприкасается — источник найден через точку и провод.
-    for (const key of ['animation-wire-l1', 'animation-wire-l2', 'animation-cell_node-n1']) {
-      expect(anims[key].bindings[0].tag).toBe('BUS.U')
-      expect(anims[key].bindings[0].when.type).toBe('range')
-      expect(anims[key].detailTags).toEqual([{ tag: 'BUS.U' }])
-    }
+    expect(anims['animation-wire-l1'].bindings[0].tag).toBe('BUS.U')
+    expect(anims['animation-wire-l1'].bindings[0].when.type).toBe('range')
+    expect(anims['animation-wire-l1'].detailTags).toEqual([{ tag: 'BUS.U' }])
     // Мета — только СВОЯ настройка: при загрузке провод должен продолжать следовать за
-    // шиной, а не получить копию её строк. Смотрим прямой провод l3: точку загрузчик
-    // растворяет и l1/l2 сшивает в новый.
+    // шиной, а не получить копию её строк.
     const parsed = parseSvgProject(result.svgText)
-    const l3 = parsed.cells.find((c) => c.id === 'l3')
-    expect(l3).toBeTruthy()
-    expect(l3.tms?.rangeSource).toBeUndefined()
+    const l1 = parsed.cells.find((c) => c.id === 'l1')
+    expect(l1).toBeTruthy()
+    expect(l1.tms?.rangeSource).toBeUndefined()
     expect(parsed.cells.find((c) => c.id === 'b1').tms.rangeSource).toEqual(BUS)
   })
 
@@ -964,12 +942,12 @@ describe('exportProject', () => {
     const broken = {
       id: 'b1',
       get(key) {
-        if (key === 'tms') return { stencilId: 'cell_node' }
+        if (key === 'tms') return { stencilId: 'cell_qw' }
         if (key === 'position') return { x: 0, y: 0 }
         return undefined // size отсутствует
       },
     }
-    const good = mockCell({ id: 'g1', stencilId: 'cell_node', x: 100, y: 0, w: 20, h: 20 })
+    const good = mockCell({ id: 'g1', stencilId: 'cell_qw', x: 100, y: 0, w: 20, h: 20 })
     const link = mockLink({ id: 'L1', source: { id: 'b1' }, target: { id: 'g1' } })
     // broken — только endpoint (не в elements), иначе цикл по ячейкам сам бы упал.
     const graph = {
@@ -989,8 +967,8 @@ describe('exportProject', () => {
   })
 
   it('линк с ненайденным портом → центр ячейки + console.warn, линк экспортируется', () => {
-    const a = mockCell({ id: 'a1', stencilId: 'cell_node', x: 0, y: 0, w: 20, h: 20 })
-    const b = mockCell({ id: 'b1', stencilId: 'cell_node', x: 100, y: 0, w: 20, h: 20 })
+    const a = mockCell({ id: 'a1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 })
+    const b = mockCell({ id: 'b1', stencilId: 'cell_qw', x: 100, y: 0, w: 20, h: 20 })
     // port 'ghost' нет в items (у mockCell ports не заданы) → fallback в центр + warn.
     const link = mockLink({ id: 'L1', source: { id: 'a1', port: 'ghost' }, target: { id: 'b1' } })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -1021,7 +999,6 @@ describe('exportProject', () => {
     valueLabel: 'Напряжение',
     valueUnit: 'кВ',
     decimals: 3,
-    dotSize: 6,
     scale: 2,
     locked: true,
     flipH: true,

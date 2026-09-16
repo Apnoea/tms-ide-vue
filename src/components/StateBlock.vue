@@ -57,7 +57,7 @@ const displayStates = computed(() => (isBool.value ? BOOL_STATES : props.states)
           severity="secondary"
           text
           size="small"
-          class="p-1! w-6! h-6!"
+          class="tms-row-btn"
           @click="$emit('paste')"
         />
         <Button
@@ -67,7 +67,7 @@ const displayStates = computed(() => (isBool.value ? BOOL_STATES : props.states)
           severity="secondary"
           text
           size="small"
-          class="p-1! w-6! h-6!"
+          class="tms-row-btn"
           @click="$emit('copy')"
         />
         <!-- × в шапке, а не в строке тега: случайный клик по чипу не должен стирать
@@ -79,7 +79,7 @@ const displayStates = computed(() => (isBool.value ? BOOL_STATES : props.states)
           severity="secondary"
           text
           size="small"
-          class="p-1! w-6! h-6!"
+          class="tms-row-btn"
           @click="$emit('clear')"
         />
       </div>
@@ -116,7 +116,7 @@ const displayStates = computed(() => (isBool.value ? BOOL_STATES : props.states)
       </div>
     </div>
 
-    <p v-if="!tagsLoaded" class="text-[11px] text-surface-400 leading-snug mt-1">
+    <p v-if="!tagsLoaded" class="tms-hint mt-1 text-surface-400">
       Загрузи tag-list, чтобы выбрать тег.
     </p>
   </div>
