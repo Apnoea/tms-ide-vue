@@ -39,7 +39,10 @@ const emit = defineEmits([
   <div class="border border-surface-200 rounded p-3 bg-surface-0">
     <div class="flex items-center gap-2 mb-2 min-h-6">
       <i class="pi pi-hashtag text-cyan-600" />
-      <div class="text-xs font-medium text-surface-700">Значение тега</div>
+      <div class="flex items-baseline gap-1.5 min-w-0">
+        <span class="text-xs font-medium text-surface-700">Значение</span>
+        <span class="tms-hint truncate">тега</span>
+      </div>
       <div class="ml-auto flex items-center">
         <!-- Копируется карточка ЦЕЛИКОМ (тег, точность, подписи): ряд однотипных
              показаний настраивают один раз. × снимает только привязку тега — точность и
@@ -75,10 +78,6 @@ const emit = defineEmits([
           @click="emit('clear')"
         />
       </div>
-    </div>
-    <div class="text-[11px] text-surface-500 mb-1">
-      Тег
-      <span class="text-surface-400">для анимации элемента</span>
     </div>
     <TagField
       :value="slotInfo.value"

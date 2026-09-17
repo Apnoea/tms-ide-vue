@@ -27,8 +27,11 @@ const bar = computed(() => rangeBarSegments(props.ranges))
 
 const rowColor = (r) => rangeRowColor(r) || RANGE_COLOR_PRESETS[0]
 
-/** Пустая ячейка — строка без порога: в экспорт она не попадёт. */
+/** Пустая ячейка — порог не задан: граница открыта (см. rangeBar / simValues). */
 const cellText = (v) => (Number.isFinite(v) ? String(v) : '')
+
+/** Подпись границы в тултипе сегмента: число либо знак бесконечности. */
+const boundText = (v, sign) => (v === null || v === undefined ? sign : String(v))
 </script>
 
 <template>
@@ -43,14 +46,16 @@ const cellText = (v) => (Number.isFinite(v) ? String(v) : '')
         <span
           v-for="(s, i) in bar?.segments || []"
           :key="i"
-          v-tooltip.top="`${s.from} – ${s.to}`"
+          v-tooltip.top="`${boundText(s.from, '-∞')} – ${boundText(s.to, '∞')}`"
           class="absolute inset-y-0"
           :style="{ left: `${s.left}%`, width: `${s.width}%`, background: s.color }"
         />
       </div>
+      <!-- Подписи концов: у строки с пустым порогом граница открыта (значение красится
+           «и выше»), поэтому на этом конце шкалы стоит ∞, а не число. -->
       <div class="mb-2 flex h-3 justify-between font-mono text-[10px] leading-3 text-surface-400">
-        <span>{{ bar ? bar.from : '' }}</span>
-        <span>{{ bar ? bar.to : '' }}</span>
+        <span>{{ bar ? (bar.openLeft ? '-∞' : bar.from) : '' }}</span>
+        <span>{{ bar ? (bar.openRight ? '∞' : bar.to) : '' }}</span>
       </div>
     </template>
 

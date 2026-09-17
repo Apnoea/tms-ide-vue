@@ -64,6 +64,52 @@ export function placeShape(shape) {
   }
 }
 
+// Ширина «зоны попадания» по контуру: целиться в линию 1-2px мышью нереально.
+const HIT_STROKE = 10
+
+/** Есть ли у фигуры видимая площадь: по ней и кликают. У подписи цвет живёт в fill. */
+function hasFillArea(shape) {
+  return shape?.type === 'text' || !!(shape?.fill && shape.fill !== 'none')
+}
+
+/** Зона клика по всему габариту ячейки. */
+function boxHit(size) {
+  return svgEl('rect', {
+    class: 'tms-hit-area',
+    x: 0,
+    y: 0,
+    width: size.width,
+    height: size.height,
+    fill: 'transparent',
+    stroke: 'none',
+    'pointer-events': 'all',
+  })
+}
+
+/**
+ * Зона клика по фигуре. У залитой — прямоугольник во весь габарит; у КОНТУРНОЙ —
+ * прозрачная утолщённая копия её геометрии: пустая рамка поверх схемы иначе
+ * перехватывает клики по символам под ней.
+ *
+ * @returns {Element[]} узлы, которые кладутся ПЕРЕД разметкой фигуры
+ */
+function buildHitArea(shape, size, root) {
+  // Разметки нет (вырожденная геометрия) — габаритная зона, иначе ячейку нечем
+  // выделить и нечем удалить.
+  if (hasFillArea(shape) || !root.children.length) return [boxHit(size)]
+  const width = Math.max(HIT_STROKE, Number(shape?.strokeWidth) || 0)
+  return Array.from(root.cloneNode(true).children).map((el) => {
+    el.setAttribute('class', 'tms-hit-area')
+    el.setAttribute('fill', 'none')
+    el.setAttribute('stroke', 'transparent')
+    el.setAttribute('stroke-width', width)
+    el.setAttribute('pointer-events', 'stroke')
+    // Пунктир достался бы от исходной фигуры и оставил бы дыры в зоне клика.
+    el.removeAttribute('stroke-dasharray')
+    return el
+  })
+}
+
 /** Разметка фигуры в body-группу cellView'а (тот же путь, что у символов). */
 function injectShapeSvg(cellView) {
   if (!cellView) return false
@@ -76,23 +122,9 @@ function injectShapeSvg(cellView) {
 
   while (target.firstChild) target.removeChild(target.firstChild)
 
-  // Hit-area по габариту: у контурной фигуры и линии кликать больше не за что.
-  const { width, height } = cellView.model.size()
-  target.appendChild(
-    svgEl('rect', {
-      class: 'tms-hit-area',
-      x: 0,
-      y: 0,
-      width,
-      height,
-      fill: 'transparent',
-      stroke: 'none',
-      'pointer-events': 'all',
-    })
-  )
-
   const root = shapeMarkup(shape)
   if (!root) return false
+  for (const el of buildHitArea(shape, cellView.model.size(), root)) target.appendChild(el)
   for (const child of Array.from(root.cloneNode(true).children)) target.appendChild(child)
   return true
 }

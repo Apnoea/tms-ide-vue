@@ -39,7 +39,7 @@ const issueLabel = computed(() => tagIssueLabel(issue.value))
       v-tooltip.bottom="canPick ? pickLabel : 'Загрузи tag-list, чтобы выбрать тег'"
       @click="canPick && $emit('pick')"
     >
-      {{ value || '- не выбран -' }}
+      {{ value || '- тег не выбран -' }}
     </code>
     <!-- Предупреждение, не ошибка: тег может быть валиден, а tag-list — устареть.
          Иконка без кнопки — действий тут нет, только сигнал «проверь привязку». -->

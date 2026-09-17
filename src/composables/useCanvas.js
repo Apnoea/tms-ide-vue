@@ -107,6 +107,16 @@ const searchCurrentIdx = ref(0)
 const SEARCH_DEBOUNCE_MS = 120
 let searchDebounceTimer = null
 
+/**
+ * Модели выделения, доступные на ЗАПИСЬ: всё кроме заблокированных (у линков замка
+ * нет). Единая точка для массовых операций: `paper.interactive` их не защищает,
+ * правки идут программно.
+ */
+function writableCells(graph, items) {
+  if (!graph) return []
+  return (items || []).map((i) => graph.getCell(i.id)).filter((c) => c && !c.get('tms')?.locked)
+}
+
 function performSearchMatch(query) {
   const q = String(query ?? '')
     .trim()
@@ -431,9 +441,9 @@ export function useCanvas() {
     },
     /**
      * Тогл «замка» ячеек (`tms.locked`): есть хоть одна свободная — блокируем все,
-     * иначе снимаем. Класс `tms-locked` на view.el правится точечно (индикатор и
-     * скрытие хэндлов), при пересборке DOM его вернёт injectStencilSvg. У проводов
-     * замка нет.
+     * иначе снимаем. Класс `tms-locked` на view.el правится точечно (по нему CSS
+     * прячет порты и bus-хэндлы), при пересборке DOM его вернёт injectStencilSvg.
+     * У проводов замка нет.
      */
     toggleLocked(items) {
       const graph = graphRef.value
@@ -498,15 +508,8 @@ export function useCanvas() {
       snapshotTick.value++
       return cells.length
     },
-    /**
-     * Модели выделения, доступные на ЗАПИСЬ: всё кроме заблокированных (у линков замка
-     * нет). Единая точка для массовых операций: `paper.interactive` их не защищает,
-     * правки идут программно.
-     */
     writableItems(items) {
-      const graph = graphRef.value
-      if (!graph) return []
-      return (items || []).map((i) => graph.getCell(i.id)).filter((c) => c && !c.get('tms')?.locked)
+      return writableCells(graphRef.value, items)
     },
     /** Снять группировку с выделенных ячеек. Возвращает число разгруппированных. */
     ungroupCells(items) {
@@ -540,11 +543,15 @@ export function useCanvas() {
      *
      * Одним батчем: `jumpover` пересчитывает пути по `batch:stop`, иначе мостик
      * залипает на прежнем проводе.
+     *
+     * Заблокированные пропускаем: `z` уезжает в мету и в порядок элементов `view.svg`,
+     * то есть меняет файл. В смешанном выделении свободные едут, залоченные стоят.
      */
     reorderCells(items, mode) {
       const graph = graphRef.value
       if (!graph) return
-      const ids = new Set((items || []).map((i) => i.id))
+      const ids = new Set(writableCells(graph, items).map((c) => c.id))
+      if (!ids.size) return
       const zOf = (c) => c.get('z') ?? 0
       const byZ = (a, b) => zOf(a) - zOf(b)
       const elements = graph.getElements()

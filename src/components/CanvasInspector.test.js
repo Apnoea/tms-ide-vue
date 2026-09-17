@@ -251,7 +251,7 @@ describe('CanvasInspector: фигура-разметка', () => {
     // в никуда: карточек для фигур exporter не эмитит).
     expect(wrapper.findComponent(StateBlock).exists()).toBe(false)
     expect(wrapper.findComponent(DependencyBlock).exists()).toBe(false)
-    expect(text).not.toContain('Диапазоны значений')
+    expect(text).not.toContain('по диапазону тега')
   })
 
   it('правка цвета пишет в tms.shape выделенной фигуры', async () => {

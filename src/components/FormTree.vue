@@ -328,7 +328,7 @@ onBeforeUnmount(() => {
                 v-if="row.hasChildren"
                 type="button"
                 data-nodrag
-                class="flex h-5 w-5 shrink-0 items-center justify-center text-surface-400 hover:text-surface-700"
+                class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center text-surface-400 hover:text-surface-700"
                 @click="toggle(row.id)"
               >
                 <i
@@ -351,7 +351,7 @@ onBeforeUnmount(() => {
               <template v-else>
                 <button
                   type="button"
-                  class="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-1 text-left text-xs font-mono truncate"
+                  class="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pr-1 text-left text-xs font-mono truncate"
                   :class="[
                     row.broken
                       ? 'text-surface-400 line-through cursor-default'
@@ -370,38 +370,48 @@ onBeforeUnmount(() => {
                   />
                   <span class="truncate">{{ row.id }}</span>
                 </button>
-                <!-- Порядок и вид кнопок — как в палитре символов (правка, копия,
-                     удаление): строки в двух списках читаются одинаково. -->
-                <button
+                <!-- Кнопки АБСОЛЮТОМ поверх строки, как в палитре: в потоке они
+                     держат ~60px у каждой строки, хотя видны только по ховеру. Тон
+                     градиента следует фону строки — активная подсвечена постоянно.
+                     Порядок и вид кнопок общие с палитрой. -->
+                <div
                   v-if="!row.broken"
-                  type="button"
-                  data-nodrag
-                  v-tooltip.bottom="'Переименовать'"
-                  class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
-                  @click.stop="startRename(row.id)"
+                  class="pointer-events-none absolute inset-y-0 right-1 flex items-center bg-gradient-to-l from-60% to-transparent pl-6 opacity-0 transition-opacity group-hover:opacity-100"
+                  :class="
+                    row.id === workspace.activeFormId ? 'from-surface-200/70' : 'from-surface-100'
+                  "
                 >
-                  <i class="pi pi-pencil text-[10px]!" />
-                </button>
-                <button
-                  v-if="!row.broken"
-                  type="button"
-                  data-nodrag
-                  v-tooltip.bottom="'Дублировать форму'"
-                  class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-surface-700 group-hover:opacity-100"
-                  @click.stop="canvas.duplicateForm(row.id)"
-                >
-                  <i class="pi pi-clone text-[10px]!" />
-                </button>
-                <button
-                  v-if="!row.broken && workspace.formIds.length > 1"
-                  type="button"
-                  data-nodrag
-                  v-tooltip.bottom="'Удалить форму'"
-                  class="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-surface-400 opacity-0 hover:bg-surface-200 hover:text-red-600 group-hover:opacity-100"
-                  @click="confirmDelete($event, row.id)"
-                >
-                  <i class="pi pi-trash text-[10px]!" />
-                </button>
+                  <div class="pointer-events-auto flex items-center">
+                    <button
+                      type="button"
+                      data-nodrag
+                      v-tooltip.bottom="'Переименовать'"
+                      class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
+                      @click.stop="startRename(row.id)"
+                    >
+                      <i class="pi pi-pencil text-[10px]!" />
+                    </button>
+                    <button
+                      type="button"
+                      data-nodrag
+                      v-tooltip.bottom="'Дублировать форму'"
+                      class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
+                      @click.stop="canvas.duplicateForm(row.id)"
+                    >
+                      <i class="pi pi-clone text-[10px]!" />
+                    </button>
+                    <button
+                      v-if="workspace.formIds.length > 1"
+                      type="button"
+                      data-nodrag
+                      v-tooltip.bottom="'Удалить форму'"
+                      class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-red-600"
+                      @click="confirmDelete($event, row.id)"
+                    >
+                      <i class="pi pi-trash text-[10px]!" />
+                    </button>
+                  </div>
+                </div>
               </template>
             </div>
           </template>

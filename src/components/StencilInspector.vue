@@ -299,9 +299,11 @@ function toggleRounded(on) {
  * ровно один (`stateMode`), поэтому открыт тоже ровно один, а закрытые оба = анимация
  * выключена. Заголовок блока и есть переключатель — отдельного «Выкл» не нужно.
  */
+// Здесь режимы ВЫБИРАЮТ, поэтому к общему «Состояние» идёт уточнение источника — на
+// холсте оно подписью, режим там уже задан символом.
 const ANIM_MODES = [
-  { value: 'boolean', label: 'Булево значение', icon: 'pi-power-off' },
-  { value: 'value', label: 'Состояние по значению', icon: 'pi-sliders-h' },
+  { value: 'boolean', label: 'Состояние', hint: 'по булеву тегу', icon: 'pi-power-off' },
+  { value: 'value', label: 'Состояние', hint: 'по коду значения', icon: 'pi-sliders-h' },
 ]
 
 /** Какой блок раскрыт: `null` — анимации нет. */
@@ -386,7 +388,9 @@ function clearStateColor(key, which) {
           Программный символ: тело и порты задаёт код, правятся только диапазоны значений.
         </p>
         <!-- Проблемы черновика подсвечиваются ЖИВЬЁМ (`problemOf`): иначе занятый id
-             или пустая категория всплывали только тостом после клика «Сохранить». -->
+             или пустая категория всплывали только тостом после клика «Сохранить».
+             Сообщение — в строке заголовка поля и АБСОЛЮТОМ: в потоке оно сдвигало бы
+             остальные поля панели при каждом вводе. -->
         <label class="relative block">
           <div class="tms-field-label mb-1">Название</div>
           <InputText
@@ -398,8 +402,6 @@ function clearStateColor(key, which) {
             placeholder="Задвижка"
             @change="commit"
           />
-          <!-- Сообщение — в строке заголовка поля и АБСОЛЮТОМ: в потоке оно сдвигало бы
-               остальные поля панели при каждом вводе. -->
           <p
             v-if="problemOf('label')"
             v-tooltip.left="problemOf('label')"
@@ -412,7 +414,7 @@ function clearStateColor(key, which) {
         <label class="relative block">
           <div class="tms-field-label mb-1">id</div>
           <!-- Нативный <input> (не PrimeVue): @input гарантированно нативный, onIdInput
-             правит e.target.value напрямую (обходя Vue-диффинг). -->
+               правит e.target.value напрямую (обходя Vue-диффинг). -->
           <input
             :value="meta.id"
             :disabled="!!editingId"
@@ -422,8 +424,6 @@ function clearStateColor(key, which) {
             @input="onIdInput"
             @change="commit"
           />
-          <!-- Сообщение — в строке заголовка поля и АБСОЛЮТОМ: в потоке оно сдвигало бы
-               остальные поля панели при каждом вводе. -->
           <p
             v-if="problemOf('id')"
             v-tooltip.left="problemOf('id')"
@@ -446,8 +446,6 @@ function clearStateColor(key, which) {
             class="w-full"
             @change="commit"
           />
-          <!-- Сообщение — в строке заголовка поля и АБСОЛЮТОМ: в потоке оно сдвигало бы
-               остальные поля панели при каждом вводе. -->
           <p
             v-if="problemOf('category')"
             v-tooltip.left="problemOf('category')"
@@ -458,7 +456,8 @@ function clearStateColor(key, which) {
         </label>
 
         <!-- Область применения: фильтр палитры, а не вторая категория — символ может
-             годиться сразу нескольким областям. Пусто = виден при любом фильтре. -->
+             годиться сразу нескольким областям. Пусто = виден при любом фильтре. Своей
+             строкой во всю ширину: в колонке чипы переносились во второй ряд. -->
         <div>
           <div class="tms-field-label mb-1">Область применения</div>
           <div class="flex flex-wrap gap-1">
@@ -476,29 +475,30 @@ function clearStateColor(key, which) {
           </div>
         </div>
 
-        <!-- Флаги поведения — прямо после категории, без отдельной секции. Поворот и
-             отражение раздельно: карточке значения, например, поворот нужен (её ставят
-             вдоль вертикальных участков), а отражение зеркалило бы надпись. -->
-        <label class="flex items-center gap-2" :class="meta.locked ? '' : 'cursor-pointer'">
-          <Checkbox
-            v-model="meta.noRotate"
-            :disabled="meta.locked"
-            binary
-            input-id="se-norotate"
-            @update:model-value="commit"
-          />
-          <span class="text-surface-700">Запретить поворот</span>
-        </label>
-        <label class="flex items-center gap-2" :class="meta.locked ? '' : 'cursor-pointer'">
-          <Checkbox
-            v-model="meta.noFlip"
-            :disabled="meta.locked"
-            binary
-            input-id="se-noflip"
-            @update:model-value="commit"
-          />
-          <span class="text-surface-700">Запретить отражение</span>
-        </label>
+        <!-- Поворот и отражение раздельно: карточке значения, например, поворот нужен
+             (её ставят вдоль вертикальных участков), а отражение зеркалило бы надпись. -->
+        <div class="space-y-2 border-t border-surface-200 pt-4">
+          <label class="flex items-center gap-2" :class="meta.locked ? '' : 'cursor-pointer'">
+            <Checkbox
+              v-model="meta.noRotate"
+              :disabled="meta.locked"
+              binary
+              input-id="se-norotate"
+              @update:model-value="commit"
+            />
+            <span class="text-surface-700">Запретить поворот</span>
+          </label>
+          <label class="flex items-center gap-2" :class="meta.locked ? '' : 'cursor-pointer'">
+            <Checkbox
+              v-model="meta.noFlip"
+              :disabled="meta.locked"
+              binary
+              input-id="se-noflip"
+              @update:model-value="commit"
+            />
+            <span class="text-surface-700">Запретить отражение</span>
+          </label>
+        </div>
 
         <!-- Анимации — карточками, как в инспекторе холста (StateBlock/RangeBlock):
              это две стороны одной настройки, здесь задаётся поведение символа, там у
@@ -520,7 +520,7 @@ function clearStateColor(key, which) {
               :disabled="meta.locked"
             >
               <AccordionHeader data-test="anim-mode">
-                <span class="flex w-full items-center gap-2">
+                <span class="flex w-full min-w-0 items-center gap-2">
                   <i
                     class="pi"
                     :class="[
@@ -528,11 +528,14 @@ function clearStateColor(key, which) {
                       openMode === mode.value ? 'text-cyan-500' : 'text-surface-400',
                     ]"
                   />
-                  <span
-                    class="flex-1 text-xs font-medium"
-                    :class="openMode === mode.value ? 'text-surface-700' : 'text-surface-500'"
-                  >
-                    {{ mode.label }}
+                  <span class="flex flex-1 items-baseline gap-1.5 min-w-0">
+                    <span
+                      class="text-xs font-medium"
+                      :class="openMode === mode.value ? 'text-surface-700' : 'text-surface-500'"
+                    >
+                      {{ mode.label }}
+                    </span>
+                    <span class="tms-hint truncate">{{ mode.hint }}</span>
                   </span>
                 </span>
               </AccordionHeader>
@@ -759,7 +762,7 @@ function clearStateColor(key, which) {
                         </ColorField>
                       </div>
                       <Button
-                        v-tooltip.bottom="'Убрать состояние'"
+                        v-tooltip.top="'Убрать состояние'"
                         icon="pi pi-times"
                         severity="secondary"
                         text
@@ -775,7 +778,7 @@ function clearStateColor(key, which) {
                       </button>
                       <button
                         type="button"
-                        v-tooltip.bottom="
+                        v-tooltip.top="
                           '4 состояния: Включен / Отключен / Промежуточное / Недостоверно'
                         "
                         class="tms-add-row"
@@ -797,7 +800,10 @@ function clearStateColor(key, which) {
           <div class="border border-surface-200 rounded p-3 bg-surface-0">
             <div class="flex items-center gap-2 mb-2 min-h-6">
               <i class="pi pi-chart-bar text-yellow-500" />
-              <div class="text-xs font-medium text-surface-700">Диапазоны значений</div>
+              <div class="flex items-baseline gap-1.5 min-w-0">
+                <span class="text-xs font-medium text-surface-700">Цвет</span>
+                <span class="tms-hint truncate">по диапазону тега</span>
+              </div>
             </div>
             <p class="tms-hint mb-2">
               Цвет символа по числу тега. Границы включаются в диапазон: одинаковые («3 — 3») задают
@@ -817,7 +823,7 @@ function clearStateColor(key, which) {
                не за что (нужен её тег). -->
           <label
             v-if="meta.stateful"
-            class="flex items-center gap-2 px-1 pt-1"
+            class="flex items-center gap-2 pt-1"
             :class="meta.locked ? '' : 'cursor-pointer'"
           >
             <Checkbox
@@ -1048,15 +1054,13 @@ function clearStateColor(key, which) {
 <style scoped>
 /* Дефолты Aura для блока анимаций слишком жирные: панели должны читаться карточками
    инспектора (как StateBlock/RangeBlock на холсте), а не полосами аккордеона.
-   Раскрытая панель подсвечивается рамкой primary — по ней видно активный режим. */
+   Активный режим виден раскрытием, цветом иконки и заголовка — рамке его дублировать
+   незачем, она остаётся нейтральной, как у карточек холста. */
 .tms-anim-accordion :deep(.p-accordionpanel) {
   margin-bottom: 0.5rem;
   border: 1px solid var(--p-surface-200);
   border-radius: 0.25rem;
   background: var(--p-surface-0);
-}
-.tms-anim-accordion :deep(.p-accordionpanel:has([aria-expanded='true'])) {
-  border-color: var(--p-primary-200);
 }
 .tms-anim-accordion :deep(.p-accordionheader) {
   padding: 0.75rem;
@@ -1068,5 +1072,11 @@ function clearStateColor(key, which) {
   padding: 0;
   background: transparent;
   border: 0;
+}
+/* `.p-accordioncontent` — GRID, а его трек по умолчанию не уже содержимого: длинная
+   подпись состояния распирала бы панель до горизонтального скролла, несмотря на
+   `minmax(0, 1fr)` внутри таблицы (`stateGridCols`). */
+.tms-anim-accordion :deep(.p-accordioncontent) {
+  grid-template-columns: minmax(0, 1fr);
 }
 </style>

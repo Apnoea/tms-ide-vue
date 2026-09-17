@@ -30,8 +30,18 @@
   "portSeq": 4,
   "slots": [
     {
+      "key": "range",
+      "type": "Value"
+    },
+    {
       "key": "value",
       "type": "Value"
+    }
+  ],
+  "ranges": [
+    {
+      "min": 0,
+      "color": "#10b981"
     }
   ],
   "states": [

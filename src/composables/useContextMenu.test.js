@@ -174,3 +174,44 @@ describe('useContextMenu — замок', () => {
     scope.stop()
   })
 })
+
+// Порядок наложения меняет `z`, а он уезжает в мету и в порядок элементов view.svg —
+// под замком этого быть не должно (reorderCells отсеивает locked).
+describe('useContextMenu — «Порядок»', () => {
+  const orderItemFor = (api, target) => {
+    api.showContextMenu(target, { preventDefault() {} })
+    return api.ctxItems.value.find((i) => i.label === 'Порядок')
+  }
+
+  beforeEach(() => {
+    mockCanvas.selection.value = []
+    mockCanvas.graphRef.value = null
+  })
+
+  it('заблокированная ячейка — пункта нет', () => {
+    mockCanvas.graphRef.value = graphOf({ a: { locked: true } })
+    mockCanvas.selection.value = [{ kind: 'cell', id: 'a' }]
+    const { api, scope } = setup()
+    expect(orderItemFor(api, { kind: 'cell', id: 'a' })).toBeUndefined()
+    scope.stop()
+  })
+
+  it('в выделении есть свободная — пункт остаётся', () => {
+    mockCanvas.graphRef.value = graphOf({ a: { locked: true }, b: {} })
+    mockCanvas.selection.value = [
+      { kind: 'cell', id: 'a' },
+      { kind: 'cell', id: 'b' },
+    ]
+    const { api, scope } = setup()
+    expect(orderItemFor(api, { kind: 'cell', id: 'a' })).toBeTruthy()
+    scope.stop()
+  })
+
+  it('провод: замка у него нет — пункт на месте', () => {
+    mockCanvas.graphRef.value = graphOf({ w1: {} })
+    mockCanvas.selection.value = [{ kind: 'link', id: 'w1' }]
+    const { api, scope } = setup()
+    expect(orderItemFor(api, { kind: 'link', id: 'w1' })).toBeTruthy()
+    scope.stop()
+  })
+})

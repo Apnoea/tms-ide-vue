@@ -331,8 +331,46 @@ describe('инъекция разметки фигуры (кэш по сериа
     reinjectAllShapes(graph, p)
     reinjectAllShapes(graph, p)
     const body = p.findViewByModel(cell).body
-    expect(body.querySelectorAll('circle').length).toBe(1)
-    expect(body.querySelectorAll('rect.tms-hit-area').length).toBe(1)
+    // Контурная фигура: зона клика — копия её геометрии, поэтому circle'ов двое.
+    expect(body.querySelectorAll('circle').length).toBe(2)
+    expect(body.querySelectorAll('.tms-hit-area').length).toBe(1)
+  })
+
+  // Пустая рамка поверх схемы иначе перехватывает клики серединой, и до символов под
+  // ней не добраться.
+  it('контурная фигура кликается по обводке, залитая — по всей площади', () => {
+    const graph = graphOf()
+    const p = domPaper()
+    const outline = materializeShape(graph, p, { type: 'rect', x: 0, y: 0, w: 40, h: 20 })
+    const filled = materializeShape(graph, p, {
+      type: 'rect',
+      x: 60,
+      y: 0,
+      w: 40,
+      h: 20,
+      fill: '#ff8800',
+    })
+    reinjectAllShapes(graph, p)
+
+    const outlineHit = p.findViewByModel(outline).body.querySelector('.tms-hit-area')
+    expect(outlineHit.getAttribute('pointer-events')).toBe('stroke')
+    expect(outlineHit.getAttribute('fill')).toBe('none')
+    // Зона шире самой линии — в обводку 2px не прицелиться.
+    expect(Number(outlineHit.getAttribute('stroke-width'))).toBeGreaterThanOrEqual(10)
+
+    const filledHit = p.findViewByModel(filled).body.querySelector('.tms-hit-area')
+    expect(filledHit.getAttribute('pointer-events')).toBe('all')
+    expect(filledHit.getAttribute('fill')).toBe('transparent')
+  })
+
+  it('подпись кликается по габариту: её цвет живёт в fill, обводки нет', () => {
+    const graph = graphOf()
+    const p = domPaper()
+    const cell = materializeShape(graph, p, { type: 'text', x: 0, y: 0, text: 'Щит 1' })
+    reinjectAllShapes(graph, p)
+    const hit = p.findViewByModel(cell).body.querySelector('.tms-hit-area')
+    expect(hit.tagName).toBe('rect')
+    expect(hit.getAttribute('pointer-events')).toBe('all')
   })
 })
 

@@ -235,7 +235,7 @@ export function injectStencilSvg(cellView, stencil) {
   else target.removeAttribute('transform')
 
   // Класс замка восстанавливается после каждой пересборки DOM (при toggle его правит
-  // useCanvas.toggleLocked): по нему CSS прячет bus-хэндлы и рисует индикатор.
+  // useCanvas.toggleLocked): по нему CSS прячет порты и bus-хэндлы.
   cellView.el?.classList?.toggle('tms-locked', !!cellView.model.get('tms')?.locked)
 
   return true

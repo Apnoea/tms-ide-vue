@@ -118,6 +118,35 @@ describe('useCanvas: reorderCells', () => {
     expect(w1.get('z')).toBeGreaterThan(w2.get('z'))
   })
 
+  it('locked не переупорядочивается, свободные из того же выделения — да', () => {
+    // Замок = read-only: команда не двигает залоченную в порядке. Числа z при этом
+    // перенумеровываются по всему слою (иначе некуда вставить поднятую) — важно
+    // взаимное положение, а не значение.
+    const free = cell()
+    const locked = cell({ locked: true })
+    const other = cell()
+    graph.addCells([free, locked, other])
+    canvas.reorderCells(
+      [
+        { kind: 'cell', id: free.id },
+        { kind: 'cell', id: locked.id },
+      ],
+      'front'
+    )
+    // Наверх уехала только свободная; залоченная осталась под соседом, как и была.
+    expect(free.get('z')).toBeGreaterThan(other.get('z'))
+    expect(locked.get('z')).toBeLessThan(other.get('z'))
+  })
+
+  it('выделение только из locked — граф не трогаем совсем', () => {
+    const a = cell({ locked: true })
+    const b = cell()
+    graph.addCells([a, b])
+    const before = [a.get('z'), b.get('z')]
+    canvas.reorderCells([{ kind: 'cell', id: a.id }], 'back')
+    expect([a.get('z'), b.get('z')]).toEqual(before)
+  })
+
   it('провода остаются под символами, символы не падают ниже нуля', () => {
     const a = cell()
     const b = cell()

@@ -259,25 +259,6 @@ const { overlayBtns, rotateSelectedBy, flipSelected, onDeleteSelected, toggleLoc
     scheduleSnapshot,
     dragging: cellDragging,
   })
-// Бейдж-замок в углу заблокированной ячейки: правый верхний угол visual-AABB (с
-// учётом поворота).
-const lockedBadges = computed(() => {
-  canvas.graphVersion.value
-  canvas.paperViewTick.value
-  const paper = canvas.paperRef.value
-  const graph = canvas.graphRef.value
-  if (!paper || !graph) return []
-  return graph
-    .getElements()
-    .filter((c) => c.get('tms')?.locked)
-    .map((c) => {
-      // Правый-верхний угол visual-AABB (с учётом поворота) — якорь бейджа.
-      const aabb = rotatedAabb(c.get('position'), c.get('size'), c.angle() || 0)
-      const tr = projectToScreen(paper, aabb.x + aabb.width, aabb.y)
-      return { id: c.id, left: `${tr.x - 16}px`, top: `${tr.y - 2}px` }
-    })
-})
-
 // Пунктирная рамка группы по ховеру: границы видны до клика.
 const hoveredCellId = ref(null)
 const groupHoverRect = computed(() => {
@@ -1323,16 +1304,6 @@ function performClearCanvas(count) {
         class="absolute z-0 pointer-events-none rounded border border-dashed border-primary-400"
         :style="groupHoverRect"
       />
-
-      <!-- Бейдж-замок у каждой заблокированной ячейки (индикатор read-only). -->
-      <div
-        v-for="b in lockedBadges"
-        :key="b.id"
-        class="absolute z-10 pointer-events-none flex h-[18px] w-[18px] items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm"
-        :style="{ left: b.left, top: b.top }"
-      >
-        <i class="pi pi-lock text-[9px]!" />
-      </div>
 
       <!-- Floating info-bar: координаты курсора + selection label. Плавает
            внизу-справа холста, появляется только когда есть что показать. -->

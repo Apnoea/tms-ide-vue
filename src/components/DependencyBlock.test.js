@@ -12,7 +12,8 @@ const mount = (props) => mountWithApp(DependencyBlock, { props: { tagsLoaded: tr
 describe('DependencyBlock', () => {
   it('пустой: заголовок и «+ группа», без правила про ИЛИ', () => {
     const w = mount({ groups: [] })
-    expect(w.text()).toContain('Зависимость от других элементов')
+    expect(w.text()).toContain('Зависимость')
+    expect(w.text()).toContain('от тегов')
     expect(w.text()).toContain('группа (ИЛИ)')
     expect(w.text()).not.toContain('Активен, если выполнена любая группа')
   })

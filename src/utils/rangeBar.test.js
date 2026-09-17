@@ -58,3 +58,38 @@ describe('rangeBarSegments', () => {
     expect(rangeBarSegments([{ min: 3, max: 3, color: '#10b981' }])).toBeNull()
   })
 })
+
+// Пустой порог = открытая граница: строка красит «от низа и выше» (так же её читает
+// simValues.rangeRowFor). На полоске такая зона доходит до края.
+describe('rangeBarSegments: открытые границы', () => {
+  it('последняя строка без верха тянется до конца шкалы', () => {
+    const bar = rangeBarSegments([
+      { min: 0, max: 5, color: '#10b981' },
+      { min: 5, color: '#ef4444' },
+    ])
+    expect(bar.openRight).toBe(true)
+    expect(bar.to).toBe(5)
+    // Под открытый хвост оставлен запас, закрытая зона занимает остальное.
+    expect(bar.segments[0]).toMatchObject({ left: 0, width: 85 })
+    expect(bar.segments[1]).toMatchObject({ left: 85, width: 15 })
+  })
+
+  it('строка без низа тянется от начала шкалы', () => {
+    const bar = rangeBarSegments([
+      { max: 3, color: '#10b981' },
+      { min: 3, max: 8, color: '#ef4444' },
+    ])
+    expect({ openLeft: bar.openLeft, openRight: bar.openRight }).toEqual({
+      openLeft: true,
+      openRight: false,
+    })
+    expect(bar.segments[0]).toMatchObject({ left: 0, width: 15 })
+    expect(bar.segments[1]).toMatchObject({ left: 15, width: 85 })
+  })
+
+  it('единственная открытая строка занимает полоску целиком', () => {
+    const bar = rangeBarSegments([{ min: 0, color: '#10b981' }])
+    expect(bar.segments[0]).toMatchObject({ left: 0, width: 100, from: 0, to: null })
+    expect(bar.openRight).toBe(true)
+  })
+})

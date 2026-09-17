@@ -3,7 +3,7 @@ import { useProjectStore } from '../stores/useProjectStore'
 import { normalizeBoolSource } from '../utils/boolSource'
 
 /**
- * Блок «Зависимость от других элементов» (DependencyBlock): `tms.boolSource` в
+ * Блок «Зависимость от тегов» (DependencyBlock): `tms.boolSource` в
  * канонической форме `{ groups: [[tag,…],…] }` (DNF — внутри группы теги через И,
  * группы между собой через ИЛИ; элемент активен, если выполнена ЛЮБАЯ группа
  * целиком, иначе тускнеет). Экспорт: одна группа → дешёвый shape, ≥2 → multi.

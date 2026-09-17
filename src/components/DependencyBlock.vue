@@ -1,6 +1,6 @@
 <script setup>
 /**
- * Блок «Зависимость от других элементов»: `tms.boolSource` группами — внутри группы
+ * Блок «Зависимость от тегов»: `tms.boolSource` группами — внутри группы
  * теги через И, группы между собой через ИЛИ. Не выполнена ни одна группа — элемент
  * тускнеет (`animation-off`).
  *
@@ -39,7 +39,10 @@ defineEmits([
   <div class="border border-surface-200 rounded p-3 bg-surface-0">
     <div class="flex items-center gap-2 mb-2 min-h-6">
       <i class="pi pi-sitemap text-purple-500" />
-      <div class="text-xs font-medium text-surface-700">Зависимость от других элементов</div>
+      <div class="flex items-baseline gap-1.5 min-w-0">
+        <span class="text-xs font-medium text-surface-700">Зависимость</span>
+        <span class="tms-hint truncate">от тегов</span>
+      </div>
       <div class="ml-auto flex items-center">
         <Button
           v-if="pasteable"

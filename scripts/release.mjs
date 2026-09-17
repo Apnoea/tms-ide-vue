@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const pkgPath = path.join(root, 'package.json')
+const lockPath = path.join(root, 'package-lock.json')
 
 function run(cmd) {
   execSync(cmd, { cwd: root, stdio: 'inherit' })
@@ -41,6 +42,7 @@ function nextVersion(current, now) {
 }
 
 const pkgRaw = readFileSync(pkgPath, 'utf8')
+const lockRaw = readFileSync(lockPath, 'utf8')
 const version = nextVersion(JSON.parse(pkgRaw).version, new Date())
 console.log(`\n${JSON.parse(pkgRaw).version} → ${version}\n`)
 
@@ -56,9 +58,10 @@ run('npm test')
 run('npm run knip')
 
 // Версию пишем ДО сборки — electron-builder берёт её из package.json (и в имя
-// артефакта). Точечная замена, а не JSON.stringify: порядок ключей и
-// форматирование файла остаются как есть.
-writeFileSync(pkgPath, pkgRaw.replace(/"version": "[^"]*"/, `"version": "${version}"`), 'utf8')
+// артефакта). `npm version` правит ОБА файла: в package-lock.json номер лежит дважды
+// (корень и `packages[""]`), и рассинхрон всплыл бы правкой лока в чужом
+// `npm install`. Тег не создаётся — версия уезжает обычным коммитом правок.
+run(`npm version ${version} --no-git-tag-version --allow-same-version`)
 
 console.log(`\n→ Сборка ${version}\n`)
 try {
@@ -67,6 +70,7 @@ try {
   // Версия не заслужена: возвращаем прежнюю, чтобы следующий запуск не съел
   // номер, под которым ничего не выпущено.
   writeFileSync(pkgPath, pkgRaw, 'utf8')
+  writeFileSync(lockPath, lockRaw, 'utf8')
   fail('Сборка упала — версия возвращена на прежнюю.')
 }
 

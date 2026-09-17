@@ -94,13 +94,20 @@ export function useContextMenu({
     }
     if (t.kind === 'link') {
       // На пересечении мостик рисует верхний провод — так выбирают, кто поверх.
-      return [orderMenuItem(t), { separator: true }, deleteItem(t)]
+      const order = orderMenuItem(t)
+      return [...(order ? [order, { separator: true }] : []), deleteItem(t)]
     }
     return []
   })
 
-  /** Подменю «Порядок» (z) — общее для символов и проводов: слои разведены. */
+  /**
+   * Подменю «Порядок» (z) — общее для символов и проводов: слои разведены. null, когда
+   * двигать нечего: у заблокированных `z` не меняется (reorderCells их отсеивает), и
+   * пункт вёл бы в никуда.
+   */
   function orderMenuItem(target) {
+    const targets = canvas.isSelected(target.id) ? canvas.selection.value : [target]
+    if (!canvas.writableItems(targets).length) return null
     const cmd = (mode) => () =>
       runOnTarget(target, () => canvas.reorderCells(canvas.selection.value, mode))
     return {

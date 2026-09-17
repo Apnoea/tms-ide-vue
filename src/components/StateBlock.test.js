@@ -10,9 +10,10 @@ import TagField from './TagField.vue'
 const mount = (props) => mountWithApp(StateBlock, { props: { tagsLoaded: true, ...props } })
 
 describe('StateBlock', () => {
-  it('булев слот: заголовок «Булево значение» и состояния true/false', () => {
+  it('булев слот: заголовок «Состояние · по булеву тегу» и состояния true/false', () => {
     const w = mount({ slotInfo: { key: 'onoff', type: 'Boolean', value: 'BR1.ONOFF' } })
-    expect(w.text()).toContain('Булево значение')
+    expect(w.text()).toContain('Состояние')
+    expect(w.text()).toContain('по булеву тегу')
     // Состояния булева слота в определении символа не перечисляются — подставляем их
     // сами, чтобы справка выглядела так же, как у режима «по значению».
     expect(w.text()).toContain('Состояния символа')
@@ -30,7 +31,7 @@ describe('StateBlock', () => {
         { key: 'off', label: 'Отключен', code: '' },
       ],
     })
-    expect(w.text()).toContain('Состояние по значению')
+    expect(w.text()).toContain('по коду значения')
     expect(w.text()).toContain('Включен')
     expect(w.text()).toContain('01')
     expect(w.text()).toContain('Отключен')

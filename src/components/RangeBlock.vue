@@ -38,7 +38,10 @@ defineEmits(['open-tag-picker', 'highlight', 'remove'])
   <div class="border border-surface-200 rounded p-3 bg-surface-0">
     <div class="flex items-center gap-2 mb-2 min-h-6">
       <i class="pi pi-chart-bar text-yellow-500" />
-      <div class="text-xs font-medium text-surface-700">Диапазоны значений</div>
+      <div class="flex items-baseline gap-1.5 min-w-0">
+        <span class="text-xs font-medium text-surface-700">Цвет</span>
+        <span class="tms-hint truncate">по диапазону тега</span>
+      </div>
       <div class="ml-auto flex items-center">
         <Button
           v-if="rangeSource && !inheritedFrom"
@@ -61,11 +64,10 @@ defineEmits(['open-tag-picker', 'highlight', 'remove'])
 
     <div v-if="pickable || rangeSource" class="space-y-3">
       <div>
-        <div class="text-[11px] text-surface-500 mb-1">
-          Тег
-          <span class="text-surface-400">
-            {{ inheritedFrom ? `наследуется ${inheritedFrom}` : 'для анимации элемента' }}
-          </span>
+        <!-- Строка над полем только у наследования: откуда пришёл источник, по самому
+             чипу не видно. Свой тег в подписи не нуждается — его видно в чипе. -->
+        <div v-if="inheritedFrom" class="text-[11px] text-surface-400 mb-1">
+          наследуется {{ inheritedFrom }}
         </div>
         <TagField
           :value="rangeSource?.tag || ''"

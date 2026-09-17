@@ -46,8 +46,11 @@ const displayStates = computed(() => (isBool.value ? BOOL_STATES : props.states)
   <div class="border border-surface-200 rounded p-3 bg-surface-0">
     <div class="flex items-center gap-2 mb-2 min-h-6">
       <i class="pi text-cyan-500" :class="isBool ? 'pi-power-off' : 'pi-sliders-h'" />
-      <div class="text-xs font-medium text-surface-700">
-        {{ isBool ? 'Булево значение' : 'Состояние по значению' }}
+      <!-- Заголовок один на оба режима: режим задан символом и на холсте не меняется,
+           поэтому он уточнением, а не вторым именем блока. -->
+      <div class="flex items-baseline gap-1.5 min-w-0">
+        <span class="text-xs font-medium text-surface-700">Состояние</span>
+        <span class="tms-hint truncate">{{ isBool ? 'по булеву тегу' : 'по коду значения' }}</span>
       </div>
       <div class="ml-auto flex items-center">
         <Button
@@ -85,10 +88,6 @@ const displayStates = computed(() => (isBool.value ? BOOL_STATES : props.states)
       </div>
     </div>
 
-    <div class="text-[11px] text-surface-500 mb-1">
-      Тег
-      <span class="text-surface-400">для анимации элемента</span>
-    </div>
     <TagField
       :value="slotInfo.value || ''"
       :can-pick="tagsLoaded"
