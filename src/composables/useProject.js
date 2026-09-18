@@ -1,5 +1,6 @@
 import { ref, nextTick } from 'vue'
 import { reinjectAllStencils, syncStencilInstances } from '../stencils/svgInjector'
+import { createCanvasGraph } from '../stencils/canvasPaper'
 import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
 import {
   migrateFormsRanges,
@@ -98,11 +99,28 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     initHistory()
     canvas.clearSelection()
     reportDetached(synced)
+    playFormIn(paper)
     // Вписываем содержимое, как кнопка «Вписать»: zoom и translate остаются от прошлой
     // формы, а новая нарисована в своих координатах — иначе форма, начатая далеко от
     // начала координат, открывается за кадром. Пустая просто сбрасывается к 100% и
     // (0,0). nextTick нужен, чтобы ячейки попали в DOM: transformToFitContent мерит его.
     nextTick(() => canvas.fitToContent())
+  }
+
+  /**
+   * Новая форма ПРОЯВЛЯЕТСЯ: у похожих схем мгновенная подмена не читается как
+   * переключение. Гасить старую перед подменой не стали — это задержало бы отклик на
+   * длительность анимации.
+   */
+  function playFormIn(paper) {
+    const el = paper?.el
+    if (!el) return
+    // Перезапуск, если предыдущее проявление ещё идёт (быстрое перещёлкивание форм):
+    // без снятия класса и рефлоу анимация второй раз не стартует.
+    el.classList.remove('tms-form-in')
+    void el.offsetWidth
+    el.classList.add('tms-form-in')
+    el.addEventListener('animationend', () => el.classList.remove('tms-form-in'), { once: true })
   }
 
   /**
@@ -556,55 +574,35 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
    * Правка символа → во ВСЕ формы проекта. Активную сверяет сам редактор (ему нужно
    * выделить отцепленные концы), здесь — остальные.
    *
-   * Каждая форма прогоняется через живой граф, как в экспорте: сверка правит модель
-   * (порты, габарит, концы проводов), поэтому результат сразу пишется обратно. Под
-   * restoreGuard — это не действие пользователя, в undo ему делать нечего.
+   * Формы прогоняются через ТЕНЕВОЙ граф, без paper: сверке нужна только модель
+   * (порты, габарит, концы проводов), а перерисовка в `syncStencilInstances`
+   * опциональна. Живой холст при этом не трогается — иначе на нём одна за другой
+   * мелькают чужие формы, и после `await persistForm` браузер успевает их показать.
    *
    * @returns {Promise<{forms: number, changed: number, detached: number}>}
    */
   async function syncStencilInClosedForms(stencilId, prev = null) {
-    const graph = canvas.graphRef.value
-    const paper = canvas.paperRef.value
     const stencil = getStencilById(stencilId)
     const report = { forms: 0, changed: 0, detached: 0 }
-    if (!graph || !paper || !stencil) return report
+    if (!stencil) return report
 
-    const activeId = workspace.activeFormId
-    const others = [...workspace.formIds].filter((id) => id !== activeId)
+    const others = [...workspace.formIds].filter((id) => id !== workspace.activeFormId)
     if (!others.length) return report
 
-    // Отложенный snapshot гасим: его таймер выстрелил бы, когда в графе чужая форма.
-    cancelPendingSnapshot()
-    try {
-      await saveActiveForm()
-      for (const id of others) {
-        let json = workspace.getFormGraph(id) || { cells: [] }
-        let synced = { changed: 0, detached: [] }
-        withRestoreGuard(restoringHistory, () => {
-          withPaperFrozen(paper, () => graph.fromJSON(json))
-          synced = syncStencilInstances(graph, paper, stencil, prev) || synced
-        })
-        if (!synced.changed && !synced.detached.length) continue
-        json = graph.toJSON()
-        workspace.setFormGraph(id, json)
-        flagIfNotSaved(await persistForm(id, json))
-        report.forms += 1
-        report.changed += synced.changed
-        report.detached += synced.detached.length
+    const shadow = createCanvasGraph()
+    for (const id of others) {
+      shadow.fromJSON(workspace.getFormGraph(id) || { cells: [] })
+      const synced = syncStencilInstances(shadow, null, stencil, prev) || {
+        changed: 0,
+        detached: [],
       }
-    } finally {
-      // Активная форма возвращается в любом случае: при ошибке посреди цикла холст не
-      // должен остаться на чужой.
-      const liveGraph = canvas.graphRef.value
-      const livePaper = canvas.paperRef.value
-      if (liveGraph && livePaper) {
-        const activeJson = workspace.getFormGraph(activeId) || { cells: [] }
-        withRestoreGuard(restoringHistory, () => {
-          withPaperFrozen(livePaper, () => liveGraph.fromJSON(activeJson))
-          reinjectAllStencils(liveGraph, livePaper)
-          canvas.bumpVersion()
-        })
-      }
+      if (!synced.changed && !synced.detached.length) continue
+      const json = shadow.toJSON()
+      workspace.setFormGraph(id, json)
+      flagIfNotSaved(await persistForm(id, json))
+      report.forms += 1
+      report.changed += synced.changed
+      report.detached += synced.detached.length
     }
     return report
   }

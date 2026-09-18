@@ -328,7 +328,7 @@ onBeforeUnmount(() => {
                 v-if="row.hasChildren"
                 type="button"
                 data-nodrag
-                class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center text-surface-400 hover:text-surface-700"
+                class="tms-icon-action flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center text-surface-400 hover:text-surface-700"
                 @click="toggle(row.id)"
               >
                 <i
@@ -386,7 +386,7 @@ onBeforeUnmount(() => {
                       type="button"
                       data-nodrag
                       v-tooltip.bottom="'Переименовать'"
-                      class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
+                      class="tms-icon-action flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
                       @click.stop="startRename(row.id)"
                     >
                       <i class="pi pi-pencil text-[10px]!" />
@@ -395,7 +395,7 @@ onBeforeUnmount(() => {
                       type="button"
                       data-nodrag
                       v-tooltip.bottom="'Дублировать форму'"
-                      class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
+                      class="tms-icon-action flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
                       @click.stop="canvas.duplicateForm(row.id)"
                     >
                       <i class="pi pi-clone text-[10px]!" />
@@ -405,7 +405,7 @@ onBeforeUnmount(() => {
                       type="button"
                       data-nodrag
                       v-tooltip.bottom="'Удалить форму'"
-                      class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-red-600"
+                      class="tms-icon-action flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-red-600"
                       @click="confirmDelete($event, row.id)"
                     >
                       <i class="pi pi-trash text-[10px]!" />

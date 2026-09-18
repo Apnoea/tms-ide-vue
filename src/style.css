@@ -340,6 +340,107 @@ body,
   height: 100%;
 }
 
+/* Строка списка в инспекторе (состояния символа): добавление раскрывает строку,
+   удаление схлопывает — соседние съезжают плавно, а не прыгают, и взгляд не теряет
+   место в таблице. `max-height` с запасом: высота строки задаётся содержимым, а
+   анимировать `auto` нельзя. */
+.tms-row-enter-active,
+.tms-row-leave-active {
+  overflow: hidden;
+  transition:
+    opacity 120ms ease,
+    max-height 160ms ease;
+}
+.tms-row-enter-from,
+.tms-row-leave-to {
+  opacity: 0;
+  max-height: 0;
+}
+.tms-row-enter-to,
+.tms-row-leave-from {
+  max-height: 3rem;
+}
+/* Оставшиеся строки доезжают на место после схлопнутой. */
+.tms-row-move {
+  transition: transform 160ms ease;
+}
+
+/* Нажатие кнопки чуть «продавливается» — отклик на клик, которого у плоских
+   icon-кнопок иначе нет вовсе. Только компактные: `.p-button` (тулбары, строки,
+   overlay) и наши нативные иконки строк (`tms-icon-action`). Кнопки во всю ширину
+   (заголовок аккордеона, строка формы, «добавить строку») не масштабируем — у них
+   продавливание читалось бы как скачок раскладки. */
+.p-button:not(:disabled):active,
+.tms-icon-action:not(:disabled):active {
+  transform: scale(0.94);
+}
+.p-button,
+.tms-icon-action {
+  transition: transform 80ms ease;
+}
+
+/* Инспектор при смене ТИПА выделения (ничего → символ → провод → разметка → мульти):
+   под каждый тип своя раскладка, и без проявления подмена читается как рывок. Класс
+   ставит watch в CanvasInspector. */
+@keyframes tms-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.tms-panel-in {
+  animation: tms-panel-in 120ms ease-out;
+}
+
+/* Список палитры при фильтрации: отсеянные строки растворяются, оставшиеся доезжают
+   на новые места. Уходящая выводится из потока (`absolute`), иначе соседи прыгают к ней
+   мгновенно и `-move` анимировать нечего; ширину при этом держим сами. */
+.tms-list-enter-active,
+.tms-list-leave-active {
+  transition: opacity 120ms ease;
+}
+.tms-list-enter-from,
+.tms-list-leave-to {
+  opacity: 0;
+}
+.tms-list-leave-active {
+  position: absolute;
+  width: 100%;
+}
+.tms-list-move {
+  transition: transform 160ms ease;
+}
+
+/* Смена формы: новая схема проявляется, иначе у похожих форм подмена не читается как
+   переключение. Класс вешает и снимает `useProject.playFormIn`. */
+@keyframes tms-form-in {
+  from {
+    opacity: 0;
+  }
+}
+.joint-paper.tms-form-in {
+  animation: tms-form-in 140ms ease-out;
+}
+
+/* Оверлей редактора символов: проявляется поверх холста, чтобы было видно, что холст
+   на месте, а редактор лёг сверху. Только enter — закрытие мгновенное (см. App.vue). */
+.tms-editor-enter-active {
+  transition: opacity 150ms ease;
+}
+.tms-editor-enter-from {
+  opacity: 0;
+}
+
+/* Сегмент полоски диапазонов: позиция и ширина считаются от порогов строки, поэтому
+   правка «до» двигает границу зоны — ведём её переходом, а не скачком. Цвет тоже:
+   смена пресета в пикере иначе моргает. */
+.tms-range-seg {
+  transition:
+    left 120ms ease,
+    width 120ms ease,
+    background-color 120ms ease;
+}
+
 /* Сворачивание боковых колонок: анимируем ШИРИНУ «шторки», содержимое внутри держит
    свою — иначе панель плющило бы по горизонтали на каждом кадре, а таблицы и поля
    инспектора перерисовывались бы под каждую промежуточную ширину.
@@ -357,9 +458,29 @@ body,
   opacity: 0;
 }
 
+/* Сюда добавляется КАЖДОЕ новое движение: система просит без анимаций — показываем
+   результат сразу, без промежуточных кадров. */
 @media (prefers-reduced-motion: reduce) {
   .tms-pane-enter-active,
-  .tms-pane-leave-active {
+  .tms-pane-leave-active,
+  .tms-row-enter-active,
+  .tms-row-leave-active,
+  .tms-row-move,
+  .tms-range-seg,
+  .tms-editor-enter-active,
+  .tms-list-enter-active,
+  .tms-list-leave-active,
+  .tms-list-move,
+  .tms-panel-in,
+  .p-button,
+  .tms-icon-action {
     transition: none;
+  }
+  .p-button:not(:disabled):active,
+  .tms-icon-action:not(:disabled):active {
+    transform: none;
+  }
+  .joint-paper.tms-form-in {
+    animation: none;
   }
 }

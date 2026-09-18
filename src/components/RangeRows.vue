@@ -43,11 +43,13 @@ const boundText = (v, sign) => (v === null || v === undefined ? sign : String(v)
          вовсе, шкале нечего показывать. -->
     <template v-if="ranges.length">
       <div class="relative mb-1 h-2 w-full overflow-hidden rounded-sm bg-surface-200">
+        <!-- Сегмент переезжает, а не перескакивает: набираешь порог — граница зоны едет
+             за цифрой, и видно, что именно правишь. -->
         <span
           v-for="(s, i) in bar?.segments || []"
           :key="i"
           v-tooltip.top="`${boundText(s.from, '-∞')} – ${boundText(s.to, '∞')}`"
-          class="absolute inset-y-0"
+          class="tms-range-seg absolute inset-y-0"
           :style="{ left: `${s.left}%`, width: `${s.width}%`, background: s.color }"
         />
       </div>

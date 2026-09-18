@@ -345,8 +345,7 @@ async function save() {
   if (editing) {
     // Остальные формы правятся тем же сохранением, а не при своём открытии: иначе
     // провод, потерявший порт, отваливался через дни и без связи с этой правкой.
-    // Идёт ПЕРВЫМ: прогон гасит отложенный снимок (в графе побывают чужие формы), и
-    // запрошенный до него шаг истории активной формы пропал бы.
+    // Идёт в теневом графе, живой холст не трогает (см. syncStencilInClosedForms).
     const closed = await canvas.syncStencilInClosedForms(json.id, prev)
     // Экземпляры на холсте подтягивают новую версию символа целиком (рисунок, порты,
     // габарит) одной операцией — значит один шаг undo.
@@ -1198,36 +1197,36 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- Сохранение и закрытие — в подвале панели свойств: это действия над символом
-       целиком, там же автор заполняет его поля. В тулбаре они читались как ещё одна
-       кнопка рисования, а поверх стола закрывали рисунок. Кнопка «Сохранить»
-       приглушена, пока правок нет — по ней видно, есть ли несохранённое (тот же
-       `isDirty`, которым закрытие решает, переспрашивать ли). -->
-  <Teleport to="#tms-editor-actions" defer>
-    <div class="grid grid-cols-2 items-center gap-2 p-3">
-      <Button
-        label="Сохранить"
-        icon="pi pi-check"
-        size="small"
-        :severity="isDirty ? 'primary' : 'secondary'"
-        :outlined="!isDirty"
-        @click="save"
-      />
-      <Button
-        ref="closeBtn"
-        label="Закрыть"
-        icon="pi pi-times"
-        severity="secondary"
-        outlined
-        size="small"
-        @click="requestClose"
-      />
-    </div>
-  </Teleport>
   <!-- `relative` на корне НЕ ставить: оверлею с места использования приходит
        `absolute inset-0`, а в Tailwind `.relative` объявлен позже `.absolute` и
        перебил бы его — редактор выпал бы из позиционирования. -->
   <div v-bind="$attrs" class="flex flex-col bg-surface-0">
+    <!-- Сохранение и закрытие — в подвале панели свойств: это действия над символом
+         целиком, там же автор заполняет его поля. В тулбаре они читались как ещё одна
+         кнопка рисования, а поверх стола закрывали рисунок. Кнопка «Сохранить»
+         приглушена, пока правок нет — по ней видно, есть ли несохранённое (тот же
+         `isDirty`, которым закрытие решает, переспрашивать ли). -->
+    <Teleport to="#tms-editor-actions" defer>
+      <div class="grid grid-cols-2 items-center gap-2 p-3">
+        <Button
+          label="Сохранить"
+          icon="pi pi-check"
+          size="small"
+          :severity="isDirty ? 'primary' : 'secondary'"
+          :outlined="!isDirty"
+          @click="save"
+        />
+        <Button
+          ref="closeBtn"
+          label="Закрыть"
+          icon="pi pi-times"
+          severity="secondary"
+          outlined
+          size="small"
+          @click="requestClose"
+        />
+      </div>
+    </Teleport>
     <!-- Тулбар -->
     <!-- Поля и высота — как в тулбаре холста (min-h-14, px-4): тулбары стоят один под
          другим при открытии редактора, и разный отступ у крайних кнопок бросался в

@@ -689,6 +689,35 @@ function applyGroupToggle() {
   }
 }
 
+/**
+ * Тип панели: под каждый набор полей своя раскладка, и смена типа перерисовывает
+ * инспектор целиком. По нему же играет проявление (ниже) — перещёлкивание СИМВОЛОВ
+ * тип не меняет, иначе панель мельтешила бы на каждом клике по схеме.
+ */
+const panelKind = computed(() => {
+  if (canvas.selection.value.length > 1) return 'multi'
+  const d = details.value
+  if (!d) return 'none'
+  return d.isShape ? 'shape' : d.kind
+})
+
+// Проявление содержимого при смене типа: класс вешается на тело панели и снимается по
+// концу анимации; рефлоу между снятием и добавлением перезапускает её, если предыдущая
+// ещё идёт (быстрые переключения выделения).
+const bodyEl = ref(null)
+watch(
+  panelKind,
+  () => {
+    const el = bodyEl.value
+    if (!el) return
+    el.classList.remove('tms-panel-in')
+    void el.offsetWidth
+    el.classList.add('tms-panel-in')
+    el.addEventListener('animationend', () => el.classList.remove('tms-panel-in'), { once: true })
+  },
+  { flush: 'post' }
+)
+
 // Кнопка-замок в шапке инспектора: доступна для одиночной ячейки и для цельной
 // группы (единый объект); у произвольного мультивыделения замка нет.
 const lockState = computed(() => {
@@ -1005,7 +1034,7 @@ const {
       />
     </div>
 
-    <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm">
+    <div ref="bodyEl" class="flex-1 min-h-0 p-4 overflow-y-auto text-sm">
       <!-- Multi-select: больше одного символа — показываем сводку + удаление -->
       <template v-if="canvas.selection.value.length > 1">
         <div class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4">

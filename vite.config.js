@@ -1,15 +1,16 @@
 /// <reference types="vitest/config" />
 import { promises as fs, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { defineConfig } from 'vite'
+import { defineConfig, normalizePath } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 
 // Dev-плагин: приложение в браузере не может писать в исходники проекта, а
 // при импорте проекта стенсилы должны физически лечь в src/stencils/definitions/
 // (откуда их берёт Vite-glob реестра). Поэтому браузер шлёт стенсилы на этот
-// эндпоинт, а dev-сервер (у него есть fs-доступ) пишет файлы; Vite-вотчер затем
-// триггерит reload и реестр их подхватывает. Только dev (apply: 'serve').
+// эндпоинт, а dev-сервер (у него есть fs-доступ) пишет файлы. Reload на свою же запись
+// подавляется (см. handleHotUpdate): символ уже в рантайм-реестре. Только dev
+// (apply: 'serve').
 // Контракт: POST /__stencils/import, тело [{ id, stencilJson, shapeSvg }];
 // id — slug [a-z0-9_], путь жёстко ограничен definitions/ (анти-traversal).
 const STENCIL_ID_RE = /^[a-z0-9_]+$/
@@ -35,9 +36,36 @@ function readJsonBody(req) {
 }
 
 function stencilWritePlugin() {
+  // Пути, только что записанные этим плагином: их hot-update глотаем (см.
+  // handleHotUpdate). Ручную правку файла в редакторе кода это не затрагивает.
+  const justWritten = new Set()
+  const OWN_WRITE_MS = 3000
+
+  // Ключ — путь в POSIX-виде: `path.join` на Windows даёт обратные слэши, а в
+  // `handleHotUpdate` Vite отдаёт уже нормализованный путь, и Set бы не совпал.
+  function markOwnWrite(file) {
+    const key = normalizePath(file)
+    justWritten.add(key)
+    setTimeout(() => justWritten.delete(key), OWN_WRITE_MS).unref?.()
+  }
+
   return {
     name: 'tms-stencil-write',
     apply: 'serve',
+    /**
+     * Сохранение символа пишет `definitions/<id>/*`, и вотчер Vite на это отвечает
+     * полной перезагрузкой страницы: реестр собран `import.meta.glob`, hot-accept'а у
+     * него нет. Перезагрузка тут лишняя — редактор уже зарегистрировал символ в
+     * рантайме (`registerStencil`) и положил оверрайд в IDB, — а на экране она видна
+     * морганием холста. Глотаем ТОЛЬКО свою запись: файл, правленый руками, по-прежнему
+     * перезагружает страницу.
+     */
+    handleHotUpdate({ file }) {
+      const key = normalizePath(file)
+      if (!justWritten.has(key)) return
+      justWritten.delete(key)
+      return []
+    },
     configureServer(server) {
       const defsDir = path.resolve(server.config.root, 'src/stencils/definitions')
       server.middlewares.use('/__stencils/import', async (req, res, next) => {
@@ -51,8 +79,12 @@ function stencilWritePlugin() {
             const dir = path.resolve(defsDir, item.id)
             if (dir !== path.join(defsDir, item.id)) continue // анти-traversal
             await fs.mkdir(dir, { recursive: true })
+            const jsonPath = path.join(dir, 'stencil.json')
+            const svgPath = path.join(dir, 'shape.svg')
+            markOwnWrite(jsonPath)
+            markOwnWrite(svgPath)
             await fs.writeFile(
-              path.join(dir, 'stencil.json'),
+              jsonPath,
               JSON.stringify(item.stencilJson ?? {}, null, 2) + '\n',
               'utf8'
             )
@@ -60,7 +92,7 @@ function stencilWritePlugin() {
             // пишут два пути — сохранение из редактора (serializeSvg, перевод есть) и
             // импорт .zip (разметка из реестра прошла XMLSerializer, перевода нет).
             // Без нормализации файл в git «дышал» последней строкой туда-сюда.
-            await fs.writeFile(path.join(dir, 'shape.svg'), withEol(item.shapeSvg), 'utf8')
+            await fs.writeFile(svgPath, withEol(item.shapeSvg), 'utf8')
             written.push(item.id)
           }
           res.setHeader('content-type', 'application/json')

@@ -185,10 +185,16 @@ useEventListener(window, 'keydown', (event) => {
         @reset="ui.resetPaneWidth('left')"
       />
       <!-- Редактор символов — оверлей поверх холста (relative-контейнер). CanvasPane
-           остаётся смонтированным под ним: paper/graph не пересоздаются. -->
+           остаётся смонтированным под ним: paper/graph не пересоздаются.
+           Проявление ТОЛЬКО на открытии: на закрытии редактор должен уйти сразу —
+           его кнопки живут Teleport'ом в подвале инспектора, а тот переключается на
+           холстовый в тот же тик. Масштаба в переходе нет: редактор меряет стол
+           через getBoundingClientRect, и кадры под `scale` дали бы кривой зум. -->
       <div class="flex-1 min-w-0 rounded-lg overflow-hidden shadow-md relative">
         <CanvasPane />
-        <StencilEditor v-if="ui.stencilEditorOpen" class="absolute inset-0 z-20" />
+        <Transition name="tms-editor">
+          <StencilEditor v-if="ui.stencilEditorOpen" class="absolute inset-0 z-20" />
+        </Transition>
       </div>
       <PaneResizer
         v-if="ui.rightPaneOpen"

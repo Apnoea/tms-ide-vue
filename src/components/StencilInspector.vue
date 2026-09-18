@@ -677,100 +677,102 @@ function clearStateColor(key, which) {
                       <!-- Колонка кнопки удаления состояния. -->
                       <span aria-hidden="true"></span>
                     </div>
-                    <div
-                      v-for="st in meta.states"
-                      :key="st.key"
-                      class="grid items-center gap-1.5"
-                      :style="{ gridTemplateColumns: stateGridCols }"
-                    >
-                      <!-- Глаз = превью этого состояния на столе (повторный клик — все). -->
-                      <button
-                        type="button"
-                        v-tooltip.top="
-                          previewState === st.key
-                            ? 'Показать все фигуры'
-                            : 'Показать символ в этом состоянии'
-                        "
-                        class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded transition-colors"
-                        :class="
-                          previewState === st.key
-                            ? 'bg-primary-50 text-primary-600'
-                            : 'text-surface-300 hover:text-surface-600'
-                        "
-                        @click="togglePreview(st.key)"
+                    <TransitionGroup name="tms-row">
+                      <div
+                        v-for="st in meta.states"
+                        :key="st.key"
+                        class="grid items-center gap-1.5"
+                        :style="{ gridTemplateColumns: stateGridCols }"
                       >
-                        <i class="pi pi-eye text-xs!" />
-                      </button>
-                      <Select
-                        :model-value="st.label"
-                        :options="PRESET_LABELS"
-                        editable
-                        placeholder="состояние"
-                        size="small"
-                        class="flex-1 min-w-0"
-                        @update:model-value="updateState(st.key, { label: $event })"
-                        @change="commit"
-                      />
-                      <InputText
-                        :model-value="st.code"
-                        placeholder="код"
-                        size="small"
-                        class="min-w-0 font-mono text-xs!"
-                        @update:model-value="updateState(st.key, { code: $event })"
-                        @change="commit"
-                      />
-                      <div class="flex items-center justify-center">
-                        <ColorField
-                          v-tooltip.top="'Цвет контуров символа в этом состоянии'"
-                          :model-value="stateStroke(st.key) || STATE_STROKE_PLACEHOLDER"
-                          :class="{ 'opacity-40': !stateStroke(st.key) }"
-                          @update:model-value="setStateColor(st.key, $event, 'stroke')"
-                          @change="commit"
+                        <!-- Глаз = превью этого состояния на столе (повторный клик — все). -->
+                        <button
+                          type="button"
+                          v-tooltip.top="
+                            previewState === st.key
+                              ? 'Показать все фигуры'
+                              : 'Показать символ в этом состоянии'
+                          "
+                          class="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded transition-colors"
+                          :class="
+                            previewState === st.key
+                              ? 'bg-primary-50 text-primary-600'
+                              : 'text-surface-300 hover:text-surface-600'
+                          "
+                          @click="togglePreview(st.key)"
                         >
-                          <template #badge>
-                            <button
-                              v-if="stateStroke(st.key)"
-                              type="button"
-                              v-tooltip.top="'Убрать цвет'"
-                              class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
-                              @click.stop="clearStateColor(st.key, 'stroke')"
-                            >
-                              <i class="pi pi-times text-[7px]!" />
-                            </button>
-                          </template>
-                        </ColorField>
-                      </div>
-                      <div v-if="hasFillableShapes" class="flex items-center justify-center">
-                        <ColorField
-                          v-tooltip.top="'Цвет заливки фигур в этом состоянии'"
-                          :model-value="stateFill(st.key) || STATE_FILL_PLACEHOLDER"
-                          :class="{ 'opacity-40': !stateFill(st.key) }"
-                          @update:model-value="setStateColor(st.key, $event, 'fill')"
+                          <i class="pi pi-eye text-xs!" />
+                        </button>
+                        <Select
+                          :model-value="st.label"
+                          :options="PRESET_LABELS"
+                          editable
+                          placeholder="состояние"
+                          size="small"
+                          class="flex-1 min-w-0"
+                          @update:model-value="updateState(st.key, { label: $event })"
                           @change="commit"
-                        >
-                          <template #badge>
-                            <button
-                              v-if="stateFill(st.key)"
-                              type="button"
-                              v-tooltip.top="'Убрать заливку'"
-                              class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
-                              @click.stop="clearStateColor(st.key, 'fill')"
-                            >
-                              <i class="pi pi-times text-[7px]!" />
-                            </button>
-                          </template>
-                        </ColorField>
+                        />
+                        <InputText
+                          :model-value="st.code"
+                          placeholder="код"
+                          size="small"
+                          class="min-w-0 font-mono text-xs!"
+                          @update:model-value="updateState(st.key, { code: $event })"
+                          @change="commit"
+                        />
+                        <div class="flex items-center justify-center">
+                          <ColorField
+                            v-tooltip.top="'Цвет контуров символа в этом состоянии'"
+                            :model-value="stateStroke(st.key) || STATE_STROKE_PLACEHOLDER"
+                            :class="{ 'opacity-40': !stateStroke(st.key) }"
+                            @update:model-value="setStateColor(st.key, $event, 'stroke')"
+                            @change="commit"
+                          >
+                            <template #badge>
+                              <button
+                                v-if="stateStroke(st.key)"
+                                type="button"
+                                v-tooltip.top="'Убрать цвет'"
+                                class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+                                @click.stop="clearStateColor(st.key, 'stroke')"
+                              >
+                                <i class="pi pi-times text-[7px]!" />
+                              </button>
+                            </template>
+                          </ColorField>
+                        </div>
+                        <div v-if="hasFillableShapes" class="flex items-center justify-center">
+                          <ColorField
+                            v-tooltip.top="'Цвет заливки фигур в этом состоянии'"
+                            :model-value="stateFill(st.key) || STATE_FILL_PLACEHOLDER"
+                            :class="{ 'opacity-40': !stateFill(st.key) }"
+                            @update:model-value="setStateColor(st.key, $event, 'fill')"
+                            @change="commit"
+                          >
+                            <template #badge>
+                              <button
+                                v-if="stateFill(st.key)"
+                                type="button"
+                                v-tooltip.top="'Убрать заливку'"
+                                class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+                                @click.stop="clearStateColor(st.key, 'fill')"
+                              >
+                                <i class="pi pi-times text-[7px]!" />
+                              </button>
+                            </template>
+                          </ColorField>
+                        </div>
+                        <Button
+                          v-tooltip.top="'Убрать состояние'"
+                          icon="pi pi-times"
+                          severity="secondary"
+                          text
+                          size="small"
+                          class="tms-row-btn"
+                          @click="removeState(st.key)"
+                        />
                       </div>
-                      <Button
-                        v-tooltip.top="'Убрать состояние'"
-                        icon="pi pi-times"
-                        severity="secondary"
-                        text
-                        size="small"
-                        class="tms-row-btn"
-                        @click="removeState(st.key)"
-                      />
-                    </div>
+                    </TransitionGroup>
                     <div class="flex gap-1.5">
                       <button type="button" class="tms-add-row" @click="addState">
                         <i class="pi pi-plus text-[10px]!" />
