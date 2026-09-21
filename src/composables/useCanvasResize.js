@@ -83,7 +83,7 @@ function positionForAnchor(anchor, size, angle, handle, grid) {
   }
 }
 
-export function useCanvasResize({ scheduleSnapshot, dragging }) {
+export function useCanvasResize({ scheduleSnapshot, dragging, syncBusAttachment }) {
   const canvas = useCanvas()
   let drag = null
   // Пока тянем — позиции ручек считаем от «живого» габарита, а не от снимка.
@@ -266,8 +266,14 @@ export function useCanvasResize({ scheduleSnapshot, dragging }) {
   function onUp() {
     if (!drag) return
     const changed = drag.changed
+    const cell = drag.cell
     drag = null
     if (!changed) return
+    // Масштаб меняет габарит, а с ним и центр символа: он мог съехать с шины или лечь
+    // на неё. Сверка тем же правилом, что после drag'а — иначе `busId` остаётся на
+    // символе, стоящем в стороне, и тот ездит за чужой шиной. Фигуры и саму шину
+    // syncBusAttachment отбрасывает сам.
+    syncBusAttachment?.(cell)
     // Один снимок на жест (move'ы шли без истории) + пометка «правки не в .zip».
     canvas.bumpVersion()
     canvas.markDirty()

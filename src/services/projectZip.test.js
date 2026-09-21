@@ -3,12 +3,14 @@ import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('./fileSystem', () => ({ pickFile: vi.fn() }))
 
+import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 import { buildProjectZipBlob, readProjectZipFile, pickProjectArchive } from './projectZip'
 import { pickFile } from './fileSystem'
 
 describe('projectZip', () => {
   it('round-trip: восстанавливает формы / символы / теги / иерархию', async () => {
     const bundle = {
+      projectId: 'PRJ',
       forms: [
         { id: 'main', viewSvg: '<svg>main</svg>', animationsJson: '{"a":1}' },
         { id: 'sub', viewSvg: '<svg>sub</svg>', animationsJson: '{}' },
@@ -28,11 +30,77 @@ describe('projectZip', () => {
     expect(data.hierarchy).toEqual([{ id: 'main', children: [{ id: 'sub', children: [] }] }])
   })
 
+  // Архив распаковывается прямо в projects/ сервера: списки уровня папки, проект —
+  // своей директорией, формы под views/.
+  it('раскладка WebScada: списки в корне, nav и views внутри проекта', async () => {
+    const blob = buildProjectZipBlob({
+      projectId: 'PRJ',
+      forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],
+      stencils: [{ id: 'cell_x', stencilJson: { id: 'cell_x' }, shapeSvg: '<g/>' }],
+      tagsText: 'TAG1;Bool',
+      hierarchy: [{ id: 'main', children: [] }],
+    })
+    const entries = unzipSync(new Uint8Array(await blob.arrayBuffer()))
+    expect(Object.keys(entries).sort()).toEqual([
+      'PRJ/library/cell_x/shape.svg',
+      'PRJ/library/cell_x/stencil.json',
+      'PRJ/nav.json',
+      'PRJ/taglist.csv',
+      'PRJ/views/main/animations.json',
+      'PRJ/views/main/view.svg',
+      'projects-list.json',
+      'user-projects.json',
+    ])
+    const json = (p) => JSON.parse(strFromU8(entries[p]))
+    expect(json('projects-list.json')).toEqual([{ id: 'PRJ', name: 'PRJ', description: '' }])
+    expect(json('user-projects.json')).toEqual({ test: ['PRJ'] })
+    // Узел навигации несёт viewId и подпись; своего названия у формы нет — это её id.
+    expect(json('PRJ/nav.json')).toEqual([{ viewId: 'main', name: 'main', children: [] }])
+  })
+
+  it('nav.json пишется даже пустым: без него сервер не покажет проект', async () => {
+    const blob = buildProjectZipBlob({
+      projectId: 'PRJ',
+      forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],
+    })
+    const entries = unzipSync(new Uint8Array(await blob.arrayBuffer()))
+    expect(JSON.parse(strFromU8(entries['PRJ/nav.json']))).toEqual([])
+  })
+
+  // Архивы прошлой раскладки (forms/ и hierarchy.json в корне) должны открываться.
+  it('читает прошлую раскладку: forms/ + hierarchy.json', async () => {
+    const files = {
+      'forms/main/view.svg': strToU8('<svg>old</svg>'),
+      'forms/main/animations.json': strToU8('{}'),
+      'library/cell_x/stencil.json': strToU8('{"id":"cell_x"}'),
+      'library/cell_x/shape.svg': strToU8('<g/>'),
+      'taglist.csv': strToU8('TAG1;Bool'),
+      'hierarchy.json': strToU8('[{"id":"main","children":[]}]'),
+    }
+    const data = await readProjectZipFile(new Blob([zipSync(files)]))
+    expect(data.forms).toEqual([{ id: 'main', svgText: '<svg>old</svg>' }])
+    expect(data.stencils.map((s) => s.id)).toEqual(['cell_x'])
+    expect(data.tagsText).toBe('TAG1;Bool')
+    expect(data.hierarchy).toEqual([{ id: 'main', children: [] }])
+  })
+
+  it('nav.json одним корневым узлом (форма WebScada) читается как дерево', async () => {
+    const files = {
+      'PRJ/views/root/view.svg': strToU8('<svg/>'),
+      'PRJ/nav.json': strToU8(
+        '{"viewId":"root","name":"Подстанция","children":[{"viewId":"sub"}]}'
+      ),
+    }
+    const data = await readProjectZipFile(new Blob([zipSync(files)]))
+    expect(data.hierarchy).toEqual([{ id: 'root', children: [{ id: 'sub', children: [] }] }])
+  })
+
   it('XML-дерево тегов уезжает как taglist.xml и читается обратно', async () => {
     // Tag-list возвращается скадисту тем же файлом, что он дал: формат сохраняем.
     const tagsText = '<?xml version="1.0"?>\n<Root><Tag name="A" type="Boolean"/></Root>'
     const data = await readProjectZipFile(
       buildProjectZipBlob({
+        projectId: 'PRJ',
         forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],
         tagsText,
       })
@@ -46,7 +114,10 @@ describe('projectZip', () => {
     // зависеть от проверки на входе.
     for (const id of ['..', 'a/b', 'a\\b', '', 'f'.repeat(65)]) {
       expect(() =>
-        buildProjectZipBlob({ forms: [{ id, viewSvg: '<svg/>', animationsJson: '{}' }] })
+        buildProjectZipBlob({
+          projectId: 'PRJ',
+          forms: [{ id, viewSvg: '<svg/>', animationsJson: '{}' }],
+        })
       ).toThrow(/Недопустимый id формы/)
     }
   })
@@ -54,20 +125,32 @@ describe('projectZip', () => {
   it('id символа тоже проверяется — путь строится здесь', () => {
     expect(() =>
       buildProjectZipBlob({
+        projectId: 'PRJ',
         forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],
         stencils: [{ id: '../evil', stencilJson: {}, shapeSvg: '<g/>' }],
       })
     ).toThrow(/Недопустимый id символа/)
   })
 
-  it('минимальный бандл (только формы) → нет символов/тегов/иерархии', async () => {
+  it('id проекта тоже проверяется — он имя папки в архиве', () => {
+    expect(() =>
+      buildProjectZipBlob({
+        projectId: '../evil',
+        forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],
+      })
+    ).toThrow(/Недопустимый id проекта/)
+  })
+
+  it('минимальный бандл (только формы) → нет символов и тегов, дерево пустое', async () => {
     const blob = buildProjectZipBlob({
+      projectId: 'PRJ',
       forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],
     })
     const data = await readProjectZipFile(blob)
     expect(data.stencils).toEqual([])
     expect(data.tagsText).toBe(null)
-    expect(data.hierarchy).toBe(null)
+    // nav.json пишется всегда, поэтому дерево приходит пустым, а не отсутствующим.
+    expect(data.hierarchy).toEqual([])
   })
 
   it('битый файл (не ZIP) → внятная ошибка', async () => {

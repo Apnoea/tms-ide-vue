@@ -317,6 +317,7 @@ const { drawPreview, isDrawing, cancelDraw } = useCanvasDraw(paperContainer, {
 const { resizeHandles, onHandleDown } = useCanvasResize({
   scheduleSnapshot,
   dragging: cellDragging,
+  syncBusAttachment,
 })
 // Иконки те же, что в тулбаре редактора символов: жест и результат совпадают.
 const DRAW_TOOLS = [

@@ -10,7 +10,7 @@ import { nplural } from '../utils/plural'
 import { idbDel, idbGet, idbSet } from '../utils/idb'
 
 /** Ключ file-handle'а в IndexedDB — по нему tag-list освежается на старте. */
-const TAG_LIST_HANDLE_KEY = 'tagListHandle'
+export const TAG_LIST_HANDLE_KEY = 'tagListHandle'
 
 export function useTagList() {
   const ui = useUiStore()

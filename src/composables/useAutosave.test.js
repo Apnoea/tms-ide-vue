@@ -366,6 +366,21 @@ describe('useAutosave', () => {
       expect(idbStore.has(formKey('a'))).toBe(true)
     })
 
+    it('теги проекта снимают handle прежнего файла', async () => {
+      idbStore.set('tagListHandle', { name: 'old.xml' })
+      const { replaceProject } = setup()
+      await replaceProject([{ id: 'a', graphJson: { cells: [] } }], 'TAG1;Bool')
+      // Иначе restore на старте перечитал бы старый файл поверх тегов проекта.
+      expect(idbStore.has('tagListHandle')).toBe(false)
+    })
+
+    it('проект без тегов handle не снимает (прежние теги остаются в силе)', async () => {
+      idbStore.set('tagListHandle', { name: 'old.xml' })
+      const { replaceProject } = setup()
+      await replaceProject([{ id: 'a', graphJson: { cells: [] } }], null)
+      expect(idbStore.has('tagListHandle')).toBe(true)
+    })
+
     it('запись формы упала (квота) → false + setSaveError, стор всё равно загружен', async () => {
       idbSet.mockResolvedValueOnce(false) // первая форма не записалась
       const { replaceProject } = setup()

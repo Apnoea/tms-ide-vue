@@ -24,7 +24,7 @@ import {
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { withPaperFrozen } from '../utils/paperBatch'
 import { renameFormIds, remapNavigation, remapTree, remapProjectMeta } from '../utils/formIds'
-import { FORM_ID_RE, RANGE_SLOT } from '../constants/ids'
+import { FORM_ID_RE, RANGE_SLOT, safeFormId } from '../constants/ids'
 import { nplural } from '../utils/plural'
 import { toPlain } from '../utils/plain'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
@@ -674,7 +674,9 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
         hierarchy: workspace.formTree,
         // Редакторная мета: фон холста по формам. В `view.svg` он не уезжает (там фон
         // даёт панель), но нужен, чтобы у коллеги проект открылся в тех же цветах.
-        project: { formBg: workspace.formBg },
+        // Ни у одной формы своего фона нет — поля не пишем, и `project.json` тогда не
+        // создаётся вовсе (пустая мета в архив не идёт).
+        project: Object.keys(workspace.formBg).length ? { formBg: workspace.formBg } : null,
       })
 
       // Архив отдан браузеру — снимаем «не выгружено». Подтверждения записи у
@@ -713,12 +715,19 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     }
   }
 
-  /** Экспорт в .zip (скачивание) — единственный формат вывода проекта. Имя файла
-   *  = имя проекта (из импортированного архива); нет имени → 'project'. */
+  /**
+   * Экспорт в .zip (скачивание) — единственный формат вывода проекта. Имя файла = имя
+   * проекта (из импортированного архива); нет имени → 'project'.
+   *
+   * id проекта ВНУТРИ архива — первая форма дерева: он становится именем папки в
+   * `projects/` сервера и ключом в его списках. Маска — как у имён форм.
+   */
   async function exportProjectToArchive() {
     await buildAndDeliverBundle((bundle) => {
+      const first = workspace.formTree[0]?.id || workspace.formIds[0]
+      const projectId = safeFormId(first) || 'project'
       const base = (workspace.projectName || 'project').replace(/[\\/:*?"<>|]/g, '_')
-      downloadBlob(buildProjectZipBlob(bundle), `${base}.zip`)
+      downloadBlob(buildProjectZipBlob({ ...bundle, projectId }), `${base}.zip`)
     })
   }
 

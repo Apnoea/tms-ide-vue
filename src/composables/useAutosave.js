@@ -11,6 +11,7 @@ import { migrateGraphJson } from '../services/legacyFormat'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useCanvas } from './useCanvas'
+import { TAG_LIST_HANDLE_KEY } from './useTagList'
 
 // Граф каждой формы — отдельным ключом: autosave переписывает только активную. Мета —
 // порядок форм и активная, теги — сырой tag-list.
@@ -215,6 +216,9 @@ export function useAutosave({ restoringHistory }) {
     if (tagsText != null) {
       ok = (await idbSet(TAGS_KEY, tagsText)) && ok
       project.setTags(parseTagList(tagsText))
+      // Handle прежнего файла снимаем вместе с его тегами: tryRestoreTagListHandle на
+      // старте перечитал бы его и заменил теги открытого проекта чужими.
+      await idbDel(TAG_LIST_HANDLE_KEY)
     }
     if (!ok) canvas.setSaveError(true) // статус-полоса покажет «не сохранено»
     return ok

@@ -411,6 +411,25 @@ describe('useProject', () => {
   })
 
   describe('exportProjectToArchive', () => {
+    // id проекта = имя папки в `projects/` сервера и ключ в его списках; своего имени
+    // у проекта нет, поэтому берётся первая форма дерева.
+    it('id проекта — первая форма дерева; пустая мета в архив не идёт', async () => {
+      seedForms(
+        [
+          { id: 'main', graphJson: { cells: [] } },
+          { id: 'sub', graphJson: { cells: [] } },
+        ],
+        'sub' // активна вторая — на id проекта это не влияет
+      )
+      const { exportProjectToArchive } = useProject(makeDeps())
+      await exportProjectToArchive()
+
+      const bundleArg = buildProjectZipBlob.mock.calls[0][0]
+      expect(bundleArg.projectId).toBe('main')
+      // Фона ни у одной формы нет — project.json не создаётся.
+      expect(bundleArg.project).toBe(null)
+    })
+
     it('прогоняет все формы в .zip-бандл, возвращает активную, НЕ сбрасывает undo', async () => {
       seedForms(
         [

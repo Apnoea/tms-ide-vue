@@ -1,12 +1,25 @@
-// Проект ↔ ZIP-архив — единственный формат ввода-вывода. Раскладка внутри архива:
-// forms/<id>/{view.svg,animations.json}, library/<id>/{stencil.json,shape.svg},
-// taglist.csv (или taglist.xml — в формате исходного файла), hierarchy.json,
-// project.json (редакторная мета). Экспорт — скачивание
-// Blob, импорт — выбор .zip (pickFile) и распаковка в структуру для useProject.
+// Проект ↔ ZIP-архив — единственный формат ввода-вывода. Раскладка повторяет папку
+// `projects/` сервера WebScada: архив распаковывается туда как есть.
+//
+//   projects-list.json          [{ id, name, description }] — список проектов сервера
+//   user-projects.json          { "<логин>": ["<id проекта>"] } — доступ по пользователям
+//   <id>/nav.json               дерево навигации [{ viewId, name, children }]
+//   <id>/views/<viewId>/{view.svg, animations.json}
+//   <id>/library/<id>/{stencil.json, shape.svg}   ─┐ читает только IDE,
+//   <id>/taglist.csv | taglist.xml                 │ сервер эти файлы
+//   <id>/project.json (редакторная мета)          ─┘ игнорирует
+//
+// Архивы прошлой раскладки (`forms/`, `hierarchy.json` в корне) читаются по-прежнему.
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 import { FORM_ID_RE, FORM_ID_MAX } from '../constants/ids'
 import { isXmlTagList } from './parsers'
 import { pickFile } from './fileSystem'
+
+/** Логин в `user-projects.json`: на боевом сервере файл правят руками. */
+const DEFAULT_USER = 'test'
+
+/** Путь формы в архиве: `views/` — текущая раскладка, `forms/` — прошлая. */
+const VIEW_PATH_RE = /(?:views|forms)\/[^/]+\/view\.svg$/
 
 /** Id, из которого строится путь внутри архива. Нарушитель = баг, а не данные. */
 function assertPathSafeId(id, what) {
@@ -16,10 +29,39 @@ function assertPathSafeId(id, what) {
   }
 }
 
+const jsonFile = (value) => strToU8(JSON.stringify(value, null, 2) + '\n')
+
+/**
+ * Дерево форм IDE (`[{ id, children }]`) → навигация WebScada
+ * (`[{ viewId, name, children }]`). `name` — подпись в дереве сервера; своего названия
+ * у формы нет, поэтому это её id.
+ */
+function toNavTree(nodes) {
+  return (nodes || []).map((n) => ({
+    viewId: n.id,
+    name: n.id,
+    children: toNavTree(n.children),
+  }))
+}
+
+/**
+ * Обратное преобразование: навигация сервера → дерево форм IDE. Верхний уровень —
+ * массив узлов ЛИБО один корневой узел: обе формы штатны для WebScada, и объект
+ * пришлось бы иначе молча выбросить вместе со всей структурой схем.
+ */
+function fromNavTree(nodes) {
+  const list = Array.isArray(nodes) ? nodes : nodes && typeof nodes === 'object' ? [nodes] : null
+  if (!list) return null
+  return list
+    .filter((n) => n && (n.viewId || n.id))
+    .map((n) => ({ id: n.viewId || n.id, children: fromNavTree(n.children) || [] }))
+}
+
 /**
  * Собирает ZIP проекта из экспортного бандла (см. useProject.buildAndDeliverBundle).
  *
  * @param {{
+ *   projectId: string,
  *   forms: { id: string, viewSvg: string, animationsJson: string }[],
  *   stencils?: { id: string, stencilJson: object, shapeSvg: string }[],
  *   tagsText?: string | null,
@@ -28,36 +70,42 @@ function assertPathSafeId(id, what) {
  * }} bundle
  * @returns {Blob}
  */
-export function buildProjectZipBlob({ forms, stencils, tagsText, hierarchy, project }) {
+export function buildProjectZipBlob({ projectId, forms, stencils, tagsText, hierarchy, project }) {
+  assertPathSafeId(projectId, 'проекта')
   const files = {}
+  const root = `${projectId}/`
+
+  // Файлы уровня `projects/`: сервер по ним находит проект и решает, кому он виден.
+  files['projects-list.json'] = jsonFile([{ id: projectId, name: projectId, description: '' }])
+  files['user-projects.json'] = jsonFile({ [DEFAULT_USER]: [projectId] })
+  // Дерево навигации пишем ВСЕГДА, даже пустым: без nav.json сервер не покажет проект.
+  files[`${root}nav.json`] = jsonFile(toNavTree(hierarchy))
+
   for (const f of forms) {
     // Последний рубеж перед путём в архиве: `..` или слэш в id формы увели бы файл
     // за папку проекта при распаковке. Имена чинит импорт (utils/formIds), поэтому
     // здесь падаем, а не санируем молча.
     assertPathSafeId(f.id, 'формы')
-    files[`forms/${f.id}/view.svg`] = strToU8(f.viewSvg)
-    files[`forms/${f.id}/animations.json`] = strToU8(f.animationsJson)
+    files[`${root}views/${f.id}/view.svg`] = strToU8(f.viewSvg)
+    files[`${root}views/${f.id}/animations.json`] = strToU8(f.animationsJson)
   }
   if (stencils?.length) {
     for (const s of stencils) {
       // У символов id фильтрует реестр (STENCIL_ID_RE), но путь строится здесь.
       assertPathSafeId(s.id, 'символа')
-      files[`library/${s.id}/stencil.json`] = strToU8(JSON.stringify(s.stencilJson, null, 2) + '\n')
-      files[`library/${s.id}/shape.svg`] = strToU8(s.shapeSvg)
+      files[`${root}library/${s.id}/stencil.json`] = jsonFile(s.stencilJson)
+      files[`${root}library/${s.id}/shape.svg`] = strToU8(s.shapeSvg)
     }
   }
   // Tag-list уезжает КАК ЕСТЬ, в своём формате: скадист открывает архив тем же файлом,
   // что дал нам, а разбор различает форматы сам (parsers.parseTagList).
   if (tagsText != null) {
-    files[isXmlTagList(tagsText) ? 'taglist.xml' : 'taglist.csv'] = strToU8(tagsText)
+    files[`${root}${isXmlTagList(tagsText) ? 'taglist.xml' : 'taglist.csv'}`] = strToU8(tagsText)
   }
   // project.json — редакторная мета проекта (фон холста по формам). Отдельным файлом,
-  // а не полем hierarchy.json: тот массив-дерево, менять его форму = ломать чтение
-  // старых архивов. Пустая мета не пишется.
-  if (project && Object.keys(project).length)
-    files['project.json'] = strToU8(JSON.stringify(project, null, 2) + '\n')
-  if (hierarchy?.length)
-    files['hierarchy.json'] = strToU8(JSON.stringify(hierarchy, null, 2) + '\n')
+  // а не полем nav.json: тот читает сервер, и лишние поля ему не нужны. Пустая мета
+  // не пишется.
+  if (project && Object.keys(project).length) files[`${root}project.json`] = jsonFile(project)
   return new Blob([zipSync(files, { level: 6 })], { type: 'application/zip' })
 }
 
@@ -107,20 +155,29 @@ export async function readProjectZipFile(file) {
   } catch {
     throw new Error('Не удалось прочитать архив (повреждён или не ZIP)')
   }
-  const text = (path) => (entries[path] ? strFromU8(entries[path]) : null)
+  const paths = Object.keys(entries)
+  // Папка проекта: в раскладке WebScada всё лежит под `<id>/`, в прошлой — в корне.
+  // Определяем по первой же форме, а не по nav.json: у проекта без дерева его нет.
+  const viewPath = paths.find((p) => VIEW_PATH_RE.test(p)) || ''
+  const prefix = viewPath.replace(VIEW_PATH_RE, '')
+  const text = (path) => (entries[prefix + path] ? strFromU8(entries[prefix + path]) : null)
 
-  // Id форм/символов достаём из путей — порядок в архиве не гарантирован.
+  // Id форм/символов достаём из путей — порядок в архиве не гарантирован. `views/` —
+  // текущая раскладка, `forms/` — прошлая.
+  const esc = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const viewsRe = new RegExp(`^${esc}(?:views|forms)/([^/]+)/view\\.svg$`)
+  const libRe = new RegExp(`^${esc}library/([^/]+)/stencil\\.json$`)
   const formIds = new Set()
   const stencilIds = new Set()
-  for (const path of Object.keys(entries)) {
+  for (const path of paths) {
     let m
-    if ((m = path.match(/^forms\/([^/]+)\/view\.svg$/))) formIds.add(m[1])
-    else if ((m = path.match(/^library\/([^/]+)\/stencil\.json$/))) stencilIds.add(m[1])
+    if ((m = path.match(viewsRe))) formIds.add(m[1])
+    else if ((m = path.match(libRe))) stencilIds.add(m[1])
   }
 
   const forms = []
   for (const id of formIds) {
-    const svgText = text(`forms/${id}/view.svg`)
+    const svgText = text(`views/${id}/view.svg`) ?? text(`forms/${id}/view.svg`)
     if (svgText != null) forms.push({ id, svgText })
   }
 
@@ -139,11 +196,13 @@ export async function readProjectZipFile(file) {
 
   const tagsText = text('taglist.csv') ?? text('taglist.txt') ?? text('taglist.xml')
 
+  // Дерево: `nav.json` (WebScada) либо `hierarchy.json` прошлых архивов. Формы узлов
+  // разные, приводим к виду стора — `[{ id, children }]`.
   let hierarchy = null
-  const hierarchyText = text('hierarchy.json')
-  if (hierarchyText) {
+  const navText = text('nav.json') ?? text('hierarchy.json')
+  if (navText) {
     try {
-      hierarchy = JSON.parse(hierarchyText)
+      hierarchy = fromNavTree(JSON.parse(navText))
     } catch {
       hierarchy = null
     }
