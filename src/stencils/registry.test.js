@@ -5,6 +5,7 @@ import {
   registerStencil,
   unregisterStencil,
   getStencilById,
+  isPresetStencil,
   nextStencilId,
   registryVersion,
 } from './registry'
@@ -29,6 +30,14 @@ const PATH = 'definitions/cell_x/stencil.json'
 describe('validateStencilJson', () => {
   it('валидный stencil → пустой массив issues', () => {
     expect(validateStencilJson(PATH, validStencil())).toEqual([])
+  })
+
+  it('метка набора: валидная молчит, битая — предупреждение', () => {
+    const preset = { id: 'demo', name: 'Демо', version: '1.0' }
+    expect(validateStencilJson(PATH, validStencil({ preset }))).toEqual([])
+    expect(validateStencilJson(PATH, validStencil({ preset: { id: 'demo' } }))).toEqual([
+      expect.stringContaining('"preset"'),
+    ])
   })
 
   it('валидный stencil со всеми опциональными полями → пустой массив', () => {
@@ -206,6 +215,48 @@ describe('registerStencil', () => {
     const before = registryVersion.value
     registerStencil({ id: 'cell_ver_test', label: 'V', category: 'Т', width: 20, height: 20 }, '')
     expect(registryVersion.value).toBe(before + 1)
+  })
+})
+
+// Метка набора — происхождение символа: по ней палитра прячет правку и удаление.
+// Приходит из чужого .zip, поэтому нормализуется на входе в реестр.
+describe('метка набора (preset)', () => {
+  const base = { label: 'P', category: 'Т', width: 20, height: 20 }
+
+  it('нормализуется: имя схлопывается, пустое заменяет id', () => {
+    registerStencil(
+      { ...base, id: 'demo_a', preset: { id: 'demo', name: '  Демо  набор ', version: '1.2.3' } },
+      '<g/>'
+    )
+    expect(getStencilById('demo_a').preset).toEqual({
+      id: 'demo',
+      name: 'Демо набор',
+      version: '1.2.3',
+    })
+    registerStencil({ ...base, id: 'demo_b', preset: { id: 'demo', version: '1' } }, '<g/>')
+    expect(getStencilById('demo_b').preset.name).toBe('demo')
+  })
+
+  it.each([
+    ['без версии', { id: 'demo' }],
+    ['версия не по маске', { id: 'demo', version: '1.0-beta' }],
+    ['id вне маски', { id: 'Demo Set', version: '1.0' }],
+    ['не объект', 'demo'],
+  ])('битая метка (%s) отбрасывается — символ пользовательский', (_, preset) => {
+    registerStencil({ ...base, id: 'demo_bad', preset }, '<g/>')
+    const s = getStencilById('demo_bad')
+    expect(s.preset).toBeUndefined()
+    expect(isPresetStencil(s)).toBe(false)
+  })
+
+  it('isPresetStencil: метка есть — символ из набора', () => {
+    registerStencil(
+      { ...base, id: 'demo_c', preset: { id: 'demo', name: 'Демо', version: '2.0' } },
+      '<g/>'
+    )
+    expect(isPresetStencil(getStencilById('demo_c'))).toBe(true)
+    expect(isPresetStencil(getStencilById('cell_qw'))).toBe(false)
+    expect(isPresetStencil(undefined)).toBe(false)
   })
 })
 

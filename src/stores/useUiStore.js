@@ -58,6 +58,10 @@ export const useUiStore = defineStore('ui', () => {
 
   const helpOpen = ref(false)
 
+  // Диалог наборов символов (установка/удаление). Наборы — свойство приложения, а не
+  // проекта, поэтому от projectBusy не зависят.
+  const presetsOpen = ref(false)
+
   // Видимость SearchBar (Ctrl+F). Состояние поиска (query, matches) — в useCanvas.
   const searchOpen = ref(false)
 
@@ -94,6 +98,14 @@ export const useUiStore = defineStore('ui', () => {
 
   function closeHelp() {
     helpOpen.value = false
+  }
+
+  function openPresets() {
+    presetsOpen.value = true
+  }
+
+  function closePresets() {
+    presetsOpen.value = false
   }
 
   function openSearch() {
@@ -152,6 +164,7 @@ export const useUiStore = defineStore('ui', () => {
     lastTagListPickerStartIn,
     dragging,
     helpOpen,
+    presetsOpen,
     searchOpen,
     stencilEditorOpen,
     stencilEditorTargetId,
@@ -163,6 +176,8 @@ export const useUiStore = defineStore('ui', () => {
     stopDragging,
     openHelp,
     closeHelp,
+    openPresets,
+    closePresets,
     openSearch,
     closeSearch,
     openStencilEditor,

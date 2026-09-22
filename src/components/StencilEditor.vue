@@ -65,6 +65,7 @@ const {
   selectedPortIds,
   selectedPortSet,
   editingId,
+  presetInfo,
   previewState,
   canUndo,
   hasChanges,
@@ -287,6 +288,14 @@ if (editTarget) {
 // диапазонов — стол и инструменты скрыты, сохранение не пересобирает определение.
 const rangesOnly = !isDuplicate && !!editTarget?.locked
 
+// Символ поставляемого набора: правятся только анимации, поэтому стол виден (фигурам
+// раздают состояния), а геометрия на нём заперта.
+const animationOnly = !rangesOnly && !!presetInfo.value
+
+// Единый гейт правки фигур и портов: рисование, drag, ручки, стрелки, Delete,
+// поворот/отражение, порядок наложения, размер холста.
+const shapesLocked = rangesOnly || animationOnly
+
 // Несохранённое считаем разницей с исходным состоянием (`hasChanges`), а не шагами
 // истории: правка, отменённая руками, разницы не даёт. Копия «грязная» с самого
 // начала — она ещё не существует, и молча терять её на Esc нельзя.
@@ -324,7 +333,9 @@ async function save() {
     return
   }
   const prev = editing ? getStencilById(editing) : null
-  const { json, svg } = rangesOnly ? ed.outputRangesOnly(prev) : ed.output()
+  const { json, svg } = rangesOnly
+    ? ed.outputRangesOnly(prev)
+    : ed.output({ keepBox: animationOnly })
   registerStencil(json, svg)
   // Оверрайд в IDB даёт правке пережить reload и в prod; persistStencilsToDisk ниже
   // пишет файл в definitions/, чтобы символ попал в кодовую базу.
@@ -754,7 +765,7 @@ function handleCursor(key) {
 
 const handles = computed(() => {
   const s = selectedShape.value
-  if (!s) return []
+  if (!s || shapesLocked) return []
   if (s.type === 'rect') {
     return [
       { h: 'nw', x: s.x, y: s.y },
@@ -844,7 +855,7 @@ function setupInteract() {
         start(e) {
           // Перетаскивание существующих объектов — только в режиме выбора: при активном
           // инструменте клик по фигуре рисует поверх неё.
-          if (tool.value !== 'select') {
+          if (tool.value !== 'select' || shapesLocked) {
             e.interaction.stop()
             return
           }
@@ -914,6 +925,8 @@ function setupInteract() {
  * пропускают сами — по `[data-se-move="port"]` и `[data-se-move]`.
  */
 function onPortDown(e, id) {
+  // Порты символа из набора не двигаются и не удаляются — выделять их незачем.
+  if (shapesLocked) return
   const additive = e.ctrlKey || e.metaKey
   // Клик по порту ИЗ выделения набор не трогает (как у фигур): схлопнув группу здесь,
   // до `start` interact'а, групповой drag тащил бы один порт.
@@ -963,9 +976,14 @@ useEventListener(window, 'keydown', (e) => {
       save()
       return
     }
-    // У программного символа фигур не правят: Ctrl+C/V/D/A ниже двигали бы невидимую
-    // модель (стол скрыт), а сохранение всё равно её не берёт.
-    if (rangesOnly) return
+    // Ctrl+A остаётся и под замком: выделение нужно, чтобы задать фигурам состояние.
+    if (shapesLocked) {
+      if (e.code === 'KeyA' && animationOnly) {
+        e.preventDefault()
+        selectAll()
+      }
+      return
+    }
     // Ctrl+C / Ctrl+V — копировать/вставить выделенное (со свойствами).
     if (e.code === 'KeyC') {
       e.preventDefault()
@@ -1010,8 +1028,8 @@ useEventListener(window, 'keydown', (e) => {
     }
     return
   }
-  // Дальше — правка фигур и портов; у программного символа её нет (см. выше).
-  if (rangesOnly) return
+  // Дальше — правка фигур и портов (см. shapesLocked).
+  if (shapesLocked) return
   // Стрелки — сдвиг выделения, как на холсте: шаг сетки, с Shift — впятеро крупнее
   // (у фигур сетка 1px, у портов и размера символа — 5). В полях ввода не
   // перехватываем: там стрелки правят значение степпера.
@@ -1088,7 +1106,8 @@ const canFlipSelH = computed(() => canFlipShapes(selectedShapes.value, 'h'))
 const canFlipSelV = computed(() => canFlipShapes(selectedShapes.value, 'v'))
 
 const shapeOverlay = computed(() => {
-  if (!selectedIds.value.length || tool.value !== 'select') return null
+  // Поворот, отражение и удаление правят рисунок — у символа из набора их нет.
+  if (!selectedIds.value.length || tool.value !== 'select' || shapesLocked) return null
   const bbox = selectedBounds.value
   if (!bbox) return null
   const k = scale.value
@@ -1237,13 +1256,13 @@ onBeforeUnmount(() => {
          тексту. -->
       <h2
         class="text-sm font-semibold uppercase tracking-wide text-surface-900"
-        :class="rangesOnly ? '' : 'w-[75px] shrink-0 truncate'"
+        :class="shapesLocked ? '' : 'w-[75px] shrink-0 truncate'"
       >
-        {{ rangesOnly ? 'Диапазоны символа' : 'Редактор' }}
+        {{ rangesOnly ? 'Диапазоны символа' : animationOnly ? 'Анимации символа' : 'Редактор' }}
       </h2>
       <!-- Инструменты рисования, размер и удаление — только у рисуемого символа; у
-           программного (шина) правятся лишь зоны. -->
-      <template v-if="!rangesOnly">
+           программного (шина) правятся лишь зоны, у символа из набора — анимации. -->
+      <template v-if="!shapesLocked">
         <!-- Инструменты рисования (тогл). Отдельной кнопки «выбор» нет: select —
            фоновый дефолт (повторный клик по активному инструменту или авто после
            добавления фигуры возвращают к нему). -->
@@ -1401,10 +1420,10 @@ onBeforeUnmount(() => {
         />
       </div>
 
-      <Divider v-if="!rangesOnly" layout="vertical" class="tms-toolbar-divider" />
+      <Divider v-if="!shapesLocked" layout="vertical" class="tms-toolbar-divider" />
 
       <Button
-        v-if="!rangesOnly"
+        v-if="!shapesLocked"
         v-tooltip.bottom="'Удалить выделенное'"
         icon="pi pi-trash"
         severity="secondary"
@@ -1434,6 +1453,18 @@ onBeforeUnmount(() => {
     </div>
     <!-- Холст с линейками по краям -->
     <div v-else class="flex flex-1 min-h-0 flex-col">
+      <!-- Символ из набора: стол нужен, чтобы выделять фигуры и раздавать им состояния,
+           но рисунок принадлежит набору. Полоска объясняет, почему инструменты пропали. -->
+      <div
+        v-if="animationOnly"
+        class="flex shrink-0 items-center gap-2 border-b border-surface-200 bg-surface-100 px-3 py-1.5 text-xs text-surface-600"
+      >
+        <i class="pi pi-box text-surface-400" />
+        <span>
+          Символ из набора «{{ presetInfo.name }}» {{ presetInfo.version }}: правятся анимации —
+          состояния, диапазоны и видимость фигур. Рисунок, порты и размер задаёт набор.
+        </span>
+      </div>
       <!-- Уголок + верхняя линейка (X) -->
       <div class="flex shrink-0">
         <div

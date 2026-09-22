@@ -1028,6 +1028,34 @@ describe('loadStencil: дублирование (asCopy)', () => {
     expect(ed.meta.id).toBe('cell_qw')
     expect(ed.meta.label).toBe('Выключатель')
   })
+
+  // Правка символа из набора не делает его своим: метка переносится в json, и палитра
+  // по-прежнему покажет бейдж, а редактор откроется в режиме «только анимации».
+  it('правка на месте сохраняет метку набора', () => {
+    const ed = createStencilEditor()
+    const preset = { id: 'demo', name: 'Демо-набор', version: '1.0' }
+    ed.loadStencil({ ...src, preset })
+    expect(ed.presetInfo.value).toEqual(preset)
+    expect(ed.output().json.preset).toEqual(preset)
+  })
+
+  it('reset снимает метку: следующий символ создаётся свой', () => {
+    const ed = createStencilEditor()
+    ed.loadStencil({ ...src, preset: { id: 'demo', name: 'Демо', version: '1.0' } })
+    ed.reset()
+    expect(ed.presetInfo.value).toBeNull()
+  })
+
+  // Копия символа из поставляемого набора — полноценный пользовательский символ:
+  // редактор собирает json из `meta`, а метки набора там нет.
+  it('копия не наследует метку набора', () => {
+    const ed = createStencilEditor()
+    ed.loadStencil(
+      { ...src, preset: { id: 'demo', name: 'Демо-набор', version: '1.0' } },
+      { asCopy: true }
+    )
+    expect(ed.output().json.preset).toBeUndefined()
+  })
 })
 
 describe('программный символ (шина): только зоны диапазонов', () => {

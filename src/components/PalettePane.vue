@@ -16,6 +16,7 @@ import {
   getAllStencils,
   getCategories,
   isBusStencil,
+  isPresetStencil,
   registryVersion,
   unregisterStencil,
 } from '../stencils/registry'
@@ -23,8 +24,8 @@ import { deleteStencilFromDisk } from '../services/stencilLibrary'
 import { removeStencilOverride } from '../services/stencilOverrides'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
+import { useStencilUsage } from '../composables/useStencilUsage'
 import { useUiStore } from '../stores/useUiStore'
-import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { STENCIL_DOMAINS, matchesDomains } from '../constants/domains'
 import { nplural } from '../utils/plural'
 import { confirmDanger } from '../utils/confirmDanger'
@@ -33,7 +34,7 @@ const ui = useUiStore()
 const confirm = useConfirm()
 const notify = useNotify()
 const canvas = useCanvas()
-const workspace = useWorkspaceStore()
+const { stencilUsage } = useStencilUsage()
 
 const search = ref('')
 // Поиск свёрнут в кнопку-лупу; по клику разворачивается в поле ввода (collapsible).
@@ -169,26 +170,10 @@ function stencilTooltip(stencil) {
   return { value, escape: false, showDelay: 400 }
 }
 
-// Где используется символ: живой граф активной формы (правки могли не уехать
-// в стор) + сохранённые графы остальных форм. → { count, formIds }.
-function stencilUsage(id) {
-  const activeId = workspace.activeFormId
-  const forms = []
-  let count = 0
-  const scan = (formId, graph) => {
-    const n = (graph?.cells || []).filter((c) => c?.tms?.stencilId === id).length
-    if (n) {
-      count += n
-      forms.push(formId)
-    }
-  }
-  const live = canvas.graphRef?.value
-  scan(activeId, live ? live.toJSON() : workspace.getFormGraph(activeId))
-  for (const fid of workspace.formIds) {
-    if (fid === activeId) continue
-    scan(fid, workspace.getFormGraph(fid))
-  }
-  return { count, formIds: forms }
+/** Что откроет карандаш: режим зависит от происхождения символа (см. StencilEditor). */
+function editTip(stencil) {
+  if (stencil.locked) return 'Диапазоны шины'
+  return isPresetStencil(stencil) ? 'Анимации символа' : 'Редактировать символ'
 }
 
 // Удаление символа из палитры: если он где-то расставлен — отказываем (иначе
@@ -245,6 +230,15 @@ async function removeStencil(id) {
             size="small"
             class="tms-icon-btn shrink-0"
             @click="toggleSearch"
+          />
+          <Button
+            v-tooltip.bottom="'Наборы символов'"
+            icon="pi pi-box"
+            severity="secondary"
+            text
+            size="small"
+            class="tms-icon-btn shrink-0"
+            @click="ui.openPresets()"
           />
           <Button
             v-tooltip.bottom="'Создать символ'"
@@ -360,8 +354,20 @@ async function removeStencil(id) {
                   <div class="text-sm font-medium text-surface-900 truncate">
                     {{ stencil.label }}
                   </div>
-                  <div class="text-[10px] font-mono text-surface-500 truncate">
-                    {{ stencil.id }}
+                  <!-- Строка id + бейдж набора: происхождение символа видно сразу, а
+                       место под ним уже есть. Бейдж `shrink-0`, id ужимается первым —
+                       имя набора важнее хвоста id. -->
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="text-[10px] font-mono text-surface-500 truncate">
+                      {{ stencil.id }}
+                    </span>
+                    <span
+                      v-if="isPresetStencil(stencil)"
+                      v-tooltip.bottom="`Набор «${stencil.preset.name}» ${stencil.preset.version}`"
+                      class="tms-preset-badge shrink-0"
+                    >
+                      {{ stencil.preset.name }}
+                    </span>
                   </div>
                 </div>
                 <!-- Кнопки АБСОЛЮТОМ поверх строки: в потоке они держат ~84px у каждой
@@ -373,12 +379,12 @@ async function removeStencil(id) {
                 >
                   <div class="pointer-events-auto flex shrink-0 items-center">
                     <!-- Правка — у всех, кроме залоченных (`locked`: программные — их SVG в
-                       наш формат не разбирается). Исключение — шина: редактор открывает
-                       её в режиме «только диапазоны». Открывает редактор с id. -->
+                       наш формат не разбирается). Режим задаёт сам символ: шина — «только
+                       диапазоны», символ набора — «только анимации», остальные целиком. -->
                     <button
                       v-if="!stencil.locked || isBusStencil(stencil)"
                       type="button"
-                      v-tooltip.bottom="stencil.locked ? 'Диапазоны шины' : 'Редактировать символ'"
+                      v-tooltip.bottom="editTip(stencil)"
                       class="tms-icon-action flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
                       @pointerdown.stop
                       @click="ui.openStencilEditor(stencil.id)"
@@ -398,13 +404,14 @@ async function removeStencil(id) {
                     >
                       <i class="pi pi-clone text-xs!" />
                     </button>
-                    <!-- Удаление — у всех, кроме залоченных (`locked`). Видно по ховеру
+                    <!-- Удаление — у всех, кроме залоченных (`locked`) и символов набора:
+                       набор снимается целиком, поштучно его состав не меняется. Видно по ховеру
                        строки. @pointerdown.stop глушит старт drag'а (строка тащится по
                        pointerdown). Клик БЕЗ .stop: ConfirmPopup выравнивается по target
                        только в своём document-click листенере — с .stop клик не всплыл бы
                        и попап упал бы в (0,0). Drag уже погашен на pointerdown, click безопасен. -->
                     <button
-                      v-if="!stencil.locked"
+                      v-if="!stencil.locked && !isPresetStencil(stencil)"
                       type="button"
                       v-tooltip.bottom="'Удалить символ'"
                       class="tms-icon-action flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-red-600"

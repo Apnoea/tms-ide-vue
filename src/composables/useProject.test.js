@@ -548,6 +548,28 @@ describe('useProject', () => {
       expect(deps.autosave.saveActiveForm).not.toHaveBeenCalled()
       expect(syncStencilInstances).not.toHaveBeenCalled()
     })
+
+    // Обновление набора правит десятки символов разом: форма читается и пишется ОДИН
+    // раз, иначе прогон стоил бы (символы × формы) циклов fromJSON/persistForm.
+    it('набор символов сверяется одним проходом по форме', async () => {
+      seedForms(
+        [
+          { id: 'a', graphJson: { cells: [] } },
+          { id: 'b', graphJson: { cells: [] } },
+        ],
+        'a'
+      )
+      getStencilById.mockImplementation((id) => ({ id, ports: [] }))
+      syncStencilInstances.mockReturnValue({ changed: 1, detached: [] })
+      const deps = makeDeps()
+      const { syncStencilInClosedForms } = useProject(deps)
+      const report = await syncStencilInClosedForms(['demo_qw', 'demo_qf', 'demo_alr'])
+
+      // Три символа на одной закрытой форме — три сверки, но одна запись.
+      expect(syncStencilInstances).toHaveBeenCalledTimes(3)
+      expect(deps.autosave.persistForm).toHaveBeenCalledTimes(1)
+      expect(report).toEqual({ forms: 1, changed: 3, detached: 0 })
+    })
   })
 
   describe('createForm', () => {

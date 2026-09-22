@@ -114,6 +114,14 @@ export function createStencilEditor() {
   // (= имя папки) и исключён из проверки уникальности.
   const editingId = ref(null)
 
+  /**
+   * Метка набора правимого символа (`{ id, name, version }`) — она же признак режима
+   * «только анимация»: у поставляемого символа правятся состояния, диапазоны и
+   * привязка фигур к ним, а рисунок, порты и идентификация принадлежат набору.
+   * Копия метку не берёт — она уже свой символ.
+   */
+  const presetInfo = ref(null)
+
   // ─── Undo/redo ───
   // Снимки {meta, shapes, ports}: мета — такие же данные символа, как фигуры, и Ctrl+Z
   // откатывает её наравне. Дискретные операции коммитят сами, правки «живьём» (drag,
@@ -727,6 +735,7 @@ export function createStencilEditor() {
    */
   function loadStencil(def, { asCopy = false } = {}) {
     editingId.value = asCopy ? null : def.id
+    presetInfo.value = asCopy ? null : def.preset || null
     meta.id = asCopy ? nextStencilId(def.id) : def.id
     // Программный символ (шина): геометрия и порты заданы кодом, правятся только зоны
     // (сохранение — через `outputRangesOnly`). Копия программной не бывает: её рисунок
@@ -783,6 +792,7 @@ export function createStencilEditor() {
   // Сброс к пустому черновику: синглтон переживает закрытие редактора, поэтому при
   // «создании» состояние прошлой сессии надо очистить (правка идёт через loadStencil).
   function reset() {
+    presetInfo.value = null
     meta.id = ''
     meta.locked = false
     meta.label = ''
@@ -811,15 +821,23 @@ export function createStencilEditor() {
     commit()
   }
 
-  // Черновик → артефакты проекта: перед сериализацией пустые поля обрезаются (bbox
-  // кратно BOX_GRID) и контент сдвигается в (0,0).
-  function output() {
-    const cropped = cropToContent(shapes.value, ports.value, BOX_GRID)
+  /**
+   * Черновик → артефакты проекта: перед сериализацией пустые поля обрезаются (bbox
+   * кратно BOX_GRID) и контент сдвигается в (0,0). Метка набора переносится как есть:
+   * правка анимации не делает поставляемый символ своим.
+   *
+   * `keepBox` — не трогать габарит (символ из набора): его размер задаёт поставка, а
+   * кроп «воздуха» в рисунке, собранном не этим редактором, сдвинул бы уже
+   * расставленные экземпляры.
+   */
+  function output({ keepBox = false } = {}) {
+    const cropped = keepBox
+      ? { shapes: shapes.value, ports: ports.value, width: meta.width, height: meta.height }
+      : cropToContent(shapes.value, ports.value, BOX_GRID)
     const croppedMeta = { ...meta, width: cropped.width, height: cropped.height }
-    return {
-      json: buildStencilJson(croppedMeta, cropped.ports, cropped.shapes),
-      svg: serializeSvg(cropped.shapes, croppedMeta),
-    }
+    const json = buildStencilJson(croppedMeta, cropped.ports, cropped.shapes)
+    if (presetInfo.value) json.preset = { ...presetInfo.value }
+    return { json, svg: serializeSvg(cropped.shapes, croppedMeta) }
   }
 
   /**
@@ -858,6 +876,7 @@ export function createStencilEditor() {
     selectedPortIds,
     selectedPortSet,
     editingId,
+    presetInfo,
     previewState,
     canUndo,
     canRedo,

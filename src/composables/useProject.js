@@ -579,12 +579,16 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
    * опциональна. Живой холст при этом не трогается — иначе на нём одна за другой
    * мелькают чужие формы, и после `await persistForm` браузер успевает их показать.
    *
+   * @param {string|string[]} stencilId — символ или НАБОР символов (обновление
+   *   поставляемого набора правит их разом: форма читается и пишется один раз, а не
+   *   по прогону на каждый символ)
    * @returns {Promise<{forms: number, changed: number, detached: number}>}
    */
   async function syncStencilInClosedForms(stencilId, prev = null) {
-    const stencil = getStencilById(stencilId)
+    const ids = Array.isArray(stencilId) ? stencilId : [stencilId]
+    const stencils = ids.map((id) => getStencilById(id)).filter(Boolean)
     const report = { forms: 0, changed: 0, detached: 0 }
-    if (!stencil) return report
+    if (!stencils.length) return report
 
     const others = [...workspace.formIds].filter((id) => id !== workspace.activeFormId)
     if (!others.length) return report
@@ -592,9 +596,12 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     const shadow = createCanvasGraph()
     for (const id of others) {
       shadow.fromJSON(workspace.getFormGraph(id) || { cells: [] })
-      const synced = syncStencilInstances(shadow, null, stencil, prev) || {
-        changed: 0,
-        detached: [],
+      const synced = { changed: 0, detached: [] }
+      for (const stencil of stencils) {
+        const one = syncStencilInstances(shadow, null, stencil, prev)
+        if (!one) continue
+        synced.changed += one.changed
+        synced.detached.push(...one.detached)
       }
       if (!synced.changed && !synced.detached.length) continue
       const json = shadow.toJSON()

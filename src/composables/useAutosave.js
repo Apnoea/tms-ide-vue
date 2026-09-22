@@ -6,6 +6,7 @@ import { withRestoreGuard } from '../utils/restoreGuard'
 import { toPlain } from '../utils/plain'
 import { idbGet, idbTryGet, idbSet, idbDel, idbKeys } from '../utils/idb'
 import { loadStencilOverrides } from '../services/stencilOverrides'
+import { loadPresets } from '../services/presetLibrary'
 import { parseTagList } from '../services/parsers'
 import { migrateGraphJson } from '../services/legacyFormat'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
@@ -58,8 +59,12 @@ export function useAutosave({ restoringHistory }) {
     const paper = canvas.paperRef.value
     if (!graph || !paper) return 0
 
-    // Оверрайды символов — в реестр ДО отрисовки форм, иначе ячейки нарисуются
-    // встроенной версией. Они же дают правкам пережить reload без dev-плагина.
+    // Наборы и оверрайды символов — в реестр ДО отрисовки форм, иначе ячейки
+    // нарисуются встроенной версией. Наборы первыми: правка пользователя ложится
+    // поверх поставки.
+    for (const preset of await loadPresets()) {
+      for (const s of preset.stencils || []) registerStencil(s.stencilJson, s.shapeSvg)
+    }
     for (const s of await loadStencilOverrides()) registerStencil(s.stencilJson, s.shapeSvg)
 
     // Сбой чтения меты не равен «проекта ещё нет»: бутстрап ниже перезаписал бы

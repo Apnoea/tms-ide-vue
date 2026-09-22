@@ -19,6 +19,7 @@ const StencilEditor = defineAsyncComponent(() => import('./components/StencilEdi
 import InspectorPane from './components/InspectorPane.vue'
 import PaneResizer from './components/PaneResizer.vue'
 import HelpDialog from './components/HelpDialog.vue'
+import PresetDialog from './components/PresetDialog.vue'
 
 import { useUiStore } from './stores/useUiStore'
 import { useWorkspaceStore } from './stores/useWorkspaceStore'
@@ -219,5 +220,6 @@ useEventListener(window, 'keydown', (event) => {
     <Toast position="bottom-right" />
     <ConfirmPopup />
     <HelpDialog />
+    <PresetDialog />
   </div>
 </template>

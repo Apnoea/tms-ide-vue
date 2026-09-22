@@ -8,6 +8,7 @@ import { ref } from 'vue'
 import {
   ATTR_SUFFIX,
   BUS_STENCIL_ID,
+  PRESET_VERSION_RE,
   RANGE_SLOT,
   STENCIL_ID_RE,
   isValidParamKey,
@@ -78,6 +79,7 @@ export function validateStencilJson(path, json, svgText) {
     'locked',
     'domains',
     'params',
+    'preset',
   ])
   for (const key of Object.keys(json)) {
     if (!known.has(key)) {
@@ -97,6 +99,12 @@ export function validateStencilJson(path, json, svgText) {
         }
       }
     }
+  }
+
+  // Метка набора: без неё символ пользовательский, поэтому битую не оставляем молча —
+  // иначе поставляемый символ стал бы правимым.
+  if (json.preset !== undefined && !normalizePreset(json.preset)) {
+    issues.push(`[stencils] ${path}: "preset" без id или версии по маске — метка отброшена`)
   }
 
   // Параметры — подписи, правимые на холсте: ключ идёт в data-tms-param и в
@@ -154,6 +162,41 @@ function isValidStencilId(id) {
 }
 
 /**
+ * Метка набора (`preset` в stencil.json) — происхождение символа: такой не правится и
+ * не удаляется поштучно, только целым набором. Приходит из чужого `.zip`, поэтому
+ * чистится здесь: без id или версии по маске метки нет вовсе (символ считается
+ * пользовательским), имя — одна строка, пустое имя заменяет id.
+ */
+function normalizePreset(raw) {
+  if (!raw || typeof raw !== 'object') return undefined
+  const id = String(raw.id ?? '')
+  const version = String(raw.version ?? '')
+  if (!STENCIL_ID_RE.test(id) || !PRESET_VERSION_RE.test(version)) return undefined
+  const name = String(raw.name ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60)
+  return { id, name: name || id, version }
+}
+
+/** Запись реестра: разметка очищена, метка набора нормализована (битая — отброшена). */
+function stencilEntry(json, svgText) {
+  const { preset, ...rest } = json
+  const entry = { ...rest, svgText: cleanSvg(json.id, svgText).svg }
+  const mark = normalizePreset(preset)
+  if (mark) entry.preset = mark
+  return entry
+}
+
+/**
+ * Символ из поставляемого набора: правка и удаление поштучно ему недоступны (набор
+ * ставится и сносится целиком), дублирование — доступно, копия метку не наследует.
+ */
+export function isPresetStencil(stencil) {
+  return !!stencil?.preset?.id
+}
+
+/**
  * То же для РАЗМЕТКИ: `shape.svg` уходит в v-html и appendChild, поэтому чистится на
  * входе в реестр, а рендер-пути дальше не санитайзят. Встроенные символы проходят тот
  * же фильтр — иначе `stencilSignature` сравнивал бы очищенную версию с сырой.
@@ -194,10 +237,7 @@ const registry = (() => {
       console.warn(`[stencils] Дубль id "${json.id}" (${path}) — предыдущее определение перетёрто`)
     }
 
-    out.set(json.id, {
-      ...json,
-      svgText: cleanSvg(json.id, svgText).svg,
-    })
+    out.set(json.id, stencilEntry(json, svgText))
   }
 
   return out
@@ -265,7 +305,7 @@ export function registerStencil(json, svgText) {
     if (json?.id) console.warn(`[stencils] id "${json.id}" вне маски — символ отклонён`)
     return false
   }
-  registry.set(json.id, { ...json, svgText: cleanSvg(json.id, svgText).svg })
+  registry.set(json.id, stencilEntry(json, svgText))
   registryVersion.value++
   return true
 }

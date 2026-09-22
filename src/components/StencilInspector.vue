@@ -35,6 +35,7 @@ import { FONT_FAMILIES, normalizeFont } from '../utils/textMetrics'
 const {
   meta,
   editingId,
+  presetInfo,
   shapes,
   selectedId,
   selectedIds,
@@ -78,6 +79,14 @@ const problemByField = computed(() => {
 })
 
 const problemOf = (field) => problemByField.value.get(field) || ''
+
+/**
+ * Символ поставляемого набора: идентификация, поведение и вид фигур принадлежат
+ * набору, правятся только анимации. Программный символ (`meta.locked`, шина) заперт
+ * шире — у него и анимация состояния задана кодом.
+ */
+const isPresetSymbol = computed(() => !!presetInfo.value)
+const identityLocked = computed(() => meta.locked || isPresetSymbol.value)
 
 /**
  * Превью состояния: стол показывает только фигуры выбранного (эмуляция
@@ -382,10 +391,13 @@ function clearStateColor(key, which) {
       </div>
 
       <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-4">
-        <!-- Программный символ (шина): все свойства показаны как есть, но заданы кодом
-             (контролы disabled) — в редакторе правятся только зоны диапазонов. -->
+        <!-- Свойства показаны как есть, но правке не подлежат: у программного символа
+             (шина) их задаёт код, у символа из набора — поставка. -->
         <p v-if="meta.locked" class="tms-hint">
           Программный символ: тело и порты задаёт код, правятся только диапазоны значений.
+        </p>
+        <p v-else-if="isPresetSymbol" class="tms-hint">
+          Символ из набора «{{ presetInfo.name }}» {{ presetInfo.version }}.
         </p>
         <!-- Проблемы черновика подсвечиваются ЖИВЬЁМ (`problemOf`): иначе занятый id
              или пустая категория всплывали только тостом после клика «Сохранить».
@@ -395,7 +407,7 @@ function clearStateColor(key, which) {
           <div class="tms-field-label mb-1">Название</div>
           <InputText
             v-model="meta.label"
-            :disabled="meta.locked"
+            :disabled="identityLocked"
             :invalid="!!problemOf('label')"
             size="small"
             class="w-full"
@@ -438,7 +450,7 @@ function clearStateColor(key, which) {
           <Select
             v-model="meta.category"
             :options="categories"
-            :disabled="meta.locked"
+            :disabled="identityLocked"
             :invalid="!!problemOf('category')"
             editable
             placeholder="Выберите или впишите"
@@ -468,7 +480,7 @@ function clearStateColor(key, which) {
               class="tms-domain-chip"
               :class="{
                 'tms-domain-chip-on': meta.domains.includes(d.key),
-                'pointer-events-none opacity-60': meta.locked,
+                'pointer-events-none opacity-60': identityLocked,
               }"
               @click="toggleDomain(d.key)"
             />
@@ -478,20 +490,20 @@ function clearStateColor(key, which) {
         <!-- Поворот и отражение раздельно: карточке значения, например, поворот нужен
              (её ставят вдоль вертикальных участков), а отражение зеркалило бы надпись. -->
         <div class="space-y-2 border-t border-surface-200 pt-4">
-          <label class="flex items-center gap-2" :class="meta.locked ? '' : 'cursor-pointer'">
+          <label class="flex items-center gap-2" :class="identityLocked ? '' : 'cursor-pointer'">
             <Checkbox
               v-model="meta.noRotate"
-              :disabled="meta.locked"
+              :disabled="identityLocked"
               binary
               input-id="se-norotate"
               @update:model-value="commit"
             />
             <span class="text-surface-700">Запретить поворот</span>
           </label>
-          <label class="flex items-center gap-2" :class="meta.locked ? '' : 'cursor-pointer'">
+          <label class="flex items-center gap-2" :class="identityLocked ? '' : 'cursor-pointer'">
             <Checkbox
               v-model="meta.noFlip"
-              :disabled="meta.locked"
+              :disabled="identityLocked"
               binary
               input-id="se-noflip"
               @update:model-value="commit"
@@ -854,9 +866,14 @@ function clearStateColor(key, which) {
       </div>
       <div class="p-4 overflow-y-auto text-sm">
         <div v-if="multiCount" class="space-y-2.5">
+          <!-- У символа из набора рисунок задаёт набор: остаётся только видимость по
+               состоянию — это анимация, а не вид фигуры. -->
+          <p v-if="isPresetSymbol" class="tms-hint">
+            Вид фигуры задаёт набор — здесь правится только её видимость по состоянию.
+          </p>
           <!-- Подпись: содержимое + размер + жирность. Обводки, заливки, скругления
                и видимости по состоянию у неё нет — текст всегда статичен. -->
-          <template v-if="isTextShape">
+          <template v-if="isTextShape && !isPresetSymbol">
             <div>
               <div class="tms-field-label mb-1">Текст</div>
               <!-- Пустая подпись остаётся фигурой и рисуется иконкой (её текст
@@ -960,66 +977,70 @@ function clearStateColor(key, which) {
               <span class="text-surface-700">Правится на холсте</span>
             </label>
           </template>
-          <label class="flex items-center justify-between cursor-pointer">
-            <span class="tms-field-label">
-              {{ isTextShape ? 'Цвет' : 'Цвет линии' }}
-              <span v-if="strokeMixed" class="text-xs text-surface-400">разные</span>
-            </span>
-            <ColorField
-              :model-value="strokeColor"
-              @update:model-value="setStroke"
-              @change="commit"
-            />
-          </label>
-          <label v-if="hasStrokeWidth" class="flex items-center justify-between">
-            <span class="tms-field-label">Толщина, px</span>
-            <InputNumber
-              :model-value="strokeWidth"
-              :min="0.5"
-              :max="20"
-              :step="0.5"
-              :max-fraction-digits="1"
-              show-buttons
-              button-layout="horizontal"
-              size="small"
-              input-class="w-12! text-center"
-              placeholder="—"
-              @update:model-value="setStrokeWidth"
-              @blur="commit"
-            />
-          </label>
-          <!-- Свотч заливки — справа на строке чекбокса (появляется при включении),
-               чтобы тумблер не добавлял новую строку и layout не прыгал. -->
-          <div v-if="hasFill" class="flex min-h-7 items-center justify-between">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <!-- indeterminate — заливка есть у части выделенных: галка не врёт,
-                   что её нет, а первый клик включает всем. -->
-              <Checkbox
-                :model-value="fillEnabled"
-                :indeterminate="fillMixed"
-                binary
-                input-id="se-fill"
-                @update:model-value="toggleFill"
+          <!-- Вид фигуры (цвет, толщина, заливка, скругление) — у символа из набора его
+               задаёт поставка, остаётся только видимость по состоянию ниже. -->
+          <template v-if="!isPresetSymbol">
+            <label class="flex items-center justify-between cursor-pointer">
+              <span class="tms-field-label">
+                {{ isTextShape ? 'Цвет' : 'Цвет линии' }}
+                <span v-if="strokeMixed" class="text-xs text-surface-400">разные</span>
+              </span>
+              <ColorField
+                :model-value="strokeColor"
+                @update:model-value="setStroke"
+                @change="commit"
               />
-              <span class="text-surface-700">Заливка</span>
             </label>
-            <ColorField
-              v-if="fillEnabled"
-              :model-value="fillColor"
-              @update:model-value="setFill"
-              @change="commit"
-            />
-          </div>
-          <label v-if="hasRounding" class="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              :model-value="roundedEnabled"
-              :indeterminate="roundedMixed"
-              binary
-              input-id="se-rounded"
-              @update:model-value="toggleRounded"
-            />
-            <span class="text-surface-700">Скругление</span>
-          </label>
+            <label v-if="hasStrokeWidth" class="flex items-center justify-between">
+              <span class="tms-field-label">Толщина, px</span>
+              <InputNumber
+                :model-value="strokeWidth"
+                :min="0.5"
+                :max="20"
+                :step="0.5"
+                :max-fraction-digits="1"
+                show-buttons
+                button-layout="horizontal"
+                size="small"
+                input-class="w-12! text-center"
+                placeholder="—"
+                @update:model-value="setStrokeWidth"
+                @blur="commit"
+              />
+            </label>
+            <!-- Свотч заливки — справа на строке чекбокса (появляется при включении),
+               чтобы тумблер не добавлял новую строку и layout не прыгал. -->
+            <div v-if="hasFill" class="flex min-h-7 items-center justify-between">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <!-- indeterminate — заливка есть у части выделенных: галка не врёт,
+                   что её нет, а первый клик включает всем. -->
+                <Checkbox
+                  :model-value="fillEnabled"
+                  :indeterminate="fillMixed"
+                  binary
+                  input-id="se-fill"
+                  @update:model-value="toggleFill"
+                />
+                <span class="text-surface-700">Заливка</span>
+              </label>
+              <ColorField
+                v-if="fillEnabled"
+                :model-value="fillColor"
+                @update:model-value="setFill"
+                @change="commit"
+              />
+            </div>
+            <label v-if="hasRounding" class="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                :model-value="roundedEnabled"
+                :indeterminate="roundedMixed"
+                binary
+                input-id="se-rounded"
+                @update:model-value="toggleRounded"
+              />
+              <span class="text-surface-700">Скругление</span>
+            </label>
+          </template>
           <!-- Видимость (в каком состоянии видна фигура) — только при включённой
                анимации состояния; опции зависят от режима (см. shapeStateOptions). -->
           <div v-if="hasShapeState" class="pt-1">
