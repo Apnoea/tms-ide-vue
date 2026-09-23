@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
@@ -25,6 +25,7 @@ import { removeStencilOverride } from '../services/stencilOverrides'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { useStencilUsage } from '../composables/useStencilUsage'
+import { hasPresetPatch } from '../utils/presetPatch'
 import { useUiStore } from '../stores/useUiStore'
 import { STENCIL_DOMAINS, matchesDomains } from '../constants/domains'
 import { nplural } from '../utils/plural'
@@ -91,6 +92,30 @@ function toggleDomain(key) {
 // худший из возможных исходов поиска. Строка-подсказка об этом сообщает.
 const domainFilterActive = computed(() => domainFilter.value.length > 0 && !search.value.trim())
 
+// Фильтр по набору — клик по бейджу набора в строке символа, повторный клик снимает.
+// Разовый, в отличие от областей: это «покажи все такие», а не режим работы, поэтому
+// в localStorage не живёт. Поиск его игнорирует по тому же правилу, что и области.
+const presetFilter = ref(null)
+const presetFilterActive = computed(() => !!presetFilter.value && !search.value.trim())
+const presetFilterName = computed(() => {
+  void registryVersion.value
+  return getAllStencils().find((s) => s.preset?.id === presetFilter.value)?.preset.name || ''
+})
+
+function togglePresetFilter(presetId) {
+  presetFilter.value = presetFilter.value === presetId ? null : presetId
+  // Клик по бейджу — явная просьба показать набор: при открытом поиске он иначе не
+  // дал бы видимого эффекта.
+  if (presetFilter.value) search.value = ''
+}
+
+// Набор сняли, пока фильтр стоит, — фильтровать больше не по чему.
+watch(presetFilterName, (name) => {
+  if (!name) presetFilter.value = null
+})
+
+const filterActive = computed(() => domainFilterActive.value || presetFilterActive.value)
+
 // Внутри категории сортируем по label (то, что видит юзер в палитре),
 // ru-локаль для корректной А-Я сортировки.
 const stencilsByCategory = computed(() => {
@@ -100,6 +125,7 @@ const stencilsByCategory = computed(() => {
   for (const stencil of getAllStencils()) {
     if (!matchesSearch(stencil)) continue
     if (domainFilterActive.value && !matchesDomains(stencil, domainFilter.value)) continue
+    if (presetFilterActive.value && stencil.preset?.id !== presetFilter.value) continue
     map.get(stencil.category)?.push(stencil)
   }
   for (const list of map.values()) {
@@ -110,20 +136,21 @@ const stencilsByCategory = computed(() => {
 
 // При активном поиске или фильтре показываем только непустые категории.
 const categories = computed(() => {
-  if (!search.value.trim() && !domainFilterActive.value) return allCategories.value
+  if (!search.value.trim() && !filterActive.value) return allCategories.value
   return allCategories.value.filter((c) => (stencilsByCategory.value.get(c)?.length || 0) > 0)
 })
 
 const noResults = computed(
-  () => (!!search.value.trim() || domainFilterActive.value) && categories.value.length === 0
+  () => (!!search.value.trim() || filterActive.value) && categories.value.length === 0
 )
 
-// Пусто по запросу или по фильтру областей — причина разная, подсказка тоже.
-const noResultsText = computed(() =>
-  search.value.trim()
-    ? `Ничего не нашлось по «${search.value.trim()}»`
+// Пусто по запросу или по фильтрам — причина разная, подсказка тоже.
+const noResultsText = computed(() => {
+  if (search.value.trim()) return `Ничего не нашлось по «${search.value.trim()}»`
+  return presetFilterActive.value
+    ? 'В выбранных областях символов этого набора нет'
     : 'В выбранных областях символов нет'
-)
+})
 
 // Активные (раскрытые) категории — persist в localStorage чтобы UI не
 // сбрасывался после F5. Дефолт — все категории раскрыты.
@@ -131,16 +158,17 @@ const userOpen = useLocalStorage('tms-ide:palette-open:v2', allCategories.value,
   deep: true,
 })
 
-// Во время поиска принудительно раскрываем все категории с матчами — иначе
-// результат может «спрятаться» в свёрнутой. После сброса поиска возвращаемся
+// Во время поиска и фильтра по набору принудительно раскрываем все категории с
+// матчами — иначе результат может «спрятаться» в свёрнутой. После сброса возвращаемся
 // к сохранённому user-состоянию. Writable computed чтобы Accordion'у было что
 // биндить через v-model.
+const forceOpen = computed(() => !!search.value.trim() || presetFilterActive.value)
 const accordionActive = computed({
   get() {
-    return search.value.trim() ? categories.value : userOpen.value
+    return forceOpen.value ? categories.value : userOpen.value
   },
   set(val) {
-    if (search.value.trim()) return // во время поиска toggle игнорируем
+    if (forceOpen.value) return // пока раскрыто принудительно, toggle игнорируем
     userOpen.value = val
   },
 })
@@ -168,6 +196,17 @@ function onStencilPointerDown(event, stencil) {
 function stencilTooltip(stencil) {
   const value = `<div class="tms-stencil-zoom">${stencil.svgText || ''}</div>`
   return { value, escape: false, showDelay: 400 }
+}
+
+function presetTip(stencil) {
+  const parts = [`Набор «${stencil.preset.name}» ${stencil.preset.version}`]
+  if (hasPresetPatch(stencil.presetPatch)) parts.push('изменён в проекте')
+  parts.push(
+    presetFilter.value === stencil.preset.id
+      ? 'клик — показать все символы'
+      : 'клик — только этот набор'
+  )
+  return parts.join(' · ')
 }
 
 /** Что откроет карандаш: режим зависит от происхождения символа (см. StencilEditor). */
@@ -298,8 +337,20 @@ async function removeStencil(id) {
           :class="{ 'tms-domain-chip-on': domainFilter.includes(d.key) }"
           @click="toggleDomain(d.key)"
         />
-        <span v-if="domainFilter.length && search.trim()" class="tms-hint text-surface-400">
-          поиск по всем областям
+        <!-- Фильтр по набору ставится кликом по бейджу в строке символа; здесь — что он
+             стоит и как его снять, иначе пропавшие символы нечем объяснить. -->
+        <Chip
+          v-if="presetFilter"
+          :label="`Набор «${presetFilterName}»`"
+          removable
+          class="tms-domain-chip tms-domain-chip-on"
+          @remove="presetFilter = null"
+        />
+        <span
+          v-if="(domainFilter.length || presetFilter) && search.trim()"
+          class="tms-hint text-surface-400"
+        >
+          поиск по всей палитре
         </span>
       </div>
     </div>
@@ -361,13 +412,24 @@ async function removeStencil(id) {
                     <span class="text-[10px] font-mono text-surface-500 truncate">
                       {{ stencil.id }}
                     </span>
-                    <span
+                    <!-- Точка — у символа набора есть правки проекта: видно до открытия
+                         редактора, что он отличается от поставки. Клик оставляет в палитре
+                         только этот набор, повторный — возвращает всё. @pointerdown.stop —
+                         строка тащится по pointerdown, клик по бейджу drag начинать не должен. -->
+                    <button
                       v-if="isPresetStencil(stencil)"
-                      v-tooltip.bottom="`Набор «${stencil.preset.name}» ${stencil.preset.version}`"
-                      class="tms-preset-badge shrink-0"
+                      type="button"
+                      v-tooltip.bottom="presetTip(stencil)"
+                      class="tms-preset-badge shrink-0 cursor-pointer"
+                      :class="{
+                        'tms-preset-badge-edited': hasPresetPatch(stencil.presetPatch),
+                        'tms-preset-badge-on': presetFilter === stencil.preset.id,
+                      }"
+                      @pointerdown.stop
+                      @click.stop="togglePresetFilter(stencil.preset.id)"
                     >
                       {{ stencil.preset.name }}
-                    </span>
+                    </button>
                   </div>
                 </div>
                 <!-- Кнопки АБСОЛЮТОМ поверх строки: в потоке они держат ~84px у каждой

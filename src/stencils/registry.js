@@ -15,6 +15,7 @@ import {
 } from '../constants/ids'
 import { isValidDomain } from '../constants/domains'
 import { sanitizeSvgMarkup } from '../utils/sanitizeSvg'
+import { normalizePresetPatch } from '../utils/presetPatch'
 
 // Сам Map не реактивен, поэтому палитра читает этот счётчик в computed'ах —
 // рантайм-регистрация обновляет список без перезагрузки.
@@ -80,6 +81,7 @@ export function validateStencilJson(path, json, svgText) {
     'domains',
     'params',
     'preset',
+    'presetPatch',
   ])
   for (const key of Object.keys(json)) {
     if (!known.has(key)) {
@@ -179,12 +181,19 @@ function normalizePreset(raw) {
   return { id, name: name || id, version }
 }
 
-/** Запись реестра: разметка очищена, метка набора нормализована (битая — отброшена). */
+/**
+ * Запись реестра: разметка очищена, метка набора нормализована (битая — отброшена).
+ * Правки проекта (`presetPatch`) живут только при метке: без набора им не на что ложиться.
+ */
 function stencilEntry(json, svgText) {
-  const { preset, ...rest } = json
+  const { preset, presetPatch, ...rest } = json
   const entry = { ...rest, svgText: cleanSvg(json.id, svgText).svg }
   const mark = normalizePreset(preset)
-  if (mark) entry.preset = mark
+  if (mark) {
+    entry.preset = mark
+    const patch = normalizePresetPatch(presetPatch)
+    if (patch) entry.presetPatch = patch
+  }
   return entry
 }
 

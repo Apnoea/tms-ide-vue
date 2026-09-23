@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
+import Message from 'primevue/message'
 import { useConfirm } from 'primevue/useconfirm'
 import { usePresets } from '../composables/usePresets'
 import { useUiStore } from '../stores/useUiStore'
@@ -13,20 +14,38 @@ const confirm = useConfirm()
 const { presets, refreshPresets, installPresetFromFile, removePresetById } = usePresets()
 
 // Установка идёт из user-gesture (file-picker), поэтому кнопку гасим флагом, а не
-// ожиданием: двойной клик открыл бы два пикера.
+// ожиданием: двойной клик открыл бы два пикера. На время проектной операции (импорт по
+// Ctrl+O, экспорт по Ctrl+S) гаснут и установка, и удаление: диалог вынесен в body,
+// `inert` области редактирования его не закрывает, а набор правит реестр и формы.
 const busy = ref(false)
+
+// Версия старше установленной — откат, о нём спрашиваем в самом диалоге. Всплывающему
+// подтверждению не к чему якориться: к моменту вопроса файл выбран и прочитан, а клик
+// по кнопке давно отработал.
+const downgrade = ref(null)
+function confirmDowngrade(bundle, current) {
+  return new Promise((resolve) => {
+    downgrade.value = { name: bundle.name, from: current.version, to: bundle.version, resolve }
+  })
+}
+function answerDowngrade(yes) {
+  downgrade.value?.resolve(yes)
+  downgrade.value = null
+}
 
 watch(
   () => ui.presetsOpen,
   (open) => {
     if (open) refreshPresets()
+    // Закрыли диалог с открытым вопросом — это «нет», установка не должна висеть.
+    else answerDowngrade(false)
   }
 )
 
 async function install() {
   busy.value = true
   try {
-    await installPresetFromFile()
+    await installPresetFromFile({ confirmDowngrade })
   } finally {
     busy.value = false
   }
@@ -55,9 +74,29 @@ function confirmRemove(event, preset) {
   >
     <div class="space-y-3">
       <p class="tms-hint">
-        Набор ставится и снимается целиком: его символы не правятся и не удаляются по одному —
-        только дублируются как свои.
+        Набор ставится и снимается целиком. Его символы настраиваются в проекте — анимации,
+        категория, галки, — и эти настройки переживают обновление набора; рисунок меняет только сам
+        набор.
       </p>
+
+      <Message v-if="downgrade" severity="warn" :closable="false">
+        <div class="space-y-2">
+          <p>
+            В файле «{{ downgrade.name }}» {{ downgrade.to }} — старше установленной
+            {{ downgrade.from }}. Откатить набор?
+          </p>
+          <div class="flex gap-2">
+            <Button label="Откатить" size="small" severity="warn" @click="answerDowngrade(true)" />
+            <Button
+              label="Отмена"
+              size="small"
+              severity="secondary"
+              text
+              @click="answerDowngrade(false)"
+            />
+          </div>
+        </div>
+      </Message>
 
       <div v-if="!presets.length" class="tms-empty">
         <i class="pi pi-box text-3xl mb-3 opacity-60" />
@@ -94,6 +133,7 @@ function confirmRemove(event, preset) {
             text
             size="small"
             class="tms-row-btn shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+            :disabled="ui.projectBusy"
             @click="confirmRemove($event, preset)"
           />
         </li>
@@ -105,7 +145,7 @@ function confirmRemove(event, preset) {
         label="Установить из файла"
         icon="pi pi-upload"
         size="small"
-        :disabled="busy"
+        :disabled="busy || ui.projectBusy"
         @click="install"
       />
     </template>

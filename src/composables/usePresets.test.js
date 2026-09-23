@@ -28,7 +28,12 @@ const mockSyncInstances = vi.hoisted(() => vi.fn(() => ({ changed: 0, detached: 
 vi.mock('../stencils/svgInjector', () => ({ reinjectAllStencils: mockSyncInstances }))
 
 const mockRemoveOverride = vi.hoisted(() => vi.fn())
-vi.mock('../services/stencilOverrides', () => ({ removeStencilOverride: mockRemoveOverride }))
+const mockReplaceOverrides = vi.hoisted(() => vi.fn(async () => true))
+vi.mock('../services/stencilOverrides', () => ({
+  removeStencilOverride: mockRemoveOverride,
+  loadStencilOverrides: vi.fn(async () => []),
+  replaceStencilOverrides: mockReplaceOverrides,
+}))
 
 const mockCanvas = vi.hoisted(() => ({
   graphRef: { value: null },
@@ -39,7 +44,14 @@ const mockCanvas = vi.hoisted(() => ({
 }))
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
-const store = vi.hoisted(() => ({ presets: [], file: null, bundle: null, saveOk: true }))
+const store = vi.hoisted(() => ({
+  presets: [],
+  file: null,
+  bundle: null,
+  saveOk: true,
+  rebase: null,
+  bases: new Map(),
+}))
 vi.mock('../services/presetLibrary', async (importOriginal) => {
   const actual = await importOriginal()
   return {
@@ -50,6 +62,7 @@ vi.mock('../services/presetLibrary', async (importOriginal) => {
       return store.bundle
     }),
     loadPresets: vi.fn(async () => store.presets),
+    presetStencilBase: vi.fn((id) => store.bases.get(id) || null),
     savePreset: vi.fn(async (p) => {
       store.presets = [...store.presets.filter((x) => x.id !== p.id), p]
       return store.saveOk
@@ -58,6 +71,16 @@ vi.mock('../services/presetLibrary', async (importOriginal) => {
       store.presets = store.presets.filter((p) => p.id !== id)
       return store.saveOk
     }),
+    // Наложение правок проекта проверено в presetLibrary/presetPatch; здесь — что
+    // установка им пользуется: регистрирует итог и пишет изменённые оверрайды.
+    rebaseOverrides: vi.fn(
+      () =>
+        store.rebase || {
+          items: [],
+          changed: false,
+          report: { kept: [], dropped: [], drawingReset: [] },
+        }
+    ),
   }
 })
 
@@ -84,6 +107,9 @@ beforeEach(async () => {
   store.file = new File([''], 'preset.zip')
   store.bundle = bundle()
   store.saveOk = true
+  store.rebase = null
+  store.bases = new Map()
+  mockReplaceOverrides.mockClear()
   mockUsage.mockReturnValue({ count: 0, formIds: [] })
   for (const fn of [mockSyncInstances, mockRemoveOverride, mockCanvas.markDirty]) fn.mockClear()
   mockCanvas.syncStencilInClosedForms.mockClear()
@@ -205,6 +231,99 @@ describe('обновление набора (тот же id)', () => {
     await installPresetFromFile()
     expect(mockNotify.success).toHaveBeenCalledWith('Набор откачен', expect.any(String))
   })
+
+  it('откат спрашивает подтверждение; «нет» — ничего не меняется', async () => {
+    store.bundle = bundle({ version: '0.9', stencils: [stencil('demo_qw'), stencil('demo_old')] })
+    const confirmDowngrade = vi.fn(async () => false)
+    const { installPresetFromFile, presets } = usePresets()
+    expect(await installPresetFromFile({ confirmDowngrade })).toBe(false)
+    expect(confirmDowngrade).toHaveBeenCalledWith(
+      expect.objectContaining({ version: '0.9' }),
+      expect.objectContaining({ version: '1.0' })
+    )
+    expect(presets.value[0].version).toBe('1.0')
+    expect(registry.get('demo_qw').preset.version).toBe('1.0')
+  })
+
+  it('обновление до новой версии подтверждения не спрашивает', async () => {
+    store.bundle = bundle({ version: '2.0', stencils: [stencil('demo_qw'), stencil('demo_old')] })
+    const confirmDowngrade = vi.fn(async () => false)
+    expect(await usePresets().installPresetFromFile({ confirmDowngrade })).toBe(true)
+    expect(confirmDowngrade).not.toHaveBeenCalled()
+  })
+})
+
+// Правки проекта у символов набора ложатся на новую версию: установка регистрирует
+// итог наложения поверх исходника и пишет изменённые оверрайды.
+describe('правки проекта при установке', () => {
+  const tweaked = {
+    id: 'demo_qw',
+    stencilJson: {
+      id: 'demo_qw',
+      preset: { id: 'demo', name: 'Демо-набор', version: '1.0' },
+      presetPatch: { quality: true },
+      quality: true,
+    },
+    shapeSvg: '<g/>',
+  }
+
+  // Проект собран на наборе, которого здесь ещё нет: его символы пришли с архивом и
+  // уже в реестре. Это свои символы, а не занятые id.
+  it('символы, пришедшие с проектом, — не конфликт id', async () => {
+    registry.set('demo_qw', { id: 'demo_qw', preset: { id: 'demo', version: '1.0' } })
+    expect(await usePresets().installPresetFromFile()).toBe(true)
+    expect(mockNotify.error).not.toHaveBeenCalled()
+    // Символы уже стояли на схемах — экземпляры сверяются с установленной версией.
+    expect(mockSyncInstances).toHaveBeenCalled()
+  })
+
+  it('символ с тем же id из ДРУГОГО набора — конфликт', async () => {
+    registry.set('demo_qw', { id: 'demo_qw', preset: { id: 'other', version: '1.0' } })
+    expect(await usePresets().installPresetFromFile()).toBe(false)
+    expect(mockNotify.error).toHaveBeenCalledWith(
+      'Набор не установлен',
+      expect.stringContaining('demo_qw')
+    )
+  })
+
+  it('итог наложения — в реестр поверх исходника, изменённые оверрайды — в IDB', async () => {
+    store.rebase = {
+      items: [tweaked],
+      changed: true,
+      report: { kept: ['demo_qw'], dropped: [], drawingReset: [] },
+    }
+    await usePresets().installPresetFromFile()
+    expect(registry.get('demo_qw').presetPatch).toEqual({ quality: true })
+    expect(mockReplaceOverrides).toHaveBeenCalledWith([tweaked])
+    expect(mockNotify.success).toHaveBeenCalledWith(
+      'Набор установлен',
+      expect.stringContaining('настройки проекта сохранены у 1 символа')
+    )
+  })
+
+  // Сброшенная видимость — повод перенастроить руками, об этом надо сказать громко.
+  it('сброшенная видимость и не перенёсшиеся правки — warn с перечнем символов', async () => {
+    store.rebase = {
+      items: [tweaked],
+      changed: true,
+      report: { kept: ['demo_qw'], dropped: ['demo_qw'], drawingReset: ['demo_qw'] },
+    }
+    await usePresets().installPresetFromFile()
+    expect(mockNotify.warn).toHaveBeenCalledWith(
+      'Набор установлен',
+      expect.stringMatching(/видимость фигур сброшена: demo_qw.*не перенеслась: demo_qw/)
+    )
+  })
+
+  it('оверрайды не менялись — не пишем', async () => {
+    store.rebase = {
+      items: [],
+      changed: false,
+      report: { kept: [], dropped: [], drawingReset: [] },
+    }
+    await usePresets().installPresetFromFile()
+    expect(mockReplaceOverrides).not.toHaveBeenCalled()
+  })
 })
 
 describe('удаление набора', () => {
@@ -239,5 +358,50 @@ describe('удаление набора', () => {
   it('неизвестный набор — no-op', async () => {
     const { removePresetById } = usePresets()
     expect(await removePresetById('nope')).toBe(false)
+  })
+})
+
+// Наборы, приехавшие с архивом проекта: проект заменяется целиком, поэтому гейтов
+// установки из файла нет, а старую версию из архива не ставим никогда.
+describe('наборы из архива проекта', () => {
+  it('набора нет — ставится', async () => {
+    const report = await usePresets().adoptProjectPresets([bundle()])
+    expect(report.installed).toEqual(['«Демо-набор» 1.0'])
+    expect(registry.get('demo_qw').preset.version).toBe('1.0')
+  })
+
+  it('та же версия — не трогается', async () => {
+    await usePresets().installPresetFromFile()
+    const report = await usePresets().adoptProjectPresets([bundle()])
+    expect(report).toMatchObject({ installed: [], updated: [], older: [], skipped: [] })
+  })
+
+  it('в архиве новее — обновляется без вопросов', async () => {
+    await usePresets().installPresetFromFile()
+    const report = await usePresets().adoptProjectPresets([bundle({ version: '2.0' })])
+    expect(report.updated).toEqual(['«Демо-набор» 2.0'])
+    expect(registry.get('demo_qw').preset.version).toBe('2.0')
+  })
+
+  it('в архиве старее — остаётся установленная', async () => {
+    await usePresets().installPresetFromFile()
+    const report = await usePresets().adoptProjectPresets([bundle({ version: '0.9' })])
+    expect(report.older).toEqual(['«Демо-набор» 0.9 (у вас 1.0)'])
+    expect(registry.get('demo_qw').preset.version).toBe('1.0')
+  })
+
+  it('битый набор и чужой набор с теми же id — пропускаются', async () => {
+    store.bases.set('demo_qw', { stencilJson: { preset: { id: 'other' } } })
+    const report = await usePresets().adoptProjectPresets([bundle({ id: 'Bad Id' }), bundle()])
+    expect(report.skipped).toEqual(['«Демо-набор»', '«Демо-набор»'])
+    expect(registry.has('demo_qw')).toBe(false)
+  })
+
+  // Проект сменился: правки прежнего поверх символов набора висеть не должны.
+  it('символы установленных наборов возвращаются к поставке', async () => {
+    await usePresets().installPresetFromFile()
+    registry.set('demo_qw', { ...registry.get('demo_qw'), presetPatch: { quality: true } })
+    await usePresets().adoptProjectPresets([])
+    expect(registry.get('demo_qw').presetPatch).toBeUndefined()
   })
 })

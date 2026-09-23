@@ -20,6 +20,7 @@ vi.mock('../stencils/registry', () => ({
   // Экспорт кладёт в архив ВСЮ палитру, а не только символы со схем.
   getAllStencils: vi.fn(() => []),
   registerStencil: vi.fn(() => true),
+  isPresetStencil: (s) => !!s?.preset?.id,
 }))
 vi.mock('../services/exporter', () => ({
   exportProject: vi.fn(() => ({ svgText: '<svg/>', animationsJson: '{}' })),
@@ -38,8 +39,28 @@ vi.mock('../services/stencilLibrary', () => ({ persistStencilsToDisk: vi.fn(asyn
 // stencilOverrides — IDB-персист правок символов; в тесте детерминируем.
 // stencilSignature — упрощённая, но чувствительная к json+svg (для ветки changed).
 vi.mock('../services/stencilOverrides', () => ({
+  loadStencilOverrides: vi.fn(async () => []),
   replaceStencilOverrides: vi.fn(async () => true),
   stencilSignature: (j, s) => `${JSON.stringify(j ?? {})}|${s || ''}`,
+}))
+
+// Наборы: приём из архива и исходники установленных — детерминируем, логика наложения
+// проверена в usePresets/presetPatch.
+const mockPresets = vi.hoisted(() => ({
+  installed: [],
+  bases: new Map(),
+  report: { installed: [], updated: [], older: [], skipped: [], saved: true },
+}))
+const mockAdopt = vi.hoisted(() => vi.fn(async () => mockPresets.report))
+vi.mock('./usePresets', () => ({ usePresets: () => ({ adoptProjectPresets: mockAdopt }) }))
+vi.mock('../services/presetLibrary', () => ({
+  loadPresets: vi.fn(async () => mockPresets.installed),
+  presetStencilBase: (id) => mockPresets.bases.get(id) || null,
+  rebaseOverrides: (items) => ({
+    items,
+    changed: false,
+    report: { kept: [], dropped: [], drawingReset: [] },
+  }),
 }))
 
 const mockNotify = { success: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -60,7 +81,7 @@ import { useProject } from './useProject'
 import { reinjectAllStencils, syncStencilInstances } from '../stencils/svgInjector'
 import { parseSvgProject } from '../services/projectLoader'
 import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
-import { replaceStencilOverrides } from '../services/stencilOverrides'
+import { loadStencilOverrides, replaceStencilOverrides } from '../services/stencilOverrides'
 import { buildProjectZipBlob, pickProjectArchive, readProjectZipFile } from '../services/projectZip'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
 
@@ -95,6 +116,9 @@ describe('useProject', () => {
     parseSvgProject.mockReset()
     getStencilById.mockReturnValue(null)
     registerStencil.mockReturnValue(true) // тест на отклонённый id ставит свою
+    mockPresets.installed = []
+    mockPresets.bases = new Map()
+    mockPresets.report = { installed: [], updated: [], older: [], skipped: [], saved: true }
   })
 
   function seedForms(list, active) {
@@ -213,10 +237,17 @@ describe('useProject', () => {
   describe('importProjectFromArchive', () => {
     function bundle(
       forms,
-      { stencils = [], tagsText = null, hierarchy = null, project = undefined } = {}
+      { stencils = [], tagsText = null, hierarchy = null, project = undefined, presets = [] } = {}
     ) {
       pickProjectArchive.mockResolvedValue({ name: 'project.zip' })
-      readProjectZipFile.mockResolvedValue({ forms, stencils, tagsText, hierarchy, project })
+      readProjectZipFile.mockResolvedValue({
+        forms,
+        stencils,
+        tagsText,
+        hierarchy,
+        project,
+        presets,
+      })
     }
 
     it('пустая валидная форма сохраняется (цель навигации не теряется)', async () => {
@@ -323,6 +354,25 @@ describe('useProject', () => {
       expect(global.fetch).not.toHaveBeenCalled()
     })
 
+    // Наборы ставятся до записи проекта: и при неполной записи о них надо сказать.
+    it('неполная запись в IDB — отчёт о наборах всё равно показан', async () => {
+      mockPresets.report = {
+        installed: ['«Д» 1.0'],
+        updated: [],
+        older: [],
+        skipped: [],
+        saved: true,
+      }
+      bundle([{ id: 'f1', svgText: 'x' }])
+      parseSvgProject.mockReturnValue({ ok: true, cells: [], stencilIds: [] })
+      const deps = makeDeps({ autosave: { replaceProject: vi.fn(async () => false) } })
+      await useProject(deps).importProjectFromArchive()
+      expect(mockNotify.info).toHaveBeenCalledWith(
+        'Наборы символов проекта',
+        expect.stringContaining('установлены «Д» 1.0')
+      )
+    })
+
     it('изменённый существующий символ регистрируется и уходит в оверрайды', async () => {
       bundle([{ id: 'f1', svgText: 'x' }], {
         stencils: [
@@ -394,6 +444,112 @@ describe('useProject', () => {
       expect(persistStencilsToDisk.mock.calls.at(-1)[0].map((s) => s.id)).toEqual(['cell_new'])
     })
 
+    // В definitions/ символ набора стал бы встроенным: его место — в наборе и оверрайдах.
+    it('символ набора из архива на диск не пишется', async () => {
+      const preset = { id: 'demo', name: 'Демо', version: '1.0' }
+      bundle([{ id: 'f1', svgText: 'x' }], {
+        stencils: [
+          { id: 'cell_new', stencilJson: { id: 'cell_new' }, shapeSvg: 'A' },
+          { id: 'demo_qw', stencilJson: { id: 'demo_qw', preset }, shapeSvg: 'B' },
+        ],
+      })
+      parseSvgProject.mockReturnValue({ ok: true, cells: [], stencilIds: [] })
+      getStencilById.mockReturnValue(null)
+      const { importProjectFromArchive } = useProject(makeDeps())
+      await importProjectFromArchive()
+
+      expect(persistStencilsToDisk.mock.calls.at(-1)[0].map((s) => s.id)).toEqual(['cell_new'])
+    })
+
+    // Наборы из архива ставятся ПЕРВЫМИ: символы проекта строятся поверх установленной
+    // версии, и к их регистрации исходники уже должны быть в реестре.
+    it('наборы из архива ставятся до символов проекта', async () => {
+      const presets = [{ id: 'demo', name: 'Д', version: '1.0', stencils: [] }]
+      bundle([{ id: 'f1', svgText: 'x' }], {
+        stencils: [{ id: 'cell_new', stencilJson: { id: 'cell_new' }, shapeSvg: 'A' }],
+        presets,
+      })
+      parseSvgProject.mockReturnValue({ ok: true, cells: [], stencilIds: [] })
+      await useProject(makeDeps()).importProjectFromArchive()
+
+      expect(mockAdopt).toHaveBeenCalledWith(presets)
+      expect(mockAdopt.mock.invocationCallOrder[0]).toBeLessThan(
+        registerStencil.mock.invocationCallOrder[0]
+      )
+    })
+
+    it('символы набора — поверх установленной версии; без правок в оверрайды не идут', async () => {
+      const mark = (version) => ({ id: 'demo', name: 'Д', version })
+      const slots = [{ key: 'onoff', type: 'Boolean' }]
+      for (const id of ['demo_a', 'demo_b']) {
+        mockPresets.bases.set(id, {
+          id,
+          stencilJson: { id, slots, preset: mark('2.0') },
+          shapeSvg: '<svg>2.0</svg>',
+        })
+      }
+      bundle([{ id: 'f1', svgText: 'x' }], {
+        stencils: [
+          // Символ без правок: в архив он ушёл без патча, и это значит «как в наборе».
+          {
+            id: 'demo_a',
+            stencilJson: { id: 'demo_a', slots, preset: mark('1.0') },
+            shapeSvg: 'A',
+          },
+          {
+            id: 'demo_b',
+            stencilJson: {
+              id: 'demo_b',
+              slots,
+              preset: mark('1.0'),
+              quality: true,
+              presetPatch: { quality: true },
+            },
+            shapeSvg: 'B',
+          },
+        ],
+      })
+      parseSvgProject.mockReturnValue({ ok: true, cells: [], stencilIds: [] })
+      await useProject(makeDeps()).importProjectFromArchive()
+
+      const saved = replaceStencilOverrides.mock.calls.at(-1)[0]
+      expect(saved.map((s) => s.id)).toEqual(['demo_b'])
+      expect(saved[0].stencilJson.preset.version).toBe('2.0')
+      expect(saved[0].stencilJson.quality).toBe(true)
+      expect(saved[0].shapeSvg).toBe('<svg>2.0</svg>')
+    })
+
+    // Приём наборов вернул их символы к поставке ещё до разбора форм: если проект так и
+    // не заменился, правки текущего проекта обязаны вернуться в реестр.
+    it('архив без валидных форм — правки текущего проекта возвращаются', async () => {
+      const current = { id: 'demo_q', stencilJson: { id: 'demo_q', quality: true }, shapeSvg: '' }
+      loadStencilOverrides.mockResolvedValueOnce([current])
+      bundle([{ id: 'f1', svgText: 'битый' }])
+      parseSvgProject.mockReturnValue({ ok: false, cells: [], stencilIds: [] })
+      await useProject(makeDeps()).importProjectFromArchive()
+
+      expect(mockNotify.error).toHaveBeenCalledWith('Импорт проекта', 'Не найдено валидных форм')
+      expect(registerStencil).toHaveBeenCalledWith(current.stencilJson, current.shapeSvg)
+      expect(replaceStencilOverrides).not.toHaveBeenCalled()
+    })
+
+    it('что стало с наборами — одним тостом', async () => {
+      mockPresets.report = {
+        installed: ['«Д» 1.0'],
+        updated: [],
+        older: [],
+        skipped: [],
+        saved: true,
+      }
+      bundle([{ id: 'f1', svgText: 'x' }])
+      parseSvgProject.mockReturnValue({ ok: true, cells: [], stencilIds: [] })
+      await useProject(makeDeps()).importProjectFromArchive()
+      expect(mockNotify.info).toHaveBeenCalledWith(
+        'Наборы символов проекта',
+        expect.stringContaining('установлены «Д» 1.0')
+      )
+    })
+
     it('неизменённый существующий символ НЕ перерегистрируется', async () => {
       bundle([{ id: 'f1', svgText: 'x' }], {
         stencils: [{ id: 'cell_qw', stencilJson: { id: 'cell_qw' }, shapeSvg: 'SAME' }],
@@ -428,6 +584,15 @@ describe('useProject', () => {
       expect(bundleArg.projectId).toBe('main')
       // Фона ни у одной формы нет — project.json не создаётся.
       expect(bundleArg.project).toBe(null)
+    })
+
+    // Коллеге нужна поставка, на которую лягут правки проекта: в library/ символы
+    // набора уже с ними, и исходник из них не восстановить.
+    it('в архив едут исходники установленных наборов', async () => {
+      seedForms([{ id: 'main', graphJson: { cells: [] } }], 'main')
+      mockPresets.installed = [{ id: 'demo', name: 'Д', version: '1.0', stencils: [] }]
+      await useProject(makeDeps()).exportProjectToArchive()
+      expect(buildProjectZipBlob.mock.calls[0][0].presets).toEqual(mockPresets.installed)
     })
 
     it('прогоняет все формы в .zip-бандл, возвращает активную, НЕ сбрасывает undo', async () => {

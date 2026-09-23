@@ -1,7 +1,12 @@
 import { ref, nextTick } from 'vue'
 import { reinjectAllStencils, syncStencilInstances } from '../stencils/svgInjector'
 import { createCanvasGraph } from '../stencils/canvasPaper'
-import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
+import {
+  getAllStencils,
+  getStencilById,
+  isPresetStencil,
+  registerStencil,
+} from '../stencils/registry'
 import {
   migrateFormsRanges,
   planRangeMigration,
@@ -16,7 +21,9 @@ import {
   readProjectZipFile,
 } from '../services/projectZip'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
+import { loadPresets, presetStencilBase, rebaseOverrides } from '../services/presetLibrary'
 import {
+  loadStencilOverrides,
   replaceStencilOverrides,
   stencilSignature,
   upsertStencilOverride,
@@ -27,10 +34,12 @@ import { renameFormIds, remapNavigation, remapTree, remapProjectMeta } from '../
 import { FORM_ID_RE, RANGE_SLOT, safeFormId } from '../constants/ids'
 import { nplural } from '../utils/plural'
 import { toPlain } from '../utils/plain'
+import { normalizePresetPatch, rebaseOnPreset } from '../utils/presetPatch'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from './useNotify'
 import { useCanvas } from './useCanvas'
+import { usePresets } from './usePresets'
 
 /**
  * Оркестрация проектных операций: переключение формы, CRUD форм, импорт и экспорт
@@ -51,6 +60,7 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
   const workspace = useWorkspaceStore()
   const ui = useUiStore()
   const notify = useNotify()
+  const { adoptProjectPresets } = usePresets()
   const {
     saveActiveForm,
     persistMeta,
@@ -424,13 +434,17 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
    * применяет активную форму. Отсутствующие символы попадают в предупреждение.
    */
   async function applyImportedBundle(data, graph, paper, projectName = null) {
+    // Наборы из архива — первыми: символы проекта строятся поверх установленной версии.
+    const presetReport = await adoptProjectPresets(data.presets)
+    const { stencils: archiveStencils, drawingReset } = rebaseArchiveStencils(data.stencils)
+
     // Символы бандла регистрируются ДО парсинга, иначе parseSvgProject выкинет их
     // ячейки. Берём и новые, и ИЗМЕНЁННЫЕ (проект принёс свою версию существующего
     // символа — она приоритетнее встроенной); неизменённые не трогаем, сравнение по
     // stencilSignature устойчиво к порядку полей.
     const newStencils = []
     const changedStencils = []
-    for (const s of data.stencils) {
+    for (const s of archiveStencils) {
       const cur = getStencilById(s.id)
       if (!cur) {
         newStencils.push(s)
@@ -475,6 +489,11 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
       forms.push({ id: renamedForms.map.get(f.id) ?? f.id, graphJson: { cells } })
     }
     if (!forms.length) {
+      // Проект не заменился, а приём наборов выше уже вернул их символы к поставке —
+      // возвращаем правки текущего проекта (его оверрайды в IDB целы).
+      for (const s of rebaseOverrides(await loadStencilOverrides()).items) {
+        registerStencil(s.stencilJson, s.shapeSvg)
+      }
       notify.error('Импорт проекта', 'Не найдено валидных форм')
       return
     }
@@ -544,6 +563,8 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
         'Проект сохранён не полностью',
         'Браузер отклонил запись в локальное хранилище — после перезагрузки часть форм может пропасть'
       )
+      // Наборы к этому моменту уже поставлены — о них надо сказать и здесь.
+      reportProjectPresets(presetReport, drawingReset)
       return
     }
 
@@ -561,13 +582,61 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     // На ДИСК (файл в `definitions/` попадает под git) пишутся ТОЛЬКО символы,
     // которых в кодовой базе нет: архив хранит версию на момент своего экспорта, и
     // запись изменённого встроенного откатила бы правки символа в репозитории. В
-    // рантайме версия из архива всё равно работает — её держит оверрайд выше.
+    // рантайме версия из архива всё равно работает — её держит оверрайд выше. Символы
+    // наборов не пишутся вовсе: в `definitions/` они стали бы встроенными.
     const newStencilIds = new Set(newStencils.map((s) => s.stencilJson?.id))
-    const toDisk = importedStencils.filter((s) => newStencilIds.has(s.stencilJson?.id))
+    const toDisk = importedStencils.filter(
+      (s) => newStencilIds.has(s.stencilJson?.id) && !isPresetStencil(s.stencilJson)
+    )
     if (toDisk.length) persistStencilsToDisk(toDisk)
 
     applyActiveForm()
     notify.success('Проект импортирован', okMsg)
+    reportProjectPresets(presetReport, drawingReset)
+  }
+
+  /**
+   * Символы наборов из `library/` архива — на установленную версию с правками проекта
+   * (`rebaseOnPreset`). Символ, совпавший с поставкой, из списка выпадает: исходник уже
+   * в реестре. Символ без установленного набора едет как есть.
+   *
+   * Патч из архива — чужие данные, поэтому чистится. Его отсутствие у символа с меткой
+   * значит «правок нет», а не снимок прошлого формата: снимки жили только в IDB, в
+   * архив символ набора всегда уходит с патчем или без правок.
+   */
+  function rebaseArchiveStencils(stencils) {
+    const out = []
+    const drawingReset = []
+    for (const s of stencils) {
+      const base = isPresetStencil(s.stencilJson) ? presetStencilBase(s.id) : null
+      if (!base) {
+        out.push(s)
+        continue
+      }
+      const presetPatch = normalizePresetPatch(s.stencilJson.presetPatch) || {}
+      const r = rebaseOnPreset(base, { ...s, stencilJson: { ...s.stencilJson, presetPatch } })
+      if (r.drawingReset) drawingReset.push(s.id)
+      if (!r.pristine) out.push({ id: s.id, stencilJson: r.json, shapeSvg: r.svg })
+    }
+    return { stencils: out, drawingReset }
+  }
+
+  /** Что импорт сделал с наборами — одним тостом; сброшенное и пропущенное — warn. */
+  function reportProjectPresets(report, drawingReset) {
+    const what = []
+    if (report.installed.length) what.push(`установлены ${report.installed.join(', ')}`)
+    if (report.updated.length) what.push(`обновлены до ${report.updated.join(', ')}`)
+    if (report.older.length) {
+      what.push(`проект собран на более старых: ${report.older.join(', ')} — показаны по вашим`)
+    }
+    if (report.skipped.length) what.push(`не установлены: ${report.skipped.join(', ')}`)
+    if (drawingReset.length) {
+      what.push(`видимость фигур сброшена (другая версия набора): ${drawingReset.join(', ')}`)
+    }
+    if (!report.saved) what.push('браузер отклонил запись — после перезагрузки наборов не будет')
+    if (!what.length) return
+    const attention = report.skipped.length || drawingReset.length || !report.saved
+    notify[attention ? 'warn' : 'info']('Наборы символов проекта', what.join('; '))
   }
 
   /**
@@ -684,6 +753,9 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
         // Ни у одной формы своего фона нет — поля не пишем, и `project.json` тогда не
         // создаётся вовсе (пустая мета в архив не идёт).
         project: Object.keys(workspace.formBg).length ? { formBg: workspace.formBg } : null,
+        // Исходники наборов: в `library/` их символы уже с правками проекта, а коллеге
+        // нужна поставка, на которую эти правки лягут (см. applyImportedBundle).
+        presets: await loadPresets(),
       })
 
       // Архив отдан браузеру — снимаем «не выгружено». Подтверждения записи у

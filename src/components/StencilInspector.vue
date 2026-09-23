@@ -81,12 +81,15 @@ const problemByField = computed(() => {
 const problemOf = (field) => problemByField.value.get(field) || ''
 
 /**
- * Символ поставляемого набора: идентификация, поведение и вид фигур принадлежат
- * набору, правятся только анимации. Программный символ (`meta.locked`, шина) заперт
- * шире — у него и анимация состояния задана кодом.
+ * Символ поставляемого набора: название, рисунок и вид фигур принадлежат набору.
+ * Проект правит анимации, раскладку палитры (категория, области) и галки — всё это
+ * ложится патчем поверх набора (utils/presetPatch). Режим и состав состояний заперты:
+ * по их ключам патч и накладывается на новую версию. Программный символ
+ * (`meta.locked`, шина) заперт шире — у него и анимация состояния задана кодом.
  */
 const isPresetSymbol = computed(() => !!presetInfo.value)
 const identityLocked = computed(() => meta.locked || isPresetSymbol.value)
+const stateSetLocked = computed(() => meta.locked || isPresetSymbol.value)
 
 /**
  * Превью состояния: стол показывает только фигуры выбранного (эмуляция
@@ -450,7 +453,7 @@ function clearStateColor(key, which) {
           <Select
             v-model="meta.category"
             :options="categories"
-            :disabled="identityLocked"
+            :disabled="meta.locked"
             :invalid="!!problemOf('category')"
             editable
             placeholder="Выберите или впишите"
@@ -480,7 +483,7 @@ function clearStateColor(key, which) {
               class="tms-domain-chip"
               :class="{
                 'tms-domain-chip-on': meta.domains.includes(d.key),
-                'pointer-events-none opacity-60': identityLocked,
+                'pointer-events-none opacity-60': meta.locked,
               }"
               @click="toggleDomain(d.key)"
             />
@@ -490,20 +493,20 @@ function clearStateColor(key, which) {
         <!-- Поворот и отражение раздельно: карточке значения, например, поворот нужен
              (её ставят вдоль вертикальных участков), а отражение зеркалило бы надпись. -->
         <div class="space-y-2 border-t border-surface-200 pt-4">
-          <label class="flex items-center gap-2" :class="identityLocked ? '' : 'cursor-pointer'">
+          <label class="flex items-center gap-2" :class="meta.locked ? '' : 'cursor-pointer'">
             <Checkbox
               v-model="meta.noRotate"
-              :disabled="identityLocked"
+              :disabled="meta.locked"
               binary
               input-id="se-norotate"
               @update:model-value="commit"
             />
             <span class="text-surface-700">Запретить поворот</span>
           </label>
-          <label class="flex items-center gap-2" :class="identityLocked ? '' : 'cursor-pointer'">
+          <label class="flex items-center gap-2" :class="meta.locked ? '' : 'cursor-pointer'">
             <Checkbox
               v-model="meta.noFlip"
-              :disabled="identityLocked"
+              :disabled="meta.locked"
               binary
               input-id="se-noflip"
               @update:model-value="commit"
@@ -525,11 +528,13 @@ function clearStateColor(key, which) {
             class="tms-anim-accordion"
             @update:value="setAnimationMode($event || 'off')"
           >
+            <!-- `disabled` запирает только заголовок (смену режима), содержимое открытой
+                 панели — коды и цвета — остаётся правимым. -->
             <AccordionPanel
               v-for="mode in ANIM_MODES"
               :key="mode.value"
               :value="mode.value"
-              :disabled="meta.locked"
+              :disabled="stateSetLocked"
             >
               <AccordionHeader data-test="anim-mode">
                 <span class="flex w-full min-w-0 items-center gap-2">
@@ -774,7 +779,10 @@ function clearStateColor(key, which) {
                             </template>
                           </ColorField>
                         </div>
+                        <!-- Колонка остаётся и под замком: сетка строк общая с шапкой. -->
+                        <span v-if="stateSetLocked" aria-hidden="true"></span>
                         <Button
+                          v-else
                           v-tooltip.top="'Убрать состояние'"
                           icon="pi pi-times"
                           severity="secondary"
@@ -785,7 +793,9 @@ function clearStateColor(key, which) {
                         />
                       </div>
                     </TransitionGroup>
-                    <div class="flex gap-1.5">
+                    <!-- Состав состояний у символа набора задаёт набор: по их ключам правки
+                         проекта ложатся на новую версию. -->
+                    <div v-if="!stateSetLocked" class="flex gap-1.5">
                       <button type="button" class="tms-add-row" @click="addState">
                         <i class="pi pi-plus text-[10px]!" />
                         состояние

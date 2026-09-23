@@ -176,6 +176,7 @@ body,
     max-width: 8rem;
     overflow: hidden;
     padding: 0 0.3125rem;
+    border: 0;
     border-radius: 0.25rem;
     background: var(--p-surface-200);
     color: var(--p-surface-600);
@@ -183,6 +184,33 @@ body,
     line-height: 0.875rem;
     white-space: nowrap;
     text-overflow: ellipsis;
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+  .tms-preset-badge:hover {
+    background: var(--p-surface-300);
+    color: var(--p-surface-800);
+  }
+  /* Бейдж набора, по которому сейчас отфильтрована палитра — тот же акцент, что у
+     включённого чипа области: оба сужают список. */
+  .tms-preset-badge-on,
+  .tms-preset-badge-on:hover {
+    background: var(--p-primary-50);
+    color: var(--p-primary-700);
+  }
+
+  /* Символ набора с правками проекта: точка перед именем набора. Цвет primary — тот же
+     акцент, что у выбранного; серый бейдж с серой точкой не читался бы как отличие. */
+  .tms-preset-badge-edited::before {
+    content: '';
+    display: inline-block;
+    width: 0.3125rem;
+    height: 0.3125rem;
+    margin-right: 0.25rem;
+    border-radius: 9999px;
+    background: var(--p-primary-500);
+    vertical-align: middle;
   }
 }
 

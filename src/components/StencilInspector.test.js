@@ -147,3 +147,58 @@ describe('StencilInspector: превью состояния', () => {
     expect(editor.previewState.value).toBe('all')
   })
 })
+
+// Символ поставляемого набора: название и рисунок принадлежат набору, режим и состав
+// состояний тоже (по их ключам правки проекта ложатся на новую версию). Проект правит
+// коды, цвета, раскладку палитры и галки.
+describe('StencilInspector: символ набора', () => {
+  let editor
+  let wrapper
+
+  beforeEach(() => {
+    editor = useStencilEditor()
+    editor.reset()
+    editor.loadStencil({
+      id: 'demo_qs',
+      label: 'Разъединитель',
+      category: 'Коммутация',
+      width: 20,
+      height: 20,
+      preset: { id: 'demo', name: 'Демо-набор', version: '1.0' },
+      slots: [{ key: 'value', type: 'Value' }],
+      states: [
+        { key: 'on', label: 'Вкл', code: '1' },
+        { key: 'off', label: 'Откл', code: '0' },
+      ],
+      svgText:
+        '<svg xmlns="http://www.w3.org/2000/svg"><g data-anim-suffix=".on">' +
+        '<rect x="0" y="0" width="10" height="10"/></g></svg>',
+    })
+    wrapper = mountWithApp(StencilInspector)
+  })
+
+  it('название заперто, категория и галки открыты', () => {
+    expect(wrapper.find('input[placeholder="Задвижка"]').element.disabled).toBe(true)
+    const category = wrapper.findAllComponents({ name: 'Select' }).find((s) => s.props('editable'))
+    expect(category.props('disabled')).toBe(false)
+    expect(wrapper.find('input#se-norotate').element.disabled).toBe(false)
+    expect(wrapper.text()).toContain('Символ из набора «Демо-набор» 1.0')
+  })
+
+  it('режим и состав состояний заперты, коды правятся', () => {
+    for (const header of wrapper.findAll('[data-test="anim-mode"]')) {
+      expect(header.attributes('disabled')).toBeDefined()
+    }
+    expect(wrapper.text()).not.toContain('Сигнал положения')
+    // «Добавить диапазон» — тоже `tms-add-row`, и он у символа набора остаётся.
+    const addRows = wrapper.findAll('button.tms-add-row').map((b) => b.text())
+    expect(addRows.some((t) => t.includes('состояние'))).toBe(false)
+    const codes = wrapper.findAll('input[placeholder="код"]')
+    expect(codes).toHaveLength(2)
+    for (const code of codes) {
+      expect(code.element.disabled).toBe(false)
+      // В строке состояния нет кнопки «убрать» — колонка остаётся пустой.
+      expect(code.element.closest('.grid').querySelector('.tms-row-btn')).toBeNull()
+    }
+  })
+})

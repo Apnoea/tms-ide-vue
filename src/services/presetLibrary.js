@@ -12,9 +12,14 @@
 import { unzipSync, strFromU8 } from 'fflate'
 import { PRESET_VERSION_RE, STENCIL_ID_RE } from '../constants/ids'
 import { idbTryGet, idbSet } from '../utils/idb'
+import { rebaseOnPreset } from '../utils/presetPatch'
 import { pickFile } from './fileSystem'
+import { stencilSignature } from './stencilOverrides'
 
 const KEY = 'app:presets'
+
+/** Префикс встроенных и своих символов (`cell_qw`, новый символ редактора — `cell_…`). */
+const RESERVED_PRESET_ID = 'cell'
 
 const LIB_RE = /^library\/([^/]+)\/stencil\.json$/
 
@@ -58,6 +63,11 @@ export function validatePresetBundle(bundle) {
   const problems = []
   const id = String(bundle?.id ?? '')
   if (!STENCIL_ID_RE.test(id)) problems.push(`Id набора «${id}» вне маски [a-z0-9_]`)
+  // `cell_` — префикс встроенных и своих символов: набор с таким id подменил бы их
+  // (приём наборов из архива проекта занятые id не сверяет — проект заменяется целиком).
+  if (id === RESERVED_PRESET_ID) {
+    problems.push(`Id набора «${id}» зарезервирован за встроенными символами`)
+  }
   if (!String(bundle?.name ?? '').trim()) problems.push('У набора нет названия')
   if (!PRESET_VERSION_RE.test(String(bundle?.version ?? ''))) {
     problems.push(`Версия «${bundle?.version ?? ''}» не вида 1.2.3`)
@@ -107,6 +117,16 @@ export async function readPresetZipFile(file) {
   } catch {
     throw new Error('Не удалось прочитать архив (повреждён или не ZIP)')
   }
+  return presetFromEntries(entries)
+}
+
+/**
+ * Набор из распакованных файлов: пути — относительно корня набора. Общий разбор для
+ * отдельного `.zip` набора и для папки `presets/<id>/` в архиве проекта.
+ *
+ * @param {Record<string, Uint8Array>} entries
+ */
+export function presetFromEntries(entries) {
   const text = (path) => (entries[path] ? strFromU8(entries[path]) : null)
   const manifestText = text('preset.json')
   if (!manifestText) throw new Error('В архиве нет preset.json — это не набор символов')
@@ -156,10 +176,71 @@ async function readPresets() {
   return { ok: true, items: value }
 }
 
-/** Все установленные наборы. [] — если их нет или чтение упало. */
+/**
+ * Зеркало установленных наборов в памяти: исходник символа нужен СИНХРОННО — правка в
+ * редакторе считает отличия от него, а реестр держит уже итог с правками проекта.
+ * Обновляется всеми путями записи раньше IDB: реестр к этому моменту уже изменён, и
+ * зеркало не должно отставать от него даже при отказе записи.
+ */
+let installed = []
+
+/** Исходник символа из установленного набора (`{ id, stencilJson, shapeSvg }`) или null. */
+export function presetStencilBase(stencilId) {
+  for (const p of installed) {
+    const s = (p.stencils || []).find((x) => x.id === stencilId)
+    if (s) return s
+  }
+  return null
+}
+
+/**
+ * Оверрайды проекта → на установленные версии наборов (`rebaseOnPreset` по каждому
+ * символу набора). `presetId` сужает до одного набора — его только что поставили.
+ * Символ, у которого правок не осталось, из оверрайдов выпадает: его место занимает
+ * исходник набора.
+ *
+ * @returns {{ items: Array, changed: boolean, report: { kept: string[], dropped: string[],
+ *   drawingReset: string[] } }} items — новый набор оверрайдов; changed — его надо записать
+ */
+export function rebaseOverrides(overrides, { presetId } = {}) {
+  const items = []
+  const report = { kept: [], dropped: [], drawingReset: [] }
+  let changed = false
+  for (const o of overrides || []) {
+    const mark = o.stencilJson?.preset
+    const base = mark?.id && (!presetId || mark.id === presetId) ? presetStencilBase(o.id) : null
+    if (!base) {
+      items.push(o)
+      continue
+    }
+    const r = rebaseOnPreset(base, o)
+    if (r.dropped.length) report.dropped.push(o.id)
+    if (r.drawingReset) report.drawingReset.push(o.id)
+    if (r.pristine) {
+      changed = true
+      continue
+    }
+    report.kept.push(o.id)
+    const next = { id: o.id, stencilJson: r.json, shapeSvg: r.svg }
+    if (
+      stencilSignature(next.stencilJson, next.shapeSvg) !==
+      stencilSignature(o.stencilJson, o.shapeSvg)
+    ) {
+      changed = true
+    }
+    items.push(next)
+  }
+  return { items, changed, report }
+}
+
+/** Все установленные наборы; чтение упало — последний известный список (зеркало). */
 export async function loadPresets() {
-  const { items } = await readPresets()
-  return items
+  const { ok, items } = await readPresets()
+  // Сбой чтения ≠ «наборов нет»: пустое зеркало сделало бы установленные наборы
+  // неустановленными — импорт поставил бы поверх их старые версии из архива, а правка
+  // символа сохранилась бы снимком вместо патча.
+  if (ok) installed = items
+  return installed
 }
 
 /**
@@ -169,6 +250,7 @@ export async function loadPresets() {
  */
 export async function savePreset(preset) {
   if (!preset?.id) return false
+  installed = [...installed.filter((p) => p.id !== preset.id), preset]
   const { ok, items } = await readPresets()
   if (!ok) return false
   const next = items.filter((p) => p.id !== preset.id)
@@ -178,6 +260,7 @@ export async function savePreset(preset) {
 
 /** Снять набор по id. `false` — хранилище не прочиталось или запись не прошла. */
 export async function removePreset(id) {
+  installed = installed.filter((p) => p.id !== id)
   const { ok, items } = await readPresets()
   if (!ok) return false
   const next = items.filter((p) => p.id !== id)

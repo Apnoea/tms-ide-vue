@@ -249,6 +249,19 @@ describe('метка набора (preset)', () => {
     expect(isPresetStencil(s)).toBe(false)
   })
 
+  // Правки проекта (presetPatch) без метки не на что наложить — отбрасываются; с меткой —
+  // чистятся так же, как метка: они приходят из чужого .zip.
+  it('правки проекта живут только при метке и нормализуются', () => {
+    const preset = { id: 'demo', name: 'Демо', version: '1.0' }
+    registerStencil(
+      { ...base, id: 'demo_p', preset, presetPatch: { states: { on: { code: ' 5 ' } }, junk: 1 } },
+      '<g/>'
+    )
+    expect(getStencilById('demo_p').presetPatch).toEqual({ states: { on: { code: '5' } } })
+    registerStencil({ ...base, id: 'demo_np', presetPatch: { quality: true } }, '<g/>')
+    expect(getStencilById('demo_np').presetPatch).toBeUndefined()
+  })
+
   it('isPresetStencil: метка есть — символ из набора', () => {
     registerStencil(
       { ...base, id: 'demo_c', preset: { id: 'demo', name: 'Демо', version: '2.0' } },

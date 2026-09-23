@@ -15,7 +15,9 @@ import { idbTryGet } from '../utils/idb'
 import {
   comparePresetVersions,
   loadPresets,
+  presetStencilBase,
   readPresetZipFile,
+  rebaseOverrides,
   removePreset,
   savePreset,
   stampPreset,
@@ -101,6 +103,15 @@ describe('validatePresetBundle', () => {
       expect.stringContaining('нет символов')
     )
   })
+
+  // Набор `cell` с символами `cell_*` подменил бы встроенные символы — через импорт
+  // проекта, где занятые id не сверяются, в том числе навсегда (набор в IndexedDB).
+  it('id набора cell зарезервирован за встроенными символами', () => {
+    const hijack = bundle({ id: 'cell' })
+    hijack.stencils[0].id = 'cell_qw'
+    hijack.stencils[0].stencilJson.id = 'cell_qw'
+    expect(validatePresetBundle(hijack)).toContainEqual(expect.stringContaining('зарезервирован'))
+  })
 })
 
 describe('readPresetZipFile', () => {
@@ -184,5 +195,105 @@ describe('хранилище наборов', () => {
   it('пустое хранилище → пустой список', async () => {
     expect(await loadPresets()).toEqual([])
     expect(idbStore.has(KEY)).toBe(false)
+  })
+
+  // Правка символа считает отличия от исходника синхронно — зеркало обязано следовать
+  // за каждым путём записи, в том числе когда сама запись не прошла.
+  it('presetStencilBase — исходник символа из установленного набора', async () => {
+    const qw = { id: 'demo_qw', stencilJson: { id: 'demo_qw' }, shapeSvg: '<g/>' }
+    await savePreset({ id: 'demo', name: 'Д', version: '1.0', stencils: [qw] })
+    expect(presetStencilBase('demo_qw')).toEqual(qw)
+    expect(presetStencilBase('cell_qw')).toBeNull()
+
+    idbSet.mockResolvedValueOnce(false) // запись отклонена, но реестр набор уже принял
+    await removePreset('demo')
+    expect(presetStencilBase('demo_qw')).toBeNull()
+  })
+
+  it('старт наполняет зеркало из хранилища', async () => {
+    const qw = { id: 'demo_qw', stencilJson: { id: 'demo_qw' }, shapeSvg: '<g/>' }
+    idbStore.set(KEY, [{ id: 'demo', name: 'Д', version: '1.0', stencils: [qw] }])
+    await loadPresets()
+    expect(presetStencilBase('demo_qw')).toEqual(qw)
+  })
+
+  // Сбой чтения ≠ «наборов нет»: пустое зеркало сделало бы установленные наборы
+  // неустановленными, и импорт поставил бы поверх их старые версии из архива.
+  it('чтение упало — зеркало и список остаются прежними', async () => {
+    const qw = { id: 'demo_qw', stencilJson: { id: 'demo_qw' }, shapeSvg: '<g/>' }
+    idbStore.set(KEY, [{ id: 'demo', name: 'Д', version: '2.0', stencils: [qw] }])
+    await loadPresets()
+    idbTryGet.mockResolvedValueOnce({ ok: false, value: undefined })
+    const listed = await loadPresets()
+    expect(listed.map((p) => p.version)).toEqual(['2.0'])
+    expect(presetStencilBase('demo_qw')).toEqual(qw)
+  })
+})
+
+// Правки проекта → на установленную версию набора. Логика наложения проверена в
+// presetPatch; здесь — какие оверрайды трогаются и когда их надо переписать.
+describe('rebaseOverrides', () => {
+  const mark = (version) => ({ id: 'demo', name: 'Д', version })
+  const qw = (version, extra = {}) => ({
+    id: 'demo_qw',
+    label: 'В',
+    category: 'К',
+    width: 20,
+    height: 20,
+    slots: [{ key: 'onoff', type: 'Boolean' }],
+    preset: mark(version),
+    ...extra,
+  })
+  const override = (version, presetPatch, extra) => ({
+    id: 'demo_qw',
+    stencilJson: { ...qw(version, extra), presetPatch },
+    shapeSvg: `<svg>${version}</svg>`,
+  })
+
+  beforeEach(async () => {
+    await savePreset({
+      id: 'demo',
+      name: 'Д',
+      version: '2.0',
+      stencils: [{ id: 'demo_qw', stencilJson: qw('2.0'), shapeSvg: '<svg>2.0</svg>' }],
+    })
+  })
+
+  it('свой символ (без метки набора) — как есть, писать нечего', () => {
+    const own = { id: 'cell_x', stencilJson: { id: 'cell_x' }, shapeSvg: '<g/>' }
+    const r = rebaseOverrides([own])
+    expect(r.items).toEqual([own])
+    expect(r.changed).toBe(false)
+  })
+
+  it('правка на старой версии ложится на установленную — к записи', () => {
+    const r = rebaseOverrides([override('1.0', { quality: true }, { quality: true })])
+    expect(r.changed).toBe(true)
+    expect(r.report.kept).toEqual(['demo_qw'])
+    const [item] = r.items
+    expect(item.stencilJson.preset.version).toBe('2.0')
+    expect(item.stencilJson.quality).toBe(true)
+    expect(item.shapeSvg).toBe('<svg>2.0</svg>')
+  })
+
+  it('та же версия, правка на месте — писать нечего', () => {
+    const r1 = rebaseOverrides([override('1.0', { quality: true }, { quality: true })])
+    const r2 = rebaseOverrides(r1.items)
+    expect(r2.changed).toBe(false)
+    expect(r2.items).toEqual(r1.items)
+  })
+
+  it('правок не осталось — оверрайд выпадает, место занимает исходник', () => {
+    const r = rebaseOverrides([override('1.0', { drawing: true })])
+    expect(r.items).toEqual([])
+    expect(r.changed).toBe(true)
+    expect(r.report.drawingReset).toEqual(['demo_qw'])
+  })
+
+  it('presetId сужает до одного набора', () => {
+    const o = override('1.0', { quality: true }, { quality: true })
+    const r = rebaseOverrides([o], { presetId: 'other' })
+    expect(r.items).toEqual([o])
+    expect(r.changed).toBe(false)
   })
 })

@@ -28,18 +28,27 @@ import {
   shapesBounds,
   canRotateShapes,
   canFlipShapes,
+  parseStencilSvg,
   TEXT_SHAPE_SIZE,
 } from '../utils/stencilSvg'
+import { presetEditResult, sameShapeStates } from '../utils/presetPatch'
+import { sanitizeSvgMarkup } from '../utils/sanitizeSvg'
 import { overlayButtonPositions } from '../utils/paperGeom'
 import { confirmDanger } from '../utils/confirmDanger'
 import { range, rangeFromTo, gridLineColor, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
 import { TEXT_ICON, POLYLINE_ICON } from '../constants/icons'
-import { getAllStencils, getStencilById, registerStencil } from '../stencils/registry'
+import {
+  getAllStencils,
+  getStencilById,
+  isPresetStencil,
+  registerStencil,
+} from '../stencils/registry'
 import { syncStencilInstances } from '../stencils/svgInjector'
 import { nplural } from '../utils/plural'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
-import { upsertStencilOverride } from '../services/stencilOverrides'
+import { removeStencilOverride, upsertStencilOverride } from '../services/stencilOverrides'
+import { presetStencilBase } from '../services/presetLibrary'
 import { useStencilEditor, SHAPE_GRID, PORT_GRID, BOX_GRID } from '../composables/useStencilEditor'
 import { ZOOM_STEP } from '../composables/useCanvasZoom'
 import { useEditorLasso } from '../composables/useEditorLasso'
@@ -333,14 +342,18 @@ async function save() {
     return
   }
   const prev = editing ? getStencilById(editing) : null
-  const { json, svg } = rangesOnly
-    ? ed.outputRangesOnly(prev)
-    : ed.output({ keepBox: animationOnly })
+  const out = rangesOnly ? ed.outputRangesOnly(prev) : ed.output({ keepBox: animationOnly })
+  const { json, svg, pristine } = animationOnly ? presetEdit(out) : { ...out, pristine: false }
   registerStencil(json, svg)
-  // Оверрайд в IDB даёт правке пережить reload и в prod; persistStencilsToDisk ниже
-  // пишет файл в definitions/, чтобы символ попал в кодовую базу.
-  const idbOk = await upsertStencilOverride({ id: json.id, stencilJson: json, shapeSvg: svg })
-  const ok = await persistStencilsToDisk([{ id: json.id, stencilJson: json, shapeSvg: svg }])
+  // Оверрайд в IDB даёт правке пережить reload и в prod. Символ, совпавший с набором,
+  // оверрайда не держит: иначе он перекрывал бы обновления набора.
+  const idbOk = pristine
+    ? await removeStencilOverride(json.id)
+    : await upsertStencilOverride({ id: json.id, stencilJson: json, shapeSvg: svg })
+  // Файл в definitions/ попадает под git как встроенный символ — символу набора туда нельзя.
+  const ok = isPresetStencil(json)
+    ? false
+    : await persistStencilsToDisk([{ id: json.id, stencilJson: json, shapeSvg: svg }])
   // Символ уходит в .zip (library/) — проект разошёлся с последним экспортом.
   canvas.markDirty()
   // Оверрайд не записался (квота, приватный режим) — правка живёт только до reload:
@@ -353,52 +366,101 @@ async function save() {
     )
   }
 
-  if (editing) {
-    // Остальные формы правятся тем же сохранением, а не при своём открытии: иначе
-    // провод, потерявший порт, отваливался через дни и без связи с этой правкой.
-    // Идёт в теневом графе, живой холст не трогает (см. syncStencilInClosedForms).
-    const closed = await canvas.syncStencilInClosedForms(json.id, prev)
-    // Экземпляры на холсте подтягивают новую версию символа целиком (рисунок, порты,
-    // габарит) одной операцией — значит один шаг undo.
-    const { changed, detached } = syncStencilInstances(
-      canvas.graphRef.value,
-      canvas.paperRef.value,
-      getStencilById(json.id),
-      prev
-    )
-    canvas.bumpVersion()
-    if (changed || detached.length) canvas.requestSnapshot()
-    // Отцепленные концы выделяются: иначе их пришлось бы искать по схеме глазами.
-    if (detached.length) canvas.setSelection(detached.map((id) => ({ kind: 'link', id })))
-    const what = []
-    const total = changed + closed.changed
-    if (total) what.push(`обновлено ${nplural(total, 'символ', 'символа', 'символов')}`)
-    // Активную считаем, только если правка её задела: символ мог стоять лишь в
-    // закрытых формах.
-    const forms = closed.forms + (changed ? 1 : 0)
-    if (forms > 1) what.push(`на ${nplural(forms, 'форме', 'формах', 'формах')}`)
-    const detachedTotal = detached.length + closed.detached
-    if (detachedTotal) {
-      what.push(`отцеплено ${nplural(detachedTotal, 'провод', 'провода', 'проводов')}`)
-    }
-    // Отцепленный провод — потеря соединения, поэтому warn, а не success. На активной
-    // форме концы выделены, на остальных их придётся искать — об этом и говорим.
-    const detail = what.length ? what.join(', ') : json.id
-    if (detachedTotal) {
-      const where = closed.detached
-        ? ' — порт удалён, проверьте другие формы'
-        : ' — порт удалён, перецепите'
-      notify.warn('Символ обновлён', detail + where)
-    } else notify.success('Символ обновлён', detail)
-  } else if (ok) {
-    notify.success('Символ создан', json.id)
-  } else {
+  if (editing) await syncInstancesAndReport(json.id, prev, 'Символ обновлён')
+  else if (ok) notify.success('Символ создан', json.id)
+  else {
     notify.success(
       'Символ создан',
       'Переживёт перезагрузку; файл в definitions/ появится только в dev-режиме'
     )
   }
   ui.closeStencilEditor()
+}
+
+/**
+ * Правка символа набора: отличия от установленной версии (utils/presetPatch). Рисунок
+ * свой, только если видимость фигур по состояниям разошлась с набором. Набора нет
+ * (символ пришёл со старым архивом) — сохраняем снимком, как свой символ.
+ */
+function presetEdit({ json, svg }) {
+  const base = presetStencilBase(json.id)
+  if (!base) return { json, svg, pristine: false }
+  const baseShapes = parseStencilSvg(sanitizeSvgMarkup(base.shapeSvg).svg)
+  return presetEditResult(base, json, {
+    editedSvg: svg,
+    drawing: !sameShapeStates(baseShapes, shapes.value),
+  })
+}
+
+// «Сбросить к набору» — только у символа набора, у которого есть правки проекта.
+const canResetToPreset =
+  animationOnly && !!editTarget?.presetPatch && !!presetStencilBase(editTarget.id)
+
+function confirmResetToPreset(event) {
+  confirmDanger(confirm, {
+    target: event?.currentTarget,
+    message: 'Вернуть символ к виду из набора? Настройки проекта у него сбросятся.',
+    acceptLabel: 'Сбросить',
+    accept: resetToPreset,
+  })
+}
+
+async function resetToPreset() {
+  const base = presetStencilBase(editTarget.id)
+  if (!base) return
+  const prev = getStencilById(base.id)
+  registerStencil(base.stencilJson, base.shapeSvg)
+  if (!(await removeStencilOverride(base.id))) {
+    canvas.setSaveError(true)
+    notify.error(
+      'Сброс не сохранён',
+      'Браузер отклонил запись в хранилище — после перезагрузки правки вернутся'
+    )
+  }
+  canvas.markDirty()
+  await syncInstancesAndReport(base.id, prev, 'Символ возвращён к набору')
+  ui.closeStencilEditor()
+}
+
+/**
+ * Расставленные экземпляры — к новой версии символа во ВСЕХ формах, с итогом в тосте.
+ * Закрытые формы правятся сразу, а не при своём открытии: иначе провод, потерявший порт,
+ * отваливался через дни и без связи с этой правкой.
+ */
+async function syncInstancesAndReport(stencilId, prev, title) {
+  // Идёт в теневом графе, живой холст не трогает (см. syncStencilInClosedForms).
+  const closed = await canvas.syncStencilInClosedForms(stencilId, prev)
+  // Экземпляры на холсте подтягивают новую версию символа целиком (рисунок, порты,
+  // габарит) одной операцией — значит один шаг undo.
+  const { changed, detached } = syncStencilInstances(
+    canvas.graphRef.value,
+    canvas.paperRef.value,
+    getStencilById(stencilId),
+    prev
+  )
+  canvas.bumpVersion()
+  if (changed || detached.length) canvas.requestSnapshot()
+  // Отцепленные концы выделяются: иначе их пришлось бы искать по схеме глазами.
+  if (detached.length) canvas.setSelection(detached.map((id) => ({ kind: 'link', id })))
+  const what = []
+  const total = changed + closed.changed
+  if (total) what.push(`обновлено ${nplural(total, 'символ', 'символа', 'символов')}`)
+  // Активную считаем, только если правка её задела: символ мог стоять лишь в закрытых.
+  const forms = closed.forms + (changed ? 1 : 0)
+  if (forms > 1) what.push(`на ${nplural(forms, 'форме', 'формах', 'формах')}`)
+  const detachedTotal = detached.length + closed.detached
+  if (detachedTotal) {
+    what.push(`отцеплено ${nplural(detachedTotal, 'провод', 'провода', 'проводов')}`)
+  }
+  // Отцепленный провод — потеря соединения, поэтому warn, а не success. На активной
+  // форме концы выделены, на остальных их придётся искать — об этом и говорим.
+  const detail = what.length ? what.join(', ') : stencilId
+  if (detachedTotal) {
+    const where = closed.detached
+      ? ' — порт удалён, проверьте другие формы'
+      : ' — порт удалён, перецепите'
+    notify.warn(title, detail + where)
+  } else notify.success(title, detail)
 }
 
 // ─── Масштаб холста ───
@@ -1243,6 +1305,17 @@ onBeforeUnmount(() => {
           outlined
           size="small"
           @click="requestClose"
+        />
+        <!-- Только у символа набора с правками проекта: возвращает поставочный вид. -->
+        <Button
+          v-if="canResetToPreset"
+          label="Сбросить к набору"
+          icon="pi pi-replay"
+          severity="secondary"
+          text
+          size="small"
+          class="col-span-2"
+          @click="confirmResetToPreset"
         />
       </div>
     </Teleport>

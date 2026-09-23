@@ -39,6 +39,7 @@ const mockCanvas = makeMockCanvas({
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
 import { useAutosave } from './useAutosave'
+import { getStencilById } from '../stencils/registry'
 import { idbSet, idbTryGet } from '../utils/idb'
 
 const META_KEY = 'project:meta'
@@ -208,6 +209,61 @@ describe('useAutosave', () => {
       expect(idbSet).not.toHaveBeenCalled()
       expect(idbStore.get(formKey('a'))).toEqual({ cells: [{ id: 'a1' }] })
       expect(mockCanvas.setSaveError).toHaveBeenCalledWith(true)
+    })
+
+    // Правки проекта у символа набора ложатся на ТУ версию набора, что установлена
+    // сейчас, и пересобранные пишутся обратно — следующий старт не считал бы их заново.
+    describe('правки символов набора на старте', () => {
+      const mark = (version) => ({ id: 'demo', name: 'Д', version })
+      const rq = (version, extra = {}) => ({
+        id: 'demo_rq',
+        label: 'В',
+        category: 'К',
+        width: 20,
+        height: 20,
+        slots: [{ key: 'onoff', type: 'Boolean' }],
+        preset: mark(version),
+        ...extra,
+      })
+      beforeEach(() => {
+        idbStore.set('app:presets', [
+          {
+            id: 'demo',
+            name: 'Д',
+            version: '2.0',
+            stencils: [{ id: 'demo_rq', stencilJson: rq('2.0'), shapeSvg: '<g/>' }],
+          },
+        ])
+        idbStore.set('project:stencils', [
+          {
+            id: 'demo_rq',
+            stencilJson: { ...rq('1.0', { quality: true }), presetPatch: { quality: true } },
+            shapeSvg: '<g/>',
+          },
+        ])
+        idbStore.set(META_KEY, { formIds: ['a'], activeFormId: 'a' })
+        idbStore.set(formKey('a'), { cells: [] })
+        mockCanvas.graphRef.value = makeMockGraph()
+      })
+
+      it('правка со старой версии — поверх установленной, в реестр и обратно в IDB', async () => {
+        const { restoreProject } = setup()
+        await restoreProject()
+        const [saved] = idbStore.get('project:stencils')
+        expect(saved.stencilJson.preset.version).toBe('2.0')
+        expect(saved.stencilJson.quality).toBe(true)
+        expect(getStencilById('demo_rq').preset.version).toBe('2.0')
+        expect(getStencilById('demo_rq').presetPatch).toEqual({ quality: true })
+      })
+
+      it('хранилище не читается — пересобранные правки не пишутся', async () => {
+        idbTryGet.mockImplementation(async (k) =>
+          k === META_KEY ? { ok: false, value: undefined } : { ok: true, value: idbStore.get(k) }
+        )
+        const { restoreProject } = setup()
+        expect(await restoreProject()).toBe(-1)
+        expect(idbStore.get('project:stencils')[0].stencilJson.preset.version).toBe('1.0')
+      })
     })
 
     it('сбой чтения ОДНОЙ формы тоже уводит в read-only (autosave не затрёт её)', async () => {

@@ -1,5 +1,16 @@
-import { describe, it, expect } from 'vitest'
-import { stencilSignature } from './stencilOverrides'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+const idbStore = vi.hoisted(() => new Map())
+const idbRead = vi.hoisted(() => ({ ok: true }))
+vi.mock('../utils/idb', () => ({
+  idbTryGet: vi.fn(async (k) => ({ ok: idbRead.ok, value: idbStore.get(k) })),
+  idbSet: vi.fn(async (k, v) => {
+    idbStore.set(k, v)
+    return true
+  }),
+}))
+
+import { removeStencilOverride, stencilSignature, upsertStencilOverride } from './stencilOverrides'
 
 // stencilSignature решает, «изменился ли символ» при импорте. Должна быть
 // устойчива к порядку ключей (glob-модуль против JSON.parse дают разный порядок),
@@ -31,5 +42,31 @@ describe('stencilSignature', () => {
 
   it('пустой/undefined json не бросает', () => {
     expect(stencilSignature(undefined, 'x')).toBe(stencilSignature({}, 'x'))
+  })
+})
+
+// Сброс символа набора к поставке снимает оверрайд: вызывающему нужен честный итог
+// записи, иначе он пообещал бы сброс, который вернётся после перезагрузки.
+describe('removeStencilOverride', () => {
+  beforeEach(() => {
+    idbStore.clear()
+    idbRead.ok = true
+  })
+
+  it('снимает оверрайд, остальные оставляет', async () => {
+    await upsertStencilOverride({ id: 'a', stencilJson: { id: 'a' } })
+    await upsertStencilOverride({ id: 'b', stencilJson: { id: 'b' } })
+    expect(await removeStencilOverride('a')).toBe(true)
+    expect(idbStore.get('project:stencils').map((s) => s.id)).toEqual(['b'])
+  })
+
+  it('оверрайда нет — снимать нечего, это успех', async () => {
+    expect(await removeStencilOverride('nope')).toBe(true)
+  })
+
+  it('хранилище не прочиталось — false, ничего не пишем', async () => {
+    idbRead.ok = false
+    expect(await removeStencilOverride('a')).toBe(false)
+    expect(idbStore.has('project:stencils')).toBe(false)
   })
 })

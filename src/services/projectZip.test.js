@@ -151,6 +151,71 @@ describe('projectZip', () => {
     expect(data.tagsText).toBe(null)
     // nav.json пишется всегда, поэтому дерево приходит пустым, а не отсутствующим.
     expect(data.hierarchy).toEqual([])
+    expect(data.presets).toEqual([])
+  })
+
+  // Исходники наборов едут отдельной папкой: в library/ символы уже с правками проекта,
+  // и поставку из них не восстановить.
+  describe('наборы в архиве', () => {
+    const qw = { id: 'demo_qw', stencilJson: { id: 'demo_qw', label: 'В' }, shapeSvg: '<g/>' }
+    const preset = { id: 'demo', name: 'Демо', version: '1.0', description: 'д', stencils: [qw] }
+
+    it('пишутся раскладкой .zip набора внутри папки проекта', async () => {
+      const blob = buildProjectZipBlob({
+        projectId: 'PRJ',
+        forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],
+        presets: [preset],
+      })
+      const entries = unzipSync(new Uint8Array(await blob.arrayBuffer()))
+      expect(
+        Object.keys(entries)
+          .filter((p) => p.includes('presets/'))
+          .sort()
+      ).toEqual([
+        'PRJ/presets/demo/library/demo_qw/shape.svg',
+        'PRJ/presets/demo/library/demo_qw/stencil.json',
+        'PRJ/presets/demo/preset.json',
+      ])
+      expect(JSON.parse(strFromU8(entries['PRJ/presets/demo/preset.json']))).toEqual({
+        id: 'demo',
+        name: 'Демо',
+        version: '1.0',
+        description: 'д',
+      })
+    })
+
+    it('читаются обратно тем же разбором, что отдельный .zip набора', async () => {
+      const data = await readProjectZipFile(
+        buildProjectZipBlob({
+          projectId: 'PRJ',
+          forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],
+          presets: [preset],
+        })
+      )
+      expect(data.presets).toEqual([preset])
+      // Символы набора из presets/ не смешиваются с символами проекта из library/.
+      expect(data.stencils).toEqual([])
+    })
+
+    it('битый набор пропускается, проект открывается', async () => {
+      const files = {
+        'PRJ/views/main/view.svg': strToU8('<svg/>'),
+        'PRJ/presets/bad/preset.json': strToU8('{oops'),
+      }
+      const data = await readProjectZipFile(new Blob([zipSync(files)]))
+      expect(data.forms).toHaveLength(1)
+      expect(data.presets).toEqual([])
+    })
+
+    it('id набора проверяется — он имя папки в архиве', () => {
+      expect(() =>
+        buildProjectZipBlob({
+          projectId: 'PRJ',
+          forms: [{ id: 'main', viewSvg: '<svg/>', animationsJson: '{}' }],
+          presets: [{ ...preset, id: '../evil' }],
+        })
+      ).toThrow(/Недопустимый id набора/)
+    })
   })
 
   it('битый файл (не ZIP) → внятная ошибка', async () => {

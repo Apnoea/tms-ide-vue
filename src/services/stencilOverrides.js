@@ -67,13 +67,17 @@ export async function upsertStencilOverride(item) {
   return idbSet(KEY, next)
 }
 
-/** Убрать оверрайд по id (удаление символа из палитры). */
+/**
+ * Убрать оверрайд по id (удаление символа из палитры, сброс символа к набору). `false` —
+ * хранилище не прочиталось или запись не прошла: оверрайд переживёт перезагрузку.
+ */
 export async function removeStencilOverride(id) {
-  if (!id) return
+  if (!id) return false
   const { ok, items } = await readOverrides()
-  if (!ok) return
+  if (!ok) return false
   const next = items.filter((s) => s.id !== id)
-  if (next.length !== items.length) await idbSet(KEY, next)
+  if (next.length === items.length) return true
+  return idbSet(KEY, next)
 }
 
 /**

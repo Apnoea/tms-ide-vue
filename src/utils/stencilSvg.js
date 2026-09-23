@@ -679,15 +679,33 @@ export function stencilDraftIssues(meta, shapes, existingIds = []) {
 // значения: перечисляем коды остальных состояний — на любом из них группа
 // прячется, на своём (нет case) остаётся видимой. Обобщение той же механики.
 function stateCard(idSuffix, tag, hideOn) {
-  const list = Array.isArray(hideOn) ? hideOn : [hideOn]
-  const cases = {}
-  for (const v of list) cases[String(v)] = { apply: { addClass: 'animation-hidden' } }
   return {
     idSuffix,
     type: 'shape',
-    bindings: [{ tag, when: { source: 'value', type: 'map', cases } }],
+    bindings: [{ tag, when: { source: 'value', type: 'map', cases: hideCases(hideOn) } }],
     detailTags: [{ tag }],
   }
+}
+
+/** `cases` карточки состояния: группа прячется на каждом из перечисленных значений. */
+export function hideCases(hideOn) {
+  const cases = {}
+  for (const v of Array.isArray(hideOn) ? hideOn : [hideOn]) {
+    cases[String(v)] = { apply: { addClass: 'animation-hidden' } }
+  }
+  return cases
+}
+
+/**
+ * Коды, на которых прячется группа состояния `key` в режиме «по значению»: коды
+ * ОСТАЛЬНЫХ состояний. Состояние без кода рантайм не различает — в список не входит.
+ * Одно правило на редактор и на патч проекта поверх набора: смена кода меняет карточки
+ * соседей, и считать их надо одинаково.
+ */
+export function hideOnCodes(states, key) {
+  return (states || [])
+    .filter((s) => s.key !== key && s.code !== '' && s.code != null)
+    .map((s) => s.code)
 }
 
 /**
@@ -855,15 +873,8 @@ function buildValueState(json, meta, shapes) {
   if (!declared.length) return
   json.states = declared.map((s) => ({ key: s.key, label: s.label || '', code: s.code ?? '' }))
   const shapeStates = new Set((shapes || []).map((s) => s.state).filter(Boolean))
-  const coded = declared.filter((s) => s.code !== '' && s.code != null)
   const cards = declared
     .filter((s) => shapeStates.has(s.key))
-    .map((st) =>
-      stateCard(
-        `.${st.key}`,
-        tag,
-        coded.filter((o) => o.key !== st.key).map((o) => o.code)
-      )
-    )
+    .map((st) => stateCard(`.${st.key}`, tag, hideOnCodes(declared, st.key)))
   addCards(json, cards)
 }

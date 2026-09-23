@@ -5,8 +5,8 @@ import { registerStencil } from '../stencils/registry'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { toPlain } from '../utils/plain'
 import { idbGet, idbTryGet, idbSet, idbDel, idbKeys } from '../utils/idb'
-import { loadStencilOverrides } from '../services/stencilOverrides'
-import { loadPresets } from '../services/presetLibrary'
+import { loadStencilOverrides, replaceStencilOverrides } from '../services/stencilOverrides'
+import { loadPresets, rebaseOverrides } from '../services/presetLibrary'
 import { parseTagList } from '../services/parsers'
 import { migrateGraphJson } from '../services/legacyFormat'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
@@ -60,12 +60,13 @@ export function useAutosave({ restoringHistory }) {
     if (!graph || !paper) return 0
 
     // Наборы и оверрайды символов — в реестр ДО отрисовки форм, иначе ячейки
-    // нарисуются встроенной версией. Наборы первыми: правка пользователя ложится
-    // поверх поставки.
+    // нарисуются встроенной версией. Наборы первыми: правки проекта ложатся поверх
+    // поставки — на ту версию набора, что установлена сейчас (`rebaseOverrides`).
     for (const preset of await loadPresets()) {
       for (const s of preset.stencils || []) registerStencil(s.stencilJson, s.shapeSvg)
     }
-    for (const s of await loadStencilOverrides()) registerStencil(s.stencilJson, s.shapeSvg)
+    const rebased = rebaseOverrides(await loadStencilOverrides())
+    for (const s of rebased.items) registerStencil(s.stencilJson, s.shapeSvg)
 
     // Сбой чтения меты не равен «проекта ещё нет»: бутстрап ниже перезаписал бы
     // существующий проект пустой формой.
@@ -75,6 +76,9 @@ export function useAutosave({ restoringHistory }) {
       canvas.setSaveError(true)
       return -1
     }
+    // Пересобранные правки — обратно в IDB, только когда хранилище читается: иначе
+    // следующий старт считал бы их заново.
+    if (rebased.changed) await replaceStencilOverrides(rebased.items)
     const meta = metaRead.value
 
     if (!meta || !Array.isArray(meta.formIds) || meta.formIds.length === 0) {

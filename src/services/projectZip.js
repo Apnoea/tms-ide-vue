@@ -5,15 +5,20 @@
 //   user-projects.json          { "<логин>": ["<id проекта>"] } — доступ по пользователям
 //   <id>/nav.json               дерево навигации [{ viewId, name, children }]
 //   <id>/views/<viewId>/{view.svg, animations.json}
-//   <id>/library/<id>/{stencil.json, shape.svg}   ─┐ читает только IDE,
+//   <id>/library/<id>/{stencil.json, shape.svg}   ─┐
+//   <id>/presets/<набор>/…  (раскладка .zip набора) │ читает только IDE,
 //   <id>/taglist.csv | taglist.xml                 │ сервер эти файлы
 //   <id>/project.json (редакторная мета)          ─┘ игнорирует
+//
+// `presets/` везёт ИСХОДНИКИ наборов: в `library/` их символы уже с правками проекта,
+// и поставку из них не восстановить. Импорт ставит наборы, затем накладывает правки.
 //
 // Архивы прошлой раскладки (`forms/`, `hierarchy.json` в корне) читаются по-прежнему.
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 import { FORM_ID_RE, FORM_ID_MAX } from '../constants/ids'
 import { isXmlTagList } from './parsers'
 import { pickFile } from './fileSystem'
+import { presetFromEntries } from './presetLibrary'
 
 /** Логин в `user-projects.json`: на боевом сервере файл правят руками. */
 const DEFAULT_USER = 'test'
@@ -66,11 +71,20 @@ function fromNavTree(nodes) {
  *   stencils?: { id: string, stencilJson: object, shapeSvg: string }[],
  *   tagsText?: string | null,
  *   hierarchy?: Array | null,
- *   project?: object | null
+ *   project?: object | null,
+ *   presets?: { id, name, version, description?, stencils: object[] }[]
  * }} bundle
  * @returns {Blob}
  */
-export function buildProjectZipBlob({ projectId, forms, stencils, tagsText, hierarchy, project }) {
+export function buildProjectZipBlob({
+  projectId,
+  forms,
+  stencils,
+  tagsText,
+  hierarchy,
+  project,
+  presets,
+}) {
   assertPathSafeId(projectId, 'проекта')
   const files = {}
   const root = `${projectId}/`
@@ -95,6 +109,19 @@ export function buildProjectZipBlob({ projectId, forms, stencils, tagsText, hier
       assertPathSafeId(s.id, 'символа')
       files[`${root}library/${s.id}/stencil.json`] = jsonFile(s.stencilJson)
       files[`${root}library/${s.id}/shape.svg`] = strToU8(s.shapeSvg)
+    }
+  }
+  // Исходники установленных наборов — в раскладке отдельного .zip набора, чтобы импорт
+  // ставил их тем же разбором (presetLibrary.presetFromEntries).
+  for (const p of presets || []) {
+    assertPathSafeId(p.id, 'набора')
+    const dir = `${root}presets/${p.id}/`
+    const { id, name, version, description } = p
+    files[`${dir}preset.json`] = jsonFile({ id, name, version, description: description || '' })
+    for (const s of p.stencils || []) {
+      assertPathSafeId(s.id, 'символа')
+      files[`${dir}library/${s.id}/stencil.json`] = jsonFile(s.stencilJson)
+      files[`${dir}library/${s.id}/shape.svg`] = strToU8(s.shapeSvg)
     }
   }
   // Tag-list уезжает КАК ЕСТЬ, в своём формате: скадист открывает архив тем же файлом,
@@ -145,7 +172,8 @@ export async function pickProjectArchive() {
  *   stencils: { id: string, stencilJson: object, shapeSvg: string }[],
  *   tagsText: string | null,
  *   hierarchy: Array | null,
- *   project: object | null
+ *   project: object | null,
+ *   presets: { id, name, version, description, stencils: object[] }[]
  * }>}
  */
 export async function readProjectZipFile(file) {
@@ -221,5 +249,22 @@ export async function readProjectZipFile(file) {
     }
   }
 
-  return { forms, stencils, tagsText, hierarchy, project }
+  // Наборы: каждая папка `presets/<id>/` — раскладка отдельного .zip набора. Битый набор
+  // пропускается: проект без него открывается, его символы берутся из `library/`.
+  const presets = []
+  const presetDirRe = new RegExp(`^${esc}presets/([^/]+)/preset\\.json$`)
+  for (const path of paths) {
+    const m = path.match(presetDirRe)
+    if (!m) continue
+    const dir = `${prefix}presets/${m[1]}/`
+    const sub = {}
+    for (const p of paths) if (p.startsWith(dir)) sub[p.slice(dir.length)] = entries[p]
+    try {
+      presets.push(presetFromEntries(sub))
+    } catch {
+      // битый preset.json — набор не ставим
+    }
+  }
+
+  return { forms, stencils, tagsText, hierarchy, project, presets }
 }

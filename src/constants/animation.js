@@ -74,7 +74,7 @@ export function normalizeStateColor(value) {
 // или `; }` в цвете сломали бы весь <style> или подсунули своё правило. Редактор
 // генерирует ключи сам (s1/true/false) и цвет пикером, так что маски отсекают только
 // подделку. Цвет — hex или CSS-имя, ничего экзотичнее нам не нужно.
-const STATE_KEY_RE = /^[A-Za-z0-9_-]+$/
+export const STATE_KEY_RE = /^[A-Za-z0-9_-]+$/
 const CSS_COLOR_RE = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+)$/
 /** Цвет или '' — та же маска для CSS состояний и для стиля фигур из чужого архива. */
 export const cssColor = (v) => (CSS_COLOR_RE.test(v) ? v : '')
