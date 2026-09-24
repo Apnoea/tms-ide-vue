@@ -15,9 +15,9 @@ import { useConfirm } from 'primevue/useconfirm'
 import {
   getAllStencils,
   getCategories,
-  isBusStencil,
   isPresetStencil,
   registryVersion,
+  stencilEditLabel,
   unregisterStencil,
 } from '../stencils/registry'
 import { deleteStencilFromDisk } from '../services/stencilLibrary'
@@ -116,6 +116,12 @@ watch(presetFilterName, (name) => {
 
 const filterActive = computed(() => domainFilterActive.value || presetFilterActive.value)
 
+// Пусто из-за фильтров — снять их одним кликом, а не перебирать чипы по одному.
+function resetFilters() {
+  domainFilter.value = []
+  presetFilter.value = null
+}
+
 // Внутри категории сортируем по label (то, что видит юзер в палитре),
 // ru-локаль для корректной А-Я сортировки.
 const stencilsByCategory = computed(() => {
@@ -209,12 +215,6 @@ function presetTip(stencil) {
   return parts.join(' · ')
 }
 
-/** Что откроет карандаш: режим зависит от происхождения символа (см. StencilEditor). */
-function editTip(stencil) {
-  if (stencil.locked) return 'Диапазоны шины'
-  return isPresetStencil(stencil) ? 'Анимации символа' : 'Редактировать символ'
-}
-
 // Удаление символа из палитры: если он где-то расставлен — отказываем (иначе
 // осиротим ячейки на схемах), сообщаем где. Иначе попап-подтверждение якорится
 // на кнопку, снимаем из рантайм-реестра (мгновенно пропадает) и сносим с диска.
@@ -224,7 +224,7 @@ function confirmDeleteStencil(event, stencil) {
     notify.warn(
       'Символ используется',
       `${nplural(usage.count, 'символ', 'символа', 'символов')} в формах: ` +
-        `${usage.formIds.join(', ')}. Сначала удалите их со схем.`
+        `${usage.formIds.join(', ')}. Сначала удали их со схем.`
     )
     return
   }
@@ -368,6 +368,18 @@ async function removeStencil(id) {
         <div class="tms-empty">
           <i class="pi pi-search text-3xl mb-3 opacity-60" />
           <div class="tms-empty-title">{{ noResultsText }}</div>
+          <!-- Только когда пусто из-за фильтров: при поиске они не действуют (см.
+               domainFilterActive), и сброс ничего бы не показал. -->
+          <Button
+            v-if="!search.trim()"
+            label="Сбросить фильтры"
+            icon="pi pi-filter-slash"
+            severity="secondary"
+            outlined
+            size="small"
+            class="mt-3"
+            @click="resetFilters"
+          />
         </div>
       </template>
 
@@ -444,9 +456,9 @@ async function removeStencil(id) {
                        наш формат не разбирается). Режим задаёт сам символ: шина — «только
                        диапазоны», символ набора — «только анимации», остальные целиком. -->
                     <button
-                      v-if="!stencil.locked || isBusStencil(stencil)"
+                      v-if="stencilEditLabel(stencil)"
                       type="button"
-                      v-tooltip.bottom="editTip(stencil)"
+                      v-tooltip.bottom="stencilEditLabel(stencil)"
                       class="tms-icon-action flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
                       @pointerdown.stop
                       @click="ui.openStencilEditor(stencil.id)"

@@ -386,7 +386,7 @@ describe('наборы из архива проекта', () => {
   it('в архиве старее — остаётся установленная', async () => {
     await usePresets().installPresetFromFile()
     const report = await usePresets().adoptProjectPresets([bundle({ version: '0.9' })])
-    expect(report.older).toEqual(['«Демо-набор» 0.9 (у вас 1.0)'])
+    expect(report.older).toEqual(['«Демо-набор» 0.9 (у тебя 1.0)'])
     expect(registry.get('demo_qw').preset.version).toBe('1.0')
   })
 

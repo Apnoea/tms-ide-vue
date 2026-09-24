@@ -142,7 +142,7 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     if (!detached.length) return
     notify.warn(
       'Символ изменился',
-      `Отцеплено ${nplural(detached.length, 'провод', 'провода', 'проводов')}: порт удалён — перецепите`
+      `Отцеплено ${nplural(detached.length, 'провод', 'провода', 'проводов')}: порт удалён — перецепи`
     )
   }
 
@@ -627,7 +627,7 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     if (report.installed.length) what.push(`установлены ${report.installed.join(', ')}`)
     if (report.updated.length) what.push(`обновлены до ${report.updated.join(', ')}`)
     if (report.older.length) {
-      what.push(`проект собран на более старых: ${report.older.join(', ')} — показаны по вашим`)
+      what.push(`проект собран на более старых: ${report.older.join(', ')} — показаны по твоим`)
     }
     if (report.skipped.length) what.push(`не установлены: ${report.skipped.join(', ')}`)
     if (drawingReset.length) {

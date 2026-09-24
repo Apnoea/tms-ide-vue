@@ -41,6 +41,16 @@ describe('useUiStore: боковые колонки', () => {
     expect(ui.leftPaneOpen).toBe(true)
   })
 
+  it('пока открыт редактор символов, правая колонка не сворачивается', () => {
+    const ui = useUiStore()
+    ui.openStencilEditor('cell_qw')
+    ui.toggleRightPane()
+    expect(ui.rightPaneOpen).toBe(true)
+    ui.closeStencilEditor()
+    ui.toggleRightPane()
+    expect(ui.rightPaneOpen).toBe(false)
+  })
+
   it('ширина по умолчанию — та же, что была до ресайза', () => {
     const ui = useUiStore()
     expect(ui.leftPaneWidth).toBe(PANE_WIDTH_DEFAULT.left)

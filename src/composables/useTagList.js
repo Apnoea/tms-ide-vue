@@ -21,7 +21,7 @@ export function useTagList() {
   async function readParsedTags(file) {
     const content = await file.text().catch(() => null)
     if (!content) {
-      notify.error('Tag-list', 'Не удалось прочитать файл', TOAST_LIFE.NORMAL)
+      notify.error('Tag-list', 'Не удалось прочитать файл')
       return null
     }
     const parsed = parseTagList(content)
@@ -96,7 +96,7 @@ export function useTagList() {
       } else if (!(await idbGet('project:tags'))) {
         notify.warn(
           'Tag-list требует разрешения',
-          `Нажмите «Tag-list» и выберите файл заново, чтобы дать доступ к ${handle.name}`,
+          `Нажми «Tag-list» и выбери файл заново, чтобы дать доступ к ${handle.name}`,
           TOAST_LIFE.LONG
         )
       }

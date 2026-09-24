@@ -3,10 +3,16 @@ import { useEventListener } from '@vueuse/core'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from './useCanvas'
 import { nplural } from '../utils/plural'
+import { zoomKeyOf, toolDigitOf } from '../utils/viewKeys'
 import { isFreeEnd } from '../stencils/linkDefaults'
 
 function isFocusInInput(t) {
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+}
+
+/** Фокус в выпадающем списке (Select, Listbox): там клавиши листают и ищут опции. */
+function isInListWidget(t) {
+  return !!t?.closest?.('[role="combobox"], [role="listbox"]')
 }
 
 /**
@@ -39,6 +45,11 @@ function hasTextSelectionOutsideCanvas() {
  *
  * Мутирующие граф хоткеи гейтятся `projectBusy`: во время экспорта и импорта живой
  * граф между await'ами держит ЧУЖУЮ форму. Copy и поиск read-only.
+ *
+ * Зум (Ctrl+= / Ctrl+− / Ctrl+0) — только с курсором над холстом (`pointerOverCanvas`):
+ * в остальном UI это браузерный зум страницы, и отбирать его незачем. `drawTools` —
+ * ключи инструментов в порядке тулбара, цифра выбирает по номеру (функцией: массив
+ * объявлен в CanvasPane ниже вызова).
  */
 export function useHotkeys({
   undo,
@@ -51,6 +62,11 @@ export function useHotkeys({
   flipSelected,
   cancelDraw,
   onExport,
+  zoomIn = () => {},
+  zoomOut = () => {},
+  fitView = () => {},
+  pointerOverCanvas = () => false,
+  drawTools = () => [],
   projectBusy = { value: false },
   notify = { success: () => {} },
 }) {
@@ -121,6 +137,31 @@ export function useHotkeys({
       event.preventDefault()
       event.stopPropagation()
       if (!inInput && !projectBusy.value) duplicateSelection()
+      return
+    }
+
+    // Зум вида — из любого фокуса, но только над холстом (см. docstring). Открытый
+    // диалог накрывает холст маской — тогда клавиша остаётся браузеру.
+    const zoom = zoomKeyOf(event)
+    if (zoom && pointerOverCanvas() && !document.querySelector('.p-dialog-mask')) {
+      event.preventDefault()
+      event.stopPropagation()
+      if (projectBusy.value) return
+      if (zoom === 'in') zoomIn()
+      else if (zoom === 'out') zoomOut()
+      else fitView()
+      return
+    }
+
+    // 1…5 — инструмент рисования по номеру в тулбаре; та же цифра возвращает к выбору,
+    // как повторный клик по активной кнопке. Цифры, а не буквы: R, H и V заняты
+    // поворотом и отражением. В поле и в списке (Select инспектора ищет по первой
+    // букве) цифра — это ввод.
+    const toolKey = drawTools()[toolDigitOf(event)]
+    if (toolKey) {
+      if (inInput || isInListWidget(event.target) || projectBusy.value) return
+      event.preventDefault()
+      ui.setCanvasTool(toolKey)
       return
     }
 

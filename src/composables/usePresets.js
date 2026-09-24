@@ -98,7 +98,7 @@ export function usePresets() {
       }
       const current = presetById(bundle.id)
       const cmp = current ? comparePresetVersions(bundle.version, current.version) : 1
-      if (cmp < 0) report.older.push(`${label} ${bundle.version} (у вас ${current.version})`)
+      if (cmp < 0) report.older.push(`${label} ${bundle.version} (у тебя ${current.version})`)
       if (cmp <= 0) continue
       // Символ с тем же id из ДРУГОГО набора: наборы не должны перекрывать друг друга.
       const clash = bundle.stencils.some((s) => {
@@ -180,7 +180,7 @@ export function usePresets() {
       notify.warn(
         'Набор не обновлён',
         `В новой версии нет символов, расставленных в формах: ` +
-          `${droppedUsage.formIds.join(', ')}. Сначала удалите их со схем.`
+          `${droppedUsage.formIds.join(', ')}. Сначала удали их со схем.`
       )
       return false
     }
@@ -251,7 +251,7 @@ export function usePresets() {
       notify.warn(
         'Набор используется',
         `${nplural(usage.count, 'символ', 'символа', 'символов')} в формах: ` +
-          `${usage.formIds.join(', ')}. Сначала удалите их со схем.`
+          `${usage.formIds.join(', ')}. Сначала удали их со схем.`
       )
       return false
     }

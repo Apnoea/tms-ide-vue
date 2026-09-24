@@ -8,7 +8,8 @@
  * настройка с двух сторон — здесь поведение символа, там привязка тега у экземпляра.
  * Стейт — синглтон useStencilEditor, тот же, что рисует стол.
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useResizeObserver } from '@vueuse/core'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import InputNumber from 'primevue/inputnumber'
@@ -55,6 +56,17 @@ const {
   updateRange,
   removeRange,
 } = useStencilEditor()
+
+// Высота подвала с «Сохранить/Закрыть» — в CSS-переменную: по ней тосты в правом нижнем
+// углу (App.vue) встают над подвалом, а не на его кнопки. Высота плавает (кнопка
+// «Сбросить к набору» добавляет ряд), поэтому меряем, а не хардкодим. Редактор закрыли —
+// переменная снимается, тосты опускаются на место.
+const TOAST_LIFT_VAR = '--tms-toast-lift'
+const actionsEl = ref(null)
+useResizeObserver(actionsEl, ([entry]) => {
+  document.documentElement.style.setProperty(TOAST_LIFT_VAR, `${entry.target.offsetHeight}px`)
+})
+onBeforeUnmount(() => document.documentElement.style.removeProperty(TOAST_LIFT_VAR))
 
 /**
  * Проблемы черновика ЖИВЬЁМ, по полям: занятый id или пустая категория видны сразу,
@@ -456,7 +468,7 @@ function clearStateColor(key, which) {
             :disabled="meta.locked"
             :invalid="!!problemOf('category')"
             editable
-            placeholder="Выберите или впишите"
+            placeholder="Выбери или впиши"
             size="small"
             class="w-full"
             @change="commit"
@@ -971,7 +983,7 @@ function clearStateColor(key, which) {
               <span class="text-surface-700">Показывает значение тега</span>
             </label>
             <Message v-if="valueTextConflict" severity="warn" variant="simple" size="small">
-              Значение тега может показывать только одна подпись — снимите флаг с остальных.
+              Значение тега может показывать только одна подпись — сними флаг с остальных.
             </Message>
             <!-- Параметр: текст правится у каждого экземпляра на холсте, а здешний
                  остаётся значением по умолчанию и подписью поля в инспекторе. У
@@ -1073,14 +1085,18 @@ function clearStateColor(key, which) {
         </div>
         <!-- Без иконки и отступов `tms-empty`: плашка «Фигура» занимает нижнюю
              половину панели, развёрнутое пустое состояние съело бы её целиком. -->
-        <p v-else class="tms-hint">Выделите фигуру на холсте</p>
+        <p v-else class="tms-hint">Выдели фигуру на холсте</p>
       </div>
     </div>
 
     <!-- Действия над символом целиком (сохранить/закрыть) — в подвале панели, где
          автор и заполняет его поля. Разметку телепортирует сюда StencilEditor: там
          живут `save`/`requestClose` и признак несохранённого. -->
-    <div id="tms-editor-actions" class="shrink-0 border-t border-surface-200 bg-surface-0"></div>
+    <div
+      id="tms-editor-actions"
+      ref="actionsEl"
+      class="shrink-0 border-t border-surface-200 bg-surface-0"
+    ></div>
   </aside>
 </template>
 

@@ -55,12 +55,15 @@ import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
 import {
   TEXT_ICON,
   POLYLINE_ICON,
+  ROTATE_ICON,
   PAUSE_ICON,
   PLAY_ICON,
   STEP_BACK_ICON,
   STEP_FORWARD_ICON,
 } from '../constants/icons'
 import ColorField from './ColorField.vue'
+import ContextMenuItem from './ContextMenuItem.vue'
+import GlyphIcon from './GlyphIcon.vue'
 import SearchBar from './SearchBar.vue'
 
 const project = useProjectStore()
@@ -99,6 +102,8 @@ const bus = useBusResize({ scheduleSnapshot })
 // Объявления идут ДО блока listeners: useEventListener читает paperContainer как
 // зависимость, а у `const` нет hoisting'а (TDZ).
 const paperContainer = ref(null)
+// Область холста вместе с оверлеями — по ней хоткеи зума решают, «над схемой» ли курсор.
+const canvasArea = ref(null)
 let paper = null
 let graph = null
 
@@ -232,6 +237,13 @@ useHotkeys({
   flipSelected: (axis) => flipSelected(axis),
   cancelDraw: () => cancelDraw(),
   onExport: guardedExportArchive,
+  zoomIn: () => zoomByStep(ZOOM_STEP),
+  zoomOut: () => zoomByStep(1 / ZOOM_STEP),
+  fitView: () => fitToContent(),
+  // Вся область холста, а не только paper: поверх него лежат поиск, кнопки выделения и
+  // плашки — курсор на них всё равно «над схемой».
+  pointerOverCanvas: () => !!canvasArea.value?.matches(':hover'),
+  drawTools: () => DRAW_TOOLS.map((t) => t.key),
   projectBusy,
   notify,
 })
@@ -304,6 +316,7 @@ const { ctxMenuRef, ctxItems, showContextMenu } = useContextMenu({
   copySelection,
   duplicateSelection,
   detachFromBus,
+  editStencil: (id) => ui.openStencilEditor(id),
   notify,
 })
 // Lasso — startLasso дёргаем из blank:pointerdown (обычный ЛКМ); move/up свои.
@@ -660,7 +673,7 @@ onMounted(async () => {
     })
     notify.error(
       'Не удалось восстановить проект',
-      'Локальные данные формы повреждены — открыт пустой холст. Переключите форму или переоткройте проект.'
+      'Локальные данные формы повреждены — открыт пустой холст. Переключи форму или переоткрой проект.'
     )
   }
 
@@ -727,26 +740,16 @@ onMounted(async () => {
   if (restored < 0) {
     notify.error(
       'Локальные данные недоступны',
-      'Не удалось прочитать проект из хранилища браузера. Автосохранение отключено, чтобы не потерять данные — перезагрузите страницу.',
-      TOAST_LIFE.LONG
+      'Не удалось прочитать проект из хранилища браузера. Автосохранение отключено, чтобы не потерять данные — перезагрузи страницу.'
     )
   }
 
-  // Тост о восстановлении — после монтирования (toast service готов) и только на
-  // ПЕРВОМ за загрузку страницы: в dev hot-update перемонтирует компонент на каждое
-  // сохранение файла. Флаг живёт в `hot.data`; в проде `hot` нет и условие истинно.
-  const firstMount = !import.meta.hot?.data.restoreShown
-  if (import.meta.hot) import.meta.hot.data.restoreShown = true
+  // Удачное восстановление молчит: это штатный старт, и тост на каждой перезагрузке был
+  // бы шумом. Сообщаются только сбои (см. выше).
   if (restored > 0) {
     // Вписывание — на КАЖДОМ монтировании: paper стартует с translate(0,0), и форма,
     // нарисованная в (500, 800), осталась бы за кадром. nextTick — чтобы контейнер
     // успел получить итоговые clientWidth/Height.
-    if (firstMount) {
-      notify.info(
-        'Автосейв восстановлен',
-        `${nplural(restored, 'символ', 'символа', 'символов')} с прошлой сессии`
-      )
-    }
     await nextTick()
     fitToContent()
   }
@@ -893,7 +896,8 @@ function onClearCanvas(event) {
   confirmDanger(confirm, {
     target: event.currentTarget,
     // count = символы + провода, поэтому зонтичный «элемент», а не «символ».
-    message: `Очистить холст? ${nplural(count, 'элемент', 'элемента', 'элементов')} будет удалено.`,
+    // Число после двоеточия: «будет удалено/удалён/удалены» с числом не согласовать.
+    message: `Очистить холст? Будет удалено: ${nplural(count, 'элемент', 'элемента', 'элементов')}.`,
     acceptLabel: 'Очистить',
     accept: () => performClearCanvas(count),
   })
@@ -916,7 +920,7 @@ function performClearCanvas(count) {
 
   notify.info(
     'Холст очищен',
-    `Удалено ${nplural(count, 'элемент', 'элемента', 'элементов')}`,
+    `Удалено: ${nplural(count, 'элемент', 'элемента', 'элементов')}`,
     TOAST_LIFE.SHORT
   )
 }
@@ -939,10 +943,11 @@ function performClearCanvas(count) {
           Холст
         </h2>
         <div class="flex items-center gap-1">
+          <!-- Номер в тултипе = клавиша инструмента (useHotkeys, по порядку в массиве). -->
           <Button
-            v-for="t in DRAW_TOOLS"
+            v-for="(t, i) in DRAW_TOOLS"
             :key="t.key"
-            v-tooltip.bottom="t.tip"
+            v-tooltip.bottom="`${t.tip} · ${i + 1}`"
             :icon="t.icon"
             :severity="ui.canvasTool === t.key ? 'primary' : 'secondary'"
             :text="ui.canvasTool !== t.key"
@@ -951,18 +956,7 @@ function performClearCanvas(count) {
             @click="ui.setCanvasTool(t.key)"
           >
             <template v-if="t.glyph" #icon>
-              <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
-                <path
-                  v-for="(el, i) in t.glyph"
-                  :key="i"
-                  :d="el.d"
-                  :fill="el.mode === 'fill' ? 'currentColor' : 'none'"
-                  :stroke="el.mode === 'stroke' ? 'currentColor' : 'none'"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
+              <GlyphIcon :glyph="t.glyph" />
             </template>
           </Button>
         </div>
@@ -994,18 +988,7 @@ function performClearCanvas(count) {
             @click="c.act()"
           >
             <template #icon>
-              <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
-                <path
-                  v-for="(el, i) in c.glyph"
-                  :key="i"
-                  :d="el.d"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
+              <GlyphIcon :glyph="c.glyph" />
             </template>
           </Button>
         </template>
@@ -1075,7 +1058,7 @@ function performClearCanvas(count) {
         />
         <Button
           v-tooltip.bottom="'Повторить · Ctrl+Y'"
-          icon="pi pi-refresh"
+          icon="pi pi-undo -scale-x-100"
           severity="secondary"
           text
           size="small"
@@ -1088,7 +1071,7 @@ function performClearCanvas(count) {
 
         <div class="flex items-center">
           <Button
-            v-tooltip.bottom="'Уменьшить'"
+            v-tooltip.bottom="'Уменьшить · Ctrl+−'"
             icon="pi pi-minus"
             severity="secondary"
             text
@@ -1098,9 +1081,9 @@ function performClearCanvas(count) {
             @click="zoomByStep(1 / ZOOM_STEP)"
           />
           <!-- Центр группы — текущий масштаб, клик вписывает в экран. Фикс-ширина,
-               чтобы +/− не дёргались при смене числа. Колесо тоже зумит (в тултипе). -->
+               чтобы +/− не дёргались при смене числа. Ctrl+колесо тоже зумит (в тултипе). -->
           <Button
-            v-tooltip.bottom="'Вписать в экран (до 100%) · колесо — зум'"
+            v-tooltip.bottom="'Вписать в экран (до 100%) · Ctrl+0; зум — Ctrl+колесо'"
             :label="`${zoomPercent}%`"
             severity="secondary"
             text
@@ -1109,7 +1092,7 @@ function performClearCanvas(count) {
             @click="fitToContent"
           />
           <Button
-            v-tooltip.bottom="'Увеличить'"
+            v-tooltip.bottom="'Увеличить · Ctrl+='"
             icon="pi pi-plus"
             severity="secondary"
             text
@@ -1135,7 +1118,7 @@ function performClearCanvas(count) {
       </div>
     </div>
 
-    <div class="flex-1 relative overflow-hidden">
+    <div ref="canvasArea" class="flex-1 relative overflow-hidden">
       <!-- tms-simulating и emerald-ring оба управляются Vue через :class на
  simulating ref (см. useSimulation). Manual classList.add не используем —
  любой re-render :class перетёр бы className и убил бы метку. -->
@@ -1162,8 +1145,9 @@ function performClearCanvas(count) {
         </div>
       </div>
 
-      <!-- Indicator симуляции: PrimeVue Tag в правом верхнем углу холста +
- зелёная inset-рамка вокруг paper'а (см. ring-* в paperContainer).
+      <!-- Indicator симуляции: PrimeVue Tag в ЛЕВОМ верхнем углу холста (правый занят
+ панелью поиска — там метку накрывало) + зелёная inset-рамка вокруг paper'а (см. ring-*
+ в paperContainer).
  pointer-events отключены — это чисто визуальная метка, клик уходит
  на холст под ней. severity=success подтягивает emerald-цвет темы. -->
       <Tag
@@ -1171,7 +1155,7 @@ function performClearCanvas(count) {
         value="Симуляция"
         icon="pi pi-play-circle"
         severity="success"
-        class="absolute! top-3! right-3! z-30! pointer-events-none text-xs! shadow-md!"
+        class="absolute! top-3! left-3! z-30! pointer-events-none text-xs! shadow-md!"
       />
 
       <!-- SearchBar (Ctrl+F): плавающая панель поиска в правом верхнем углу.
@@ -1233,25 +1217,27 @@ function performClearCanvas(count) {
         <Button
           v-if="overlayBtns.canRotate"
           v-tooltip.top="'Повернуть против часовой · Shift+R'"
-          icon="pi pi-undo"
           severity="secondary"
           rounded
           size="small"
           class="tms-overlay-btn"
           :style="overlayBtns.rotateCcw"
           @click="rotateSelectedBy(-90)"
-        />
+        >
+          <template #icon><GlyphIcon :glyph="ROTATE_ICON" mirror /></template>
+        </Button>
         <Button
           v-if="overlayBtns.canRotate"
           v-tooltip.top="'Повернуть по часовой · R'"
-          icon="pi pi-undo -scale-x-100"
           severity="secondary"
           rounded
           size="small"
           class="tms-overlay-btn"
           :style="overlayBtns.rotateCw"
           @click="rotateSelectedBy(90)"
-        />
+        >
+          <template #icon><GlyphIcon :glyph="ROTATE_ICON" /></template>
+        </Button>
         <Button
           v-if="overlayBtns.canFlipH"
           v-tooltip.top="'Отразить по горизонтали · Shift+H'"
@@ -1398,7 +1384,8 @@ function performClearCanvas(count) {
 
       <!-- Empty canvas hint — показываем когда нет ячеек и не идёт drag.
  Двухшаговый чек-лист: tag-list → символ. Первый шаг отмечается ✓
- когда теги загружены (без tag-list'а анимации символов не работают). -->
+ когда теги загружены (без tag-list'а анимации символов не работают). Под списком —
+ другой старт: открыть готовый проект. -->
       <div
         v-if="canvas.cellsCount.value === 0 && !ui.dragging"
         class="absolute inset-0 flex items-center justify-center pointer-events-none"
@@ -1418,18 +1405,23 @@ function performClearCanvas(count) {
               <span
                 :class="project.tags.length ? 'text-surface-400 line-through' : 'text-surface-600'"
               >
-                Загрузите tag-list (кнопка в тулбаре)
+                Загрузи tag-list (кнопка в шапке)
               </span>
             </li>
             <li class="flex items-center gap-2">
               <i class="pi pi-circle text-surface-300" />
-              <span class="text-surface-600">Перетащите символ из палитры слева</span>
+              <span class="text-surface-600">Перетащи символ из палитры слева</span>
             </li>
           </ul>
+          <div class="mt-3 text-xs">или открой готовый проект — Ctrl+O</div>
         </div>
       </div>
     </div>
 
-    <ContextMenu ref="ctxMenuRef" :model="ctxItems" />
+    <ContextMenu ref="ctxMenuRef" :model="ctxItems">
+      <template #item="{ item, props, hasSubmenu }">
+        <ContextMenuItem :item="item" :bind="props" :has-submenu="hasSubmenu" />
+      </template>
+    </ContextMenu>
   </section>
 </template>

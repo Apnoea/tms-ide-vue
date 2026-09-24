@@ -253,11 +253,12 @@ onBeforeUnmount(() => {
         Формы
       </h2>
       <!-- Возврат удалённой формы из корзины (Ctrl+Z проектные операции не
-           откатывает). Кнопка есть, только когда корзина непуста. -->
+           откатывает — поэтому и иконка «история», а не стрелка отмены). Кнопка есть,
+           только когда корзина непуста. -->
       <Button
         v-if="!panelCollapsed && lastTrashed"
         v-tooltip.bottom="`Вернуть удалённую форму «${lastTrashed}»`"
-        icon="pi pi-undo"
+        icon="pi pi-history"
         severity="secondary"
         text
         size="small"

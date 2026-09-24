@@ -327,7 +327,7 @@ const picker = ref(null)
 const pickerTags = computed(() => picker.value?.tags?.() ?? [])
 
 function openPicker(config) {
-  picker.value = { selected: '', tags: () => [], header: 'Выберите тег', ...config }
+  picker.value = { selected: '', tags: () => [], header: 'Выбери тег', ...config }
 }
 
 function onPickerSelect(tag) {
@@ -357,7 +357,7 @@ function openRangeSlotPicker() {
   openPicker({
     tags: () => project.numericTags,
     selected: details.value?.rangeTag || '',
-    header: 'Выберите тег (диапазоны значений)',
+    header: 'Выбери тег (диапазоны значений)',
     onSelect: bindRangeSlotTag,
   })
 }
@@ -387,27 +387,24 @@ function openSlotPicker(slot) {
   openPicker({
     tags: () => slotPickerTags(slot),
     selected: slot?.value || '',
-    header: 'Выберите тег',
+    header: 'Выбери тег',
     onSelect: (tag) => patchSlotTag(slot.key, tag),
   })
 }
 
 /**
- * Экземпляры ТОГО ЖЕ символа на активной форме: счёт — для кнопки «выделить такие
- * же», сам список — для неё же. Массовая правка одинаковых символов (цвет, слот,
- * замок) иначе начинается с ручного Ctrl+клика по всей схеме.
+ * Сколько экземпляров ТОГО ЖЕ символа на активной форме — для кнопки «выделить такие
+ * же». Массовая правка одинаковых символов (цвет, слот, замок) иначе начинается с
+ * ручного Ctrl+клика по всей схеме.
  */
-const sameStencilCells = computed(() => {
+const sameStencilCount = computed(() => {
   canvas.graphVersion.value // touch: символы могли появиться/исчезнуть
-  const graph = canvas.graphRef.value
   const d = details.value
-  if (!graph || d?.kind !== 'cell' || !d.stencilId) return []
-  return graph.getElements().filter((c) => c.get('tms')?.stencilId === d.stencilId)
+  return d?.kind === 'cell' ? canvas.cellsOfStencil(d.stencilId).length : 0
 })
 
 function selectSameStencil() {
-  const items = sameStencilCells.value.map((c) => ({ kind: 'cell', id: c.id }))
-  if (items.length) canvas.setSelection(items)
+  canvas.selectSameStencil(details.value?.stencilId)
 }
 
 /**
@@ -1127,7 +1124,7 @@ const {
             <i class="pi pi-mouse text-3xl mb-3 opacity-60" />
             <div class="tms-empty-title">Ничего не выделено</div>
             <p class="tms-hint max-w-[180px]">
-              Кликните по символу или проводу на холсте — здесь появятся свойства
+              Кликни по символу или проводу на холсте — здесь появятся свойства
             </p>
           </div>
 
@@ -1190,8 +1187,8 @@ const {
                   {{ details.stencilLabel }}
                 </div>
                 <Button
-                  v-if="sameStencilCells.length > 1"
-                  v-tooltip.bottom="`Выделить такие же на форме (${sameStencilCells.length})`"
+                  v-if="sameStencilCount > 1"
+                  v-tooltip.bottom="`Выделить такие же на форме (${sameStencilCount})`"
                   icon="pi pi-search-plus"
                   severity="secondary"
                   text
@@ -1263,7 +1260,7 @@ const {
                   Внешняя view (не среди загруженных форм) — сработает, если она есть в рантайме
                 </div>
                 <div v-else-if="!otherFormIds.length" class="text-[11px] text-surface-500">
-                  Загруженных форм нет — введите view-id вручную
+                  Загруженных форм нет — введи view-id вручную
                 </div>
               </template>
             </div>
@@ -1389,7 +1386,7 @@ const {
       :visible="!!picker"
       :tags="pickerTags"
       :selected="picker?.selected || ''"
-      :header="picker?.header || 'Выберите тег'"
+      :header="picker?.header || 'Выбери тег'"
       @update:visible="(v) => !v && (picker = null)"
       @select="onPickerSelect"
     />

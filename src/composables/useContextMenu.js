@@ -1,13 +1,18 @@
 import { ref, computed } from 'vue'
 import { useCanvas } from './useCanvas'
+import { getStencilById, stencilEditLabel } from '../stencils/registry'
 import { nplural } from '../utils/plural'
 
 /**
  * Контекстное меню холста (ПКМ). ctxTarget — что под кликом ({kind,id} либо null для
  * пустого места), пункты зависят от таргета: у ячейки дублировать / скопировать /
- * порядок / группировка / замок / удалить, у провода удалить, на пустом месте —
- * вставить. Все действия идут через selection (showContextMenu выделяет таргет),
- * поэтому ПКМ по элементу из выделения работает со всем выделением.
+ * править символ / такие же / порядок / группировка / замок / удалить, у провода
+ * порядок и удалить, на пустом месте — вставить / выделить всё / вписать. Все действия
+ * идут через selection (showContextMenu выделяет таргет), поэтому ПКМ по элементу из
+ * выделения работает со всем выделением.
+ *
+ * `shortcut` у пункта — клавиша того же действия (рисует её ContextMenuItem): меню —
+ * место, где хоткеи узнают.
  */
 export function useContextMenu({
   hasClipboard,
@@ -15,6 +20,7 @@ export function useContextMenu({
   copySelection,
   duplicateSelection,
   detachFromBus = () => false,
+  editStencil = () => {},
   notify = { success: () => {} },
 }) {
   const canvas = useCanvas()
@@ -23,11 +29,7 @@ export function useContextMenu({
 
   const ctxItems = computed(() => {
     const t = ctxTarget.value
-    // Пустое место: только paste, и только если в буфере что-то есть.
-    if (!t) {
-      if (!hasClipboard()) return []
-      return [{ label: 'Вставить', icon: 'pi pi-clone', command: pasteClipboard }]
-    }
+    if (!t) return blankItems()
 
     const cell = canvas.graphRef.value?.getCell(t.id)
     if (!cell) return []
@@ -42,6 +44,7 @@ export function useContextMenu({
         ? {
             label: 'Разгруппировать',
             icon: 'pi pi-table',
+            shortcut: 'Ctrl+Shift+G',
             command: () => {
               const n = canvas.ungroupCells(canvas.selection.value)
               if (n) notify.success('Разгруппировано', nplural(n, 'символ', 'символа', 'символов'))
@@ -51,6 +54,7 @@ export function useContextMenu({
           ? {
               label: 'Сгруппировать',
               icon: 'pi pi-th-large',
+              shortcut: 'Ctrl+G',
               command: () => {
                 const n = canvas.groupCells(canvas.selection.value)
                 if (n) notify.success('Сгруппировано', nplural(n, 'символ', 'символа', 'символов'))
@@ -79,14 +83,24 @@ export function useContextMenu({
               }),
           }
         : null
+      // Иконки дублирования и копирования — те же, что у палитры, дерева форм и блоков
+      // анимаций: один жест — один знак во всём интерфейсе.
       const items = [
         {
           label: 'Дублировать',
-          icon: 'pi pi-copy',
+          icon: 'pi pi-clone',
+          shortcut: 'Ctrl+D',
           command: () => runOnTarget(t, duplicateSelection),
         },
-        { label: 'Скопировать', icon: 'pi pi-clone', command: () => runOnTarget(t, copySelection) },
+        {
+          label: 'Скопировать',
+          icon: 'pi pi-copy',
+          shortcut: 'Ctrl+C',
+          command: () => runOnTarget(t, copySelection),
+        },
       ]
+      const stencil = stencilItems(cell)
+      if (stencil.length) items.push({ separator: true }, ...stencil)
       const mid = [orderMenuItem(t), groupItem, busItem, lockItem].filter(Boolean)
       if (mid.length) items.push({ separator: true }, ...mid)
       items.push({ separator: true }, deleteItem(t))
@@ -112,14 +126,82 @@ export function useContextMenu({
       runOnTarget(target, () => canvas.reorderCells(canvas.selection.value, mode))
     return {
       label: 'Порядок',
-      icon: 'pi pi-clone',
+      icon: 'pi pi-sort-alt',
       items: [
-        { label: 'На передний план', icon: 'pi pi-angle-double-up', command: cmd('front') },
-        { label: 'Выше', icon: 'pi pi-angle-up', command: cmd('forward') },
-        { label: 'Ниже', icon: 'pi pi-angle-down', command: cmd('backward') },
-        { label: 'На задний план', icon: 'pi pi-angle-double-down', command: cmd('back') },
+        {
+          label: 'На передний план',
+          icon: 'pi pi-angle-double-up',
+          shortcut: 'Ctrl+Shift+]',
+          command: cmd('front'),
+        },
+        { label: 'Выше', icon: 'pi pi-angle-up', shortcut: 'Ctrl+]', command: cmd('forward') },
+        { label: 'Ниже', icon: 'pi pi-angle-down', shortcut: 'Ctrl+[', command: cmd('backward') },
+        {
+          label: 'На задний план',
+          icon: 'pi pi-angle-double-down',
+          shortcut: 'Ctrl+Shift+[',
+          command: cmd('back'),
+        },
       ],
     }
+  }
+
+  /**
+   * Пустое место: вставить (если в буфере что-то есть) и действия над всей формой.
+   * Пустое меню не открывается вовсе (см. showContextMenu).
+   */
+  function blankItems() {
+    const items = []
+    if (hasClipboard()) {
+      items.push({
+        label: 'Вставить',
+        icon: 'pi pi-clipboard',
+        shortcut: 'Ctrl+V',
+        command: pasteClipboard,
+      })
+    }
+    if (canvas.graphRef.value?.getElements().length) {
+      if (items.length) items.push({ separator: true })
+      items.push(
+        {
+          label: 'Выделить всё',
+          icon: 'pi pi-check-square',
+          shortcut: 'Ctrl+A',
+          command: () => canvas.selectAllCells(),
+        },
+        {
+          label: 'Вписать в экран',
+          icon: 'pi pi-expand',
+          shortcut: 'Ctrl+0',
+          command: () => canvas.fitToContent(),
+        }
+      )
+    }
+    return items
+  }
+
+  /**
+   * Пункты про СИМВОЛ под курсором, а не про выделение: открыть его в редакторе (режим
+   * и подпись — как у карандаша в палитре) и выделить все его экземпляры на форме. У
+   * фигуры разметки символа нет — пунктов тоже.
+   */
+  function stencilItems(cell) {
+    const stencil = getStencilById(cell.get('tms')?.stencilId)
+    if (!stencil) return []
+    const items = []
+    const editLabel = stencilEditLabel(stencil)
+    if (editLabel) {
+      items.push({ label: editLabel, icon: 'pi pi-pencil', command: () => editStencil(stencil.id) })
+    }
+    const same = canvas.cellsOfStencil(stencil.id).length
+    if (same > 1) {
+      items.push({
+        label: `Выделить такие же (${same})`,
+        icon: 'pi pi-search-plus',
+        command: () => canvas.selectSameStencil(stencil.id),
+      })
+    }
+    return items
   }
 
   /**
@@ -159,6 +241,7 @@ export function useContextMenu({
     return {
       label: count > 1 ? `Удалить (${count})` : 'Удалить',
       icon: 'pi pi-trash',
+      shortcut: 'Del',
       command: () => canvas.deleteItems(targets),
     }
   }

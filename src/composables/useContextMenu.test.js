@@ -14,6 +14,10 @@ const mockCanvas = makeMockCanvas({
   reorderCells: vi.fn(),
   groupCells: vi.fn(),
   ungroupCells: vi.fn(),
+  cellsOfStencil: vi.fn(() => []),
+  selectSameStencil: vi.fn(),
+  selectAllCells: vi.fn(),
+  fitToContent: vi.fn(),
   // Как в useCanvas: возвращает модели без locked (линки не отбрасывает).
   writableItems: vi.fn((items) =>
     (items || [])
@@ -27,19 +31,29 @@ import { useContextMenu } from './useContextMenu'
 
 /** Граф-мок: id → tms. */
 function graphOf(cells) {
-  return { getCell: (id) => (cells[id] ? { get: () => cells[id] } : null) }
+  return {
+    getCell: (id) => (cells[id] ? { get: () => cells[id] } : null),
+    getElements: () => Object.keys(cells).map((id) => ({ id, get: () => cells[id] })),
+  }
 }
 
-function setup() {
+function setup(overrides = {}) {
   const [api, scope] = withSetup(() =>
     useContextMenu({
       hasClipboard: () => false,
       pasteClipboard: vi.fn(),
       copySelection: vi.fn(),
       duplicateSelection: vi.fn(),
+      ...overrides,
     })
   )
   return { api, scope }
+}
+
+/** Пункты меню для таргета (null — пустое место). */
+function itemsFor(api, target) {
+  api.showContextMenu(target, { preventDefault() {} })
+  return api.ctxItems.value
 }
 
 /** Показывает меню для таргета и достаёт пункт «Удалить». */
@@ -212,6 +226,131 @@ describe('useContextMenu — «Порядок»', () => {
     mockCanvas.selection.value = [{ kind: 'link', id: 'w1' }]
     const { api, scope } = setup()
     expect(orderItemFor(api, { kind: 'link', id: 'w1' })).toBeTruthy()
+    scope.stop()
+  })
+})
+
+// Пункты про символ под курсором: открыть его в редакторе (подпись и режим — как у
+// карандаша в палитре) и выделить его экземпляры на форме.
+describe('useContextMenu — символ под курсором', () => {
+  beforeEach(() => {
+    mockCanvas.selection.value = []
+    mockCanvas.cellsOfStencil.mockReset().mockReturnValue([])
+    mockCanvas.selectSameStencil.mockClear()
+  })
+
+  it('«Редактировать символ» открывает редактор на символе под курсором', () => {
+    mockCanvas.graphRef.value = graphOf({ a: { stencilId: 'cell_qw' } })
+    mockCanvas.selection.value = [{ kind: 'cell', id: 'a' }]
+    const editStencil = vi.fn()
+    const { api, scope } = setup({ editStencil })
+    itemsFor(api, { kind: 'cell', id: 'a' })
+      .find((i) => i.label === 'Редактировать символ')
+      .command()
+    expect(editStencil).toHaveBeenCalledWith('cell_qw')
+    scope.stop()
+  })
+
+  it('шина правится только диапазонами — пункт так и называется', () => {
+    mockCanvas.graphRef.value = graphOf({ b: { stencilId: 'cell_bus' } })
+    mockCanvas.selection.value = [{ kind: 'cell', id: 'b' }]
+    const { api, scope } = setup()
+    const labels = itemsFor(api, { kind: 'cell', id: 'b' }).map((i) => i.label)
+    expect(labels).toContain('Диапазоны шины')
+    expect(labels).not.toContain('Редактировать символ')
+    scope.stop()
+  })
+
+  it('«Выделить такие же» — только когда экземпляров больше одного', () => {
+    mockCanvas.graphRef.value = graphOf({ a: { stencilId: 'cell_qw' } })
+    mockCanvas.selection.value = [{ kind: 'cell', id: 'a' }]
+    const { api, scope } = setup()
+    const same = () =>
+      itemsFor(api, { kind: 'cell', id: 'a' }).find((i) => i.label?.startsWith('Выделить такие'))
+
+    mockCanvas.cellsOfStencil.mockReturnValue([{ id: 'a' }])
+    expect(same()).toBeUndefined()
+
+    mockCanvas.cellsOfStencil.mockReturnValue([{ id: 'a' }, { id: 'b' }])
+    const item = same()
+    expect(item.label).toBe('Выделить такие же (2)')
+    item.command()
+    expect(mockCanvas.selectSameStencil).toHaveBeenCalledWith('cell_qw')
+    scope.stop()
+  })
+
+  it('у фигуры разметки символа нет — и пунктов про него нет', () => {
+    mockCanvas.graphRef.value = graphOf({ s: { shape: { type: 'rect' } } })
+    mockCanvas.selection.value = [{ kind: 'cell', id: 's' }]
+    const { api, scope } = setup({ editStencil: vi.fn() })
+    const labels = itemsFor(api, { kind: 'cell', id: 's' }).map((i) => i.label)
+    expect(labels).not.toContain('Редактировать символ')
+    expect(labels.some((l) => l?.startsWith('Выделить такие'))).toBe(false)
+    scope.stop()
+  })
+})
+
+// Пустое место: «Вставить» при непустом буфере и действия над всей формой, когда на ней
+// есть символы; пунктов нет — меню не открывается.
+describe('useContextMenu — пустое место', () => {
+  beforeEach(() => {
+    mockCanvas.selection.value = []
+    mockCanvas.selectAllCells.mockClear()
+    mockCanvas.fitToContent.mockClear()
+  })
+
+  it('пустая форма и пустой буфер — пунктов нет, меню не открывается', () => {
+    mockCanvas.graphRef.value = graphOf({})
+    const { api, scope } = setup()
+    expect(itemsFor(api, null)).toEqual([])
+    scope.stop()
+  })
+
+  it('на форме есть символы — «Выделить всё» и «Вписать в экран»', () => {
+    mockCanvas.graphRef.value = graphOf({ a: {} })
+    const { api, scope } = setup()
+    const items = itemsFor(api, null)
+    expect(items.map((i) => i.label)).toEqual(['Выделить всё', 'Вписать в экран'])
+    items[0].command()
+    items[1].command()
+    expect(mockCanvas.selectAllCells).toHaveBeenCalled()
+    expect(mockCanvas.fitToContent).toHaveBeenCalled()
+    scope.stop()
+  })
+
+  it('с буфером «Вставить» идёт первым и отделён от действий над формой', () => {
+    mockCanvas.graphRef.value = graphOf({ a: {} })
+    const pasteClipboard = vi.fn()
+    const { api, scope } = setup({ hasClipboard: () => true, pasteClipboard })
+    const items = itemsFor(api, null)
+    expect(items[0]).toMatchObject({ label: 'Вставить', shortcut: 'Ctrl+V' })
+    expect(items[1]).toEqual({ separator: true })
+    items[0].command()
+    expect(pasteClipboard).toHaveBeenCalled()
+    scope.stop()
+  })
+})
+
+// Клавиша стоит в пункте отдельным полем: меню — место, где хоткеи узнают, а вписанная
+// в подпись она сливалась с текстом.
+describe('useContextMenu — клавиши и иконки', () => {
+  it('у символа: иконки как во всём интерфейсе, клавиши у своих действий', () => {
+    mockCanvas.graphRef.value = graphOf({ a: {} })
+    mockCanvas.selection.value = [{ kind: 'cell', id: 'a' }]
+    const { api, scope } = setup()
+    const items = itemsFor(api, { kind: 'cell', id: 'a' })
+    const byLabel = (l) => items.find((i) => i.label === l)
+    expect(byLabel('Дублировать')).toMatchObject({ icon: 'pi pi-clone', shortcut: 'Ctrl+D' })
+    expect(byLabel('Скопировать')).toMatchObject({ icon: 'pi pi-copy', shortcut: 'Ctrl+C' })
+    expect(byLabel('Удалить')).toMatchObject({ shortcut: 'Del' })
+    const order = byLabel('Порядок')
+    expect(order.icon).toBe('pi pi-sort-alt')
+    expect(order.items.map((i) => i.shortcut)).toEqual([
+      'Ctrl+Shift+]',
+      'Ctrl+]',
+      'Ctrl+[',
+      'Ctrl+Shift+[',
+    ])
     scope.stop()
   })
 })

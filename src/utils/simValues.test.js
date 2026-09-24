@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { boolOf, rangeRowFor, stateKeyFor, formatValueText, randomValueForTag } from './simValues'
+import {
+  boolOf,
+  rangeRowFor,
+  zoneValueFor,
+  stateKeyFor,
+  formatValueText,
+  randomValueForTag,
+  slotRole,
+} from './simValues'
 
 describe('boolOf', () => {
   it('число, строка и boolean приводятся к состоянию биндинга', () => {
@@ -95,5 +103,70 @@ describe('randomValueForTag', () => {
     expect(randomValueForTag({ type: 'Boolean', rnd: () => 0.1 })).toBe(true)
     expect(randomValueForTag({ type: 'Boolean', rnd: () => 0.9 })).toBe(false)
     expect(typeof randomValueForTag({ type: 'Float', rnd: () => 0.5 })).toBe('number')
+  })
+})
+
+// Кнопки зон в панели симуляции: значение обязано покрасить элемент именно этой зоной,
+// а рантайм берёт ПЕРВУЮ подходящую строку и границы включает.
+describe('zoneValueFor', () => {
+  const G = '#10b981'
+  const Y = '#f59e0b'
+  const R = '#ef4444'
+
+  it('закрытая зона — середина, открытая — шаг внутрь от границы', () => {
+    const src = {
+      ranges: [
+        { max: 10, color: G },
+        { min: 10, max: 50, color: Y },
+        { min: 50, color: R },
+      ],
+    }
+    expect(zoneValueFor(src, src.ranges[0])).toBe(9)
+    expect(zoneValueFor(src, src.ranges[1])).toBe(30)
+    expect(zoneValueFor(src, src.ranges[2])).toBe(51)
+  })
+
+  it('середину забрала строка выше — берётся граница зоны', () => {
+    // 45 попадает в первую строку, а 60 — уже только во вторую.
+    const src = {
+      ranges: [
+        { min: 0, max: 50, color: G },
+        { min: 30, max: 60, color: Y },
+      ],
+    }
+    expect(zoneValueFor(src, src.ranges[1])).toBe(60)
+  })
+
+  it('зона целиком под строкой выше — значения нет', () => {
+    const src = {
+      ranges: [
+        { min: 0, max: 100, color: G },
+        { min: 20, max: 40, color: Y },
+      ],
+    }
+    expect(zoneValueFor(src, src.ranges[1])).toBeNull()
+  })
+
+  it('точное значение («3 — 3») — оно само', () => {
+    const src = { ranges: [{ min: 3, max: 3, color: G }] }
+    expect(zoneValueFor(src, src.ranges[0])).toBe(3)
+  })
+})
+
+// Роль тега в панели симуляции берётся по слоту: слот зон — тоже не-Text, и без явной
+// проверки его Float-тег уходил бы в тумблер (или в список состояний у символа с ними).
+describe('slotRole', () => {
+  const plain = { states: [] }
+  const stateful = { states: [{ key: 'on', code: '1' }] }
+
+  it('слот зон и подпись со значением — число', () => {
+    expect(slotRole({ key: 'range', type: 'Value' }, plain)).toBe('value')
+    expect(slotRole({ key: 'range', type: 'Value' }, stateful)).toBe('value')
+    expect(slotRole({ key: 'text', type: 'Text' }, stateful)).toBe('value')
+  })
+
+  it('слот-драйвер — состояние у символа с ними, иначе булев', () => {
+    expect(slotRole({ key: 'value', type: 'Value' }, stateful)).toBe('state')
+    expect(slotRole({ key: 'onoff', type: 'Boolean' }, plain)).toBe('bool')
   })
 })

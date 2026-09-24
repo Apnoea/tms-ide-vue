@@ -275,6 +275,17 @@ export function isBusStencil(stencil) {
   return stencil?.id === BUS_STENCIL_ID
 }
 
+/**
+ * Что откроет редактор для символа — подпись карандаша в палитре и пункта меню холста;
+ * `null` — не правится (программный символ, чей SVG в формат редактора не разбирается).
+ * Режим задаёт сам символ: шина — только диапазоны, символ набора — только анимации.
+ */
+export function stencilEditLabel(stencil) {
+  if (!stencil) return null
+  if (stencil.locked) return isBusStencil(stencil) ? 'Диапазоны шины' : null
+  return isPresetStencil(stencil) ? 'Анимации символа' : 'Редактировать символ'
+}
+
 /** Слот подписи со значением тега (`Text`) — парно к `stateSlotOf`. */
 export function textSlotOf(slots) {
   return (slots || []).find((s) => s.type === 'Text') || null

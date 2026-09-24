@@ -15,6 +15,8 @@ import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
 import Select from 'primevue/select'
 import ToggleSwitch from 'primevue/toggleswitch'
+import { rangeRowColor } from '../constants/animation'
+import { rangeBound, rangeRowFor, zoneValueFor } from '../utils/simValues'
 
 const props = defineProps({
   /** `[{ tag, kind: 'state'|'bool'|'value', states?, rangeSource?, type }]`. */
@@ -66,7 +68,7 @@ function setBoolAt(tag, event) {
 
 /** Незаданный тумблер бледный: «случайно» и зафиксированный «выкл» иначе неразличимы. */
 const boolHint = (tag) =>
-  props.values.has(tag) ? '' : 'Значение случайное: щёлкните нужную половину'
+  props.values.has(tag) ? '' : 'Значение случайное: щёлкни нужную половину'
 
 /** Роль тега — запасная подпись, когда типа в tag-list нет. */
 const kindLabel = (t) =>
@@ -76,6 +78,48 @@ const stateOptions = (t) =>
   (t.states || [])
     .filter((s) => s.code !== '' && s.code != null)
     .map((s) => ({ label: s.label || s.key, value: s.code }))
+
+/** Подпись зоны по её порогам: пустой порог — открытая граница. */
+function zoneLabel(row) {
+  const lo = rangeBound(row.min)
+  const hi = rangeBound(row.max)
+  if (lo !== null && hi !== null) return lo === hi ? `= ${lo}` : `${lo}–${hi}`
+  if (lo !== null) return `≥ ${lo}`
+  if (hi !== null) return `≤ ${hi}`
+  return 'любое'
+}
+
+/**
+ * Зоны диапазонов аналогового тега — кнопками под строкой: чтобы проверить окраску
+ * символа по зоне, не нужно помнить его пороги. Клик ставит значение внутри зоны
+ * (`zoneValueFor`); зона, которую целиком перекрывает строка выше, не выбирается —
+ * покрасить ею нельзя и в рантайме.
+ */
+const zonesByTag = computed(() => {
+  const out = new Map()
+  for (const t of visibleTags.value) {
+    if (t.kind !== 'value') continue
+    const zones = (t.rangeSource?.ranges || [])
+      .filter((row) => rangeRowColor(row))
+      .map((row) => ({
+        row,
+        color: rangeRowColor(row),
+        label: zoneLabel(row),
+        value: zoneValueFor(t.rangeSource, row),
+      }))
+    if (zones.length) out.set(t.tag, zones)
+  }
+  return out
+})
+
+/** Зона активна, когда в неё попадает ЗАДАННОЕ значение (случайное панель не знает). */
+const zoneActive = (t, zone) =>
+  props.values.has(t.tag) && rangeRowFor(t.rangeSource, valueOf(t.tag)) === zone.row
+
+const zoneTip = (zone) =>
+  zone.value === null
+    ? 'Зону перекрывает строка выше — значение сюда не попадёт'
+    : `Значение ${zone.value}`
 </script>
 
 <template>
@@ -124,61 +168,87 @@ const stateOptions = (t) =>
     <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-3">
       <div v-if="!visibleTags.length" class="text-xs text-surface-500">{{ emptyText }}</div>
 
-      <!-- Строка тега: слева тип и имя, справа значение. -->
-      <div v-for="t in visibleTags" :key="t.tag" class="flex items-center gap-2">
-        <div class="min-w-0 flex-1">
-          <div class="text-[11px] text-surface-400">{{ t.type || kindLabel(t) }}</div>
-          <div v-tooltip.top="t.tag" class="truncate font-mono text-[11px] text-surface-800">
-            {{ t.tag }}
+      <!-- Строка тега: слева тип и имя, справа значение; у тега с диапазонами под ней
+           кнопки зон. -->
+      <div v-for="t in visibleTags" :key="t.tag">
+        <div class="flex items-center gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="text-[11px] text-surface-400">{{ t.type || kindLabel(t) }}</div>
+            <div v-tooltip.top="t.tag" class="truncate font-mono text-[11px] text-surface-800">
+              {{ t.tag }}
+            </div>
           </div>
-        </div>
 
-        <span class="flex shrink-0 items-center gap-1">
-          <span
-            v-if="t.kind === 'bool'"
-            v-tooltip.left="boolHint(t.tag)"
-            class="inline-flex"
-            :class="values.has(t.tag) ? '' : 'opacity-40'"
-            @click.capture.prevent="(e) => setBoolAt(t.tag, e)"
-          >
-            <ToggleSwitch
-              :model-value="!!valueOf(t.tag)"
+          <span class="flex shrink-0 items-center gap-1">
+            <span
+              v-if="t.kind === 'bool'"
+              v-tooltip.left="boolHint(t.tag)"
+              class="inline-flex"
+              :class="values.has(t.tag) ? '' : 'opacity-40'"
+              @click.capture.prevent="(e) => setBoolAt(t.tag, e)"
+            >
+              <ToggleSwitch
+                :model-value="!!valueOf(t.tag)"
+                @update:model-value="(v) => emit('set-tag', t.tag, v)"
+              />
+            </span>
+            <Select
+              v-else-if="t.kind === 'state'"
+              :model-value="valueOf(t.tag)"
+              :options="stateOptions(t)"
+              option-label="label"
+              option-value="value"
+              placeholder="случайно"
+              size="small"
+              class="w-32"
               @update:model-value="(v) => emit('set-tag', t.tag, v)"
             />
+            <InputNumber
+              v-else
+              :model-value="valueOf(t.tag)"
+              :max-fraction-digits="3"
+              size="small"
+              input-class="w-16! text-center"
+              @update:model-value="(v) => emit('set-tag', t.tag, v)"
+            />
+            <!-- Место под кнопку держим всегда: иначе первое заданное значение сдвигало
+                 бы контрол влево. -->
+            <span class="w-5 shrink-0">
+              <button
+                v-if="values.has(t.tag)"
+                v-tooltip.left="'Вернуть случайное значение'"
+                type="button"
+                class="flex h-5 w-5 items-center justify-center rounded text-surface-400 hover:text-surface-800"
+                @click="emit('set-tag', t.tag, null)"
+              >
+                <i class="pi pi-times text-[10px]!" />
+              </button>
+            </span>
           </span>
-          <Select
-            v-else-if="t.kind === 'state'"
-            :model-value="valueOf(t.tag)"
-            :options="stateOptions(t)"
-            option-label="label"
-            option-value="value"
-            placeholder="случайно"
-            size="small"
-            class="w-32"
-            @update:model-value="(v) => emit('set-tag', t.tag, v)"
-          />
-          <InputNumber
-            v-else
-            :model-value="valueOf(t.tag)"
-            :max-fraction-digits="3"
-            size="small"
-            input-class="w-16! text-center"
-            @update:model-value="(v) => emit('set-tag', t.tag, v)"
-          />
-          <!-- Место под кнопку держим всегда: иначе первое заданное значение сдвигало
-               бы контрол влево. -->
-          <span class="w-5 shrink-0">
-            <button
-              v-if="values.has(t.tag)"
-              v-tooltip.left="'Вернуть случайное значение'"
-              type="button"
-              class="flex h-5 w-5 items-center justify-center rounded text-surface-400 hover:text-surface-800"
-              @click="emit('set-tag', t.tag, null)"
-            >
-              <i class="pi pi-times text-[10px]!" />
-            </button>
-          </span>
-        </span>
+        </div>
+
+        <div v-if="zonesByTag.get(t.tag)" class="mt-1.5 flex flex-wrap gap-1">
+          <!-- Недостижимая зона гасится классом, а не `disabled`: у выключенной кнопки
+               тултип не показывается, а объяснить, почему она не нажимается, нужно. -->
+          <button
+            v-for="(z, i) in zonesByTag.get(t.tag)"
+            :key="i"
+            v-tooltip.top="zoneTip(z)"
+            type="button"
+            class="flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors"
+            :class="
+              z.value === null
+                ? 'cursor-not-allowed border-surface-200 text-surface-600 opacity-40'
+                : zoneActive(t, z)
+                  ? 'border-primary-400 bg-primary-50 text-primary-700'
+                  : 'border-surface-200 text-surface-600 hover:border-surface-400'
+            "
+            @click="z.value !== null && emit('set-tag', t.tag, z.value)"
+          >
+            <span class="h-2 w-2 shrink-0 rounded-sm" :style="{ background: z.color }" />
+            {{ z.label }}
+          </button>
+        </div>
       </div>
     </div>
   </div>

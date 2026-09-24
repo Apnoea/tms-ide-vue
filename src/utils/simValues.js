@@ -8,6 +8,18 @@
  */
 
 import { rangeRowColor } from '../constants/animation'
+import { RANGE_SLOT } from '../constants/ids'
+
+/**
+ * Роль тега по слоту символа, к которому он привязан: подпись со значением (`Text`) и
+ * слот зон (`range`) — число; слот-драйвер — состояние, если у символа они есть, иначе
+ * булев. Слот зон — тоже не-`Text`, и без явной проверки его тег уходил бы в тумблер
+ * или список состояний, хотя красит символ по числу.
+ */
+export function slotRole(slot, stencil) {
+  if (slot?.type === 'Text' || slot?.key === RANGE_SLOT) return 'value'
+  return stencil?.states?.length ? 'state' : 'bool'
+}
 
 /** Значение как boolean: рантайм трактует «ложь» как false-кейс биндинга. */
 export function boolOf(value) {
@@ -15,6 +27,12 @@ export function boolOf(value) {
   if (typeof value === 'number') return value !== 0
   if (typeof value === 'string') return value !== '' && value !== '0' && !/^false$/i.test(value)
   return false
+}
+
+/** Порог строки диапазона числом; не задан → null (граница открыта). */
+export function rangeBound(v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
 }
 
 /**
@@ -26,11 +44,35 @@ export function rangeRowFor(rangeSource, value) {
   if (typeof value !== 'number' || Number.isNaN(value)) return null
   for (const row of rangeSource?.ranges || []) {
     if (!rangeRowColor(row)) continue
-    const min = Number(row.min)
-    const max = Number(row.max)
-    const okMin = !Number.isFinite(min) || value >= min
-    const okMax = !Number.isFinite(max) || value <= max
-    if (okMin && okMax) return row
+    const min = rangeBound(row.min)
+    const max = rangeBound(row.max)
+    if ((min === null || value >= min) && (max === null || value <= max)) return row
+  }
+  return null
+}
+
+/**
+ * Значение, которое точно покрасит элемент строкой `row`, — для кнопок зон в панели
+ * симуляции. Закрытая зона — середина, открытая — шаг внутрь от заданной границы: сама
+ * граница inclusive и могла отойти соседней строке. Кандидат проверяется тем же
+ * `rangeRowFor` (рантайм берёт ПЕРВУЮ подходящую строку): если выше стоит строка,
+ * перекрывающая зону целиком, значения для неё нет — null.
+ */
+export function zoneValueFor(rangeSource, row) {
+  const lo = rangeBound(row?.min)
+  const hi = rangeBound(row?.max)
+  const candidates =
+    lo !== null && hi !== null
+      ? [(lo + hi) / 2, hi, lo]
+      : lo !== null
+        ? [lo + 1, lo]
+        : hi !== null
+          ? [hi - 1, hi]
+          : [0]
+  for (const raw of candidates) {
+    // Три знака — столько показывает поле значения в панели.
+    const v = Math.round(raw * 1000) / 1000
+    if (rangeRowFor(rangeSource, v) === row) return v
   }
   return null
 }

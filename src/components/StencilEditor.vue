@@ -35,9 +35,12 @@ import { presetEditResult, sameShapeStates } from '../utils/presetPatch'
 import { sanitizeSvgMarkup } from '../utils/sanitizeSvg'
 import { overlayButtonPositions } from '../utils/paperGeom'
 import { confirmDanger } from '../utils/confirmDanger'
+import { zoomKeyOf, toolDigitOf } from '../utils/viewKeys'
 import { range, rangeFromTo, gridLineColor, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
-import { TEXT_ICON, POLYLINE_ICON } from '../constants/icons'
+import { TEXT_ICON, POLYLINE_ICON, ROTATE_ICON } from '../constants/icons'
+import ContextMenuItem from './ContextMenuItem.vue'
+import GlyphIcon from './GlyphIcon.vue'
 import {
   getAllStencils,
   getStencilById,
@@ -131,6 +134,9 @@ const PORT_TOOL = {
   icon: 'pi pi-map-marker',
   tip: 'Порт (клик по существующему — выделить, Del — удалить)',
 }
+
+// Порядок кнопок в тулбаре = номера клавиш 1…6 (см. keydown ниже).
+const TOOL_KEYS = [...DRAW_TOOLS, PORT_TOOL].map((t) => t.key)
 
 // Тогл инструментов: повторный клик по активному возвращает к select.
 function pickTool(key) {
@@ -338,7 +344,7 @@ async function save() {
   // Проверки черновика — про фигуры и поля, которых у программного символа не правят.
   const issues = rangesOnly ? [] : stencilDraftIssues(meta, shapes.value, existingIds)
   if (issues.length) {
-    notify.warn('Проверьте символ', issues.join('; '))
+    notify.warn('Проверь символ', issues.join('; '))
     return
   }
   const prev = editing ? getStencilById(editing) : null
@@ -457,8 +463,8 @@ async function syncInstancesAndReport(stencilId, prev, title) {
   const detail = what.length ? what.join(', ') : stencilId
   if (detachedTotal) {
     const where = closed.detached
-      ? ' — порт удалён, проверьте другие формы'
-      : ' — порт удалён, перецепите'
+      ? ' — порт удалён, проверь другие формы'
+      : ' — порт удалён, перецепи'
     notify.warn(title, detail + where)
   } else notify.success(title, detail)
 }
@@ -1016,6 +1022,15 @@ function isInListWidget(t) {
 }
 useEventListener(window, 'keydown', (e) => {
   if (!ui.stencilEditorOpen) return
+  // Зум стола — как на холсте: Ctrl+= / Ctrl+− / Ctrl+0, и тоже только с курсором над
+  // столом (иначе это браузерный зум страницы).
+  const zoom = zoomKeyOf(e)
+  if (zoom && stageEl.value?.matches(':hover') && !document.querySelector('.p-dialog-mask')) {
+    e.preventDefault()
+    if (zoom === 'fit') manualScale.value = null
+    else zoomByStep(zoom === 'in' ? ZOOM_STEP : 1 / ZOOM_STEP)
+    return
+  }
   // Undo/redo — по физической клавише (event.code): на русской раскладке
   // e.key для Z/Y возвращает «Я»/«Н», литеральное сравнение сломалось бы.
   // В полях ввода (id/название/размер) не перехватываем — там нативный undo.
@@ -1092,6 +1107,14 @@ useEventListener(window, 'keydown', (e) => {
   }
   // Дальше — правка фигур и портов (см. shapesLocked).
   if (shapesLocked) return
+  // 1…6 — инструмент по номеру в тулбаре (рисование, затем порт); та же цифра — к
+  // выбору, как повторный клик. В полях и списках цифра — это ввод.
+  const toolKey = TOOL_KEYS[toolDigitOf(e)]
+  if (toolKey && !isInInput(e.target) && !isInListWidget(e.target)) {
+    e.preventDefault()
+    pickTool(toolKey)
+    return
+  }
   // Стрелки — сдвиг выделения, как на холсте: шаг сетки, с Shift — впятеро крупнее
   // (у фигур сетка 1px, у портов и размера символа — 5). В полях ввода не
   // перехватываем: там стрелки правят значение степпера.
@@ -1186,8 +1209,8 @@ const shapeOverlay = computed(() => {
   }
 })
 
-// Гейт держим здесь, а не только в разметке: через него проходят и кнопка, и пункт
-// меню, и хоткей — иначе клавиша делала бы «преобразование», которого не видно.
+// Гейт держим здесь, а не только в разметке: через него проходят и кнопка, и хоткей —
+// иначе клавиша делала бы «преобразование», которого не видно.
 function rotateSelectedBy(deg) {
   if (!canRotateSel.value) return
   ed.rotateShapes(selectedIds.value, deg < 0 ? -1 : 1)
@@ -1198,60 +1221,49 @@ function flipSelected(axis) {
 }
 
 // ПКМ по фигуре: порядок наложения и удаление — те же операции, что в меню холста.
-// Клик по невыделенной фигуре сначала выделяет её (как на холсте), поэтому команда
-// всегда работает с тем, на что нажали.
+// Поворот и отражение сюда не входят: у них кнопки над выделением и клавиши (R,
+// Shift+H/V). Клик по невыделенной фигуре сначала выделяет её (как на холсте), поэтому
+// команда всегда работает с тем, на что нажали.
 const ctxMenu = ref(null)
-const ctxItems = computed(() => {
-  // Пункты преобразований — под теми же предикатами, что кнопки: у симметричной
-  // фигуры подменю целиком не показываем, а не отдаём пункт-пустышку.
-  const flips = [
-    canFlipSelH.value && {
-      label: 'По горизонтали · Shift+H',
-      icon: 'pi pi-arrows-h',
-      command: () => flipSelected('h'),
-    },
-    canFlipSelV.value && {
-      label: 'По вертикали · Shift+V',
-      icon: 'pi pi-arrows-v',
-      command: () => flipSelected('v'),
-    },
-  ].filter(Boolean)
-  return [
-    {
-      label: 'Порядок',
-      icon: 'pi pi-sort-alt',
-      items: [
-        { label: 'На передний план', icon: 'pi pi-angle-double-up', command: () => order('front') },
-        { label: 'Выше', icon: 'pi pi-angle-up', command: () => order('forward') },
-        { label: 'Ниже', icon: 'pi pi-angle-down', command: () => order('backward') },
-        { label: 'На задний план', icon: 'pi pi-angle-double-down', command: () => order('back') },
-      ],
-    },
-    ...(canRotateSel.value
-      ? [
-          {
-            label: 'Повернуть',
-            icon: 'pi pi-refresh',
-            items: [
-              { label: 'По часовой · R', icon: 'pi pi-undo', command: () => rotateSelectedBy(90) },
-              {
-                label: 'Против часовой · Shift+R',
-                icon: 'pi pi-undo',
-                command: () => rotateSelectedBy(-90),
-              },
-            ],
-          },
-        ]
-      : []),
-    ...(flips.length ? [{ label: 'Отразить', icon: 'pi pi-arrows-h', items: flips }] : []),
-    { separator: true },
-    {
-      label: 'Удалить',
-      icon: 'pi pi-trash',
-      command: () => removeShapes(selectedIds.value),
-    },
-  ]
-})
+const ctxItems = [
+  {
+    label: 'Порядок',
+    icon: 'pi pi-sort-alt',
+    items: [
+      {
+        label: 'На передний план',
+        icon: 'pi pi-angle-double-up',
+        shortcut: 'Ctrl+Shift+]',
+        command: () => order('front'),
+      },
+      {
+        label: 'Выше',
+        icon: 'pi pi-angle-up',
+        shortcut: 'Ctrl+]',
+        command: () => order('forward'),
+      },
+      {
+        label: 'Ниже',
+        icon: 'pi pi-angle-down',
+        shortcut: 'Ctrl+[',
+        command: () => order('backward'),
+      },
+      {
+        label: 'На задний план',
+        icon: 'pi pi-angle-double-down',
+        shortcut: 'Ctrl+Shift+[',
+        command: () => order('back'),
+      },
+    ],
+  },
+  { separator: true },
+  {
+    label: 'Удалить',
+    icon: 'pi pi-trash',
+    shortcut: 'Del',
+    command: () => removeShapes(selectedIds.value),
+  },
+]
 
 function order(mode) {
   ed.reorderShapes(selectedIds.value, mode)
@@ -1262,6 +1274,9 @@ function onShapeContextMenu(event) {
   const id = el?.dataset?.id
   if (!id) return
   event.preventDefault()
+  // Все пункты меню правят рисунок, а у символа набора его задаёт набор. Del, R и
+  // Ctrl+[ ] там гасит тот же `shapesLocked` — меню не должно быть обходом.
+  if (shapesLocked) return
   if (!selectedSet.value.has(id)) select(id)
   ctxMenu.value?.show(event)
 }
@@ -1340,10 +1355,11 @@ onBeforeUnmount(() => {
            фоновый дефолт (повторный клик по активному инструменту или авто после
            добавления фигуры возвращают к нему). -->
         <div class="flex items-center gap-1">
+          <!-- Номер в тултипе = клавиша инструмента (TOOL_KEYS). -->
           <Button
-            v-for="t in DRAW_TOOLS"
+            v-for="(t, i) in DRAW_TOOLS"
             :key="t.key"
-            v-tooltip.bottom="t.tip"
+            v-tooltip.bottom="`${t.tip} · ${i + 1}`"
             :icon="t.icon"
             :severity="tool === t.key ? 'primary' : 'secondary'"
             :text="tool !== t.key"
@@ -1352,18 +1368,7 @@ onBeforeUnmount(() => {
             @click="pickTool(t.key)"
           >
             <template v-if="t.glyph" #icon>
-              <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
-                <path
-                  v-for="(el, i) in t.glyph"
-                  :key="i"
-                  :d="el.d"
-                  :fill="el.mode === 'fill' ? 'currentColor' : 'none'"
-                  :stroke="el.mode === 'stroke' ? 'currentColor' : 'none'"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
+              <GlyphIcon :glyph="t.glyph" />
             </template>
           </Button>
         </div>
@@ -1372,7 +1377,7 @@ onBeforeUnmount(() => {
 
         <!-- Порт — не рисунок, а точка подключения провода, поэтому своей группой. -->
         <Button
-          v-tooltip.bottom="PORT_TOOL.tip"
+          v-tooltip.bottom="`${PORT_TOOL.tip} · ${TOOL_KEYS.length}`"
           :icon="PORT_TOOL.icon"
           :severity="tool === PORT_TOOL.key ? 'primary' : 'secondary'"
           :text="tool !== PORT_TOOL.key"
@@ -1437,7 +1442,7 @@ onBeforeUnmount(() => {
       <div class="flex-1"></div>
 
       <Button
-        v-tooltip.bottom="'Отменить (Ctrl+Z)'"
+        v-tooltip.bottom="'Отменить · Ctrl+Z'"
         icon="pi pi-undo"
         severity="secondary"
         text
@@ -1447,8 +1452,8 @@ onBeforeUnmount(() => {
         @click="undo"
       />
       <Button
-        v-tooltip.bottom="'Вернуть (Ctrl+Shift+Z)'"
-        icon="pi pi-refresh"
+        v-tooltip.bottom="'Повторить · Ctrl+Y'"
+        icon="pi pi-undo -scale-x-100"
         severity="secondary"
         text
         size="small"
@@ -1463,7 +1468,7 @@ onBeforeUnmount(() => {
          удаление): ±, центр показывает масштаб и по клику вписывает символ. -->
       <div v-if="!rangesOnly" class="flex items-center">
         <Button
-          v-tooltip.bottom="'Уменьшить'"
+          v-tooltip.bottom="'Уменьшить · Ctrl+−'"
           icon="pi pi-minus"
           severity="secondary"
           text
@@ -1473,7 +1478,7 @@ onBeforeUnmount(() => {
           @click="zoomByStep(1 / ZOOM_STEP)"
         />
         <Button
-          v-tooltip.bottom="'Вписать символ · Ctrl+колесо — зум'"
+          v-tooltip.bottom="'Вписать символ · Ctrl+0; зум — Ctrl+колесо'"
           :label="`${zoomPercent}%`"
           severity="secondary"
           text
@@ -1482,7 +1487,7 @@ onBeforeUnmount(() => {
           @click="manualScale = null"
         />
         <Button
-          v-tooltip.bottom="'Увеличить'"
+          v-tooltip.bottom="'Увеличить · Ctrl+='"
           icon="pi pi-plus"
           severity="secondary"
           text
@@ -1924,7 +1929,6 @@ onBeforeUnmount(() => {
               <Button
                 v-if="shapeOverlay.canRotate"
                 v-tooltip.top="'Повернуть против часовой · Shift+R'"
-                icon="pi pi-undo"
                 severity="secondary"
                 rounded
                 size="small"
@@ -1932,11 +1936,12 @@ onBeforeUnmount(() => {
                 class="tms-overlay-btn"
                 :style="shapeOverlay.rotateCcw"
                 @click="rotateSelectedBy(-90)"
-              />
+              >
+                <template #icon><GlyphIcon :glyph="ROTATE_ICON" mirror /></template>
+              </Button>
               <Button
                 v-if="shapeOverlay.canRotate"
                 v-tooltip.top="'Повернуть по часовой · R'"
-                icon="pi pi-undo -scale-x-100"
                 severity="secondary"
                 rounded
                 size="small"
@@ -1944,7 +1949,9 @@ onBeforeUnmount(() => {
                 class="tms-overlay-btn"
                 :style="shapeOverlay.rotateCw"
                 @click="rotateSelectedBy(90)"
-              />
+              >
+                <template #icon><GlyphIcon :glyph="ROTATE_ICON" /></template>
+              </Button>
               <Button
                 v-if="shapeOverlay.canFlipH"
                 v-tooltip.top="'Отразить по горизонтали · Shift+H'"
@@ -1987,6 +1994,10 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- ПКМ по фигуре: порядок наложения + удаление (как в меню холста). -->
-    <ContextMenu ref="ctxMenu" :model="ctxItems" />
+    <ContextMenu ref="ctxMenu" :model="ctxItems">
+      <template #item="{ item, props, hasSubmenu }">
+        <ContextMenuItem :item="item" :bind="props" :has-submenu="hasSubmenu" />
+      </template>
+    </ContextMenu>
   </div>
 </template>

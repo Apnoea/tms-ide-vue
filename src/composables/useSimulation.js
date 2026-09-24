@@ -22,6 +22,7 @@ import {
   stateKeyFor,
   formatValueText,
   randomValueForTag,
+  slotRole,
 } from '../utils/simValues'
 import {
   EMPTY_TICKS,
@@ -33,7 +34,7 @@ import {
   replaceCurrentTick,
 } from '../utils/tickHistory'
 import { useProjectStore } from '../stores/useProjectStore'
-import { getStencilById, getAllStencils } from '../stencils/registry'
+import { getStencilById, getAllStencils, stateSlotOf } from '../stencils/registry'
 import { useCanvas } from './useCanvas'
 
 const SIM_CYCLE_MS = 1500
@@ -42,10 +43,10 @@ const SIM_CSS_ID = 'tms-sim-css'
 const TICK_HISTORY_MAX = 30
 
 /**
- * Слот, который драйвит состояние символа — любой НЕ `Text`: подпись со значением тега
- * тоже слот, и у символа с ней первый по порядку слот оказался бы подписью.
+ * Слот, который драйвит состояние символа, — то же правило, что у инспектора
+ * (`stateSlotOf`): ни подпись со значением, ни слот зон драйвером не бывают.
  */
-const stateSlotKey = (stencil) => stencil?.slots?.find((sl) => sl.type !== 'Text')?.key
+const stateSlotKey = (stencil) => stateSlotOf(stencil?.slots)?.key
 
 // СИНГЛТОН: композабл зовут и CanvasPane (запуск, классы), и SimulationPanel (значения
 // тегов), поэтому состояние живёт в модуле — иначе у панели была бы своя симуляция.
@@ -137,9 +138,8 @@ export function useSimulation() {
       for (const slot of stencil?.slots || []) {
         const tag = tms.slots?.[slot.key]
         if (!tag) continue
-        if (slot.type === 'Text') put(tag, 'value')
-        else if (stencil.states?.length) put(tag, 'state', { states: stencil.states })
-        else put(tag, 'bool')
+        const role = slotRole(slot, stencil)
+        put(tag, role, role === 'state' ? { states: stencil.states } : {})
       }
       const vs = cellRangeSource(cell, access)
       if (vs?.tag) put(vs.tag, 'value', { rangeSource: vs })

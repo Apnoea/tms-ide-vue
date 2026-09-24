@@ -647,12 +647,12 @@ export function stencilDraftProblems(meta, shapes, existingIds = []) {
   const problems = []
   const add = (field, message) => problems.push({ field, message })
   const id = (meta.id || '').trim()
-  if (!id) add('id', 'Укажите id')
+  if (!id) add('id', 'Укажи id')
   else if (!STENCIL_ID_RE.test(id)) add('id', 'id: только латиница в нижнем регистре, цифры и _')
   else if (existingIds.includes(id)) add('id', `id «${id}» уже занят`)
-  if (!(meta.label || '').trim()) add('label', 'Укажите название')
-  if (!(meta.category || '').trim()) add('category', 'Укажите категорию')
-  if (!shapes?.length) add('shapes', 'Добавьте хотя бы одну фигуру')
+  if (!(meta.label || '').trim()) add('label', 'Укажи название')
+  if (!(meta.category || '').trim()) add('category', 'Укажи категорию')
+  if (!shapes?.length) add('shapes', 'Добавь хотя бы одну фигуру')
   // Слот и суффикс у текста со значением один, поэтому вторая такая подпись в схему
   // не уедет.
   if ((shapes || []).filter((s) => s.type === 'text' && s.valueText).length > 1) {

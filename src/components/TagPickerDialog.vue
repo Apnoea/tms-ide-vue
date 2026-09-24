@@ -7,6 +7,7 @@ import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
 import { useTagList } from '../composables/useTagList'
+import { useProjectStore } from '../stores/useProjectStore'
 import { nplural } from '../utils/plural'
 
 /**
@@ -23,7 +24,7 @@ const props = defineProps({
   tags: { type: Array, default: () => [] },
   // Полное имя текущего тега — preselect'ит соответствующий option при открытии.
   selected: { type: String, default: '' },
-  header: { type: String, default: 'Выберите тег' },
+  header: { type: String, default: 'Выбери тег' },
 })
 
 const emit = defineEmits(['select', 'cancel', 'update:visible'])
@@ -33,6 +34,12 @@ const picked = ref(null)
 const searchRef = ref(null)
 
 const { pickTagList } = useTagList()
+
+// `tags` приходят отфильтрованными по типу привязки, поэтому пустой список ещё не
+// значит «tag-list не загружен»: загружен, но подходящих тегов в нём нет. Различаем по
+// всему списку проекта — иначе диалог предлагал бы загрузить уже загруженный файл.
+const project = useProjectStore()
+const tagListLoaded = computed(() => project.tags.length > 0)
 
 // Автофокус поиска после появления диалога (@show — уже отрисован/анимирован).
 function onShow() {
@@ -140,7 +147,7 @@ function cancel() {
           autofocus
           size="small"
           class="w-full"
-          placeholder="Поиск по имени..."
+          placeholder="Поиск по имени, описанию, объекту..."
           @keydown.enter.prevent="confirmActive"
         />
       </IconField>
@@ -178,9 +185,13 @@ function cancel() {
 
       <!-- Без файла тегов привязывать нечего — даём загрузку здесь же, диалог
            остаётся открытым и наполняется. -->
-      <div v-else-if="!tags.length" class="py-4 text-center space-y-3">
+      <div v-else-if="!tags.length && !tagListLoaded" class="py-4 text-center space-y-3">
         <p class="text-sm text-surface-400">Tag-list не загружен</p>
         <Button label="Загрузить tag-list" icon="pi pi-tags" size="small" @click="pickTagList()" />
+      </div>
+
+      <div v-else-if="!tags.length" class="py-4 text-center text-sm text-surface-400">
+        В tag-list нет тегов подходящего типа
       </div>
 
       <div v-else class="text-sm text-surface-400 py-4 text-center">Нет тегов по запросу</div>

@@ -154,3 +154,83 @@ describe('useHotkeys — порядок наложения', () => {
     expect(mockCanvas.reorderCells).not.toHaveBeenCalled()
   })
 })
+
+// Зум с клавиатуры — только над холстом: в остальном UI Ctrl+= / Ctrl+− это браузерный
+// зум страницы, и его не отбираем. Цифры 1…5 выбирают инструмент по номеру в тулбаре.
+describe('useHotkeys — зум и инструменты', () => {
+  let scope
+  let deps
+  let over
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    over = true
+    deps = {
+      undo: vi.fn(),
+      redo: vi.fn(),
+      scheduleSnapshot: vi.fn(),
+      copySelection: vi.fn(),
+      pasteClipboard: vi.fn(),
+      duplicateSelection: vi.fn(),
+      onExport: vi.fn(),
+      zoomIn: vi.fn(),
+      zoomOut: vi.fn(),
+      fitView: vi.fn(),
+      pointerOverCanvas: () => over,
+      drawTools: () => ['line', 'rect', 'circle', 'polyline', 'text'],
+      projectBusy: ref(false),
+    }
+    ;[, scope] = withSetup(() => useHotkeys(deps))
+  })
+
+  afterEach(() => scope?.stop())
+
+  it('над холстом Ctrl+= / Ctrl+− / Ctrl+0 зумят схему, браузерный зум погашен', () => {
+    const ev = new KeyboardEvent('keydown', { code: 'Equal', ctrlKey: true, cancelable: true })
+    window.dispatchEvent(ev)
+    key('Minus', { ctrlKey: true })
+    key('Digit0', { ctrlKey: true })
+    expect(ev.defaultPrevented).toBe(true)
+    expect(deps.zoomIn).toHaveBeenCalledTimes(1)
+    expect(deps.zoomOut).toHaveBeenCalledTimes(1)
+    expect(deps.fitView).toHaveBeenCalledTimes(1)
+  })
+
+  it('курсор не над холстом — клавиша остаётся браузеру', () => {
+    over = false
+    const ev = new KeyboardEvent('keydown', { code: 'Equal', ctrlKey: true, cancelable: true })
+    window.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(false)
+    expect(deps.zoomIn).not.toHaveBeenCalled()
+  })
+
+  it('цифра выбирает инструмент по номеру, та же цифра — обратно к выбору', async () => {
+    const { useUiStore } = await import('../stores/useUiStore')
+    const ui = useUiStore()
+    key('Digit2')
+    expect(ui.canvasTool).toBe('rect')
+    key('Digit2')
+    expect(ui.canvasTool).toBe('select')
+    key('Digit9') // инструмента с таким номером нет
+    expect(ui.canvasTool).toBe('select')
+  })
+
+  it('в поле ввода цифра — это ввод, а не инструмент', async () => {
+    const { useUiStore } = await import('../stores/useUiStore')
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit1', bubbles: true }))
+    expect(useUiStore().canvasTool).toBe('select')
+    input.remove()
+  })
+
+  it('в выпадающем списке цифра тоже его, а не инструмент', async () => {
+    const { useUiStore } = await import('../stores/useUiStore')
+    const select = document.createElement('div')
+    select.setAttribute('role', 'combobox')
+    document.body.appendChild(select)
+    select.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit1', bubbles: true }))
+    expect(useUiStore().canvasTool).toBe('select')
+    select.remove()
+  })
+})

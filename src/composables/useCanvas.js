@@ -177,6 +177,16 @@ const selectionLabel = computed(() => {
   return null
 })
 
+/**
+ * Экземпляры символа на активной форме. Общий для кнопки «такие же» в инспекторе и
+ * пункта контекстного меню: считать их двумя способами незачем.
+ */
+function cellsOfStencil(stencilId) {
+  const graph = graphRef.value
+  if (!graph || !stencilId) return []
+  return graph.getElements().filter((c) => c.get('tms')?.stencilId === stencilId)
+}
+
 export function useCanvas() {
   return {
     graphRef,
@@ -376,6 +386,15 @@ export function useCanvas() {
         cells.map((c) => c.id)
       )
       selection.value = [...cellItems, ...bridges]
+    },
+    cellsOfStencil,
+    /**
+     * Выделить все экземпляры символа на форме — «такие же» из инспектора и контекстного
+     * меню. Заблокированные тоже: их ищут глазами, а замок сам не даст их менять.
+     */
+    selectSameStencil(stencilId) {
+      const items = cellsOfStencil(stencilId).map((c) => ({ kind: 'cell', id: c.id }))
+      if (items.length) selection.value = items
     },
     setCursorLocal(point) {
       cursorLocal.value = point

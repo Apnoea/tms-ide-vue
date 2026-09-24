@@ -51,6 +51,39 @@ describe('StencilInspector: подпись', () => {
   })
 })
 
+// Тосты стоят в том же углу, что подвал с «Сохранить/Закрыть»: подвал публикует свою
+// высоту, и App.vue поднимает тосты над ним. jsdom без ResizeObserver — подставляем свой.
+describe('StencilInspector: подъём тостов над подвалом', () => {
+  it('публикует высоту подвала и снимает её на закрытии редактора', async () => {
+    const original = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class {
+      constructor(cb) {
+        this.cb = cb
+      }
+      observe(el) {
+        Object.defineProperty(el, 'offsetHeight', { value: 57, configurable: true })
+        this.cb([{ target: el }])
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    const lift = () => document.documentElement.style.getPropertyValue('--tms-toast-lift')
+    try {
+      useStencilEditor().reset()
+      const wrapper = mountWithApp(StencilInspector)
+      await wrapper.vm.$nextTick()
+      expect(lift()).toBe('57px')
+      wrapper.unmount()
+      expect(lift()).toBe('')
+    } finally {
+      // Не присваиванием undefined: vueuse проверяет `'ResizeObserver' in window`, и
+      // оставшееся пустое свойство сломало бы соседние тесты.
+      if (original) globalThis.ResizeObserver = original
+      else delete globalThis.ResizeObserver
+    }
+  })
+})
+
 // Проблемы черновика видны при вводе: иначе занятый id или пустая категория всплывают
 // только тостом после клика «Сохранить».
 describe('StencilInspector: подсветка проблем', () => {
@@ -73,8 +106,8 @@ describe('StencilInspector: подсветка проблем', () => {
     editor.meta.id = 'cell_new'
     editor.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
     wrapper = mountWithApp(StencilInspector)
-    expect(errors().join(' ')).toContain('Укажите название')
-    expect(errors().join(' ')).toContain('Укажите категорию')
+    expect(errors().join(' ')).toContain('Укажи название')
+    expect(errors().join(' ')).toContain('Укажи категорию')
   })
 
   it('занятый id виден сразу на поле id', () => {

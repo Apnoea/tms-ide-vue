@@ -48,7 +48,11 @@ export const useUiStore = defineStore('ui', () => {
     leftPaneOpen.value = !leftPaneOpen.value
   }
 
+  // С открытым редактором символов правая колонка не сворачивается: в ней его свойства
+  // и «Сохранить/Закрыть» (телепорт в подвал StencilInspector). Свёрнутая колонка
+  // размонтировала бы цель телепорта, и после разворота кнопки уже не вернулись бы.
   function toggleRightPane() {
+    if (stencilEditorOpen.value) return
     rightPaneOpen.value = !rightPaneOpen.value
   }
 

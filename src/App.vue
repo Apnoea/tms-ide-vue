@@ -41,6 +41,11 @@ function paneHeaderStyle(open, width) {
   return open ? { minWidth: `${width}px`, maxWidth: `${width}px` } : { minWidth: 0 }
 }
 
+const rightPaneTip = computed(() => {
+  if (ui.stencilEditorOpen) return 'Скрыть инспектор можно после закрытия редактора символов'
+  return ui.rightPaneOpen ? 'Скрыть инспектор' : 'Показать инспектор'
+})
+
 // beforeunload-гард только при saveError: запись в IndexedDB не проходит (квота /
 // приватный режим), autosave не спасает → закрытие вкладки теряет всё. В обычном
 // режиме (autosave пишет) не мешаем — данные уже в IDB, потери нет.
@@ -124,16 +129,20 @@ useEventListener(window, 'keydown', (event) => {
         :style="headerRightStyle"
       >
         <StatusBar />
-        <Button
-          v-tooltip.bottom="ui.rightPaneOpen ? 'Скрыть инспектор' : 'Показать инспектор'"
-          :icon="ui.rightPaneOpen ? 'pi pi-angle-double-right' : 'pi pi-angle-double-left'"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-icon-btn shrink-0 ml-auto"
-          :aria-pressed="!ui.rightPaneOpen"
-          @click="ui.toggleRightPane()"
-        />
+        <!-- Тултип на обёртке: у disabled-кнопки события мыши не приходят, а объяснить,
+             почему инспектор не прячется, нужно как раз тогда (см. toggleRightPane). -->
+        <span v-tooltip.bottom="rightPaneTip" class="ml-auto flex shrink-0">
+          <Button
+            :icon="ui.rightPaneOpen ? 'pi pi-angle-double-right' : 'pi pi-angle-double-left'"
+            severity="secondary"
+            text
+            size="small"
+            class="tms-icon-btn"
+            :disabled="ui.stencilEditorOpen"
+            :aria-pressed="!ui.rightPaneOpen"
+            @click="ui.toggleRightPane()"
+          />
+        </span>
       </div>
     </div>
 
@@ -217,7 +226,11 @@ useEventListener(window, 'keydown', (event) => {
       </Transition>
     </div>
 
-    <Toast position="bottom-right" />
+    <!-- Угол тостов — над подвалом инспектора: пока открыт редактор символов, там его
+         «Сохранить/Закрыть», и тост «Проверь символ» лёг бы прямо на них. Подвал
+         публикует свою высоту в `--tms-toast-lift` (StencilInspector), тосты встают над
+         ним. PrimeVue задаёт позицию инлайном, поэтому и подъём — инлайном, не классом. -->
+    <Toast position="bottom-right" :style="{ bottom: 'calc(20px + var(--tms-toast-lift, 0px))' }" />
     <ConfirmPopup />
     <HelpDialog />
     <PresetDialog />

@@ -66,3 +66,41 @@ describe('PalettePane: фильтр по набору', () => {
     expect(useUiStore().dragging).toBeNull()
   })
 })
+
+// Пусто из-за фильтров — сброс одним кликом; при поиске фильтры не действуют, и
+// кнопка там ничего бы не показала.
+describe('PalettePane: «Сбросить фильтры»', () => {
+  let wrapper
+
+  beforeEach(() => {
+    localStorage.clear()
+    // Символ только для сетей: фильтр «Энергетика» + фильтр по набору не оставят ничего.
+    registerStencil({ ...symbol('demo_net', 'Коммутатор Демо'), domains: ['network'] }, '<g/>')
+    wrapper = mountWithApp(PalettePane)
+  })
+
+  afterEach(() => {
+    wrapper.unmount()
+    unregisterStencil('demo_net')
+  })
+
+  const resetBtn = () => wrapper.findAll('button').find((b) => b.text() === 'Сбросить фильтры')
+
+  it('снимает и области, и набор — палитра снова полная', async () => {
+    const all = wrapper.findAll('.stencil-thumb').length
+    await wrapper.find('.tms-preset-badge').trigger('click')
+    const energy = wrapper.findAll('.tms-domain-chip').find((c) => c.text() === 'Энергетика')
+    await energy.trigger('click')
+    expect(wrapper.findAll('.stencil-thumb')).toHaveLength(0)
+
+    await resetBtn().trigger('click')
+    expect(wrapper.findAll('.stencil-thumb')).toHaveLength(all)
+    expect(wrapper.text()).not.toContain('Набор «Демо»')
+  })
+
+  it('пусто по поиску — кнопки нет', async () => {
+    await wrapper.find('input').setValue('несуществующий-символ')
+    expect(wrapper.text()).toContain('Ничего не нашлось')
+    expect(resetBtn()).toBeUndefined()
+  })
+})

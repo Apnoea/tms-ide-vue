@@ -10,6 +10,7 @@ vi.mock('../composables/useTagList', () => ({
 }))
 
 import TagPickerDialog from './TagPickerDialog.vue'
+import { useProjectStore } from '../stores/useProjectStore'
 
 const TAGS = [
   { name: 'BR1.ONOFF', type: 'Boolean' },
@@ -80,6 +81,19 @@ describe('TagPickerDialog', () => {
     expect(pickTagList).toHaveBeenCalled()
     // Диалог остаётся открытым — теги подтянутся в тот же список.
     expect(wrapper.emitted('update:visible')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('tag-list загружен, но подходящих тегов нет — загрузку не предлагает', async () => {
+    const wrapper = mountPicker({ tags: [] })
+    // Pinia ставится плагином при монтировании — стор тот же, что у диалога.
+    useProjectStore().setTags([{ name: 'P1.VALUE', type: 'Float' }])
+    await wrapper.vm.$nextTick()
+
+    expect(document.body.textContent).toContain('В tag-list нет тегов подходящего типа')
+    expect(wrapper.findAll('button').some((b) => b.text().includes('Загрузить tag-list'))).toBe(
+      false
+    )
     wrapper.unmount()
   })
 })

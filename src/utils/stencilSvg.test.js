@@ -254,7 +254,7 @@ describe('stencilDraftIssues', () => {
   })
 
   it('ловит пустой id', () => {
-    expect(stencilDraftIssues({ ...ok, id: '' }, shape)).toContain('Укажите id')
+    expect(stencilDraftIssues({ ...ok, id: '' }, shape)).toContain('Укажи id')
   })
 
   it('ловит недопустимые символы в id', () => {
@@ -268,12 +268,12 @@ describe('stencilDraftIssues', () => {
 
   it('требует название и категорию', () => {
     const issues = stencilDraftIssues({ ...ok, label: ' ', category: '' }, shape)
-    expect(issues).toContain('Укажите название')
-    expect(issues).toContain('Укажите категорию')
+    expect(issues).toContain('Укажи название')
+    expect(issues).toContain('Укажи категорию')
   })
 
   it('требует хотя бы одну фигуру', () => {
-    expect(stencilDraftIssues(ok, [])).toContain('Добавьте хотя бы одну фигуру')
+    expect(stencilDraftIssues(ok, [])).toContain('Добавь хотя бы одну фигуру')
   })
 
   it('требует размеры кратные 5 (минимум 10)', () => {
