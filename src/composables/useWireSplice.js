@@ -5,6 +5,7 @@ import { snapToGrid } from '../utils/grid'
 import { portPoints } from '../utils/portGeom'
 import { pickPassThroughPorts, spliceRotation } from '../utils/wireSplice'
 import { LINK_DEFAULTS } from '../stencils/linkDefaults'
+import { WIRE_ROUTE_STRAIGHT } from '../constants/wire'
 import { useCanvas } from './useCanvas'
 
 // Радиус хит-теста (paper-px) для «drop попал на провод».
@@ -40,6 +41,8 @@ export function useWireSplice() {
     let bestDist = SPLIT_HIT_RANGE
     for (const link of graph.getLinks()) {
       if (!link.get('source')?.id || !link.get('target')?.id) continue
+      // Прямой провод (сети) не режется: символ, брошенный на него, просто ставится.
+      if (link.get('tms')?.route === WIRE_ROUTE_STRAIGHT) continue
       const view = paper.findViewByModel(link)
       const cp = view?.getClosestPoint?.(point)
       if (!cp) continue

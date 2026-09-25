@@ -404,6 +404,8 @@ export function exportProject(graph, paper = null) {
       // Наконечники + геометрия концов: рисуются в группе провода (arrowExportSvg).
       arrowStart: linkTms.arrowStart || null,
       arrowEnd: linkTms.arrowEnd || null,
+      // Маршрут — только для редактора: рантайм рисует готовый путь из `d`.
+      route: linkTms.route || null,
       ends,
       // Порядок в полосе проводов (кто кого огибает); дно полосы не пишем.
       z: link.get('z') !== LINK_Z ? link.get('z') : null,

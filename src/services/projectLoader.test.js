@@ -293,6 +293,26 @@ describe('parseSvgProject', () => {
     expect(out.stencilIds).toContain('cell_nonexistent')
   })
 
+  it('маршрут провода переживает архив, мусорный — отбрасывается', () => {
+    const wire = (route) =>
+      `<path d="M 0 0 L 10 10" data-tms-meta='${JSON.stringify({
+        id: `w-${route}`,
+        source: { x: 0, y: 0 },
+        target: { x: 10, y: 10 },
+        route,
+      }).replace(/"/g, '&quot;')}'/>`
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">${wire('straight')}${wire('curvy')}</svg>`
+    const links = parseSvgProject(svg).cells.filter((c) => c.type === 'standard.Link')
+    const straight = links.find((l) => l.id === 'w-straight')
+    expect(straight.tms.route).toBe('straight')
+    expect(straight.router.name).toBe('normal')
+    expect(straight.connector.name).toBe('straight')
+    // Неизвестный маршрут в tms не селится и в следующий экспорт не уедет.
+    const junk = links.find((l) => l.id === 'w-curvy')
+    expect(junk.tms?.route).toBeUndefined()
+    expect(junk.router.name).toBe('gridRightAngle')
+  })
+
   it('пропускает провод без source/target — пишет в errors', () => {
     const meta = { id: 'link-x' } // нет source/target
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">

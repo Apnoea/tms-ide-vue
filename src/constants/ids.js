@@ -7,7 +7,7 @@
 //  • провод:          animation-wire-<shortId>
 
 import { cssColor, rangeRowColor } from './animation'
-import { ARROW_KINDS, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from './wire'
+import { ARROW_KINDS, WIRE_ROUTES, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from './wire'
 
 /**
  * Ключ слота, в который на холсте привязывают тег ЗОН диапазонов символа. Отдельный
@@ -207,6 +207,9 @@ export const LINK_META_FIELDS = [
   // толщины/цвета линии, поэтому его собирает linkStyleAttrs.
   { key: 'arrowStart', keep: Boolean, normalize: oneOf(ARROW_KINDS, undefined) },
   { key: 'arrowEnd', keep: Boolean, normalize: oneOf(ARROW_KINDS, undefined) },
+  // Маршрут: пишется только не-дефолтный. Роутер и коннектор по нему ставит
+  // `linkDefaultsFor` — в JointJS-модели они поля верхнего уровня, а не tms.
+  { key: 'route', keep: Boolean, normalize: oneOf(WIRE_ROUTES, undefined) },
 ]
 
 // ─── ID-генераторы ──────────────────────────────────────────────────────────

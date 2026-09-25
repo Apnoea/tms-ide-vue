@@ -1,9 +1,10 @@
 import { dia, shapes, anchors, connectionPoints, connectors, routers } from '@joint/core'
 import { tmsNamespace } from './tmsStencil'
 import {
-  LINK_DEFAULTS,
   arrowInsetJumpover,
+  arrowInsetStraight,
   gridRightAngleRouter,
+  linkDefaultsFor,
   linkStyleAttrs,
 } from './linkDefaults'
 
@@ -95,7 +96,12 @@ export function createCanvasPaper({
     // (остриё в точке соединения, тело — до основания). Под тем же именем, чтобы
     // провода прежних форм (имя коннектора лежит в graphJson) подхватили это без
     // миграции.
-    connectorNamespace: { ...connectors, jumpover: arrowInsetJumpover },
+    // `straight` — то же укорочение для прямого маршрута (без мостиков).
+    connectorNamespace: {
+      ...connectors,
+      jumpover: arrowInsetJumpover,
+      straight: arrowInsetStraight,
+    },
     drawGrid: {
       name: 'dot',
       color: gridColorFor(background),
@@ -146,12 +152,13 @@ export function createCanvasPaper({
     // Anchor — точка, от которой роутер строит путь: центр порта.
     defaultAnchor: anchors.center,
     // Новый провод рождается в «липких» настройках инструмента (workspace.wireStyle).
-    // Стиль пишется и в tms (round-trip), и в attrs (по ним рисует JointJS).
+    // Стиль пишется и в tms (round-trip), и в attrs (по ним рисует JointJS); маршрут —
+    // ещё и в роутер с коннектором.
     defaultLink: () => {
       const tms = wireStyle() || {}
       const attrs = linkStyleAttrs(tms)
       return new shapes.standard.Link({
-        ...LINK_DEFAULTS,
+        ...linkDefaultsFor(tms),
         ...(Object.keys(tms).length ? { tms: { ...tms } } : {}),
         ...(attrs ? { attrs } : {}),
       })

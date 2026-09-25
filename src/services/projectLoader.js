@@ -8,6 +8,7 @@ import {
   LINK_DEFAULTS,
   endPoint,
   isFreeEnd,
+  linkRouting,
   linkStyleAttrs,
   normalizeLinkZ,
 } from '../stencils/linkDefaults'
@@ -290,16 +291,21 @@ export function parseSvgProject(svgText) {
       // Порядок в полосе проводов: значение из чужого архива вне полосы вынесло бы
       // провод поверх символов.
       if (meta.z != null) link.z = normalizeLinkZ(meta.z)
-      // tms-поля провода по тому же дескриптору, что пишет exporter (LINK_META_FIELDS).
+      // tms-поля провода по тому же дескриптору, что пишет exporter (LINK_META_FIELDS),
+      // с той же чисткой, что у ячейки: архив чужой, и мусор уехал бы в следующий экспорт.
       for (const f of LINK_META_FIELDS) {
-        const v = meta[f.key]
+        const raw = meta[f.key]
+        if (raw === undefined) continue
+        const v = f.normalize ? f.normalize(raw) : raw
         if (v === undefined) continue
         link.tms = link.tms || {}
         link.tms[f.key] = v
       }
-      // Стиль линии из tms → attrs.line (иначе провод нарисуется дефолтным).
+      // Стиль линии из tms → attrs.line (иначе провод нарисуется дефолтным), маршрут —
+      // в роутер с коннектором.
       const styleAttrs = linkStyleAttrs(link.tms)
       if (styleAttrs) link.attrs = styleAttrs
+      Object.assign(link, linkRouting(link.tms?.route))
       cells.push(link)
     } catch (e) {
       errors.push(`Парсинг провода: ${e.message}`)

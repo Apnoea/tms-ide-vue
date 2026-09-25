@@ -36,7 +36,7 @@ import { sanitizeSvgMarkup } from '../utils/sanitizeSvg'
 import { overlayButtonPositions } from '../utils/paperGeom'
 import { confirmDanger } from '../utils/confirmDanger'
 import { zoomKeyOf, toolDigitOf } from '../utils/viewKeys'
-import { range, rangeFromTo, gridLineColor, tickInset, rulerTicks } from '../utils/editorRulers'
+import { GRID_PERIOD, gridPatternLines, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
 import { TEXT_ICON, POLYLINE_ICON, ROTATE_ICON } from '../constants/icons'
 import ContextMenuItem from './ContextMenuItem.vue'
@@ -558,11 +558,11 @@ const PORT_R = 1.5
 const PORT_STROKE = 0.5
 
 // ─── Сетка ───
-// Расчёты (шаг, уровни яркости, диапазоны) — в utils/editorRulers, здесь только
-// привязка к reactive-размерам и зуму.
-const gridX = computed(() => range(meta.width))
-const gridY = computed(() => range(meta.height))
-const lineColor = gridLineColor
+// Один паттерн (линии тайла — utils/editorRulers), браузер тиражирует его сам. Толщина
+// — 1 экранный px в user-единицах: `vector-effect` внутри паттерна не работает.
+const GRID_PATTERN_ID = 'tms-se-grid'
+const GRID_LINES = gridPatternLines()
+const gridStroke = computed(() => 1 / scale.value)
 
 // Расширенная сетка: та же сетка продолжается за границы символа в нередактируемую
 // зону. Отступ — видимая область вокруг карточки в user-единицах, при скролле и
@@ -573,8 +573,6 @@ const gridPadX = computed(() =>
 const gridPadY = computed(() =>
   Math.max(0, Math.ceil((stageH.value - pxH.value) / 2 / scale.value))
 )
-const gridXFull = computed(() => rangeFromTo(-gridPadX.value, meta.width + gridPadX.value))
-const gridYFull = computed(() => rangeFromTo(-gridPadY.value, meta.height + gridPadY.value))
 
 // ─── Пиксель события → user-координаты символа ───
 const svgEl = ref(null)
@@ -593,7 +591,8 @@ function snappedShape(e) {
 // ─── Линейка (координаты по краям холста) ───
 const RULER = 22 // px — толщина полос
 // Экранная позиция точки (0,0) SVG относительно stage с учётом центрирования и
-// скролла: тик юнита u стоит в origin + u*scale.
+// скролла: тик юнита u стоит в origin + u*scale. Origin — сдвиг ВСЕЙ группы делений
+// (`transform`), сами деления от него не зависят и на скролле не пересобираются.
 const originX = ref(0)
 const originY = ref(0)
 function updateRuler() {
@@ -607,8 +606,8 @@ function updateRuler() {
 }
 // Деления и подписи считает rulerTicks: major (÷10, с подписью), medium (÷5) и minor
 // (1, только при достаточном зуме).
-const rulerTicksX = computed(() => rulerTicks(meta.width, originX.value, scale.value))
-const rulerTicksY = computed(() => rulerTicks(meta.height, originY.value, scale.value))
+const rulerTicksX = computed(() => rulerTicks(meta.width, scale.value))
+const rulerTicksY = computed(() => rulerTicks(meta.height, scale.value))
 // Пересчёт при зуме, ресайзе и смене размера — после DOM-патча (flush: post); скролл
 // холста приходит через @scroll в шаблоне.
 watch([pxW, pxH, stageW, stageH], updateRuler, { flush: 'post' })
@@ -1554,25 +1553,27 @@ onBeforeUnmount(() => {
           :style="{ height: `${RULER}px` }"
         >
           <svg :width="stageW" :height="RULER" class="block">
-            <g v-for="t in rulerTicksX" :key="`rx${t.u}`">
-              <line
-                :x1="t.p"
-                :y1="RULER - tickInset(t.level)"
-                :x2="t.p"
-                :y2="RULER"
-                stroke="#94a3b8"
-                stroke-width="1"
-              />
-              <text
-                v-if="t.level === 'major'"
-                :x="t.p + 2"
-                y="9"
-                fill="#64748b"
-                font-size="9"
-                font-family="monospace"
-              >
-                {{ t.u }}
-              </text>
+            <g :transform="`translate(${originX} 0)`">
+              <g v-for="t in rulerTicksX" :key="`rx${t.u}`">
+                <line
+                  :x1="t.p"
+                  :y1="RULER - tickInset(t.level)"
+                  :x2="t.p"
+                  :y2="RULER"
+                  stroke="#94a3b8"
+                  stroke-width="1"
+                />
+                <text
+                  v-if="t.level === 'major'"
+                  :x="t.p + 2"
+                  y="9"
+                  fill="#64748b"
+                  font-size="9"
+                  font-family="monospace"
+                >
+                  {{ t.u }}
+                </text>
+              </g>
             </g>
           </svg>
         </div>
@@ -1604,26 +1605,28 @@ onBeforeUnmount(() => {
           :style="{ width: `${RULER}px` }"
         >
           <svg :width="RULER" :height="stageH" class="block">
-            <g v-for="t in rulerTicksY" :key="`ry${t.u}`">
-              <line
-                :x1="RULER - tickInset(t.level)"
-                :y1="t.p"
-                :x2="RULER"
-                :y2="t.p"
-                stroke="#94a3b8"
-                stroke-width="1"
-              />
-              <text
-                v-if="t.level === 'major'"
-                :x="RULER - 6"
-                :y="t.p - 2"
-                text-anchor="end"
-                fill="#64748b"
-                font-size="9"
-                font-family="monospace"
-              >
-                {{ t.u }}
-              </text>
+            <g :transform="`translate(0 ${originY})`">
+              <g v-for="t in rulerTicksY" :key="`ry${t.u}`">
+                <line
+                  :x1="RULER - tickInset(t.level)"
+                  :y1="t.p"
+                  :x2="RULER"
+                  :y2="t.p"
+                  stroke="#94a3b8"
+                  stroke-width="1"
+                />
+                <text
+                  v-if="t.level === 'major'"
+                  :x="RULER - 6"
+                  :y="t.p - 2"
+                  text-anchor="end"
+                  fill="#64748b"
+                  font-size="9"
+                  font-family="monospace"
+                >
+                  {{ t.u }}
+                </text>
+              </g>
             </g>
           </svg>
         </div>
@@ -1648,6 +1651,35 @@ onBeforeUnmount(() => {
               @dblclick="finishPolyline"
               @contextmenu="onShapeContextMenu"
             >
+              <!-- Сетка — один паттерн с тайлом GRID_PERIOD (userSpaceOnUse: тайлы
+                 привязаны к началу координат символа, в том числе за его границами). -->
+              <defs>
+                <pattern
+                  :id="GRID_PATTERN_ID"
+                  patternUnits="userSpaceOnUse"
+                  :width="GRID_PERIOD"
+                  :height="GRID_PERIOD"
+                >
+                  <template v-for="l in GRID_LINES" :key="l.p">
+                    <line
+                      :x1="l.p"
+                      y1="0"
+                      :x2="l.p"
+                      :y2="GRID_PERIOD"
+                      :stroke="l.color"
+                      :stroke-width="gridStroke"
+                    />
+                    <line
+                      x1="0"
+                      :y1="l.p"
+                      :x2="GRID_PERIOD"
+                      :y2="l.p"
+                      :stroke="l.color"
+                      :stroke-width="gridStroke"
+                    />
+                  </template>
+                </pattern>
+              </defs>
               <!-- Холст: та же канва (белый фон + сетка) продолжается за границы
                  символа, но на opacity .3 и без редактирования (pointer-events
                  none — рисуем только в области символа). Порядок: сначала вся
@@ -1660,52 +1692,24 @@ onBeforeUnmount(() => {
                   :height="meta.height + gridPadY * 2"
                   fill="#fff"
                 />
-                <line
-                  v-for="x in gridXFull"
-                  :key="`fvx${x}`"
-                  :x1="x"
-                  :y1="-gridPadY"
-                  :x2="x"
-                  :y2="meta.height + gridPadY"
-                  :stroke="lineColor(x)"
-                  stroke-width="1"
-                  vector-effect="non-scaling-stroke"
-                />
-                <line
-                  v-for="y in gridYFull"
-                  :key="`fhy${y}`"
-                  :x1="-gridPadX"
-                  :y1="y"
-                  :x2="meta.width + gridPadX"
-                  :y2="y"
-                  :stroke="lineColor(y)"
-                  stroke-width="1"
-                  vector-effect="non-scaling-stroke"
+                <rect
+                  :x="-gridPadX"
+                  :y="-gridPadY"
+                  :width="meta.width + gridPadX * 2"
+                  :height="meta.height + gridPadY * 2"
+                  :fill="`url(#${GRID_PATTERN_ID})`"
                 />
               </g>
+              <!-- Сетка символа шире его на толщину линии: иначе крайние линии (0 и
+                 W/H) обрезались бы пополам по границе прямоугольника. -->
               <g pointer-events="none">
                 <rect x="0" y="0" :width="meta.width" :height="meta.height" fill="#fff" />
-                <line
-                  v-for="x in gridX"
-                  :key="`vx${x}`"
-                  :x1="x"
-                  :y1="0"
-                  :x2="x"
-                  :y2="meta.height"
-                  :stroke="lineColor(x)"
-                  stroke-width="1"
-                  vector-effect="non-scaling-stroke"
-                />
-                <line
-                  v-for="y in gridY"
-                  :key="`hy${y}`"
-                  :x1="0"
-                  :y1="y"
-                  :x2="meta.width"
-                  :y2="y"
-                  :stroke="lineColor(y)"
-                  stroke-width="1"
-                  vector-effect="non-scaling-stroke"
+                <rect
+                  :x="-gridStroke / 2"
+                  :y="-gridStroke / 2"
+                  :width="meta.width + gridStroke"
+                  :height="meta.height + gridStroke"
+                  :fill="`url(#${GRID_PATTERN_ID})`"
                 />
               </g>
 

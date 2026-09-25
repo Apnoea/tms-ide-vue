@@ -19,6 +19,9 @@ import {
   isFreeEnd,
   endPoint,
   normalizeWireStyle,
+  linkDefaultsFor,
+  linkRouting,
+  arrowInsetStraight,
 } from './linkDefaults'
 
 // Порт шины стоит в СЕРЕДИНЕ толщины, и дефолт роутера (MAGNET_SIDE = ближайшая
@@ -324,6 +327,39 @@ describe('normalizeWireStyle', () => {
   it('не объект → пусто', () => {
     expect(normalizeWireStyle(null)).toEqual({})
     expect(normalizeWireStyle('solid')).toEqual({})
+  })
+
+  it('маршрут: «прямой» — липкий, неизвестный отбрасывается', () => {
+    expect(normalizeWireStyle({ route: 'straight' })).toEqual({ route: 'straight' })
+    expect(normalizeWireStyle({ route: 'manhattan' })).toEqual({})
+  })
+})
+
+// Маршрут провода: роутер и коннектор подбираются по `tms.route` во всех местах, где
+// провод рождается, — иначе прямой вернулся бы к сетке после вставки или загрузки.
+describe('маршрут провода', () => {
+  it('по умолчанию — по сетке, с мостиками', () => {
+    const cfg = linkDefaultsFor({})
+    expect(cfg.router.name).toBe('gridRightAngle')
+    expect(cfg.connector.name).toBe('jumpover')
+    expect(cfg.attrs.line.strokeWidth).toBe(2) // остальные дефолты на месте
+  })
+
+  it('прямой — без автоизломов и без мостиков', () => {
+    expect(linkRouting('straight')).toEqual({
+      router: { name: 'normal' },
+      connector: { name: 'straight' },
+    })
+    expect(linkDefaultsFor({ route: 'straight' }).router.name).toBe('normal')
+  })
+
+  it('прямой коннектор проходит через изломы и укорачивает путь под наконечником', () => {
+    const linkView = { model: { get: () => ({ arrowEnd: 'solid', strokeWidth: 2 }) } }
+    const d = arrowInsetStraight({ x: 0, y: 0 }, { x: 100, y: 0 }, [{ x: 50, y: 30 }], {}, linkView)
+    const path = typeof d === 'string' ? d : d.serialize()
+    expect(path).toMatch(/^M 0 0 L 50 30 L /)
+    // Конец не доходит до точки соединения (100, 0) — там остриё наконечника.
+    expect(path).not.toMatch(/L 100 0$/)
   })
 })
 

@@ -7,7 +7,13 @@ import { BUS_STENCIL_ID, LINK_META_FIELDS } from '../constants/ids'
 import { RANGE_FILL_CLASS, cssColor } from '../constants/animation'
 import { svgEl } from '../utils/xml'
 import { snapToGrid } from '../utils/grid'
-import { ARROW_KINDS, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire'
+import {
+  ARROW_KINDS,
+  WIRE_ROUTES,
+  WIRE_ROUTE_STRAIGHT,
+  WIRE_STROKE_MAX,
+  WIRE_STROKE_MIN,
+} from '../constants/wire'
 
 const { Directions } = routers.rightAngle
 
@@ -167,15 +173,40 @@ export const LINK_DEFAULTS = {
 }
 
 /**
+ * Прямой маршрут: `normal` ведёт линию через ручные изломы как есть, без автоизломов и
+ * логики сторон; коннектор `straight` (наш, с укорочением под наконечник) — без
+ * мостиков. Провода по сетке через прямые по-прежнему перепрыгивают: мостик рисует
+ * тот, у кого `jumpover`.
+ */
+const STRAIGHT_ROUTING = { router: { name: 'normal' }, connector: { name: 'straight' } }
+
+/** Роутер и коннектор по маршруту провода (`tms.route`); без маршрута — по сетке. */
+export function linkRouting(route) {
+  return route === WIRE_ROUTE_STRAIGHT
+    ? STRAIGHT_ROUTING
+    : { router: LINK_DEFAULTS.router, connector: LINK_DEFAULTS.connector }
+}
+
+/**
+ * Конфиг новой модели провода под его маршрут. Одна точка на все места, где провод
+ * рождается (рисование, вставка, загрузка), — иначе прямой провод после вставки или
+ * загрузки вернулся бы к сетке.
+ */
+export function linkDefaultsFor(tms) {
+  return { ...LINK_DEFAULTS, ...linkRouting(tms?.route) }
+}
+
+/**
  * Дефолтный вид провода — единый источник для полей инспектора и для решения «писать
  * ли значение в meta» (дефолты в `tms` не пишутся). Цвет шестизначный: короткую форму
- * `#000` из `attrs.line` `<input type="color">` не понимает.
+ * `#000` из `attrs.line` `<input type="color">` не понимает. `route: null` — по сетке.
  */
 export const WIRE_STYLE_DEFAULTS = {
   strokeWidth: LINK_DEFAULTS.attrs.line.strokeWidth,
   strokeColor: '#000000',
   arrowStart: null,
   arrowEnd: null,
+  route: null,
 }
 
 /** Значение равно дефолту. `undefined` («разные» у мульти-выделения) — нет. */
@@ -203,6 +234,7 @@ export function normalizeWireStyle(raw) {
   for (const key of ['arrowStart', 'arrowEnd']) {
     if (ARROW_KINDS.includes(src[key])) out[key] = src[key]
   }
+  if (WIRE_ROUTES.includes(src.route)) out.route = src.route
   return out
 }
 
@@ -360,6 +392,21 @@ export function arrowInsetJumpover(sourcePoint, targetPoint, route, args, linkVi
     args,
     linkView
   )
+}
+
+/**
+ * Коннектор прямого провода: то же укорочение под наконечник, но без мостиков.
+ * Регистрируется под именем `straight` в `connectorNamespace` (см. STRAIGHT_ROUTING).
+ */
+export function arrowInsetStraight(sourcePoint, targetPoint, route, args, linkView) {
+  const points = route || []
+  const { start, end } = arrowInsetEnds(
+    sourcePoint,
+    targetPoint,
+    points,
+    linkView?.model?.get?.('tms')
+  )
+  return connectors.straight.call(this, new g.Point(start), new g.Point(end), points, args)
 }
 
 /**

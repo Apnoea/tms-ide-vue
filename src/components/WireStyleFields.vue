@@ -1,6 +1,6 @@
 <script setup>
 /**
- * Поля вида провода: цвет, толщина, наконечники. Один набор контролов на два места
+ * Поля вида провода: цвет, толщина, маршрут, наконечники. Один набор контролов на два места
  * инспектора — свойства одиночного провода и мульти-выделение проводов, — иначе
  * разметка (и её поведение) разъезжалась бы по двум копиям.
  *
@@ -11,11 +11,11 @@ import InputNumber from 'primevue/inputnumber'
 import SelectButton from 'primevue/selectbutton'
 import ColorField from './ColorField.vue'
 import { isDefaultWireValue, WIRE_STYLE_DEFAULTS } from '../stencils/linkDefaults'
-import { WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire'
+import { WIRE_ROUTE_STRAIGHT, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire'
 
 const props = defineProps({
   /**
-   * { strokeColor, strokeWidth, arrowStart, arrowEnd }; undefined = «разные».
+   * { route, strokeColor, strokeWidth, arrowStart, arrowEnd }; undefined = «разные».
    * Имя не `style`: так зовётся fallthrough-атрибут, и внешний `style="…"` приехал бы
    * строкой в этот же prop.
    */
@@ -31,6 +31,12 @@ const mixed = (key) => props.values[key] === undefined
 /** Значение своё, а не дефолтное — только тогда показываем сброс. */
 const isCustom = (key) =>
   props.values[key] !== undefined && !isDefaultWireValue(key, props.values[key])
+
+// «По сетке» — отсутствие поля (`route: null`), в SelectButton ему нужно своё значение.
+const ROUTE_OPTIONS = [
+  { value: 'grid', label: 'По сетке' },
+  { value: WIRE_ROUTE_STRAIGHT, label: 'Прямой' },
+]
 </script>
 
 <template>
@@ -91,6 +97,26 @@ const isCustom = (key) =>
           <i class="pi pi-times text-[7px]!" />
         </button>
       </span>
+    </div>
+
+    <!-- Маршрут — после вида линии и перед наконечниками: цвет и толщину правят чаще
+         (маршрут «липкий», его выбирают раз на серию), а маршрут со стрелками — про
+         форму линии и её концы. У «разных» ни один вариант не подсвечен. -->
+    <div class="flex items-center gap-3">
+      <span class="tms-field-label shrink-0">
+        Маршрут
+        <span v-if="mixed('route')" class="text-surface-400">разные</span>
+      </span>
+      <SelectButton
+        :model-value="mixed('route') ? null : values.route || 'grid'"
+        :options="ROUTE_OPTIONS"
+        option-label="label"
+        option-value="value"
+        :allow-empty="false"
+        size="small"
+        class="ml-auto"
+        @update:model-value="(v) => emit('apply', 'route', v === 'grid' ? null : v)"
+      />
     </div>
 
     <!-- Наконечники смотрят В точку соединения, размер — от толщины линии.

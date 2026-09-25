@@ -39,6 +39,7 @@ import BodyStyleFields from './BodyStyleFields.vue'
 import { RANGE_SLOT, previewOuterKey } from '../constants/ids'
 import {
   isDefaultWireValue,
+  linkRouting,
   syncLinkEndMarkers,
   WIRE_STYLE_DEFAULTS,
 } from '../stencils/linkDefaults'
@@ -548,7 +549,7 @@ const ARROW_ENDS = [
   { key: 'arrowEnd', label: 'Стрелки в конце' },
 ]
 
-// ─── Провод: стиль линии (толщина / цвет / наконечники) ───
+// ─── Провод: маршрут и стиль линии (толщина / цвет / наконечники) ───
 //
 // Один блок на два случая: выделен один провод и выделено несколько. Правка
 // запоминается как «липкая» (workspace.wireStyle) и достаётся следующему нарисованному
@@ -589,10 +590,10 @@ const linkStyle = computed(() => {
  * следующий нарисованный провод получит тот же вид.
  */
 function applyLinkStyle(key, value) {
-  // У наконечников `null` — штатное «нет стрелки»; у толщины и цвета пустой ввод
-  // игнорируется (InputNumber отдаёт null при очистке поля).
-  const isArrow = key === 'arrowStart' || key === 'arrowEnd'
-  if (value == null && !isArrow) return
+  // У наконечников и маршрута `null` — штатное значение («нет стрелки», «по сетке»); у
+  // толщины и цвета пустой ввод игнорируется (InputNumber отдаёт null при очистке поля).
+  const nullable = key === 'arrowStart' || key === 'arrowEnd' || key === 'route'
+  if (value == null && !nullable) return
   const isDefault = isDefaultWireValue(key, value)
   workspace.setWireStyle({ [key]: isDefault ? null : value })
   const targets = linkTargets.value
@@ -604,6 +605,8 @@ function applyLinkStyle(key, value) {
     if (isDefault) delete next[key]
     else next[key] = value
     link.set('tms', next)
+    // Маршрут рисуют роутер и коннектор (поля модели, а не tms).
+    if (key === 'route') link.set(linkRouting(next.route))
     // Наконечник зависит от толщины и цвета линии, а точка — от привязки конца:
     // маркеры пересобираются тем же билдером, что и при загрузке формы.
     syncLinkEndMarkers(link, canvas.paperRef.value)

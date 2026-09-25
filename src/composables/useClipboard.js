@@ -4,7 +4,12 @@ import { getStencilById } from '../stencils/registry'
 import { materializeStencil } from '../stencils/svgInjector'
 import { isShapeCell, materializeShape } from '../stencils/shapeElement'
 import { translateShape } from '../utils/stencilSvg'
-import { LINK_DEFAULTS, isFreeEnd, linkStyleAttrs, normalizeLinkZ } from '../stencils/linkDefaults'
+import {
+  isFreeEnd,
+  linkDefaultsFor,
+  linkStyleAttrs,
+  normalizeLinkZ,
+} from '../stencils/linkDefaults'
 import { isBackgroundZ } from '../utils/zOrder'
 import { nplural } from '../utils/plural'
 import { snapToGrid } from '../utils/grid'
@@ -186,7 +191,7 @@ export function useClipboard({ scheduleSnapshot }) {
 
     // Восстанавливаем bridge-линии: id ячеек перевешиваем через oldToNew,
     // port-id'ы остаются те же (новые ячейки того же символа имеют такие же
-    // порты). Конструируем явно через new shapes.standard.Link(LINK_DEFAULTS) —
+    // порты). Конструируем явно через new shapes.standard.Link(linkDefaultsFor(tms)) —
     // иначе graph.addCell(jsonSpec) теряет router/connector/attrs (factory
     // defaultLink на JSON-path не применяется), и линки получаются «голые».
     let linksAdded = 0
@@ -204,7 +209,7 @@ export function useClipboard({ scheduleSnapshot }) {
       const target = pasteEnd(linkSnap.target)
       if (!source || !target) continue
       const linkModel = new shapes.standard.Link({
-        ...LINK_DEFAULTS,
+        ...linkDefaultsFor(linkSnap.tms),
         source,
         target,
         // Изломы сдвигаем на тот же вектор, что и ячейки — маршрут сохраняет форму.

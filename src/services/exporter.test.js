@@ -1033,6 +1033,7 @@ describe('exportProject', () => {
     strokeColor: '#ff0000',
     arrowStart: 'open',
     arrowEnd: 'solid',
+    route: 'straight',
   }
 
   it('инвариант: каждое поле LINK_META_FIELDS переживает экспорт → разбор', () => {

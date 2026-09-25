@@ -145,3 +145,17 @@ describe('spliceCellIntoLink', () => {
     expect(seg2.vertices()).toHaveLength(0)
   })
 })
+
+// Прямой провод (сети) не режется: брошенный на него символ просто ставится рядом.
+describe('findLinkAtPoint', () => {
+  it('провод по сетке под курсором находится', () => {
+    const { link } = makeScene()
+    expect(useWireSplice().findLinkAtPoint({ x: 100, y: 52 })?.id).toBe(link.id)
+  })
+
+  it('прямой провод врезку не принимает', () => {
+    const { link } = makeScene()
+    link.set('tms', { ...link.get('tms'), route: 'straight' })
+    expect(useWireSplice().findLinkAtPoint({ x: 100, y: 52 })?.id ?? null).toBeNull()
+  })
+})
