@@ -15,6 +15,7 @@ import {
 } from '../stencils/linkDefaults'
 import { getStencilById } from '../stencils/registry'
 import { injectStencilSvg } from '../stencils/svgInjector'
+import { createHoverRaise } from '../stencils/hoverRaise'
 import {
   createCanvasGraph,
   createCanvasPaper,
@@ -550,13 +551,17 @@ onMounted(async () => {
   paper.on('element:pointerup', (view) => syncBusAttachment(view.model))
 
   // Hover-tooltip: показывается при mouseenter, скрывается при leave и
-  // element:pointerdown (blank:pointerdown гасит его выше).
+  // element:pointerdown (blank:pointerdown гасит его выше). Символ под курсором
+  // поднимается над соседями, иначе они закрывают его порты (hoverRaise).
+  const hoverRaise = createHoverRaise(paper)
   paper.on('element:mouseenter', (view) => {
     hoveredCellId.value = view.model.id // для пунктирной рамки группы
+    hoverRaise.raise(view)
     showCellTooltip(view)
   })
   paper.on('element:mouseleave', () => {
     hoveredCellId.value = null
+    hoverRaise.lower()
     hideCellTooltip()
   })
   paper.on('element:pointerdown', hideCellTooltip)

@@ -38,15 +38,38 @@ const jsonFile = (value) => strToU8(JSON.stringify(value, null, 2) + '\n')
 
 /**
  * Дерево форм IDE (`[{ id, children }]`) → навигация WebScada
- * (`[{ viewId, name, children }]`). `name` — подпись в дереве сервера; своего названия
- * у формы нет, поэтому это её id.
+ * (`[{ viewId, name, children }]`). `name` — подпись в дереве сервера и в пунктах
+ * перехода: название формы, без него — id.
  */
-function toNavTree(nodes) {
+function toNavTree(nodes, titles) {
+  // Только свои ключи: у формы `constructor` обычное чтение дало бы функцию из
+  // прототипа, и JSON выкинул бы `name` целиком.
+  const titleOf = (id) => (titles && Object.hasOwn(titles, id) ? titles[id] : '')
   return (nodes || []).map((n) => ({
     viewId: n.id,
-    name: n.id,
-    children: toNavTree(n.children),
+    name: titleOf(n.id) || n.id,
+    children: toNavTree(n.children, titles),
   }))
+}
+
+/** Предел обхода навигации — тот же, что у дерева в сторе: глубже узлы отбрасываются. */
+const NAV_DEPTH_MAX = 32
+
+/**
+ * Названия форм из навигации сервера: `name`, отличный от `viewId`. Равный id — не
+ * название, а подпись по умолчанию (так пишет и сама IDE). Значения сырые — чистит
+ * стор (`loadFormTitle`).
+ */
+function navTitles(nodes, out = {}, depth = 0) {
+  const list = Array.isArray(nodes) ? nodes : nodes && typeof nodes === 'object' ? [nodes] : []
+  if (depth > NAV_DEPTH_MAX) return out
+  for (const n of list) {
+    const id = n?.viewId || n?.id
+    if (typeof id !== 'string') continue
+    if (typeof n.name === 'string' && n.name.trim() && n.name.trim() !== id) out[id] = n.name
+    navTitles(n.children, out, depth + 1)
+  }
+  return out
 }
 
 /**
@@ -71,9 +94,10 @@ function fromNavTree(nodes) {
  *   stencils?: { id: string, stencilJson: object, shapeSvg: string }[],
  *   tagsText?: string | null,
  *   hierarchy?: Array | null,
+ *   titles?: Record<string, string> | null,
  *   project?: object | null,
  *   presets?: { id, name, version, description?, stencils: object[] }[]
- * }} bundle
+ * }} bundle — `titles`: названия форм по id, уходят в `name` узлов `nav.json`
  * @returns {Blob}
  */
 export function buildProjectZipBlob({
@@ -82,6 +106,7 @@ export function buildProjectZipBlob({
   stencils,
   tagsText,
   hierarchy,
+  titles,
   project,
   presets,
 }) {
@@ -93,7 +118,7 @@ export function buildProjectZipBlob({
   files['projects-list.json'] = jsonFile([{ id: projectId, name: projectId, description: '' }])
   files['user-projects.json'] = jsonFile({ [DEFAULT_USER]: [projectId] })
   // Дерево навигации пишем ВСЕГДА, даже пустым: без nav.json сервер не покажет проект.
-  files[`${root}nav.json`] = jsonFile(toNavTree(hierarchy))
+  files[`${root}nav.json`] = jsonFile(toNavTree(hierarchy, titles))
 
   for (const f of forms) {
     // Последний рубеж перед путём в архиве: `..` или слэш в id формы увели бы файл
@@ -172,9 +197,10 @@ export async function pickProjectArchive() {
  *   stencils: { id: string, stencilJson: object, shapeSvg: string }[],
  *   tagsText: string | null,
  *   hierarchy: Array | null,
+ *   navTitles: Record<string, string>,
  *   project: object | null,
  *   presets: { id, name, version, description, stencils: object[] }[]
- * }>}
+ * }>} navTitles — названия форм из `name` узлов `nav.json` (сырые, чистит стор)
  */
 export async function readProjectZipFile(file) {
   let entries
@@ -227,10 +253,13 @@ export async function readProjectZipFile(file) {
   // Дерево: `nav.json` (WebScada) либо `hierarchy.json` прошлых архивов. Формы узлов
   // разные, приводим к виду стора — `[{ id, children }]`.
   let hierarchy = null
+  let titles = {}
   const navText = text('nav.json') ?? text('hierarchy.json')
   if (navText) {
     try {
-      hierarchy = fromNavTree(JSON.parse(navText))
+      const nav = JSON.parse(navText)
+      hierarchy = fromNavTree(nav)
+      titles = navTitles(nav)
     } catch {
       hierarchy = null
     }
@@ -266,5 +295,5 @@ export async function readProjectZipFile(file) {
     }
   }
 
-  return { forms, stencils, tagsText, hierarchy, project, presets }
+  return { forms, stencils, tagsText, hierarchy, navTitles: titles, project, presets }
 }

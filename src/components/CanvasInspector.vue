@@ -36,6 +36,7 @@ import ShapeBlock from './ShapeBlock.vue'
 import ValueBlock from './ValueBlock.vue'
 import AlignBlock from './AlignBlock.vue'
 import BodyStyleFields from './BodyStyleFields.vue'
+import FormTitleField from './FormTitleField.vue'
 import { RANGE_SLOT, previewOuterKey } from '../constants/ids'
 import {
   isDefaultWireValue,
@@ -1009,6 +1010,7 @@ const {
   navSuggestions,
   otherFormIds,
   navBroken,
+  navTargetTitle,
   toggleNavigationEnabled,
   onNavComplete,
   commitNav,
@@ -1121,34 +1123,24 @@ const {
         </div>
       </template>
 
+      <!-- Ничего не выделено — свойства активной формы: название и сводка. -->
       <template v-else-if="!details">
-        <div>
-          <div class="tms-empty">
-            <i class="pi pi-mouse text-3xl mb-3 opacity-60" />
-            <div class="tms-empty-title">Ничего не выделено</div>
-            <p class="tms-hint max-w-[180px]">
-              Кликни по символу или проводу на холсте — здесь появятся свойства
-            </p>
-          </div>
-
-          <!-- Холостой инспектор не простаивает: сводка активной формы сразу под
-               подсказкой. -->
-          <div class="space-y-4 border-t border-surface-200 pt-4 text-[11px]">
-            <div>
-              <div class="mb-2 uppercase tracking-wider text-surface-500">Сводка формы</div>
-              <div class="flex flex-col gap-1 text-surface-600">
-                <div class="flex justify-between">
-                  <span>Символы</span>
-                  <span class="font-mono">{{ canvas.cellsCount.value }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span>Провода</span>
-                  <span class="font-mono">{{ canvas.linksCount.value }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span>Теги в tag-list</span>
-                  <span class="font-mono">{{ project.tags.length }}</span>
-                </div>
+        <div class="space-y-4 text-[11px]">
+          <FormTitleField />
+          <div>
+            <div class="mb-2 uppercase tracking-wider text-surface-500">Сводка формы</div>
+            <div class="flex flex-col gap-1 text-surface-600">
+              <div class="flex justify-between">
+                <span>Символы</span>
+                <span class="font-mono">{{ canvas.cellsCount.value }}</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Провода</span>
+                <span class="font-mono">{{ canvas.linksCount.value }}</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Теги в tag-list</span>
+                <span class="font-mono">{{ project.tags.length }}</span>
               </div>
             </div>
           </div>
@@ -1258,7 +1250,18 @@ const {
                   @item-select="commitNav"
                   @blur="commitNav"
                   @keyup.enter="commitNav"
-                />
+                >
+                  <!-- В поле пишется id (адрес view), а узнают форму по названию. -->
+                  <template #option="{ option }">
+                    <span class="font-mono">{{ option }}</span>
+                    <span v-if="workspace.formTitleOf(option)" class="ml-2 text-surface-500">
+                      {{ workspace.formTitleOf(option) }}
+                    </span>
+                  </template>
+                </AutoComplete>
+                <div v-if="navTargetTitle" class="truncate text-[11px] text-surface-500">
+                  {{ navTargetTitle }}
+                </div>
                 <div v-if="navBroken" class="text-[11px] text-surface-500">
                   Внешняя view (не среди загруженных форм) — сработает, если она есть в рантайме
                 </div>

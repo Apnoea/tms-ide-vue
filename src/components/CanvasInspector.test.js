@@ -406,11 +406,12 @@ describe('CanvasInspector: стиль провода', () => {
     expect(useWorkspaceStore().wireStyle.strokeColor).toBe('#123456')
   })
 
-  it('при пустом выделении блока стиля нет — прежняя заглушка', async () => {
+  it('при пустом выделении блока стиля нет — свойства формы', async () => {
     canvas.clearSelection()
     mount()
     await wrapper.vm.$nextTick()
-    expect(wrapper.text()).toContain('Ничего не выделено')
+    expect(wrapper.text()).toContain('Название формы')
+    expect(wrapper.text()).toContain('Сводка формы')
     expect(wrapper.findComponent(ColorField).exists()).toBe(false)
   })
 

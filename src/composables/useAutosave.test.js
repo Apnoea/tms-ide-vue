@@ -188,6 +188,7 @@ describe('useAutosave', () => {
         hierarchy: [{ id: 'main', children: [] }],
         projectName: null,
         formBg: {},
+        formTitle: {},
         wireStyle: {}, // вид нового провода — липкая настройка инструмента
       })
       expect(idbStore.get(formKey('main'))).toEqual({ cells: [] })
@@ -349,6 +350,7 @@ describe('useAutosave', () => {
         hierarchy: [],
         projectName: null,
         formBg: {},
+        formTitle: {},
         wireStyle: {}, // вид нового провода — липкая настройка инструмента
       })
     })
@@ -367,6 +369,17 @@ describe('useAutosave', () => {
         strokeColor: '#ff0000',
         strokeWidth: 4,
       })
+    })
+
+    it('название формы само уходит в мету', async () => {
+      vi.useFakeTimers()
+      const ws = useWorkspaceStore()
+      ws.loadForms([{ id: 'main', graphJson: { cells: [] } }], 'main')
+      setup()
+      ws.setFormTitle('main', 'Главная схема')
+      await vi.advanceTimersByTimeAsync(400)
+      vi.useRealTimers()
+      expect(idbStore.get(META_KEY).formTitle).toEqual({ main: 'Главная схема' })
     })
   })
 
@@ -399,6 +412,7 @@ describe('useAutosave', () => {
         ],
         projectName: null,
         formBg: {},
+        formTitle: {},
         wireStyle: {}, // вид нового провода — липкая настройка инструмента
       })
       expect(idbStore.get('project:tags')).toBe('TAG1;Bool')

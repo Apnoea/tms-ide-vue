@@ -54,8 +54,10 @@ export function stateColorClass(stencilId, key) {
   return `${STATE_COLOR_PREFIX}${stencilId}-${key}`
 }
 
-// Opt-in заливка для state-color: маркер ставит serializeSvg на фигуры с реальным
-// fill. Красим только их — иначе контуры и hit-area залились бы «блобом».
+// Opt-in заливка для state-color: маркер ставит serializeSvg на замкнутые фигуры
+// (rect/circle/polygon) — иначе линии и hit-area залились бы «блобом». Из них красим
+// только фигуры без своей заливки (`fill="none"`): свою заливку автор включил
+// руками, и цвет состояния её не перебивает. См. takesStateFill.
 export const STATE_FILL_CLASS = 'tms-state-fill'
 
 // Opt-in заливка по диапазонам/off: тело шины, точка соединения, наконечник провода.
@@ -110,10 +112,12 @@ export function buildStateColorCssRules(stencils, { scope = '', strokeExtra = ''
           `${sel}, ${sel} *:not(text)${strokeExtra} { stroke: ${stroke} !important; }`,
           textStrokeReset(sel)
         )
-      if (fill)
-        rules.push(
-          `${sel} .${STATE_FILL_CLASS}, ${sel}.${STATE_FILL_CLASS} { fill: ${fill} !important; }`
-        )
+      // Фильтр по атрибуту, а не только по маркеру: маркер стоит и на залитых фигурах
+      // (он про геометрию), в том числе в уже сохранённых символах и наборах.
+      if (fill) {
+        const own = `.${STATE_FILL_CLASS}[fill="none"]`
+        rules.push(`${sel} ${own}, ${sel}${own} { fill: ${fill} !important; }`)
+      }
     }
   }
   return rules

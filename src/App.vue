@@ -1,5 +1,5 @@
 <script setup>
-import { computed, watch, defineAsyncComponent } from 'vue'
+import { computed, watch, watchEffect, defineAsyncComponent } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import Button from 'primevue/button'
 import Divider from 'primevue/divider'
@@ -53,6 +53,13 @@ useEventListener(window, 'beforeunload', (e) => {
   if (!canvas.saveError.value) return
   e.preventDefault()
   e.returnValue = ''
+})
+
+// Заголовок окна: «TMS IDE · <название формы>», без названия — её id. Окно десктопа
+// берёт заголовок из документа.
+watchEffect(() => {
+  const id = workspace.activeFormId
+  document.title = id ? `TMS IDE · ${workspace.formLabel(id)}` : 'TMS IDE'
 })
 
 // Десктоп-оболочка сама показывает подтверждение при закрытии окна, но состояние

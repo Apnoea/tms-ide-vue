@@ -2,8 +2,8 @@ import { FORM_ID_RE, FORM_ID_MAX, safeFormId } from '../constants/ids'
 
 /**
  * Приведение имён форм чужого архива к безопасным id (маска — `FORM_ID_RE` в
- * constants/ids) + перенос всего, что этими id адресуется: навигация, иерархия, фон
- * формы. Формы переименовываются, а не отбрасываются.
+ * constants/ids) + перенос всего, что этими id адресуется: навигация, иерархия, фон и
+ * название формы. Формы переименовываются, а не отбрасываются.
  */
 
 /**
@@ -75,11 +75,41 @@ export function remapTree(nodes, map) {
   })
 }
 
-/** Редакторная мета проекта (`project.json`): фон привязан к id формы. */
+/**
+ * Названия форм из архива — в мету проекта. Приходят двумя путями: `project.json`
+ * (всех форм, в том числе вне дерева) и `name` узлов `nav.json` — его видит и правит
+ * сервер, поэтому он главнее. Форме, чьё имя пришлось заменить (кириллица, пробелы),
+ * прежнее имя остаётся названием: иначе от «Главная схема» остался бы только `form_1`.
+ * Ключи — имена из архива, на id их переносит `remapProjectMeta`.
+ *
+ * @param {object|null} project — `project.json` архива
+ * @param {Record<string,string>|undefined} navTitles — из `nav.json`
+ * @param {Array<[string,string]>} renamed — `renameFormIds(...).renamed`
+ */
+export function withImportedTitles(project, navTitles, renamed) {
+  const own = project?.formTitle
+  const formTitle = {
+    ...Object.fromEntries((renamed || []).map(([from]) => [from, from])),
+    ...(own && typeof own === 'object' ? own : {}),
+    ...(navTitles || {}),
+  }
+  if (!Object.keys(formTitle).length) return project
+  return { ...project, formTitle }
+}
+
+/** Поля `project.json`, адресованные id формы. */
+const FORM_KEYED_META = ['formBg', 'formTitle']
+
+/** Редакторная мета проекта (`project.json`): фон и название привязаны к id формы. */
 export function remapProjectMeta(project, map) {
-  const bg = project?.formBg
-  if (!bg || typeof bg !== 'object' || !map?.size) return project
-  const formBg = {}
-  for (const [id, color] of Object.entries(bg)) formBg[map.get(id) ?? id] = color
-  return { ...project, formBg }
+  if (!project || typeof project !== 'object' || !map?.size) return project
+  const out = { ...project }
+  for (const field of FORM_KEYED_META) {
+    const byId = project[field]
+    if (!byId || typeof byId !== 'object') continue
+    const next = {}
+    for (const [id, value] of Object.entries(byId)) next[map.get(id) ?? id] = value
+    out[field] = next
+  }
+  return out
 }

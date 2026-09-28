@@ -54,8 +54,43 @@ describe('projectZip', () => {
     const json = (p) => JSON.parse(strFromU8(entries[p]))
     expect(json('projects-list.json')).toEqual([{ id: 'PRJ', name: 'PRJ', description: '' }])
     expect(json('user-projects.json')).toEqual({ test: ['PRJ'] })
-    // Узел навигации несёт viewId и подпись; своего названия у формы нет — это её id.
+    // Узел навигации несёт viewId и подпись; у формы без названия подпись — её id.
     expect(json('PRJ/nav.json')).toEqual([{ viewId: 'main', name: 'main', children: [] }])
+  })
+
+  it('название формы уезжает в name узла nav.json и читается обратно', async () => {
+    const blob = buildProjectZipBlob({
+      projectId: 'PRJ',
+      forms: [
+        { id: 'main', viewSvg: '<svg/>', animationsJson: '{}' },
+        { id: 'sub', viewSvg: '<svg/>', animationsJson: '{}' },
+      ],
+      hierarchy: [{ id: 'main', children: [{ id: 'sub', children: [] }] }],
+      titles: { main: 'Главная схема' },
+    })
+    const entries = unzipSync(new Uint8Array(await blob.arrayBuffer()))
+    expect(JSON.parse(strFromU8(entries['PRJ/nav.json']))).toEqual([
+      {
+        viewId: 'main',
+        name: 'Главная схема',
+        children: [{ viewId: 'sub', name: 'sub', children: [] }],
+      },
+    ])
+    // name, равный id, — подпись по умолчанию, а не название.
+    expect((await readProjectZipFile(blob)).navTitles).toEqual({ main: 'Главная схема' })
+  })
+
+  it('id формы из прототипа объекта не теряет name в nav.json', async () => {
+    const blob = buildProjectZipBlob({
+      projectId: 'PRJ',
+      forms: [{ id: 'constructor', viewSvg: '<svg/>', animationsJson: '{}' }],
+      hierarchy: [{ id: 'constructor', children: [] }],
+      titles: {},
+    })
+    const entries = unzipSync(new Uint8Array(await blob.arrayBuffer()))
+    expect(JSON.parse(strFromU8(entries['PRJ/nav.json']))).toEqual([
+      { viewId: 'constructor', name: 'constructor', children: [] },
+    ])
   })
 
   it('nav.json пишется даже пустым: без него сервер не покажет проект', async () => {
@@ -93,6 +128,7 @@ describe('projectZip', () => {
     }
     const data = await readProjectZipFile(new Blob([zipSync(files)]))
     expect(data.hierarchy).toEqual([{ id: 'root', children: [{ id: 'sub', children: [] }] }])
+    expect(data.navTitles).toEqual({ root: 'Подстанция' })
   })
 
   it('XML-дерево тегов уезжает как taglist.xml и читается обратно', async () => {

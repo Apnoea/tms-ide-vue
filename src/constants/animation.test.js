@@ -21,6 +21,15 @@ describe('buildStateColorCssRules', () => {
     expect(rules.filter((r) => r.includes('animation-color-cell_x-false'))).toHaveLength(3)
   })
 
+  it('заливка состояния — только замкнутым фигурам без своей заливки', () => {
+    const [fillRule] = buildStateColorCssRules([stencil({ true: { fill: '#0f0' } })])
+    expect(fillRule).toBe(
+      '.animation-color-cell_x-true:not(.animation-off) .tms-state-fill[fill="none"], ' +
+        '.animation-color-cell_x-true:not(.animation-off).tms-state-fill[fill="none"] ' +
+        '{ fill: #0f0 !important; }'
+    )
+  })
+
   it('scope префиксует селекторы (симуляция)', () => {
     const rules = buildStateColorCssRules([stencil({ true: '#fff' })], {
       scope: '.tms-simulating ',

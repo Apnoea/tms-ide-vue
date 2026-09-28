@@ -34,57 +34,14 @@
       "type": "Value"
     },
     {
-      "key": "value",
-      "type": "Value"
+      "key": "onoff",
+      "type": "Boolean"
     }
   ],
   "ranges": [
     {
       "min": 0,
       "color": "#10b981"
-    }
-  ],
-  "states": [
-    {
-      "key": "on",
-      "label": "Включен",
-      "code": ""
-    },
-    {
-      "key": "off",
-      "label": "Отключен",
-      "code": ""
-    },
-    {
-      "key": "intermediate",
-      "label": "Промежуточное",
-      "code": ""
-    },
-    {
-      "key": "invalid",
-      "label": "Недостоверно",
-      "code": ""
-    }
-  ],
-  "animationTemplate": [
-    {
-      "idSuffix": ".on",
-      "type": "shape",
-      "bindings": [
-        {
-          "tag": "{slot.value}",
-          "when": {
-            "source": "value",
-            "type": "map",
-            "cases": {}
-          }
-        }
-      ],
-      "detailTags": [
-        {
-          "tag": "{slot.value}"
-        }
-      ]
     }
   ]
 }

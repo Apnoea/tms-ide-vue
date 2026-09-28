@@ -15,6 +15,7 @@ import {
   canRotateShapes,
   canFlipShapes,
   scaleShape,
+  radii,
   TEXT_SHAPE_SIZE,
 } from '../utils/stencilSvg'
 import { TMSShape } from './tmsStencil'
@@ -70,6 +71,110 @@ const HIT_STROKE = 10
 /** Есть ли у фигуры видимая площадь: по ней и кликают. У подписи цвет живёт в fill. */
 function hasFillArea(shape) {
   return shape?.type === 'text' || !!(shape?.fill && shape.fill !== 'none')
+}
+
+/**
+ * Пересекает ли отрезок прямоугольник `{ x1, y1, x2, y2 }` (Лианг — Барски: отрезок
+ * отсекается по четырём полуплоскостям, пустой остаток — промах). Конец внутри
+ * прямоугольника — попадание.
+ */
+function segmentHitsRect([ax, ay], [bx, by], r) {
+  const dx = bx - ax
+  const dy = by - ay
+  let t0 = 0
+  let t1 = 1
+  for (const [p, q] of [
+    [-dx, ax - r.x1],
+    [dx, r.x2 - ax],
+    [-dy, ay - r.y1],
+    [dy, r.y2 - ay],
+  ]) {
+    if (p === 0) {
+      if (q < 0) return false
+      continue
+    }
+    const t = q / p
+    if (p < 0) {
+      if (t > t1) return false
+      if (t > t0) t0 = t
+    } else {
+      if (t < t0) return false
+      if (t < t1) t1 = t
+    }
+  }
+  return true
+}
+
+/** Отрезки контура фигуры: стороны прямоугольника, звенья ломаной, сама линия. */
+function contourSegments(s) {
+  if (s.type === 'line')
+    return [
+      [
+        [s.x1, s.y1],
+        [s.x2, s.y2],
+      ],
+    ]
+  const pts =
+    s.type === 'rect'
+      ? [
+          [s.x, s.y],
+          [s.x + s.w, s.y],
+          [s.x + s.w, s.y + s.h],
+          [s.x, s.y + s.h],
+        ]
+      : s.points || []
+  const closed = s.type === 'rect' || !!s.closed
+  const out = []
+  for (let i = 0; i + 1 < pts.length; i++) out.push([pts[i], pts[i + 1]])
+  if (closed && pts.length > 2) out.push([pts[pts.length - 1], pts[0]])
+  return out
+}
+
+/**
+ * Задевает ли прямоугольник линию эллипса. Эллипс выпуклый: прямоугольник целиком
+ * внутри, если внутри все четыре угла; целиком снаружи, если снаружи его ближайшая к
+ * центру точка (в осях, где эллипс — единичный круг).
+ */
+function rectTouchesEllipse(s, r) {
+  const { rx, ry } = radii(s)
+  if (!(rx > 0) || !(ry > 0)) return false
+  const inside = (x, y) => ((x - s.cx) / rx) ** 2 + ((y - s.cy) / ry) ** 2 <= 1
+  const corners = [
+    [r.x1, r.y1],
+    [r.x2, r.y1],
+    [r.x2, r.y2],
+    [r.x1, r.y2],
+  ]
+  if (corners.every(([x, y]) => inside(x, y))) return false
+  const near = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
+  return inside(near(s.cx, r.x1, r.x2), near(s.cy, r.y1, r.y2))
+}
+
+/**
+ * Берёт ли лассо ячейку. Кандидаты уже отобраны по габариту (`findModelsInArea`), здесь
+ * отсеиваются КОНТУРНЫЕ фигуры, чью линию рамка не задела: их и кликают по линии, иначе
+ * рамка-разметка вокруг символов попадала бы в каждое лассо внутри неё. Залитая фигура,
+ * подпись и символ берутся по габариту, как раньше. Толщина линии — запасом рамки.
+ *
+ * @param {{x:number, y:number, width:number, height:number}} area — рамка на холсте
+ */
+export function lassoCatchesCell(cell, area) {
+  if (!isShapeCell(cell)) return true
+  const shape = cell.get('tms')?.shape
+  // Контурные фигуры не вращаются трансформом (поворот правит геометрию), но если угол
+  // всё же есть — локальная геометрия не в осях холста, судим по габариту.
+  if (!shape || hasFillArea(shape) || cell.angle?.()) return true
+  const pos = cell.get('position') || { x: 0, y: 0 }
+  const abs = translateShape(shape, pos.x, pos.y)
+  const pad = (Number(shape.strokeWidth) || 0) / 2
+  const r = {
+    x1: area.x - pad,
+    y1: area.y - pad,
+    x2: area.x + area.width + pad,
+    y2: area.y + area.height + pad,
+  }
+  if (abs.type === 'circle') return rectTouchesEllipse(abs, r)
+  return contourSegments(abs).some(([a, b]) => segmentHitsRect(a, b, r))
 }
 
 /** Зона клика по всему габариту ячейки. */

@@ -2,7 +2,13 @@
 // Почему это не косметика: id формы = имя папки в архиве, цель tms.navigation и ключ
 // формы; `..` в имени уводил файл за папку проекта при распаковке на объекте.
 import { describe, it, expect } from 'vitest'
-import { renameFormIds, remapNavigation, remapTree, remapProjectMeta } from './formIds'
+import {
+  renameFormIds,
+  remapNavigation,
+  remapTree,
+  remapProjectMeta,
+  withImportedTitles,
+} from './formIds'
 
 describe('renameFormIds', () => {
   it('годные имена не двигаются', () => {
@@ -82,10 +88,35 @@ describe('перенос ссылок на новые имена', () => {
     expect(remapTree('oops', map)).toBe('oops')
   })
 
-  it('фон формы переезжает вместе с id', () => {
-    expect(remapProjectMeta({ formBg: { 'a b': '#123456' } }, map)).toEqual({
-      formBg: { a_b: '#123456' },
-    })
+  it('фон и название формы переезжают вместе с id', () => {
+    expect(
+      remapProjectMeta({ formBg: { 'a b': '#123456' }, formTitle: { 'a b': 'Схема' } }, map)
+    ).toEqual({ formBg: { a_b: '#123456' }, formTitle: { a_b: 'Схема' } })
     expect(remapProjectMeta(null, map)).toBe(null)
+  })
+})
+
+describe('withImportedTitles', () => {
+  it('nav.json главнее project.json, прежнее имя переименованной формы — название', () => {
+    const project = {
+      formBg: { main: '#123456' },
+      formTitle: { main: 'Из меты', aux: 'Вне дерева' },
+    }
+    const out = withImportedTitles(project, { main: 'С сервера' }, [['Главная схема', 'form_1']])
+    expect(out).toEqual({
+      formBg: { main: '#123456' },
+      formTitle: { 'Главная схема': 'Главная схема', main: 'С сервера', aux: 'Вне дерева' },
+    })
+  })
+
+  it('своё название переименованной формы главнее её прежнего имени', () => {
+    const out = withImportedTitles(null, { 'a b': 'Схема' }, [['a b', 'a_b']])
+    expect(out.formTitle).toEqual({ 'a b': 'Схема' })
+  })
+
+  it('названий нет — мета как была', () => {
+    expect(withImportedTitles(null, {}, [])).toBe(null)
+    const project = { formBg: {} }
+    expect(withImportedTitles(project, undefined, [])).toBe(project)
   })
 })

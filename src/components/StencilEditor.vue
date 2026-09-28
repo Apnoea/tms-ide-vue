@@ -22,7 +22,7 @@ import { useCanvas } from '../composables/useCanvas'
 import { snapToGrid } from '../utils/grid'
 import {
   stencilDraftIssues,
-  isFillableShape,
+  takesStateFill,
   radii,
   shapeBounds,
   shapesBounds,
@@ -191,14 +191,15 @@ const renderShapes = computed(() => {
     return st === 'always' || st === key
   })
   // Превью цвета состояния: тонируется обводка видимых фигур, заливка — только у
-  // заливаемых (как в экспорте). Подпись не тонируется: в CSS экспорта текст исключён.
+  // замкнутых без своей заливки (как в экспорте). Подпись не тонируется: в CSS
+  // экспорта текст исключён.
   const { stroke, fill } = normalizeStateColor(meta.stateColors?.[key])
   if (!stroke && !fill) return visible
   return visible.map((s) => {
     if (s.type === 'text') return s
     const next = { ...s }
     if (stroke) next.stroke = stroke
-    if (fill && isFillableShape(s)) next.fill = fill
+    if (fill && takesStateFill(s)) next.fill = fill
     return next
   })
 })

@@ -593,7 +593,10 @@ function clearStateColor(key, which) {
                         />
                       </span>
                       <span v-if="hasFillableShapes" class="flex justify-center">
-                        <i v-tooltip.top="'Цвет заливки'" class="pi pi-circle-fill text-[11px]!" />
+                        <i
+                          v-tooltip.top="'Цвет заливки — фигуры со своей заливкой её сохраняют'"
+                          class="pi pi-circle-fill text-[11px]!"
+                        />
                       </span>
                       <!-- Резерв под колонку удаления состояния: в режиме «по значению»
                            там кнопка, и без него колонки двух блоков не совпадали бы. -->
@@ -701,7 +704,10 @@ function clearStateColor(key, which) {
                         />
                       </span>
                       <span v-if="hasFillableShapes" class="flex justify-center">
-                        <i v-tooltip.top="'Цвет заливки'" class="pi pi-circle-fill text-[11px]!" />
+                        <i
+                          v-tooltip.top="'Цвет заливки — фигуры со своей заливкой её сохраняют'"
+                          class="pi pi-circle-fill text-[11px]!"
+                        />
                       </span>
                       <!-- Колонка кнопки удаления состояния. -->
                       <span aria-hidden="true"></span>

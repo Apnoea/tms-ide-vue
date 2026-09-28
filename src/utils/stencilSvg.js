@@ -42,6 +42,15 @@ export function isFillableShape(shape) {
   if (shape.type === 'polyline') return !!shape.closed
   return false
 }
+/**
+ * Ляжет ли на фигуру заливка состояния: замкнутая и без своей заливки. Новая фигура
+ * рождается с `fill: 'none'`, так что своя заливка — это галка «Заливка», включённая
+ * автором, и цвет состояния её не перебивает. Та же проверка в CSS экспорта
+ * (`buildStateColorCssRules`, `[fill="none"]`).
+ */
+export function takesStateFill(shape) {
+  return isFillableShape(shape) && (!shape.fill || shape.fill === 'none')
+}
 // Класс заливки — заливаемым примитивам и только у stateful-символа.
 function fillClassAttr(shape, markFill) {
   return markFill && isFillableShape(shape) ? ` class="${STATE_FILL_CLASS}"` : ''

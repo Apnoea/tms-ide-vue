@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { subtreeIds } from '../utils/formTreeDnd'
 import { cssColor } from '../constants/animation'
+import { normalizeFormTitle } from '../constants/ids'
 import { CANVAS_BG_DEFAULT } from '../stencils/canvasPaper'
 import { normalizeWireStyle } from '../stencils/linkDefaults'
 
@@ -15,7 +16,8 @@ import { normalizeWireStyle } from '../stencils/linkDefaults'
  * источник существования/порядка), `activeFormId` и `formTree` (иерархия для
  * дерева форм слева — приходит из hierarchy.json проекта, синкается на CRUD).
  *
- * `id` формы = имя её папки (оно же цель навигации и подпись в дереве).
+ * `id` формы = имя её папки (оно же цель навигации). Подпись для людей — отдельное
+ * название (`formTitle`), без него в дереве показывается id.
  */
 
 // ─── Чистые операции над деревом иерархии (узел = { id, children: [] }) ───
@@ -108,6 +110,21 @@ function insertNode(nodes, targetId, zone, node) {
   return done ? out : null
 }
 
+// Карты «id формы → значение» (фон, название): уходят вместе с формой и едут за ней
+// при переименовании. Без изменений возвращают тот же объект — присваивание no-op.
+function withoutKey(map, id) {
+  if (!Object.hasOwn(map, id)) return map
+  const next = { ...map }
+  delete next[id]
+  return next
+}
+function withRenamedKey(map, oldId, newId) {
+  if (!Object.hasOwn(map, oldId)) return map
+  const next = { ...map, [newId]: map[oldId] }
+  delete next[oldId]
+  return next
+}
+
 /** Место узла в дереве: родитель и предыдущий сосед — куда вернуть форму из корзины. */
 function findAnchor(nodes, id, parentId = null) {
   for (let i = 0; i < nodes.length; i++) {
@@ -131,8 +148,26 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   // уезжает в мету проекта и в архив, поэтому у коллеги схема откроется в тех же
   // цветах. Дефолтный фон не храним: отсутствие ключа и есть он.
   const formBg = ref({})
+  // Название формы: { formId: 'Главная схема' }. Id — адрес (латиница, путь в архиве),
+  // название — для людей. Нет ключа — названия нет, показывается id.
+  const formTitle = ref({})
 
-  const activeFormBg = computed(() => formBg.value[activeFormId.value] ?? null)
+  // Чтение по id — только своих ключей: форма может называться `constructor`, и
+  // обычное обращение отдало бы функцию из прототипа.
+  const activeFormBg = computed(() =>
+    Object.hasOwn(formBg.value, activeFormId.value ?? '') ? formBg.value[activeFormId.value] : null
+  )
+  const activeFormTitle = computed(() => formTitleOf(activeFormId.value))
+
+  /** Название формы; '' — названия нет. */
+  function formTitleOf(id) {
+    return id != null && Object.hasOwn(formTitle.value, id) ? formTitle.value[id] : ''
+  }
+
+  /** Название формы или её id — подпись везде, где форму показывают человеку. */
+  function formLabel(id) {
+    return formTitleOf(id) || id
+  }
 
   /**
    * Вид НОВОГО провода — «липкие» настройки инструмента: нарисовал один цветным и
@@ -187,6 +222,27 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (forms.has(id) && clean && clean !== CANVAS_BG_DEFAULT) next[id] = clean
     }
     formBg.value = next
+  }
+
+  /** Название формы; пустое снимает запись. false — формы нет или ничего не поменялось. */
+  function setFormTitle(id, title) {
+    if (!forms.has(id)) return false
+    const clean = normalizeFormTitle(title)
+    if (formTitleOf(id) === clean) return false
+    formTitle.value = clean ? { ...formTitle.value, [id]: clean } : withoutKey(formTitle.value, id)
+    return true
+  }
+
+  /** Массовая загрузка названий: ключи чужих форм и пустые значения отбрасываем. */
+  function loadFormTitle(map) {
+    const next = {}
+    if (map && typeof map === 'object') {
+      for (const [id, raw] of Object.entries(map)) {
+        const clean = normalizeFormTitle(raw)
+        if (forms.has(id) && clean) next[id] = clean
+      }
+    }
+    formTitle.value = next
   }
 
   function setProjectName(name) {
@@ -265,11 +321,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function removeForm(id) {
     if (!forms.has(id)) return activeFormId.value
     forms.delete(id)
-    if (formBg.value[id]) {
-      const rest = { ...formBg.value }
-      delete rest[id]
-      formBg.value = rest
-    }
+    formBg.value = withoutKey(formBg.value, id)
+    formTitle.value = withoutKey(formTitle.value, id)
     formTree.value = pruneTree(formTree.value, id)
     if (activeFormId.value === id) activeFormId.value = forms.keys().next().value ?? null
     syncList()
@@ -285,13 +338,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     forms.clear()
     for (const [k, v] of entries) forms.set(k, v)
     formTree.value = renameInTree(formTree.value, oldId, newId)
-    // Фон привязан к id формы — переносим вместе с ней, иначе схема «побелеет».
-    if (formBg.value[oldId]) {
-      const next = { ...formBg.value }
-      next[newId] = next[oldId]
-      delete next[oldId]
-      formBg.value = next
-    }
+    // Фон и название привязаны к id формы — переносим вместе с ней, иначе схема
+    // «побелеет» и потеряет подпись.
+    formBg.value = withRenamedKey(formBg.value, oldId, newId)
+    formTitle.value = withRenamedKey(formTitle.value, oldId, newId)
     if (activeFormId.value === oldId) activeFormId.value = newId
     syncList()
     return true
@@ -328,6 +378,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeFormBg,
     setFormBg,
     loadFormBg,
+    formTitle,
+    activeFormTitle,
+    formTitleOf,
+    formLabel,
+    setFormTitle,
+    loadFormTitle,
     wireStyle,
     setWireStyle,
     loadWireStyle,

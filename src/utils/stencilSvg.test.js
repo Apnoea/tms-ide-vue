@@ -13,10 +13,27 @@ import {
   canRotateShapes,
   canFlipShapes,
   serializeShape,
+  takesStateFill,
   textLines,
   TEXT_SHAPE_SIZE,
   TEXT_LINE_HEIGHT,
 } from './stencilSvg'
+
+describe('takesStateFill', () => {
+  it('замкнутая фигура без своей заливки — да, со своей — нет', () => {
+    expect(takesStateFill({ type: 'rect', fill: 'none' })).toBe(true)
+    expect(takesStateFill({ type: 'circle' })).toBe(true)
+    expect(takesStateFill({ type: 'polyline', closed: true, fill: 'none' })).toBe(true)
+    expect(takesStateFill({ type: 'rect', fill: '#ffffff' })).toBe(false)
+    expect(takesStateFill({ type: 'circle', fill: '#facc15' })).toBe(false)
+  })
+
+  it('линия, открытая ломаная и подпись — нет', () => {
+    expect(takesStateFill({ type: 'line' })).toBe(false)
+    expect(takesStateFill({ type: 'polyline', fill: 'none' })).toBe(false)
+    expect(takesStateFill({ type: 'text', fill: 'none' })).toBe(false)
+  })
+})
 
 describe('serializeSvg', () => {
   it('оборачивает фигуры в svg с viewBox из meta, без XML-декларации', () => {

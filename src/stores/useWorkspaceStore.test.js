@@ -314,3 +314,59 @@ describe('фон форм', () => {
     expect(store.formBg).toEqual({ a: '#101828' })
   })
 })
+
+// Название — подпись формы для людей; id остаётся адресом (цель навигации, папка).
+describe('названия форм', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  function seeded(ids = ['a', 'b']) {
+    const store = useWorkspaceStore()
+    store.loadForms(
+      ids.map((id) => ({ id, graphJson: { cells: [] } })),
+      ids[0]
+    )
+    return store
+  }
+
+  it('без названия подпись — id', () => {
+    const store = seeded()
+    expect(store.activeFormTitle).toBe('')
+    expect(store.formLabel('a')).toBe('a')
+  })
+
+  it('название чистится: одна строка без краевых пробелов, пустое снимает запись', () => {
+    const store = seeded()
+    expect(store.setFormTitle('a', '  Главная\n схема ')).toBe(true)
+    expect(store.formTitle).toEqual({ a: 'Главная схема' })
+    expect(store.formLabel('a')).toBe('Главная схема')
+    expect(store.setFormTitle('a', 'Главная схема')).toBe(false) // без изменений
+    expect(store.setFormTitle('a', '   ')).toBe(true)
+    expect(store.formTitle).toEqual({})
+    expect(store.setFormTitle('ghost', 'x')).toBe(false)
+  })
+
+  it('переименование переносит название, удаление — снимает', () => {
+    const store = seeded()
+    store.setFormTitle('a', 'Главная')
+    store.renameForm('a', 'a2')
+    expect(store.formTitle).toEqual({ a2: 'Главная' })
+    expect(store.activeFormTitle).toBe('Главная')
+    store.removeForm('a2')
+    expect(store.formTitle).toEqual({})
+  })
+
+  it('загрузка отбрасывает чужие формы, пустое и не-строки', () => {
+    const store = seeded()
+    store.loadFormTitle({ a: ' Главная ', b: '', ghost: 'x', c: 42 })
+    expect(store.formTitle).toEqual({ a: 'Главная' })
+    store.loadFormTitle(null)
+    expect(store.formTitle).toEqual({})
+  })
+
+  it('id из прототипа объекта не отдаёт чужое значение', () => {
+    const store = seeded(['constructor'])
+    expect(store.activeFormTitle).toBe('')
+    expect(store.formLabel('constructor')).toBe('constructor')
+    expect(store.activeFormBg).toBeNull()
+  })
+})

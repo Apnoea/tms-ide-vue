@@ -1,10 +1,13 @@
 <script setup>
 /**
  * Дерево форм проекта (навигатор над палитрой); иерархия — из `workspace.formTree`.
- * Клик открывает форму, кнопки строки дублируют, переименовывают и удаляют (удаление
+ * Клик открывает форму, кнопки строки дублируют, меняют id и удаляют (удаление
  * крайнее — деструктивное дальше всех от имени), drag-and-drop переносит и вкладывает
  * узлы. Клик по заголовку сворачивает секцию (состояние в localStorage). Формы вне
  * дерева попадают в «Без иерархии», узлы на несуществующую форму рисуются битыми.
+ *
+ * Строка подписана названием формы, без него — id моноширинным. Карандаш правит id
+ * (адрес формы), название — поле в инспекторе, когда ничего не выделено.
  */
 import { computed, ref, nextTick, onBeforeUnmount } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
@@ -43,6 +46,13 @@ function collectIds(nodes, set) {
   }
 }
 
+// Строка формы: подпись — название, если оно есть (у битого узла формы нет, и названия
+// тоже).
+function formRow(id, depth, hasChildren, broken) {
+  const title = broken ? '' : workspace.formTitleOf(id)
+  return { kind: 'form', id, title, depth, hasChildren, broken }
+}
+
 // Плоский список строк для рендера (DFS с учётом свёрнутости) + группа orphan'ов.
 const rows = computed(() => {
   const existing = new Set(workspace.formIds)
@@ -53,7 +63,7 @@ const rows = computed(() => {
       const hasChildren = !!n.children?.length
       if (hasChildren) collectIds(n.children, inTree) // все потомки — «в дереве»
       inTree.add(n.id)
-      out.push({ kind: 'form', id: n.id, depth, hasChildren, broken: !existing.has(n.id) })
+      out.push(formRow(n.id, depth, hasChildren, !existing.has(n.id)))
       if (hasChildren && !collapsed.value.has(n.id)) walk(n.children, depth + 1)
     }
   }
@@ -61,11 +71,15 @@ const rows = computed(() => {
   const orphans = workspace.formIds.filter((id) => !inTree.has(id))
   if (orphans.length) {
     out.push({ kind: 'group', label: 'Без иерархии' })
-    for (const id of orphans)
-      out.push({ kind: 'form', id, depth: 0, hasChildren: false, broken: false })
+    for (const id of orphans) out.push(formRow(id, 0, false, false))
   }
   return out
 })
+
+function rowTip(row) {
+  if (row.broken) return `${row.id} — форма отсутствует`
+  return row.title ? `${row.title} · ${row.id}` : row.id
+}
 
 // ─── Inline-переименование ───
 const editingId = ref(null)
@@ -97,7 +111,7 @@ function cancelRename() {
 function confirmDelete(event, id) {
   confirmDanger(confirm, {
     target: event.currentTarget,
-    message: `Удалить форму «${id}»?`,
+    message: `Удалить форму «${workspace.formLabel(id)}»?`,
     acceptLabel: 'Удалить',
     accept: () => canvas.deleteForm(id),
   })
@@ -352,15 +366,16 @@ onBeforeUnmount(() => {
               <template v-else>
                 <button
                   type="button"
-                  class="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pr-1 text-left text-xs font-mono truncate"
+                  class="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pr-1 text-left text-xs truncate"
                   :class="[
+                    !row.title && 'font-mono',
                     row.broken
                       ? 'text-surface-400 line-through cursor-default'
                       : row.id === workspace.activeFormId
                         ? 'text-surface-900 font-medium'
                         : 'text-surface-600',
                   ]"
-                  :title="row.broken ? `${row.id} — форма отсутствует` : row.id"
+                  :title="rowTip(row)"
                   @click="onNameClick(row)"
                 >
                   <i
@@ -369,7 +384,7 @@ onBeforeUnmount(() => {
                       row.id === workspace.activeFormId ? 'text-primary-500' : 'text-surface-400'
                     "
                   />
-                  <span class="truncate">{{ row.id }}</span>
+                  <span class="truncate">{{ row.title || row.id }}</span>
                 </button>
                 <!-- Кнопки АБСОЛЮТОМ поверх строки, как в палитре: в потоке они
                      держат ~60px у каждой строки, хотя видны только по ховеру. Тон
@@ -386,7 +401,7 @@ onBeforeUnmount(() => {
                     <button
                       type="button"
                       data-nodrag
-                      v-tooltip.bottom="'Переименовать'"
+                      v-tooltip.bottom="'Изменить id'"
                       class="tms-icon-action flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
                       @click.stop="startRename(row.id)"
                     >
@@ -424,11 +439,12 @@ onBeforeUnmount(() => {
     <Teleport to="body">
       <div
         v-if="dragId"
-        class="pointer-events-none fixed z-[100] flex items-center gap-1.5 rounded bg-surface-0 px-2 py-1 font-mono text-xs shadow-lg ring-1 ring-surface-300"
+        class="pointer-events-none fixed z-[100] flex items-center gap-1.5 rounded bg-surface-0 px-2 py-1 text-xs shadow-lg ring-1 ring-surface-300"
+        :class="{ 'font-mono': !workspace.formTitleOf(dragId) }"
         :style="{ left: `${dragPos.x + 12}px`, top: `${dragPos.y + 8}px` }"
       >
         <i class="pi pi-file text-[10px]! text-primary-500" />
-        {{ dragId }}
+        {{ workspace.formLabel(dragId) }}
       </div>
     </Teleport>
   </div>

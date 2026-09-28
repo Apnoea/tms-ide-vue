@@ -71,10 +71,19 @@ export function useNavigationField({ details, mutateSelectedTms }) {
     workspace.formIds.filter((id) => id !== workspace.activeFormId)
   )
 
+  // Ищем и по id, и по названию: помнят обычно название, а в поле пишется id.
   function onNavComplete(e) {
     const q = (e.query || '').toLowerCase()
-    navSuggestions.value = otherFormIds.value.filter((id) => id.toLowerCase().includes(q))
+    navSuggestions.value = otherFormIds.value.filter(
+      (id) => id.toLowerCase().includes(q) || workspace.formTitleOf(id).toLowerCase().includes(q)
+    )
   }
+
+  /**
+   * Название формы-цели — подпись под полем, где стоит id. По черновику, а не по
+   * записанному: иначе, пока набираешь, под полем висит название прежней цели.
+   */
+  const navTargetTitle = computed(() => workspace.formTitleOf(String(navInput.value ?? '').trim()))
 
   /** Коммит черновика в граф. item-select даёт event.value (выбранная форма);
    *  blur/Enter — берём текущий navInput. Гард по navCellId: если выделение уже
@@ -96,6 +105,7 @@ export function useNavigationField({ details, mutateSelectedTms }) {
     navSuggestions,
     otherFormIds,
     navBroken,
+    navTargetTitle,
     toggleNavigationEnabled,
     onNavComplete,
     commitNav,

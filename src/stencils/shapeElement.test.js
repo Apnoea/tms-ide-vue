@@ -19,10 +19,63 @@ import {
   canFlipShapeGeometry,
   sanitizeShape,
   reinjectAllShapes,
+  lassoCatchesCell,
 } from './shapeElement'
 
 const paper = { findViewByModel: () => null }
 const graphOf = () => new dia.Graph({}, { cellNamespace: tmsNamespace })
+
+// Контурную фигуру лассо берёт по линии, как и клик: рамка-разметка вокруг символов не
+// должна попадать в каждое лассо внутри неё.
+describe('lassoCatchesCell', () => {
+  const at = (shape) => materializeShape(graphOf(), paper, shape)
+  // Рамка 100×100 в (100,100), обводка 2.
+  const frame = () => at({ type: 'rect', x: 100, y: 100, w: 100, h: 100, strokeWidth: 2 })
+  const area = (x, y, width, height) => ({ x, y, width, height })
+
+  it('лассо внутри пустой рамки её не берёт, задело сторону или накрыло — берёт', () => {
+    const cell = frame()
+    expect(lassoCatchesCell(cell, area(120, 120, 30, 30))).toBe(false)
+    expect(lassoCatchesCell(cell, area(90, 120, 30, 30))).toBe(true) // левая сторона
+    expect(lassoCatchesCell(cell, area(50, 50, 200, 200))).toBe(true) // целиком
+    // Толщина линии — запасом: край рамки лассо на полтолщины от стороны ещё задевает.
+    expect(lassoCatchesCell(cell, area(101, 120, 20, 20))).toBe(true)
+  })
+
+  it('залитую рамку, символ и подпись берёт по габариту', () => {
+    const filled = at({ type: 'rect', x: 100, y: 100, w: 100, h: 100, fill: '#ffffff' })
+    expect(lassoCatchesCell(filled, area(120, 120, 30, 30))).toBe(true)
+    const text = at({ type: 'text', x: 0, y: 0, text: 'Щит' })
+    expect(lassoCatchesCell(text, area(1, 1, 1, 1))).toBe(true)
+    expect(lassoCatchesCell(new dia.Element(), area(0, 0, 1, 1))).toBe(true)
+  })
+
+  it('эллипс: внутри и в углу габарита мимо, через линию — попадание', () => {
+    const cell = at({ type: 'circle', cx: 150, cy: 150, rx: 50, ry: 50 })
+    expect(lassoCatchesCell(cell, area(140, 140, 20, 20))).toBe(false) // центр
+    expect(lassoCatchesCell(cell, area(100, 100, 8, 8))).toBe(false) // угол габарита
+    expect(lassoCatchesCell(cell, area(190, 140, 20, 20))).toBe(true) // правый край
+  })
+
+  it('ломаная и линия — по звеньям; замкнутая — и по замыкающему', () => {
+    const tri = {
+      type: 'polyline',
+      points: [
+        [0, 0],
+        [100, 0],
+        [100, 100],
+      ],
+    }
+    const open = at(tri)
+    const closed = at({ ...tri, closed: true })
+    // Точка у гипотенузы (0,0)–(100,100): её есть только у замкнутой.
+    expect(lassoCatchesCell(open, area(45, 50, 10, 10))).toBe(false)
+    expect(lassoCatchesCell(closed, area(45, 50, 10, 10))).toBe(true)
+    const diag = at({ type: 'line', x1: 0, y1: 0, x2: 100, y2: 100 })
+    expect(lassoCatchesCell(diag, area(70, 10, 20, 20))).toBe(false) // в габарите, мимо линии
+    expect(lassoCatchesCell(diag, area(40, 40, 20, 20))).toBe(true)
+  })
+})
 
 /** paper с настоящими DOM-узлами: нужен, когда проверяем саму инъекцию разметки. */
 function domPaper() {

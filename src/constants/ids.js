@@ -144,6 +144,24 @@ export function safeFormId(raw) {
     .slice(0, FORM_ID_MAX)
 }
 
+/** Предел длины названия формы: это подпись в дереве и заголовке окна, а не абзац. */
+export const FORM_TITLE_MAX = 100
+
+/**
+ * Название формы — текст для людей, в отличие от id: подпись в дереве форм, заголовок
+ * окна IDE, `name` узла в `nav.json` (его рантайм показывает в навигации). Одна строка
+ * без краевых пробелов; '' — названия нет. Приходит и из чужого архива, отсюда проверка
+ * типа.
+ */
+export function normalizeFormTitle(raw) {
+  if (typeof raw !== 'string') return ''
+  return raw
+    .replace(/\s+/g, ' ')
+    .replace(/\p{Cc}/gu, '')
+    .trim()
+    .slice(0, FORM_TITLE_MAX)
+}
+
 /**
  * tms-поля ЯЧЕЙКИ для round-trip через `data-tms-meta` — единый список для записи
  * (exporter) и чтения (projectLoader): забыть одну сторону = тихая потеря поля.

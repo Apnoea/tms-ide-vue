@@ -30,7 +30,13 @@ import {
 } from '../services/stencilOverrides'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { withPaperFrozen } from '../utils/paperBatch'
-import { renameFormIds, remapNavigation, remapTree, remapProjectMeta } from '../utils/formIds'
+import {
+  renameFormIds,
+  remapNavigation,
+  remapTree,
+  remapProjectMeta,
+  withImportedTitles,
+} from '../utils/formIds'
 import { FORM_ID_RE, RANGE_SLOT, safeFormId } from '../constants/ids'
 import { nplural } from '../utils/plural'
 import { toPlain } from '../utils/plain'
@@ -213,6 +219,10 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     const json = toPlain(workspace.getFormGraph(id) || { cells: [] })
     workspace.addForm(copyId, json)
     workspace.moveNode(copyId, id, 'after')
+    // Название — с пометкой, как у копии символа: две одинаковые подписи в дереве не
+    // различить.
+    const title = workspace.formTitleOf(id)
+    if (title) workspace.setFormTitle(copyId, `${title} (копия)`)
     let ok = await persistForm(copyId, json)
     workspace.setActiveFormId(copyId)
     ok = (await persistMeta()) && ok
@@ -237,11 +247,12 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     const wasActive = id === workspace.activeFormId
     if (wasActive) cancelPendingSnapshot()
     else await saveActiveForm() // удаляем не активную — её правки сохраняем
-    // В корзину — ДО удаления: нужны граф, фон и место в дереве.
+    // В корзину — ДО удаления: нужны граф, фон, название и место в дереве.
     const trashed = await pushTrash({
       id,
       graphJson: toPlain(workspace.getFormGraph(id) || { cells: [] }),
       bg: workspace.formBg[id] ?? null,
+      title: workspace.formTitleOf(id) || null,
       anchor: workspace.nodeAnchor(id),
       ts: Date.now(),
     })
@@ -257,8 +268,9 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
   }
 
   /**
-   * Вернуть форму из корзины: граф, фон и место в дереве (после прежнего соседа, иначе
-   * внутрь прежнего родителя, иначе в конец корня). Активную форму не меняем.
+   * Вернуть форму из корзины: граф, фон, название и место в дереве (после прежнего
+   * соседа, иначе внутрь прежнего родителя, иначе в конец корня). Активную форму не
+   * меняем.
    */
   async function restoreForm(id = trash.value[0]?.id) {
     if (!id) return false
@@ -273,6 +285,7 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     if (!entry) return false
     workspace.addForm(entry.id, entry.graphJson)
     if (entry.bg) workspace.setFormBg(entry.id, entry.bg)
+    if (entry.title) workspace.setFormTitle(entry.id, entry.title)
     const anchor = entry.anchor || null
     if (anchor?.prevId && workspace.hasForm(anchor.prevId)) {
       workspace.moveNode(entry.id, anchor.prevId, 'after')
@@ -501,10 +514,13 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     const persisted = await replaceProject(
       forms,
       data.tagsText,
-      // Иерархия и фон привязаны к id формы — переносим их на новые имена.
+      // Иерархия, фон и название привязаны к id формы — переносим их на новые имена.
       remapTree(data.hierarchy, renamedForms.map),
       projectName,
-      remapProjectMeta(data.project, renamedForms.map)
+      remapProjectMeta(
+        withImportedTitles(data.project, data.navTitles, renamedForms.renamed),
+        renamedForms.map
+      )
     )
 
     // Символы, на которые ссылаются формы, но которых нет ни в базе, ни в бандле —
@@ -683,6 +699,14 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     return report
   }
 
+  /** `project.json` архива: только непустые поля, без них — null (файл не пишется). */
+  function projectMetaForArchive() {
+    const meta = {}
+    if (Object.keys(workspace.formBg).length) meta.formBg = workspace.formBg
+    if (Object.keys(workspace.formTitle).length) meta.formTitle = workspace.formTitle
+    return Object.keys(meta).length ? meta : null
+  }
+
   /**
    * Прогон всех форм через живой paper → бандл проекта, затем `deliver(bundle)`.
    * Геометрию провода exporter берёт с отрисованного paper, а там живёт только активная
@@ -748,11 +772,13 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
         stencils,
         tagsText,
         hierarchy: workspace.formTree,
-        // Редакторная мета: фон холста по формам. В `view.svg` он не уезжает (там фон
-        // даёт панель), но нужен, чтобы у коллеги проект открылся в тех же цветах.
-        // Ни у одной формы своего фона нет — поля не пишем, и `project.json` тогда не
-        // создаётся вовсе (пустая мета в архив не идёт).
-        project: Object.keys(workspace.formBg).length ? { formBg: workspace.formBg } : null,
+        // Названия — в `name` узлов `nav.json`: его показывает навигация рантайма.
+        titles: workspace.formTitle,
+        // Редакторная мета: фон холста и названия по формам. Фон в `view.svg` не
+        // уезжает (там фон даёт панель), но нужен, чтобы у коллеги проект открылся в тех
+        // же цветах; названия дублируются сюда ради форм вне дерева — в `nav.json` их
+        // нет. Пустые поля не пишутся, и без них `project.json` не создаётся вовсе.
+        project: projectMetaForArchive(),
         // Исходники наборов: в `library/` их символы уже с правками проекта, а коллеге
         // нужна поставка, на которую эти правки лягут (см. applyImportedBundle).
         presets: await loadPresets(),
