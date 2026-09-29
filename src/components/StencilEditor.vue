@@ -15,26 +15,24 @@ import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
 import InputNumber from 'primevue/inputnumber'
 import Divider from 'primevue/divider'
-import { useConfirm } from 'primevue/useconfirm'
 import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { snapToGrid } from '../utils/grid'
 import {
-  stencilDraftIssues,
   takesStateFill,
   radii,
   shapeBounds,
   shapesBounds,
   canRotateShapes,
   canFlipShapes,
-  parseStencilSvg,
   TEXT_SHAPE_SIZE,
-} from '../utils/stencilSvg'
+} from '../utils/shapeSvg'
+import { stencilDraftIssues, parseStencilSvg } from '../utils/stencilSvg'
 import { presetEditResult, sameShapeStates } from '../utils/presetPatch'
 import { sanitizeSvgMarkup } from '../utils/sanitizeSvg'
 import { overlayButtonPositions } from '../utils/paperGeom'
-import { confirmDanger } from '../utils/confirmDanger'
+import { useConfirmDanger } from '../composables/useConfirmDanger'
 import { zoomKeyOf, toolDigitOf } from '../utils/viewKeys'
 import { GRID_PERIOD, gridPatternLines, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
@@ -55,15 +53,16 @@ import { presetStencilBase } from '../services/presetLibrary'
 import { useStencilEditor, SHAPE_GRID, PORT_GRID, BOX_GRID } from '../composables/useStencilEditor'
 import { ZOOM_STEP } from '../composables/useCanvasZoom'
 import { useEditorLasso } from '../composables/useEditorLasso'
+import { useBlurOnPress } from '../composables/useBlurOnPress'
 import ShapePrimitive from './ShapePrimitive.vue'
 
-// Шаблон двухкорневой: кнопки сохранения уезжают Teleport'ом в подвал инспектора,
+// Шаблон двухкорневой: кнопки сохранения уезжают Teleport'ом в шапку инспектора,
 // поэтому класс позиции с места использования вешаем на окно редактора сами.
 defineOptions({ inheritAttrs: false })
 
 const ui = useUiStore()
 const notify = useNotify()
-const confirm = useConfirm()
+const confirmDanger = useConfirmDanger()
 const canvas = useCanvas()
 const ed = useStencilEditor()
 const {
@@ -325,7 +324,7 @@ function requestClose(event) {
     ui.closeStencilEditor()
     return
   }
-  confirmDanger(confirm, {
+  confirmDanger({
     target: event?.currentTarget || closeBtn.value?.$el,
     message: 'Закрыть редактор? Несохранённый символ будет потерян.',
     acceptLabel: 'Закрыть',
@@ -357,7 +356,7 @@ async function save() {
   const idbOk = pristine
     ? await removeStencilOverride(json.id)
     : await upsertStencilOverride({ id: json.id, stencilJson: json, shapeSvg: svg })
-  // Файл в definitions/ попадает под git как встроенный символ — символу набора туда нельзя.
+  // Файл в src/library/ попадает под git как встроенный символ — символу набора туда нельзя.
   const ok = isPresetStencil(json)
     ? false
     : await persistStencilsToDisk([{ id: json.id, stencilJson: json, shapeSvg: svg }])
@@ -378,7 +377,7 @@ async function save() {
   else {
     notify.success(
       'Символ создан',
-      'Переживёт перезагрузку; файл в definitions/ появится только в dev-режиме'
+      'Переживёт перезагрузку; файл в src/library/ появится только в dev-режиме'
     )
   }
   ui.closeStencilEditor()
@@ -404,7 +403,7 @@ const canResetToPreset =
   animationOnly && !!editTarget?.presetPatch && !!presetStencilBase(editTarget.id)
 
 function confirmResetToPreset(event) {
-  confirmDanger(confirm, {
+  confirmDanger({
     target: event?.currentTarget,
     message: 'Вернуть символ к виду из набора? Настройки проекта у него сбросятся.',
     acceptLabel: 'Сбросить',
@@ -545,6 +544,8 @@ function onStageWheel(e) {
   zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1 / ZOOM_STEP : ZOOM_STEP)
 }
 useEventListener(stageEl, 'wheel', onStageWheel, { passive: false })
+// Нажатие по столу снимает фокус с поля инспектора, как на холсте.
+useBlurOnPress(stageEl)
 const pxW = computed(() => meta.width * scale.value)
 const pxH = computed(() => meta.height * scale.value)
 // Ручки константного размера на экране (в user-единицах = px/scale).
@@ -1297,42 +1298,43 @@ onBeforeUnmount(() => {
        `absolute inset-0`, а в Tailwind `.relative` объявлен позже `.absolute` и
        перебил бы его — редактор выпал бы из позиционирования. -->
   <div v-bind="$attrs" class="flex flex-col bg-surface-0">
-    <!-- Сохранение и закрытие — в подвале панели свойств: это действия над символом
+    <!-- Сохранение и закрытие — в шапке плашки «Символ»: это действия над символом
          целиком, там же автор заполняет его поля. В тулбаре они читались как ещё одна
-         кнопка рисования, а поверх стола закрывали рисунок. Кнопка «Сохранить»
-         приглушена, пока правок нет — по ней видно, есть ли несохранённое (тот же
-         `isDirty`, которым закрытие решает, переспрашивать ли). -->
+         кнопка рисования, а поверх стола закрывали рисунок. Места в шапке мало, поэтому
+         все три — иконками с подсказкой. «Сохранить» залита цветом, только когда есть
+         правки, — по ней видно несохранённое (тот же `isDirty`, которым закрытие
+         решает, переспрашивать ли). -->
     <Teleport to="#tms-editor-actions" defer>
-      <div class="grid grid-cols-2 items-center gap-2 p-3">
-        <Button
-          label="Сохранить"
-          icon="pi pi-check"
-          size="small"
-          :severity="isDirty ? 'primary' : 'secondary'"
-          :outlined="!isDirty"
-          @click="save"
-        />
-        <Button
-          ref="closeBtn"
-          label="Закрыть"
-          icon="pi pi-times"
-          severity="secondary"
-          outlined
-          size="small"
-          @click="requestClose"
-        />
-        <!-- Только у символа набора с правками проекта: возвращает поставочный вид. -->
-        <Button
-          v-if="canResetToPreset"
-          label="Сбросить к набору"
-          icon="pi pi-replay"
-          severity="secondary"
-          text
-          size="small"
-          class="col-span-2"
-          @click="confirmResetToPreset"
-        />
-      </div>
+      <!-- Только у символа набора с правками проекта: возвращает поставочный вид. -->
+      <Button
+        v-if="canResetToPreset"
+        v-tooltip.bottom="'Сбросить к набору'"
+        icon="pi pi-replay"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-icon-btn"
+        @click="confirmResetToPreset"
+      />
+      <Button
+        v-tooltip.bottom="'Сохранить · Ctrl+S'"
+        icon="pi pi-save"
+        size="small"
+        :severity="isDirty ? 'primary' : 'secondary'"
+        :text="!isDirty"
+        class="tms-icon-btn"
+        @click="save"
+      />
+      <Button
+        ref="closeBtn"
+        v-tooltip.bottom="'Закрыть · Esc'"
+        icon="pi pi-times"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-icon-btn"
+        @click="requestClose"
+      />
     </Teleport>
     <!-- Тулбар -->
     <!-- Поля и высота — как в тулбаре холста (min-h-14, px-4): тулбары стоят один под

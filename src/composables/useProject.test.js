@@ -33,7 +33,7 @@ vi.mock('../services/projectZip', () => ({
   readProjectZipFile: vi.fn(),
 }))
 
-// Запись файлов в definitions/ — dev-плагин по HTTP; в тесте только факт вызова.
+// Запись файлов в src/library/ — dev-плагин по HTTP; в тесте только факт вызова.
 vi.mock('../services/stencilLibrary', () => ({ persistStencilsToDisk: vi.fn(async () => true) }))
 
 // stencilOverrides — IDB-персист правок символов; в тесте детерминируем.
@@ -419,7 +419,7 @@ describe('useProject', () => {
       expect(mockNotify.warn).toHaveBeenCalledWith('Символы с недопустимым id пропущены', 'ev"il')
     })
 
-    // На диск (файл в definitions/ под git) идут только символы, которых в кодовой базе
+    // На диск (файл в src/library/ под git) идут только символы, которых в кодовой базе
     // нет. Архив хранит версию на момент экспорта — писать ею встроенный символ значит
     // откатывать правки репозитория при открытии старого проекта.
     it('на диск уходит только НОВЫЙ символ, изменённый встроенный — лишь в оверрайды', async () => {
@@ -444,7 +444,7 @@ describe('useProject', () => {
       expect(persistStencilsToDisk.mock.calls.at(-1)[0].map((s) => s.id)).toEqual(['cell_new'])
     })
 
-    // В definitions/ символ набора стал бы встроенным: его место — в наборе и оверрайдах.
+    // В src/library/ символ набора стал бы встроенным: его место — в наборе и оверрайдах.
     it('символ набора из архива на диск не пишется', async () => {
       const preset = { id: 'demo', name: 'Демо', version: '1.0' }
       bundle([{ id: 'f1', svgText: 'x' }], {

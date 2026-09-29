@@ -14,7 +14,7 @@ vi.mock('./useNotify', () => ({
 }))
 
 vi.mock('../services/fileSystem', () => ({ pickFile: vi.fn(), getFileContentFromHandle: vi.fn() }))
-vi.mock('../utils/idb', () => ({
+vi.mock('../services/idb', () => ({
   idbGet: vi.fn(async () => null),
   idbSet: vi.fn(async () => true),
   idbDel: vi.fn(async () => true),
@@ -22,7 +22,7 @@ vi.mock('../utils/idb', () => ({
 
 import { useTagList } from './useTagList'
 import { pickFile } from '../services/fileSystem'
-import { idbSet, idbDel } from '../utils/idb'
+import { idbSet, idbDel } from '../services/idb'
 import { useProjectStore } from '../stores/useProjectStore'
 
 const tagsFile = () => new File(['PS1.ONOFF=Bool\n'], 'tags.csv')

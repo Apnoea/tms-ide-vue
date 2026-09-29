@@ -5,13 +5,13 @@ vi.mock('./fileSystem', () => ({ pickFile: vi.fn() }))
 
 const idbStore = vi.hoisted(() => new Map())
 const idbSet = vi.hoisted(() => vi.fn())
-vi.mock('../utils/idb', () => ({
+vi.mock('./idb', () => ({
   idbTryGet: vi.fn(async (k) => ({ ok: true, value: idbStore.get(k) })),
   idbSet: idbSet,
 }))
 
 import { zipSync, strToU8 } from 'fflate'
-import { idbTryGet } from '../utils/idb'
+import { idbTryGet } from './idb'
 import {
   comparePresetVersions,
   loadPresets,

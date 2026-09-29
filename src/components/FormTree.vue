@@ -6,22 +6,21 @@
  * узлы. Клик по заголовку сворачивает секцию (состояние в localStorage). Формы вне
  * дерева попадают в «Без иерархии», узлы на несуществующую форму рисуются битыми.
  *
- * Строка подписана названием формы, без него — id моноширинным. Карандаш правит id
- * (адрес формы), название — поле в инспекторе, когда ничего не выделено.
+ * Строка — id формы, рядом через точку серым — её название (поле в инспекторе, когда
+ * ничего не выделено). Карандаш правит id — адрес формы.
  */
 import { computed, ref, nextTick, onBeforeUnmount } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
-import { useConfirm } from 'primevue/useconfirm'
 import { useCanvas } from '../composables/useCanvas'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { subtreeIds, computeDrop } from '../utils/formTreeDnd'
-import { confirmDanger } from '../utils/confirmDanger'
+import { useConfirmDanger } from '../composables/useConfirmDanger'
 
 const canvas = useCanvas()
 const workspace = useWorkspaceStore()
-const confirm = useConfirm()
+const confirmDanger = useConfirmDanger()
 
 // Свёрнута ли вся секция «Формы» (тогда место забирает палитра). Отдельно от
 // свёрнутых ветвей, персист в localStorage — как у аккордеона палитры.
@@ -78,7 +77,7 @@ const rows = computed(() => {
 
 function rowTip(row) {
   if (row.broken) return `${row.id} — форма отсутствует`
-  return row.title ? `${row.title} · ${row.id}` : row.id
+  return row.title ? `${row.id} · ${row.title}` : row.id
 }
 
 // ─── Inline-переименование ───
@@ -109,7 +108,7 @@ function cancelRename() {
 // только в своём document-click listener'е, и с @click.stop попап встаёт в (0,0). У
 // строки нет @click, поэтому всплытие безопасно.
 function confirmDelete(event, id) {
-  confirmDanger(confirm, {
+  confirmDanger({
     target: event.currentTarget,
     message: `Удалить форму «${workspace.formLabel(id)}»?`,
     acceptLabel: 'Удалить',
@@ -368,7 +367,6 @@ onBeforeUnmount(() => {
                   type="button"
                   class="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pr-1 text-left text-xs truncate"
                   :class="[
-                    !row.title && 'font-mono',
                     row.broken
                       ? 'text-surface-400 line-through cursor-default'
                       : row.id === workspace.activeFormId
@@ -384,7 +382,12 @@ onBeforeUnmount(() => {
                       row.id === workspace.activeFormId ? 'text-primary-500' : 'text-surface-400'
                     "
                   />
-                  <span class="truncate">{{ row.title || row.id }}</span>
+                  <span class="truncate">
+                    <span class="font-mono">{{ row.id }}</span>
+                    <span v-if="row.title" class="font-normal text-surface-400">
+                      · {{ row.title }}
+                    </span>
+                  </span>
                 </button>
                 <!-- Кнопки АБСОЛЮТОМ поверх строки, как в палитре: в потоке они
                      держат ~60px у каждой строки, хотя видны только по ховеру. Тон
@@ -439,12 +442,11 @@ onBeforeUnmount(() => {
     <Teleport to="body">
       <div
         v-if="dragId"
-        class="pointer-events-none fixed z-[100] flex items-center gap-1.5 rounded bg-surface-0 px-2 py-1 text-xs shadow-lg ring-1 ring-surface-300"
-        :class="{ 'font-mono': !workspace.formTitleOf(dragId) }"
+        class="pointer-events-none fixed z-[100] flex items-center gap-1.5 rounded bg-surface-0 px-2 py-1 font-mono text-xs shadow-lg ring-1 ring-surface-300"
         :style="{ left: `${dragPos.x + 12}px`, top: `${dragPos.y + 8}px` }"
       >
         <i class="pi pi-file text-[10px]! text-primary-500" />
-        {{ workspace.formLabel(dragId) }}
+        {{ dragId }}
       </div>
     </Teleport>
   </div>

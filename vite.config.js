@@ -6,13 +6,13 @@ import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 
 // Dev-плагин: приложение в браузере не может писать в исходники проекта, а
-// при импорте проекта стенсилы должны физически лечь в src/stencils/definitions/
+// при импорте проекта стенсилы должны физически лечь в src/library/
 // (откуда их берёт Vite-glob реестра). Поэтому браузер шлёт стенсилы на этот
 // эндпоинт, а dev-сервер (у него есть fs-доступ) пишет файлы. Reload на свою же запись
 // подавляется (см. handleHotUpdate): символ уже в рантайм-реестре. Только dev
 // (apply: 'serve').
 // Контракт: POST /__stencils/import, тело [{ id, stencilJson, shapeSvg }];
-// id — slug [a-z0-9_], путь жёстко ограничен definitions/ (анти-traversal).
+// id — slug [a-z0-9_], путь жёстко ограничен src/library/ (анти-traversal).
 const STENCIL_ID_RE = /^[a-z0-9_]+$/
 
 /** Текст файла с ровно одним завершающим переводом строки (канон для git-файлов). */
@@ -53,7 +53,7 @@ function stencilWritePlugin() {
     name: 'tms-stencil-write',
     apply: 'serve',
     /**
-     * Сохранение символа пишет `definitions/<id>/*`, и вотчер Vite на это отвечает
+     * Сохранение символа пишет `src/library/<id>/*`, и вотчер Vite на это отвечает
      * полной перезагрузкой страницы: реестр собран `import.meta.glob`, hot-accept'а у
      * него нет. Перезагрузка тут лишняя — редактор уже зарегистрировал символ в
      * рантайме (`registerStencil`) и положил оверрайд в IDB, — а на экране она видна
@@ -67,7 +67,7 @@ function stencilWritePlugin() {
       return []
     },
     configureServer(server) {
-      const defsDir = path.resolve(server.config.root, 'src/stencils/definitions')
+      const defsDir = path.resolve(server.config.root, 'src/library')
       server.middlewares.use('/__stencils/import', async (req, res, next) => {
         if (req.method !== 'POST') return next()
         try {
@@ -103,7 +103,7 @@ function stencilWritePlugin() {
         }
       })
 
-      // Удаление стенсила из палитры: сносим папку definitions/<id>/. id — тот
+      // Удаление стенсила из палитры: сносим папку src/library/<id>/. id — тот
       // же slug-guard + жёсткое ограничение путём внутри defsDir (анти-traversal).
       server.middlewares.use('/__stencils/delete', async (req, res, next) => {
         if (req.method !== 'POST') return next()

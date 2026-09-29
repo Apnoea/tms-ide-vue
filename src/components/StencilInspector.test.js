@@ -2,10 +2,20 @@
 // Компонентный тест инспектора редактора символов: проверяет стык компонент ↔
 // синглтон useStencilEditor там, где юнит не достаёт — правка полей подписи меняет
 // модель, а не удаляет фигуру.
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mountWithApp } from '../composables/test-utils'
 import StencilInspector from './StencilInspector.vue'
 import { useStencilEditor } from '../composables/useStencilEditor'
+
+// В jsdom нет ResizeObserver, а его создаёт Textarea с `auto-resize` (текст подписи) —
+// без заглушки инспектор падает при монтировании.
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    disconnect() {}
+  }
+)
 
 describe('StencilInspector: подпись', () => {
   let editor
@@ -51,37 +61,13 @@ describe('StencilInspector: подпись', () => {
   })
 })
 
-// Тосты стоят в том же углу, что подвал с «Сохранить/Закрыть»: подвал публикует свою
-// высоту, и App.vue поднимает тосты над ним. jsdom без ResizeObserver — подставляем свой.
-describe('StencilInspector: подъём тостов над подвалом', () => {
-  it('публикует высоту подвала и снимает её на закрытии редактора', async () => {
-    const original = globalThis.ResizeObserver
-    globalThis.ResizeObserver = class {
-      constructor(cb) {
-        this.cb = cb
-      }
-      observe(el) {
-        Object.defineProperty(el, 'offsetHeight', { value: 57, configurable: true })
-        this.cb([{ target: el }])
-      }
-      unobserve() {}
-      disconnect() {}
-    }
-    const lift = () => document.documentElement.style.getPropertyValue('--tms-toast-lift')
-    try {
-      useStencilEditor().reset()
-      const wrapper = mountWithApp(StencilInspector)
-      await wrapper.vm.$nextTick()
-      expect(lift()).toBe('57px')
-      wrapper.unmount()
-      expect(lift()).toBe('')
-    } finally {
-      // Не присваиванием undefined: vueuse проверяет `'ResizeObserver' in window`, и
-      // оставшееся пустое свойство сломало бы соседние тесты.
-      if (original) globalThis.ResizeObserver = original
-      else delete globalThis.ResizeObserver
-    }
-  })
+// Кнопки «Сохранить/Закрыть» телепортирует StencilEditor — цель в шапке плашки «Символ».
+it('StencilInspector: цель кнопок редактора — в шапке «Символ»', () => {
+  useStencilEditor().reset()
+  const wrapper = mountWithApp(StencilInspector)
+  const target = wrapper.find('#tms-editor-actions')
+  expect(target.exists()).toBe(true)
+  expect(target.element.parentElement.querySelector('h2').textContent).toContain('Символ')
 })
 
 // Проблемы черновика видны при вводе: иначе занятый id или пустая категория всплывают

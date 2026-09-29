@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
-import { shapeBounds } from '../utils/stencilSvg'
+import { shapeBounds } from '../utils/shapeSvg'
 
 /**
  * Лассо фигур в редакторе символов: жесты как на холсте (useLasso), но модель своя —

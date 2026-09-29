@@ -10,7 +10,7 @@ import Badge from 'primevue/badge'
 import { storeToRefs } from 'pinia'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useTagList } from '../composables/useTagList'
-import { idbGet } from '../utils/idb'
+import { idbGet } from '../services/idb'
 
 const project = useProjectStore()
 const { tags } = storeToRefs(project)

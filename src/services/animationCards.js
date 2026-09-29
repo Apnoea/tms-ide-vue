@@ -6,10 +6,14 @@ import { getStencilById } from '../stencils/registry'
 import { CLASS_OFF, rangeColorClass, rangeRowColor, stateColorClass } from '../constants/animation'
 import { innerPrefix } from '../constants/ids'
 import { normalizeBoolSource, boolSourceTags } from '../utils/boolSource'
+import { withOpenTop } from '../utils/rangeRows'
 
-/** Строки источника, годные к эмиту: без цвета или без порогов case пустой. */
+/**
+ * Строки источника, годные к эмиту: без цвета или без порогов case пустой. Верх
+ * последней открыт (`withOpenTop`): отсутствующий `max` рантайм читает как бесконечность.
+ */
 function usableRows(vs) {
-  return (vs.ranges || []).filter(
+  return withOpenTop(vs.ranges).filter(
     (r) => rangeRowColor(r) && (Number.isFinite(r.min) || Number.isFinite(r.max))
   )
 }

@@ -16,7 +16,7 @@ import { ARROW_KINDS, WIRE_ROUTES, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from './wi
 export const RANGE_SLOT = 'range'
 
 /**
- * id шины: тело и порты ей считает код, а не definitions/. Она же — источник
+ * id шины: тело и порты ей считает код, а не src/library/. Она же — источник
  * диапазонов для подключённых проводов.
  */
 export const BUS_STENCIL_ID = 'cell_bus'
@@ -142,24 +142,6 @@ export function safeFormId(raw) {
     .replace(/_{2,}/g, '_')
     .replace(/^_+|_+$/g, '')
     .slice(0, FORM_ID_MAX)
-}
-
-/** Предел длины названия формы: это подпись в дереве и заголовке окна, а не абзац. */
-export const FORM_TITLE_MAX = 100
-
-/**
- * Название формы — текст для людей, в отличие от id: подпись в дереве форм, заголовок
- * окна IDE, `name` узла в `nav.json` (его рантайм показывает в навигации). Одна строка
- * без краевых пробелов; '' — названия нет. Приходит и из чужого архива, отсюда проверка
- * типа.
- */
-export function normalizeFormTitle(raw) {
-  if (typeof raw !== 'string') return ''
-  return raw
-    .replace(/\s+/g, ' ')
-    .replace(/\p{Cc}/gu, '')
-    .trim()
-    .slice(0, FORM_TITLE_MAX)
 }
 
 /**

@@ -13,16 +13,18 @@ import { cleanRangeRows, editRanges, newRangeRow, withZeroStart } from '../utils
 import { RANGE_SLOT } from '../constants/ids'
 import { nextStencilId, stateSlotOf } from '../stencils/registry'
 import {
-  serializeSvg,
-  buildStencilJson,
-  contentBox,
-  cropToContent,
-  parseStencilSvg,
   translateShape,
   shapeBounds,
   shapesBounds,
   rotateShape90,
   flipShape,
+} from '../utils/shapeSvg'
+import {
+  serializeSvg,
+  buildStencilJson,
+  contentBox,
+  cropToContent,
+  parseStencilSvg,
   portSeqFrom,
 } from '../utils/stencilSvg'
 import { normalizeStateColor } from '../constants/animation'

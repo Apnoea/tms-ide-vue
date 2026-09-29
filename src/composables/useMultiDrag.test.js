@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Multi-drag двигает вместе с выделением изломы и СВОБОДНЫЕ концы проводов. Сдвиг
-// ведущей кратным не бывает (направляющие притягивают её к краям и портам соседей),
-// поэтому проверяем, что перенесённые точки садятся на сетку.
+// ведущей бывает некратным (символ прежней формы стоял вне сетки), поэтому
+// проверяем, что перенесённые точки садятся на сетку.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ref } from 'vue'
 import { dia, shapes } from '@joint/core'
@@ -47,7 +47,6 @@ describe('useMultiDrag: свободные концы и изломы', () => {
   it('некратный сдвиг: конец и излом садятся на сетку', () => {
     const { prepareMultiDrag, onPositionChange } = useMultiDrag()
     prepareMultiDrag(cell.id)
-    // 12 по X — столько отдаёт направляющая, притянувшая символ к краю соседа.
     onPositionChange(cell, { x: 112, y: 103 }, {})
 
     expect(link.get('target')).toEqual({ x: 210, y: 105 })

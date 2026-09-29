@@ -8,6 +8,16 @@ import { dia, shapes } from '@joint/core'
 import { TMSStencil, tmsNamespace } from '../stencils/tmsStencil'
 import { mountWithApp } from '../composables/test-utils'
 
+// В jsdom нет ResizeObserver, а его создаёт Textarea с `auto-resize` (текст подписи,
+// описание формы) — без заглушки инспектор падает при монтировании.
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    disconnect() {}
+  }
+)
+
 vi.mock('../stencils/registry', () => ({
   // Булев символ: slot.onoff с `type: 'Boolean'` — именно по типу слота инспектор
   // фильтрует теги в picker'е (не по имени ключа), как в настоящем cell_qw.

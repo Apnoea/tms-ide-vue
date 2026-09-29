@@ -17,7 +17,7 @@ vi.mock('../stencils/svgInjector', () => ({ reinjectAllStencils: vi.fn() }))
 
 // In-memory idb. vi.hoisted — фабрика vi.mock поднимается выше импортов.
 const { idbStore } = vi.hoisted(() => ({ idbStore: new Map() }))
-vi.mock('../utils/idb', () => ({
+vi.mock('../services/idb', () => ({
   idbGet: vi.fn(async (k) => idbStore.get(k)),
   // Чтение с признаком успеха: restoreProject обязан отличать «нет записи»
   // (ok:true, value:undefined) от сбоя чтения (ok:false).
@@ -40,7 +40,7 @@ vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
 import { useAutosave } from './useAutosave'
 import { getStencilById } from '../stencils/registry'
-import { idbSet, idbTryGet } from '../utils/idb'
+import { idbSet, idbTryGet } from '../services/idb'
 
 const META_KEY = 'project:meta'
 const formKey = (id) => `project:form:${id}`
@@ -189,6 +189,7 @@ describe('useAutosave', () => {
         projectName: null,
         formBg: {},
         formTitle: {},
+        formDescription: {},
         wireStyle: {}, // вид нового провода — липкая настройка инструмента
       })
       expect(idbStore.get(formKey('main'))).toEqual({ cells: [] })
@@ -351,6 +352,7 @@ describe('useAutosave', () => {
         projectName: null,
         formBg: {},
         formTitle: {},
+        formDescription: {},
         wireStyle: {}, // вид нового провода — липкая настройка инструмента
       })
     })
@@ -413,6 +415,7 @@ describe('useAutosave', () => {
         projectName: null,
         formBg: {},
         formTitle: {},
+        formDescription: {},
         wireStyle: {}, // вид нового провода — липкая настройка инструмента
       })
       expect(idbStore.get('project:tags')).toBe('TAG1;Bool')

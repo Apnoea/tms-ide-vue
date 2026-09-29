@@ -17,6 +17,7 @@ import Select from 'primevue/select'
 import ToggleSwitch from 'primevue/toggleswitch'
 import { rangeRowColor } from '../constants/animation'
 import { rangeBound, rangeRowFor, zoneValueFor } from '../utils/simValues'
+import { rowMax } from '../utils/rangeRows'
 
 const props = defineProps({
   /** `[{ tag, kind: 'state'|'bool'|'value', states?, rangeSource?, type }]`. */
@@ -79,10 +80,10 @@ const stateOptions = (t) =>
     .filter((s) => s.code !== '' && s.code != null)
     .map((s) => ({ label: s.label || s.key, value: s.code }))
 
-/** Подпись зоны по её порогам: пустой порог — открытая граница. */
-function zoneLabel(row) {
+/** Подпись зоны по её порогам: пустой порог и верх последней строки — открытая граница. */
+function zoneLabel(ranges, row) {
   const lo = rangeBound(row.min)
-  const hi = rangeBound(row.max)
+  const hi = rangeBound(rowMax(ranges, row))
   if (lo !== null && hi !== null) return lo === hi ? `= ${lo}` : `${lo}–${hi}`
   if (lo !== null) return `≥ ${lo}`
   if (hi !== null) return `≤ ${hi}`
@@ -104,7 +105,7 @@ const zonesByTag = computed(() => {
       .map((row) => ({
         row,
         color: rangeRowColor(row),
-        label: zoneLabel(row),
+        label: zoneLabel(t.rangeSource.ranges, row),
         value: zoneValueFor(t.rangeSource, row),
       }))
     if (zones.length) out.set(t.tag, zones)

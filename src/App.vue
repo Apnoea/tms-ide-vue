@@ -204,7 +204,7 @@ useEventListener(window, 'keydown', (event) => {
       <!-- Редактор символов — оверлей поверх холста (relative-контейнер). CanvasPane
            остаётся смонтированным под ним: paper/graph не пересоздаются.
            Проявление ТОЛЬКО на открытии: на закрытии редактор должен уйти сразу —
-           его кнопки живут Teleport'ом в подвале инспектора, а тот переключается на
+           его кнопки живут Teleport'ом в шапке инспектора, а тот переключается на
            холстовый в тот же тик. Масштаба в переходе нет: редактор меряет стол
            через getBoundingClientRect, и кадры под `scale` дали бы кривой зум. -->
       <div class="flex-1 min-w-0 rounded-lg overflow-hidden shadow-md relative">
@@ -233,11 +233,7 @@ useEventListener(window, 'keydown', (event) => {
       </Transition>
     </div>
 
-    <!-- Угол тостов — над подвалом инспектора: пока открыт редактор символов, там его
-         «Сохранить/Закрыть», и тост «Проверь символ» лёг бы прямо на них. Подвал
-         публикует свою высоту в `--tms-toast-lift` (StencilInspector), тосты встают над
-         ним. PrimeVue задаёт позицию инлайном, поэтому и подъём — инлайном, не классом. -->
-    <Toast position="bottom-right" :style="{ bottom: 'calc(20px + var(--tms-toast-lift, 0px))' }" />
+    <Toast position="bottom-right" />
     <ConfirmPopup />
     <HelpDialog />
     <PresetDialog />

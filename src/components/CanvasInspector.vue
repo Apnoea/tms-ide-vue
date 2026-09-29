@@ -26,7 +26,7 @@ import { nplural } from '../utils/plural'
 import { normalizeBoolSource } from '../utils/boolSource'
 import { normalizeFont } from '../utils/textMetrics'
 import { toPlain } from '../utils/plain'
-import { isBooleanType } from '../services/parsers'
+import { isBooleanType } from '../services/tagList'
 import TagPickerDialog from './TagPickerDialog.vue'
 import RangeBlock from './RangeBlock.vue'
 import StateBlock from './StateBlock.vue'
@@ -36,7 +36,7 @@ import ShapeBlock from './ShapeBlock.vue'
 import ValueBlock from './ValueBlock.vue'
 import AlignBlock from './AlignBlock.vue'
 import BodyStyleFields from './BodyStyleFields.vue'
-import FormTitleField from './FormTitleField.vue'
+import FormFields from './FormFields.vue'
 import { RANGE_SLOT, previewOuterKey } from '../constants/ids'
 import {
   isDefaultWireValue,
@@ -1123,10 +1123,10 @@ const {
         </div>
       </template>
 
-      <!-- Ничего не выделено — свойства активной формы: название и сводка. -->
+      <!-- Ничего не выделено — свойства активной формы: название, описание и сводка. -->
       <template v-else-if="!details">
         <div class="space-y-4 text-[11px]">
-          <FormTitleField />
+          <FormFields />
           <div>
             <div class="mb-2 uppercase tracking-wider text-surface-500">Сводка формы</div>
             <div class="flex flex-col gap-1 text-surface-600">

@@ -39,16 +39,21 @@ describe('rangeRowFor', () => {
   })
 
   it('значение вне строк и не-число → цвета нет', () => {
-    expect(rangeRowFor(src, 5000)).toBeNull()
     expect(rangeRowFor(src, -1)).toBeNull()
     expect(rangeRowFor(src, 'x')).toBeNull()
     expect(rangeRowFor(null, 1)).toBeNull()
+  })
+
+  it('выше верхнего порога — цвет последней строки: её верх открыт', () => {
+    expect(rangeRowFor(src, 5000).color).toBe('#ef4444')
   })
 
   it('строка без цвета не участвует, открытая граница не ограничивает', () => {
     expect(rangeRowFor({ ranges: [{ min: 0, max: 5 }] }, 1)).toBeNull()
     expect(rangeRowFor({ ranges: [{ min: 10, color: '#fff' }] }, 1e6).color).toBe('#fff')
     expect(rangeRowFor({ ranges: [{ max: 10, color: '#fff' }] }, -1e6).color).toBe('#fff')
+    // Без нижнего порога верх — единственная граница строки, он не открывается.
+    expect(rangeRowFor({ ranges: [{ max: 10, color: '#fff' }] }, 50)).toBeNull()
   })
 })
 
@@ -132,6 +137,7 @@ describe('zoneValueFor', () => {
       ranges: [
         { min: 0, max: 50, color: G },
         { min: 30, max: 60, color: Y },
+        { min: 60, color: R },
       ],
     }
     expect(zoneValueFor(src, src.ranges[1])).toBe(60)

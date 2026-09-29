@@ -27,7 +27,7 @@ import {
   textAnchorOf,
   textLines,
   textShapeBox,
-} from '../utils/stencilSvg'
+} from '../utils/shapeSvg'
 import { normalizeFont } from '../utils/textMetrics'
 import { TEXT_ICON } from '../constants/icons'
 

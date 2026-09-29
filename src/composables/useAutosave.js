@@ -4,10 +4,10 @@ import { withPaperFrozen } from '../utils/paperBatch'
 import { registerStencil } from '../stencils/registry'
 import { withRestoreGuard } from '../utils/restoreGuard'
 import { toPlain } from '../utils/plain'
-import { idbGet, idbTryGet, idbSet, idbDel, idbKeys } from '../utils/idb'
+import { idbGet, idbTryGet, idbSet, idbDel, idbKeys } from '../services/idb'
 import { loadStencilOverrides, replaceStencilOverrides } from '../services/stencilOverrides'
 import { loadPresets, rebaseOverrides } from '../services/presetLibrary'
-import { parseTagList } from '../services/parsers'
+import { parseTagList } from '../services/tagList'
 import { migrateGraphJson } from '../services/legacyFormat'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -108,6 +108,7 @@ export function useAutosave({ restoringHistory }) {
       workspace.setProjectName(meta.projectName ?? null) // старые проекты → без имени
       workspace.loadFormBg(meta.formBg) // старые проекты → дефолтный фон у всех форм
       workspace.loadFormTitle(meta.formTitle) // старые проекты → формы без названий
+      workspace.loadFormDescription(meta.formDescription)
       workspace.loadWireStyle(meta.wireStyle)
       // Мета протухла (activeFormId не из formIds): loadForms взял первую форму,
       // перезаписываем мету, чтобы IDB не расходился со стором.
@@ -145,6 +146,7 @@ export function useAutosave({ restoringHistory }) {
         projectName: workspace.projectName, // имя проекта — переживает reload
         formBg: workspace.formBg, // фон холста по формам — свойство проекта, не браузера
         formTitle: workspace.formTitle, // названия форм
+        formDescription: workspace.formDescription, // описания форм
         wireStyle: workspace.wireStyle, // вид нового провода (липкие настройки инструмента)
       })
     )
@@ -223,6 +225,7 @@ export function useAutosave({ restoringHistory }) {
     // проекте нет.
     workspace.loadFormBg(projectMeta?.formBg)
     workspace.loadFormTitle(projectMeta?.formTitle)
+    workspace.loadFormDescription(projectMeta?.formDescription)
     ok = (await persistMeta()) && ok
     // Только если проект принёс теги: иначе project:tags в IDB не затираем.
     if (tagsText != null) {
@@ -277,15 +280,18 @@ export function useAutosave({ restoringHistory }) {
     return idbDel(formKey(id))
   }
 
-  // Липкие настройки провода и названия форм живут в мете, а её пишут только операции с
-  // формами — поэтому свой вотчер. Отложенно: пикер цвета сыплет событиями на каждое
-  // движение курсора, а мета пишется целиком. Глубокое сравнение не нужно — сеттеры
-  // стора собирают новый объект.
+  // Липкие настройки провода, названия и описания форм живут в мете, а её пишут только
+  // операции с формами — поэтому свой вотчер. Отложенно: пикер цвета сыплет событиями
+  // на каждое движение курсора, а мета пишется целиком. Глубокое сравнение не нужно —
+  // сеттеры стора собирают новый объект.
   let metaTimer = null
-  watch([() => workspace.wireStyle, () => workspace.formTitle], () => {
-    clearTimeout(metaTimer)
-    metaTimer = setTimeout(persistMeta, 300)
-  })
+  watch(
+    [() => workspace.wireStyle, () => workspace.formTitle, () => workspace.formDescription],
+    () => {
+      clearTimeout(metaTimer)
+      metaTimer = setTimeout(persistMeta, 300)
+    }
+  )
   onBeforeUnmount(() => clearTimeout(metaTimer))
 
   return {

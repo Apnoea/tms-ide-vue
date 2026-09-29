@@ -6,7 +6,6 @@ import ContextMenu from 'primevue/contextmenu'
 import Tag from 'primevue/tag'
 import Divider from 'primevue/divider'
 import { useNotify, TOAST_LIFE } from '../composables/useNotify'
-import { useConfirm } from 'primevue/useconfirm'
 import {
   normalizeLinkZ,
   attachLinkTools,
@@ -38,10 +37,10 @@ import { useHotkeys } from '../composables/useHotkeys'
 import { useSelectionOverlay } from '../composables/useSelectionOverlay'
 import { useHoverTooltip } from '../composables/useHoverTooltip'
 import { usePan } from '../composables/usePan'
+import { useBlurOnPress } from '../composables/useBlurOnPress'
 import { useCanvasZoom, ZOOM_STEP } from '../composables/useCanvasZoom'
 import { useCellHighlight } from '../composables/useCellHighlight'
 import { useMultiDrag } from '../composables/useMultiDrag'
-import { useSnapGuides } from '../composables/useSnapGuides'
 import { useLasso } from '../composables/useLasso'
 import { useCanvasDraw } from '../composables/useCanvasDraw'
 import { useCanvasResize } from '../composables/useCanvasResize'
@@ -49,7 +48,7 @@ import { useContextMenu } from '../composables/useContextMenu'
 import { usePaletteDrag } from '../composables/usePaletteDrag'
 import { nplural } from '../utils/plural'
 import { withRestoreGuard } from '../utils/restoreGuard'
-import { confirmDanger } from '../utils/confirmDanger'
+import { useConfirmDanger } from '../composables/useConfirmDanger'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cssColor } from '../constants/animation'
 import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
@@ -73,7 +72,7 @@ const workspace = useWorkspaceStore()
 const canvas = useCanvas()
 
 const notify = useNotify()
-const confirm = useConfirm()
+const confirmDanger = useConfirmDanger()
 
 // Общий флаг «идёт восстановление графа» (useAutosave + useUndoRedo): без него
 // snapshot → save → restore зацикливается. Взводится и на массовых правках графа.
@@ -130,6 +129,7 @@ useEventListener(paperContainer, 'mouseleave', onCanvasMouseLeave)
 // начнёт свой drag.
 useEventListener(paperContainer, 'mousedown', bus.onMaybeStartResize, true)
 useEventListener(paperContainer, 'mousedown', onPanMouseDown, true)
+useBlurOnPress(paperContainer)
 useEventListener(document, 'mouseup', onPanMouseUp)
 useEventListener(window, 'keydown', onSpaceDown)
 useEventListener(window, 'keyup', onSpaceUp)
@@ -149,15 +149,10 @@ let isPointerDownOnCell = false
 // «Ячейку тащат» — взводится на первом change в окне pointer-down (drag, а не клик).
 // Пока true, overlay-кнопки скрыты: bumpVersion подавлен.
 const cellDragging = ref(false)
-// Направляющие: притягивают двигаемый символ к краям, центрам и портам соседей.
-// Объявлены здесь, а не рядом с multi-drag: `endGuides` зовёт releasePointerDrag ниже.
-const { guideLines, beginGuides, updateGuides, endGuides } = useSnapGuides()
 function releasePointerDrag() {
   if (!isPointerDownOnCell) return
   isPointerDownOnCell = false
   cellDragging.value = false
-  // Мышь могли отпустить вне холста — линии иначе остались бы висеть.
-  endGuides()
   canvas.bumpVersion()
 }
 useEventListener(document, 'mouseup', releasePointerDrag, { capture: true })
@@ -504,7 +499,6 @@ onMounted(async () => {
     }
     // Ячейка уже в выделении и нет Ctrl — оставляем как есть (multi-drag).
     prepareMultiDrag(cellId)
-    beginGuides(cellId)
   })
   paper.on('link:pointerdown', (linkView, evt) => {
     if (evt.ctrlKey || evt.metaKey) {
@@ -516,11 +510,6 @@ onMounted(async () => {
   // Multi-drag: ведущая ячейка тянет остальных выделенных (см. useMultiDrag).
   graph.on('change:position', onPositionChange)
   paper.on('element:pointerup', endMultiDrag)
-
-  // Направляющие: правим позицию ПОСЛЕ снапа JointJS к сетке, поэтому на pointermove,
-  // а не на change:position (там правка ведущей вызвала бы саму себя).
-  paper.on('element:pointermove', (elementView, evt) => updateGuides(elementView.model, evt))
-  paper.on('element:pointerup', endGuides)
 
   // Закрепление на шине: сдвинули шину — закреплённые символы едут за ней. Выделенные
   // пропускаются (их уже сдвинул multi-drag), `busFollow` гасит реентри.
@@ -898,7 +887,7 @@ function onClearCanvas(event) {
     clearActiveForm()
     return
   }
-  confirmDanger(confirm, {
+  confirmDanger({
     target: event.currentTarget,
     // count = символы + провода, поэтому зонтичный «элемент», а не «символ».
     // Число после двоеточия: «будет удалено/удалён/удалены» с числом не согласовать.
@@ -1339,26 +1328,6 @@ function performClearCanvas(count) {
         :style="{ ...h.style, cursor: h.cursor }"
         @pointerdown="onHandleDown($event, h.key)"
       ></div>
-
-      <!-- Направляющие двигаемого символа: линия проходит через соседей, с которыми он
-           встал в ряд. Тонкая и пунктиром — подсказка на время жеста, не элемент схемы. -->
-      <svg
-        v-if="guideLines.length"
-        class="absolute inset-0 pointer-events-none w-full h-full overflow-visible"
-      >
-        <line
-          v-for="(g, i) in guideLines"
-          :key="i"
-          :x1="g.x1"
-          :y1="g.y1"
-          :x2="g.x2"
-          :y2="g.y2"
-          stroke="currentColor"
-          stroke-width="1"
-          stroke-dasharray="3 3"
-          class="text-primary-500"
-        />
-      </svg>
 
       <!-- Превью рисуемой фигуры (координаты в container-px, как у лассо). Рамка для
            прямоугольника/эллипса, линия и ломаная — своими примитивами. -->

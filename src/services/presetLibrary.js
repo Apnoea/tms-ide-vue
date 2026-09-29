@@ -11,7 +11,7 @@
 // её в каждом json, и версия в манифесте с версией в символах разойтись не может.
 import { unzipSync, strFromU8 } from 'fflate'
 import { PRESET_VERSION_RE, STENCIL_ID_RE } from '../constants/ids'
-import { idbTryGet, idbSet } from '../utils/idb'
+import { idbTryGet, idbSet } from './idb'
 import { rebaseOnPreset } from '../utils/presetPatch'
 import { pickFile } from './fileSystem'
 import { stencilSignature } from './stencilOverrides'

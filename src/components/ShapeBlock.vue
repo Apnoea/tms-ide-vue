@@ -49,7 +49,8 @@ function toggleFill(on) {
            пишется по blur, а не по Enter. -->
       <Textarea
         :model-value="text"
-        rows="3"
+        rows="2"
+        auto-resize
         size="small"
         class="w-full"
         placeholder="Пустое поле удалит подпись"

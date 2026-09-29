@@ -26,6 +26,28 @@ export function withZeroStart(ranges) {
 }
 
 /**
+ * Верх шкалы открыт: верхний порог последней строки не читается, и значение над шкалой
+ * красится её цветом, а не остаётся без цвета. Исключения: строка без нижнего порога
+ * (верх — её единственная граница) и одинаковые границы («3–3»: точное значение, а не
+ * зона). Правило чтения — данные не правятся, поэтому действует и на уже сохранённые
+ * символы.
+ */
+export function rowMax(ranges, row) {
+  const openTop =
+    ranges?.[ranges.length - 1] === row && Number.isFinite(row?.min) && row.min !== row.max
+  return openTop ? undefined : row?.max
+}
+
+/** Строки такими, как их увидит рантайм: верх последней по правилу `rowMax`. */
+export function withOpenTop(ranges) {
+  const list = ranges || []
+  const last = list[list.length - 1]
+  if (!last || rowMax(list, last) === last.max) return list
+  const { max: _max, ...rest } = last
+  return [...list.slice(0, -1), rest]
+}
+
+/**
  * Строки к сохранению в определении символа: только с цветом и хотя бы одной границей
  * (прочие в анимацию не попадают — как в экспорте), поля в каноническом виде
  * `{ min?, max?, color }`. Один и тот же вид у редактора символов и у миграции — по

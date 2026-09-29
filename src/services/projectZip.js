@@ -3,7 +3,7 @@
 //
 //   projects-list.json          [{ id, name, description }] — список проектов сервера
 //   user-projects.json          { "<логин>": ["<id проекта>"] } — доступ по пользователям
-//   <id>/nav.json               дерево навигации [{ viewId, name, children }]
+//   <id>/nav.json               дерево навигации [{ viewId, name, description?, children }]
 //   <id>/views/<viewId>/{view.svg, animations.json}
 //   <id>/library/<id>/{stencil.json, shape.svg}   ─┐
 //   <id>/presets/<набор>/…  (раскладка .zip набора) │ читает только IDE,
@@ -16,7 +16,7 @@
 // Архивы прошлой раскладки (`forms/`, `hierarchy.json` в корне) читаются по-прежнему.
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 import { FORM_ID_RE, FORM_ID_MAX } from '../constants/ids'
-import { isXmlTagList } from './parsers'
+import { isXmlTagList } from './tagList'
 import { pickFile } from './fileSystem'
 import { presetFromEntries } from './presetLibrary'
 
@@ -36,41 +36,54 @@ function assertPathSafeId(id, what) {
 
 const jsonFile = (value) => strToU8(JSON.stringify(value, null, 2) + '\n')
 
+// Текст формы по id — только своих ключей: у формы `constructor` обычное чтение дало бы
+// функцию из прототипа, и JSON выкинул бы поле целиком.
+const textOf = (map, id) => (map && Object.hasOwn(map, id) ? map[id] : '')
+
 /**
  * Дерево форм IDE (`[{ id, children }]`) → навигация WebScada
- * (`[{ viewId, name, children }]`). `name` — подпись в дереве сервера и в пунктах
- * перехода: название формы, без него — id.
+ * (`[{ viewId, name, description?, children }]`). `name` — подпись в дереве сервера и
+ * в пунктах перехода: название формы, без него — id. `description` — описание формы,
+ * только если оно задано.
  */
-function toNavTree(nodes, titles) {
-  // Только свои ключи: у формы `constructor` обычное чтение дало бы функцию из
-  // прототипа, и JSON выкинул бы `name` целиком.
-  const titleOf = (id) => (titles && Object.hasOwn(titles, id) ? titles[id] : '')
-  return (nodes || []).map((n) => ({
-    viewId: n.id,
-    name: titleOf(n.id) || n.id,
-    children: toNavTree(n.children, titles),
-  }))
+function toNavTree(nodes, titles, descriptions) {
+  return (nodes || []).map((n) => {
+    const description = textOf(descriptions, n.id)
+    return {
+      viewId: n.id,
+      name: textOf(titles, n.id) || n.id,
+      ...(description ? { description } : {}),
+      children: toNavTree(n.children, titles, descriptions),
+    }
+  })
 }
 
 /** Предел обхода навигации — тот же, что у дерева в сторе: глубже узлы отбрасываются. */
 const NAV_DEPTH_MAX = 32
 
 /**
- * Названия форм из навигации сервера: `name`, отличный от `viewId`. Равный id — не
- * название, а подпись по умолчанию (так пишет и сама IDE). Значения сырые — чистит
- * стор (`loadFormTitle`).
+ * Тексты форм из навигации сервера: `pick(узел, id)` отдаёт строку или ничего. Значения
+ * сырые — чистит стор при загрузке.
  */
-function navTitles(nodes, out = {}, depth = 0) {
+function navTexts(nodes, pick, out = {}, depth = 0) {
   const list = Array.isArray(nodes) ? nodes : nodes && typeof nodes === 'object' ? [nodes] : []
   if (depth > NAV_DEPTH_MAX) return out
   for (const n of list) {
     const id = n?.viewId || n?.id
     if (typeof id !== 'string') continue
-    if (typeof n.name === 'string' && n.name.trim() && n.name.trim() !== id) out[id] = n.name
-    navTitles(n.children, out, depth + 1)
+    const text = pick(n, id)
+    if (text) out[id] = text
+    navTexts(n.children, pick, out, depth + 1)
   }
   return out
 }
+
+// Название — `name`, отличный от `viewId`: равный id — подпись по умолчанию (так пишет
+// и сама IDE), а не название.
+const pickTitle = (n, id) =>
+  typeof n.name === 'string' && n.name.trim() && n.name.trim() !== id ? n.name : ''
+const pickDescription = (n) =>
+  typeof n.description === 'string' && n.description.trim() ? n.description : ''
 
 /**
  * Обратное преобразование: навигация сервера → дерево форм IDE. Верхний уровень —
@@ -95,9 +108,11 @@ function fromNavTree(nodes) {
  *   tagsText?: string | null,
  *   hierarchy?: Array | null,
  *   titles?: Record<string, string> | null,
+ *   descriptions?: Record<string, string> | null,
  *   project?: object | null,
  *   presets?: { id, name, version, description?, stencils: object[] }[]
- * }} bundle — `titles`: названия форм по id, уходят в `name` узлов `nav.json`
+ * }} bundle — `titles` и `descriptions`: названия и описания форм по id, уходят в `name`
+ *   и `description` узлов `nav.json`
  * @returns {Blob}
  */
 export function buildProjectZipBlob({
@@ -107,6 +122,7 @@ export function buildProjectZipBlob({
   tagsText,
   hierarchy,
   titles,
+  descriptions,
   project,
   presets,
 }) {
@@ -118,7 +134,7 @@ export function buildProjectZipBlob({
   files['projects-list.json'] = jsonFile([{ id: projectId, name: projectId, description: '' }])
   files['user-projects.json'] = jsonFile({ [DEFAULT_USER]: [projectId] })
   // Дерево навигации пишем ВСЕГДА, даже пустым: без nav.json сервер не покажет проект.
-  files[`${root}nav.json`] = jsonFile(toNavTree(hierarchy, titles))
+  files[`${root}nav.json`] = jsonFile(toNavTree(hierarchy, titles, descriptions))
 
   for (const f of forms) {
     // Последний рубеж перед путём в архиве: `..` или слэш в id формы увели бы файл
@@ -150,7 +166,7 @@ export function buildProjectZipBlob({
     }
   }
   // Tag-list уезжает КАК ЕСТЬ, в своём формате: скадист открывает архив тем же файлом,
-  // что дал нам, а разбор различает форматы сам (parsers.parseTagList).
+  // что дал нам, а разбор различает форматы сам (`parseTagList`).
   if (tagsText != null) {
     files[`${root}${isXmlTagList(tagsText) ? 'taglist.xml' : 'taglist.csv'}`] = strToU8(tagsText)
   }
@@ -198,9 +214,11 @@ export async function pickProjectArchive() {
  *   tagsText: string | null,
  *   hierarchy: Array | null,
  *   navTitles: Record<string, string>,
+ *   navDescriptions: Record<string, string>,
  *   project: object | null,
  *   presets: { id, name, version, description, stencils: object[] }[]
- * }>} navTitles — названия форм из `name` узлов `nav.json` (сырые, чистит стор)
+ * }>} navTitles, navDescriptions — названия и описания форм из `name` и `description`
+ *   узлов `nav.json` (сырые, чистит стор)
  */
 export async function readProjectZipFile(file) {
   let entries
@@ -253,13 +271,15 @@ export async function readProjectZipFile(file) {
   // Дерево: `nav.json` (WebScada) либо `hierarchy.json` прошлых архивов. Формы узлов
   // разные, приводим к виду стора — `[{ id, children }]`.
   let hierarchy = null
-  let titles = {}
+  let navTitles = {}
+  let navDescriptions = {}
   const navText = text('nav.json') ?? text('hierarchy.json')
   if (navText) {
     try {
       const nav = JSON.parse(navText)
       hierarchy = fromNavTree(nav)
-      titles = navTitles(nav)
+      navTitles = navTexts(nav, pickTitle)
+      navDescriptions = navTexts(nav, pickDescription)
     } catch {
       hierarchy = null
     }
@@ -295,5 +315,5 @@ export async function readProjectZipFile(file) {
     }
   }
 
-  return { forms, stencils, tagsText, hierarchy, navTitles: titles, project, presets }
+  return { forms, stencils, tagsText, hierarchy, navTitles, navDescriptions, project, presets }
 }

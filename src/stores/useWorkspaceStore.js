@@ -2,9 +2,9 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { subtreeIds } from '../utils/formTreeDnd'
 import { cssColor } from '../constants/animation'
-import { normalizeFormTitle } from '../constants/ids'
+import { normalizeFormDescription, normalizeFormTitle } from '../utils/formIds'
 import { CANVAS_BG_DEFAULT } from '../stencils/canvasPaper'
-import { normalizeWireStyle } from '../stencils/linkDefaults'
+import { normalizeWireStyle } from '../constants/wire'
 
 /**
  * Проектный слой: формы (схемы) и активная форма. Хранит только ДАННЫЕ —
@@ -16,8 +16,8 @@ import { normalizeWireStyle } from '../stencils/linkDefaults'
  * источник существования/порядка), `activeFormId` и `formTree` (иерархия для
  * дерева форм слева — приходит из hierarchy.json проекта, синкается на CRUD).
  *
- * `id` формы = имя её папки (оно же цель навигации). Подпись для людей — отдельное
- * название (`formTitle`), без него в дереве показывается id.
+ * `id` формы = имя её папки (оно же цель навигации). Для людей — отдельные название и
+ * описание (`formTitle`, `formDescription`).
  */
 
 // ─── Чистые операции над деревом иерархии (узел = { id, children: [] }) ───
@@ -148,21 +148,48 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   // уезжает в мету проекта и в архив, поэтому у коллеги схема откроется в тех же
   // цветах. Дефолтный фон не храним: отсутствие ключа и есть он.
   const formBg = ref({})
-  // Название формы: { formId: 'Главная схема' }. Id — адрес (латиница, путь в архиве),
-  // название — для людей. Нет ключа — названия нет, показывается id.
-  const formTitle = ref({})
 
-  // Чтение по id — только своих ключей: форма может называться `constructor`, и
-  // обычное обращение отдало бы функцию из прототипа.
+  /**
+   * Текст формы для людей по id: { formId: текст }, нет ключа — пусто. Id — адрес
+   * (латиница, путь в архиве), тексты — название и описание. Чтение — только своих
+   * ключей: форма может называться `constructor`, и обычное обращение отдало бы функцию
+   * из прототипа.
+   */
+  function formText(normalize) {
+    const map = ref({})
+    const of = (id) => (id != null && Object.hasOwn(map.value, id) ? map.value[id] : '')
+    /** Пустое снимает запись. false — формы нет или ничего не поменялось. */
+    function set(id, raw) {
+      if (!forms.has(id)) return false
+      const clean = normalize(raw)
+      if (of(id) === clean) return false
+      map.value = clean ? { ...map.value, [id]: clean } : withoutKey(map.value, id)
+      return true
+    }
+    /** Массовая загрузка: ключи чужих форм и пустые значения отбрасываем. */
+    function load(raw) {
+      const next = {}
+      if (raw && typeof raw === 'object') {
+        for (const [id, value] of Object.entries(raw)) {
+          const clean = normalize(value)
+          if (forms.has(id) && clean) next[id] = clean
+        }
+      }
+      map.value = next
+    }
+    return { map, of, set, load }
+  }
+  const title = formText(normalizeFormTitle)
+  const description = formText(normalizeFormDescription)
+  const formTitle = title.map
+  const formDescription = description.map
+  const formTitleOf = title.of
+
   const activeFormBg = computed(() =>
     Object.hasOwn(formBg.value, activeFormId.value ?? '') ? formBg.value[activeFormId.value] : null
   )
-  const activeFormTitle = computed(() => formTitleOf(activeFormId.value))
-
-  /** Название формы; '' — названия нет. */
-  function formTitleOf(id) {
-    return id != null && Object.hasOwn(formTitle.value, id) ? formTitle.value[id] : ''
-  }
+  const activeFormTitle = computed(() => title.of(activeFormId.value))
+  const activeFormDescription = computed(() => description.of(activeFormId.value))
 
   /** Название формы или её id — подпись везде, где форму показывают человеку. */
   function formLabel(id) {
@@ -222,27 +249,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (forms.has(id) && clean && clean !== CANVAS_BG_DEFAULT) next[id] = clean
     }
     formBg.value = next
-  }
-
-  /** Название формы; пустое снимает запись. false — формы нет или ничего не поменялось. */
-  function setFormTitle(id, title) {
-    if (!forms.has(id)) return false
-    const clean = normalizeFormTitle(title)
-    if (formTitleOf(id) === clean) return false
-    formTitle.value = clean ? { ...formTitle.value, [id]: clean } : withoutKey(formTitle.value, id)
-    return true
-  }
-
-  /** Массовая загрузка названий: ключи чужих форм и пустые значения отбрасываем. */
-  function loadFormTitle(map) {
-    const next = {}
-    if (map && typeof map === 'object') {
-      for (const [id, raw] of Object.entries(map)) {
-        const clean = normalizeFormTitle(raw)
-        if (forms.has(id) && clean) next[id] = clean
-      }
-    }
-    formTitle.value = next
   }
 
   function setProjectName(name) {
@@ -323,6 +329,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     forms.delete(id)
     formBg.value = withoutKey(formBg.value, id)
     formTitle.value = withoutKey(formTitle.value, id)
+    formDescription.value = withoutKey(formDescription.value, id)
     formTree.value = pruneTree(formTree.value, id)
     if (activeFormId.value === id) activeFormId.value = forms.keys().next().value ?? null
     syncList()
@@ -338,10 +345,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     forms.clear()
     for (const [k, v] of entries) forms.set(k, v)
     formTree.value = renameInTree(formTree.value, oldId, newId)
-    // Фон и название привязаны к id формы — переносим вместе с ней, иначе схема
-    // «побелеет» и потеряет подпись.
+    // Фон, название и описание привязаны к id формы — переносим вместе с ней, иначе
+    // схема «побелеет» и потеряет подпись.
     formBg.value = withRenamedKey(formBg.value, oldId, newId)
     formTitle.value = withRenamedKey(formTitle.value, oldId, newId)
+    formDescription.value = withRenamedKey(formDescription.value, oldId, newId)
     if (activeFormId.value === oldId) activeFormId.value = newId
     syncList()
     return true
@@ -382,8 +390,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeFormTitle,
     formTitleOf,
     formLabel,
-    setFormTitle,
-    loadFormTitle,
+    setFormTitle: title.set,
+    loadFormTitle: title.load,
+    formDescription,
+    activeFormDescription,
+    formDescriptionOf: description.of,
+    setFormDescription: description.set,
+    loadFormDescription: description.load,
     wireStyle,
     setWireStyle,
     loadWireStyle,

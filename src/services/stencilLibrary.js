@@ -1,6 +1,6 @@
 /**
  * Персист символов на диск через dev-эндпоинт (stencilWritePlugin в vite.config.js):
- * браузер в src/stencils/definitions/ писать не может, это делает dev-сервер, а
+ * браузер в src/library/ писать не может, это делает dev-сервер, а
  * Vite-вотчер триггерит reload, и glob реестра подхватывает файлы.
  *
  * Контракт: POST /__stencils/import, тело [{ id, stencilJson, shapeSvg }]. В проде
@@ -25,7 +25,7 @@ export async function persistStencilsToDisk(items) {
 }
 
 /**
- * Удаление символа с диска (definitions/<id>/) через тот же dev-эндпоинт.
+ * Удаление символа с диска (src/library/<id>/) через тот же dev-эндпоинт.
  * В проде плагина нет → false; caller уже снял символ из рантайм-реестра.
  *
  * @param {string} id

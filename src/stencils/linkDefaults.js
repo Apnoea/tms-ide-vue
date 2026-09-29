@@ -7,13 +7,7 @@ import { BUS_STENCIL_ID, LINK_META_FIELDS } from '../constants/ids'
 import { RANGE_FILL_CLASS, cssColor } from '../constants/animation'
 import { svgEl } from '../utils/xml'
 import { snapToGrid } from '../utils/grid'
-import {
-  ARROW_KINDS,
-  WIRE_ROUTES,
-  WIRE_ROUTE_STRAIGHT,
-  WIRE_STROKE_MAX,
-  WIRE_STROKE_MIN,
-} from '../constants/wire'
+import { WIRE_ROUTE_STRAIGHT } from '../constants/wire'
 
 const { Directions } = routers.rightAngle
 
@@ -216,26 +210,6 @@ export function isDefaultWireValue(key, value) {
     return value === WIRE_STYLE_DEFAULTS.strokeColor || value === LINK_DEFAULTS.attrs.line.stroke
   }
   return value === WIRE_STYLE_DEFAULTS[key]
-}
-
-/**
- * Чужой/произвольный вид провода → только годные поля. Одна проверка на оба входа
- * «липких» настроек: правку из инспектора и чтение меты проекта.
- */
-export function normalizeWireStyle(raw) {
-  const src = raw && typeof raw === 'object' ? raw : {}
-  const out = {}
-  const width = Number(src.strokeWidth)
-  if (Number.isFinite(width) && width >= WIRE_STROKE_MIN && width <= WIRE_STROKE_MAX) {
-    out.strokeWidth = width
-  }
-  const color = cssColor(src.strokeColor)
-  if (color) out.strokeColor = color
-  for (const key of ['arrowStart', 'arrowEnd']) {
-    if (ARROW_KINDS.includes(src[key])) out[key] = src[key]
-  }
-  if (WIRE_ROUTES.includes(src.route)) out.route = src.route
-  return out
 }
 
 /**

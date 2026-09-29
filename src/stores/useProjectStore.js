@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { isBooleanType, isNumericType } from '../services/parsers'
+import { isBooleanType, isNumericType } from '../services/tagList'
 
 /**
  * Загруженный tag-list проекта. File-handle для тихого обновления тегов на старте

@@ -17,7 +17,7 @@ import {
   scaleShape,
   radii,
   TEXT_SHAPE_SIZE,
-} from '../utils/stencilSvg'
+} from '../utils/shapeSvg'
 import { TMSShape } from './tmsStencil'
 import { cssColor } from '../constants/animation'
 import { normalizeFont } from '../utils/textMetrics'

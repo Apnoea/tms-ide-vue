@@ -5,9 +5,9 @@ import { useCanvas } from './useCanvas'
 import { useUiStore } from '../stores/useUiStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import * as fs from '../services/fileSystem'
-import { parseTagList } from '../services/parsers'
+import { parseTagList } from '../services/tagList'
 import { nplural } from '../utils/plural'
-import { idbDel, idbGet, idbSet } from '../utils/idb'
+import { idbDel, idbGet, idbSet } from '../services/idb'
 
 /** Ключ file-handle'а в IndexedDB — по нему tag-list освежается на старте. */
 export const TAG_LIST_HANDLE_KEY = 'tagListHandle'

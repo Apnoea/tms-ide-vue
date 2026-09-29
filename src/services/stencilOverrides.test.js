@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const idbStore = vi.hoisted(() => new Map())
 const idbRead = vi.hoisted(() => ({ ok: true }))
-vi.mock('../utils/idb', () => ({
+vi.mock('./idb', () => ({
   idbTryGet: vi.fn(async (k) => ({ ok: idbRead.ok, value: idbStore.get(k) })),
   idbSet: vi.fn(async (k, v) => {
     idbStore.set(k, v)

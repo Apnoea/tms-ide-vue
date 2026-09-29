@@ -6,21 +6,7 @@ import {
   wireKey,
   resolveSlotTemplate,
   normalizeParams,
-  normalizeFormTitle,
-  FORM_TITLE_MAX,
 } from './ids'
-
-describe('normalizeFormTitle', () => {
-  it('одна строка без краевых пробелов и управляющих символов', () => {
-    expect(normalizeFormTitle('  Главная\t\nсхема  ')).toBe('Главная схема')
-    expect(normalizeFormTitle('ТП\u0000-1')).toBe('ТП-1')
-  })
-
-  it('не строка — пусто, длинное режется', () => {
-    for (const bad of [null, undefined, 42, {}]) expect(normalizeFormTitle(bad)).toBe('')
-    expect(normalizeFormTitle('я'.repeat(FORM_TITLE_MAX + 10))).toHaveLength(FORM_TITLE_MAX)
-  })
-})
 
 describe('id generators', () => {
   it('outerKey: animation-{stencilId}-{animId} — одна схема на все символы', () => {

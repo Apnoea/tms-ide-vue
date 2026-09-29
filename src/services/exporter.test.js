@@ -1271,9 +1271,10 @@ describe('диапазоны из зон символа', () => {
       )
       const binding = card[1].bindings.find((b) => b.when?.type === 'range')
       expect(binding.tag).toBe('PT1.VALUE')
+      // Верх последней зоны открыт (withOpenTop).
       expect(binding.when.cases.map((c) => [c.min, c.max])).toEqual([
         [0, 5],
-        [5.01, 10],
+        [5.01, undefined],
       ])
       // CSS-правила собираются по фактически использованным цветам — включая зоны.
       expect(svgText).toContain('#10b981')

@@ -8,8 +8,7 @@
  * настройка с двух сторон — здесь поведение символа, там привязка тега у экземпляра.
  * Стейт — синглтон useStencilEditor, тот же, что рисует стол.
  */
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useResizeObserver } from '@vueuse/core'
+import { computed, ref, watch } from 'vue'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import InputNumber from 'primevue/inputnumber'
@@ -30,7 +29,8 @@ import { normalizeStateColor } from '../constants/animation'
 import { STENCIL_DOMAINS } from '../constants/domains'
 import { ALIGN_OPTIONS } from '../constants/text'
 import RangeRows from './RangeRows.vue'
-import { isFillableShape, stencilDraftProblems, TEXT_SHAPE_SIZE } from '../utils/stencilSvg'
+import { isFillableShape, TEXT_SHAPE_SIZE } from '../utils/shapeSvg'
+import { stencilDraftProblems } from '../utils/stencilSvg'
 import { FONT_FAMILIES, normalizeFont } from '../utils/textMetrics'
 
 const {
@@ -56,17 +56,6 @@ const {
   updateRange,
   removeRange,
 } = useStencilEditor()
-
-// Высота подвала с «Сохранить/Закрыть» — в CSS-переменную: по ней тосты в правом нижнем
-// углу (App.vue) встают над подвалом, а не на его кнопки. Высота плавает (кнопка
-// «Сбросить к набору» добавляет ряд), поэтому меряем, а не хардкодим. Редактор закрыли —
-// переменная снимается, тосты опускаются на место.
-const TOAST_LIFT_VAR = '--tms-toast-lift'
-const actionsEl = ref(null)
-useResizeObserver(actionsEl, ([entry]) => {
-  document.documentElement.style.setProperty(TOAST_LIFT_VAR, `${entry.target.offsetHeight}px`)
-})
-onBeforeUnmount(() => document.documentElement.style.removeProperty(TOAST_LIFT_VAR))
 
 /**
  * Проблемы черновика ЖИВЬЁМ, по полям: занятый id или пустая категория видны сразу,
@@ -380,7 +369,7 @@ const categories = computed(() => {
   return getCategories()
 })
 
-// id = имя папки definitions/<id>/ → маска [a-z0-9_]. Фильтруем прямо в DOM
+// id = имя папки src/library/<id>/ → маска [a-z0-9_]. Фильтруем прямо в DOM
 // (watch/computed не годятся: значение уходит в кириллицу и обратно за тик,
 // Vue не перезатирает введённый символ). В правке id заблокирован.
 function onIdInput(e) {
@@ -401,8 +390,14 @@ function clearStateColor(key, which) {
   <aside class="h-full flex flex-col bg-surface-50">
     <!-- Плашка «Символ»: свойства документа (идентификация/поведение/анимация) -->
     <div class="flex-1 min-h-0 flex flex-col">
-      <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
-        <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Символ</h2>
+      <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center gap-2">
+        <h2 class="shrink-0 text-sm font-semibold text-surface-900 uppercase tracking-wide">
+          Символ
+        </h2>
+        <!-- Действия над символом целиком (сохранить/закрыть) — в его же шапке. Разметку
+             телепортирует сюда StencilEditor: там живут `save`/`requestClose` и признак
+             несохранённого. -->
+        <div id="tms-editor-actions" class="ml-auto flex items-center gap-1"></div>
       </div>
 
       <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-4">
@@ -909,7 +904,8 @@ function clearStateColor(key, which) {
                    как любую другую. Enter добавляет строку. -->
               <Textarea
                 :model-value="textValue"
-                rows="3"
+                rows="2"
+                auto-resize
                 size="small"
                 class="w-full"
                 placeholder="Текст подписи"
@@ -1094,15 +1090,6 @@ function clearStateColor(key, which) {
         <p v-else class="tms-hint">Выдели фигуру на холсте</p>
       </div>
     </div>
-
-    <!-- Действия над символом целиком (сохранить/закрыть) — в подвале панели, где
-         автор и заполняет его поля. Разметку телепортирует сюда StencilEditor: там
-         живут `save`/`requestClose` и признак несохранённого. -->
-    <div
-      id="tms-editor-actions"
-      ref="actionsEl"
-      class="shrink-0 border-t border-surface-200 bg-surface-0"
-    ></div>
   </aside>
 </template>
 

@@ -1,5 +1,5 @@
 /**
- * Реестр символов: определения из `definitions/<id>/` (stencil.json + shape.svg)
+ * Реестр символов: определения из `src/library/<id>/` (stencil.json + shape.svg)
  * подхватываются Vite-глобом — добавили папку, символ в палитре. Плюс
  * рантайм-регистрация (импорт бандла, редактор) и валидация json.
  */
@@ -21,12 +21,12 @@ import { normalizePresetPatch } from '../utils/presetPatch'
 // рантайм-регистрация обновляет список без перезагрузки.
 export const registryVersion = ref(0)
 
-const jsonModules = import.meta.glob('./definitions/*/stencil.json', {
+const jsonModules = import.meta.glob('../library/*/stencil.json', {
   eager: true,
   import: 'default',
 })
 
-const svgModules = import.meta.glob('./definitions/*/shape.svg', {
+const svgModules = import.meta.glob('../library/*/shape.svg', {
   eager: true,
   query: '?raw',
   import: 'default',
@@ -315,7 +315,7 @@ export function getStencilById(id) {
 /**
  * Регистрация в рантайме, минуя glob. Нужна при импорте: символы из library/ обязаны
  * быть в реестре ДО parseSvgProject, иначе их ячейки выкинутся как нераспознанные.
- * Персистентность — за оверрайдами в IDB и файлами в definitions/.
+ * Персистентность — за оверрайдами в IDB и файлами в src/library/.
  *
  * `false` — id вне маски, символ НЕ зарегистрирован; вызывающий обязан сообщить об
  * этом пользователю. Разметка не отклоняется, а чистится (cleanSvg).
@@ -330,7 +330,7 @@ export function registerStencil(json, svgText) {
   return true
 }
 
-/** Удаление из рантайм-реестра; файлы definitions/<id>/ сносит dev-плагин. */
+/** Удаление из рантайм-реестра; файлы src/library/<id>/ сносит dev-плагин. */
 export function unregisterStencil(id) {
   if (registry.delete(id)) registryVersion.value++
 }

@@ -1,13 +1,42 @@
 // Правила строк диапазона — общие для редактора символов и миграций: формат строки
 // один, а расхождение между местами ввода дало бы разные зоны в экспорте.
 import { describe, it, expect } from 'vitest'
-import { cleanRangeRows, editRanges, newRangeRow, withZeroStart } from './rangeRows'
+import {
+  cleanRangeRows,
+  editRanges,
+  newRangeRow,
+  rowMax,
+  withOpenTop,
+  withZeroStart,
+} from './rangeRows'
 import { RANGE_COLOR_PRESETS } from '../constants/animation'
 
 const RANGES = [
   { min: 0, max: 3.99, color: '#10b981' },
   { min: 4, max: 10, color: '#ef4444' },
 ]
+
+it('верх последней строки открыт, данные не правятся', () => {
+  expect(withOpenTop(RANGES)[1]).toEqual({ min: 4, color: '#ef4444' })
+  expect(RANGES[1].max).toBe(10)
+  expect(rowMax(RANGES, RANGES[0])).toBe(3.99)
+  expect(rowMax(RANGES, RANGES[1])).toBeUndefined()
+})
+
+it('последняя строка с одинаковыми границами — точное значение, верх не открывается', () => {
+  const codes = [
+    { min: 2, max: 2, color: '#10b981' },
+    { min: 3, max: 3, color: '#ef4444' },
+  ]
+  expect(withOpenTop(codes)).toBe(codes)
+  expect(rowMax(codes, codes[1])).toBe(3)
+})
+
+it('последняя строка без нижнего порога верх не открывает — иначе у неё не осталось бы границ', () => {
+  const upTo = [{ max: 10, color: '#10b981' }]
+  expect(withOpenTop(upTo)).toBe(upTo)
+  expect(rowMax(upTo, upTo[0])).toBe(10)
+})
 
 describe('editRanges', () => {
   it('пишет число в нужный порог, остальные не трогает', () => {

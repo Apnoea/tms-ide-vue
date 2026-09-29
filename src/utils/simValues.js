@@ -9,6 +9,7 @@
 
 import { rangeRowColor } from '../constants/animation'
 import { RANGE_SLOT } from '../constants/ids'
+import { rowMax } from './rangeRows'
 
 /**
  * Роль тега по слоту символа, к которому он привязан: подпись со значением (`Text`) и
@@ -38,14 +39,16 @@ export function rangeBound(v) {
 /**
  * Строка диапазона под значение: границы inclusive с обоих концов — так их сравнивает
  * condition-evaluator рантайма. Строки без цвета не дают класса, поэтому пропускаются.
- * Значение вне всех строк → null (цвета нет, как и в рантайме).
+ * У последней строки верхнего порога нет (`rowMax`), как и в экспорте. Значение вне
+ * всех строк → null (цвета нет, как и в рантайме).
  */
 export function rangeRowFor(rangeSource, value) {
   if (typeof value !== 'number' || Number.isNaN(value)) return null
-  for (const row of rangeSource?.ranges || []) {
+  const rows = rangeSource?.ranges || []
+  for (const row of rows) {
     if (!rangeRowColor(row)) continue
     const min = rangeBound(row.min)
-    const max = rangeBound(row.max)
+    const max = rangeBound(rowMax(rows, row))
     if ((min === null || value >= min) && (max === null || value <= max)) return row
   }
   return null
@@ -60,7 +63,7 @@ export function rangeRowFor(rangeSource, value) {
  */
 export function zoneValueFor(rangeSource, row) {
   const lo = rangeBound(row?.min)
-  const hi = rangeBound(row?.max)
+  const hi = rangeBound(rowMax(rangeSource?.ranges, row))
   const candidates =
     lo !== null && hi !== null
       ? [(lo + hi) / 2, hi, lo]

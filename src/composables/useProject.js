@@ -35,7 +35,7 @@ import {
   remapNavigation,
   remapTree,
   remapProjectMeta,
-  withImportedTitles,
+  withImportedFormText,
 } from '../utils/formIds'
 import { FORM_ID_RE, RANGE_SLOT, safeFormId } from '../constants/ids'
 import { nplural } from '../utils/plural'
@@ -223,6 +223,7 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     // различить.
     const title = workspace.formTitleOf(id)
     if (title) workspace.setFormTitle(copyId, `${title} (копия)`)
+    workspace.setFormDescription(copyId, workspace.formDescriptionOf(id))
     let ok = await persistForm(copyId, json)
     workspace.setActiveFormId(copyId)
     ok = (await persistMeta()) && ok
@@ -253,6 +254,7 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
       graphJson: toPlain(workspace.getFormGraph(id) || { cells: [] }),
       bg: workspace.formBg[id] ?? null,
       title: workspace.formTitleOf(id) || null,
+      description: workspace.formDescriptionOf(id) || null,
       anchor: workspace.nodeAnchor(id),
       ts: Date.now(),
     })
@@ -286,6 +288,7 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     workspace.addForm(entry.id, entry.graphJson)
     if (entry.bg) workspace.setFormBg(entry.id, entry.bg)
     if (entry.title) workspace.setFormTitle(entry.id, entry.title)
+    if (entry.description) workspace.setFormDescription(entry.id, entry.description)
     const anchor = entry.anchor || null
     if (anchor?.prevId && workspace.hasForm(anchor.prevId)) {
       workspace.moveNode(entry.id, anchor.prevId, 'after')
@@ -323,7 +326,7 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
       saved.push({ id, stencilJson: json, shapeSvg: svgText })
     }
     if (!saved.length) return 0
-    // Файлы в definitions/ — dev-бонус: в prod плагина нет, правка живёт в оверрайдах.
+    // Файлы в src/library/ — dev-бонус: в prod плагина нет, правка живёт в оверрайдах.
     await persistStencilsToDisk(saved)
 
     // Формы — только по символам, которые зоны реально приняли: ячейки прочих остаются
@@ -442,7 +445,7 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
 
   /**
    * Применяет распакованный бандл: парсит формы → заменяет проект в IndexedDB → при
-   * наличии символов в бандле шлёт их в dev-плагин (он пишет в definitions/, Vite
+   * наличии символов в бандле шлёт их в dev-плагин (он пишет в src/library/, Vite
    * перезагружает страницу, restoreProject поднимает всё из IDB). Без символов сразу
    * применяет активную форму. Отсутствующие символы попадают в предупреждение.
    */
@@ -518,7 +521,11 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
       remapTree(data.hierarchy, renamedForms.map),
       projectName,
       remapProjectMeta(
-        withImportedTitles(data.project, data.navTitles, renamedForms.renamed),
+        withImportedFormText(
+          data.project,
+          { titles: data.navTitles, descriptions: data.navDescriptions },
+          renamedForms.renamed
+        ),
         renamedForms.map
       )
     )
@@ -595,11 +602,11 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
         'Браузер отклонил запись — после перезагрузки вернутся встроенные версии'
       )
     }
-    // На ДИСК (файл в `definitions/` попадает под git) пишутся ТОЛЬКО символы,
+    // На ДИСК (файл в `src/library/` попадает под git) пишутся ТОЛЬКО символы,
     // которых в кодовой базе нет: архив хранит версию на момент своего экспорта, и
     // запись изменённого встроенного откатила бы правки символа в репозитории. В
     // рантайме версия из архива всё равно работает — её держит оверрайд выше. Символы
-    // наборов не пишутся вовсе: в `definitions/` они стали бы встроенными.
+    // наборов не пишутся вовсе: в `src/library/` они стали бы встроенными.
     const newStencilIds = new Set(newStencils.map((s) => s.stencilJson?.id))
     const toDisk = importedStencils.filter(
       (s) => newStencilIds.has(s.stencilJson?.id) && !isPresetStencil(s.stencilJson)
@@ -704,6 +711,9 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     const meta = {}
     if (Object.keys(workspace.formBg).length) meta.formBg = workspace.formBg
     if (Object.keys(workspace.formTitle).length) meta.formTitle = workspace.formTitle
+    if (Object.keys(workspace.formDescription).length) {
+      meta.formDescription = workspace.formDescription
+    }
     return Object.keys(meta).length ? meta : null
   }
 
@@ -772,11 +782,13 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
         stencils,
         tagsText,
         hierarchy: workspace.formTree,
-        // Названия — в `name` узлов `nav.json`: его показывает навигация рантайма.
+        // Названия и описания — в `name` и `description` узлов `nav.json`: его читает
+        // навигация рантайма.
         titles: workspace.formTitle,
-        // Редакторная мета: фон холста и названия по формам. Фон в `view.svg` не
-        // уезжает (там фон даёт панель), но нужен, чтобы у коллеги проект открылся в тех
-        // же цветах; названия дублируются сюда ради форм вне дерева — в `nav.json` их
+        descriptions: workspace.formDescription,
+        // Редакторная мета: фон холста, названия и описания по формам. Фон в `view.svg`
+        // не уезжает (там фон даёт панель), но нужен, чтобы у коллеги проект открылся в
+        // тех же цветах; тексты дублируются сюда ради форм вне дерева — в `nav.json` их
         // нет. Пустые поля не пишутся, и без них `project.json` не создаётся вовсе.
         project: projectMetaForArchive(),
         // Исходники наборов: в `library/` их символы уже с правками проекта, а коллеге

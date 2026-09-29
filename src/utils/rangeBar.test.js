@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { rangeBarSegments } from './rangeBar'
 
+// Верх последней строки открыт (withOpenTop): её хвост — запас справа, 15%.
 const ROWS = [
   { min: 0, max: 4, color: '#10b981' },
   { min: 4, max: 6, color: '#f59e0b' },
   { min: 6, max: 10, color: '#ef4444' },
+  { min: 10, color: '#8b5cf6' },
 ]
 
 describe('rangeBarSegments', () => {
@@ -12,9 +14,10 @@ describe('rangeBarSegments', () => {
     const bar = rangeBarSegments(ROWS)
     expect({ from: bar.from, to: bar.to }).toEqual({ from: 0, to: 10 })
     expect(bar.segments.map((s) => [s.left, s.width])).toEqual([
-      [0, 40],
-      [40, 20],
-      [60, 40],
+      [0, 34],
+      [34, 17],
+      [51, 34],
+      [85, 15],
     ])
   })
 
@@ -22,10 +25,12 @@ describe('rangeBarSegments', () => {
     const bar = rangeBarSegments([
       { min: 0, max: 2, color: '#10b981' },
       { min: 8, max: 10, color: '#ef4444' },
+      { min: 10, color: '#8b5cf6' },
     ])
     expect(bar.segments.map((s) => [s.left, s.width])).toEqual([
-      [0, 20],
-      [80, 20],
+      [0, 17],
+      [68, 17],
+      [85, 15],
     ])
   })
 
@@ -33,13 +38,17 @@ describe('rangeBarSegments', () => {
     const bar = rangeBarSegments([
       { min: 0, max: 6, color: '#10b981' },
       { min: 4, max: 10, color: '#ef4444' },
+      { min: 10, color: '#8b5cf6' },
     ])
-    expect(bar.segments.map((s) => s.left)).toEqual([0, 40])
+    expect(bar.segments.map((s) => s.left)).toEqual([0, 34, 85])
   })
 
   it('перевёрнутые границы нормализуются', () => {
-    const bar = rangeBarSegments([{ min: 10, max: 0, color: '#10b981' }])
-    expect(bar.segments[0]).toMatchObject({ left: 0, width: 100, from: 0, to: 10 })
+    const bar = rangeBarSegments([
+      { min: 10, max: 0, color: '#10b981' },
+      { min: 10, color: '#ef4444' },
+    ])
+    expect(bar.segments[0]).toMatchObject({ left: 0, width: 85, from: 0, to: 10 })
   })
 
   it('строки без цвета и без чисел не участвуют', () => {
@@ -78,13 +87,15 @@ describe('rangeBarSegments: открытые границы', () => {
     const bar = rangeBarSegments([
       { max: 3, color: '#10b981' },
       { min: 3, max: 8, color: '#ef4444' },
+      { min: 8, color: '#8b5cf6' },
     ])
     expect({ openLeft: bar.openLeft, openRight: bar.openRight }).toEqual({
       openLeft: true,
-      openRight: false,
+      openRight: true,
     })
     expect(bar.segments[0]).toMatchObject({ left: 0, width: 15 })
-    expect(bar.segments[1]).toMatchObject({ left: 15, width: 85 })
+    expect(bar.segments[1]).toMatchObject({ left: 15, width: 70 })
+    expect(bar.segments[2]).toMatchObject({ left: 85, width: 15 })
   })
 
   it('единственная открытая строка занимает полоску целиком', () => {

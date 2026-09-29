@@ -25,7 +25,7 @@ function validStencil(overrides = {}) {
   }
 }
 
-const PATH = 'definitions/cell_x/stencil.json'
+const PATH = 'src/library/cell_x/stencil.json'
 
 describe('validateStencilJson', () => {
   it('валидный stencil → пустой массив issues', () => {
@@ -352,12 +352,12 @@ describe('символов прошлого формата в реестре н�
 // разобранный объект, а здесь важно, что на диске нет полей вне `known`. Так ловится
 // рассинхрон «код флаг больше не читает, а определение его держит».
 describe('встроенные определения', () => {
-  const DIR = 'src/stencils/definitions'
+  const DIR = 'src/library'
   const ids = readdirSync(DIR, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
 
-  it('в definitions/ есть символы', () => {
+  it('в src/library/ есть символы', () => {
     expect(ids.length).toBeGreaterThan(5)
   })
 

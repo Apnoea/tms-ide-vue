@@ -3,7 +3,7 @@ import { shapes } from '@joint/core'
 import { getStencilById } from '../stencils/registry'
 import { materializeStencil } from '../stencils/svgInjector'
 import { isShapeCell, materializeShape } from '../stencils/shapeElement'
-import { translateShape } from '../utils/stencilSvg'
+import { translateShape } from '../utils/shapeSvg'
 import {
   isFreeEnd,
   linkDefaultsFor,

@@ -14,7 +14,7 @@
 import { computed } from 'vue'
 import Button from 'primevue/button'
 import TagField from './TagField.vue'
-import { isBooleanType } from '../services/parsers'
+import { isBooleanType } from '../services/tagList'
 
 const props = defineProps({
   /** Слот-драйвер: `{ key, type, value }`. */

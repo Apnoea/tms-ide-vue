@@ -7,16 +7,15 @@
 import { ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import Button from 'primevue/button'
-import { useConfirm } from 'primevue/useconfirm'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
-import { confirmDanger } from '../utils/confirmDanger'
+import { useConfirmDanger } from '../composables/useConfirmDanger'
 
 const canvas = useCanvas()
 const workspace = useWorkspaceStore()
 const notify = useNotify()
-const confirm = useConfirm()
+const confirmDanger = useConfirmDanger()
 
 // Ref на кнопку «Открыть» — target ConfirmPopup замены проекта.
 const openBtnRef = ref(null)
@@ -38,7 +37,7 @@ async function openProject() {
     workspace.formIds.length > 1 || canvas.cellsCount.value + canvas.linksCount.value > 0
   if (hasContent) {
     const accepted = await new Promise((resolve) => {
-      confirmDanger(confirm, {
+      confirmDanger({
         // primary, не danger: открытие проекта не разрушающее (текущая работа
         // уже в IDB), это просто подтверждение замены.
         severity: 'primary',

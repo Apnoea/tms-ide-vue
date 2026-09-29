@@ -8,10 +8,12 @@
  *
  * Пустой порог = ОТКРЫТАЯ граница (так же читает значение `simValues.rangeRowFor`):
  * строка без верха красит всё от своего низа и выше. Такая зона тянется до края
- * полоски, а подпись шкалы на этом конце — «∞».
+ * полоски, а подпись шкалы на этом конце — «∞». Верх последней строки открыт всегда
+ * (`withOpenTop`).
  */
 
 import { rangeRowColor } from '../constants/animation'
+import { withOpenTop } from './rangeRows'
 
 // Доля полоски под «хвост» открытой зоны: без запаса она сливалась бы с закрытой,
 // упирающейся в тот же край.
@@ -32,7 +34,7 @@ function boundOf(v) {
  */
 export function rangeBarSegments(ranges) {
   const rows = []
-  for (const r of ranges || []) {
+  for (const r of withOpenTop(ranges)) {
     const color = rangeRowColor(r)
     if (!color) continue
     const min = boundOf(r?.min)

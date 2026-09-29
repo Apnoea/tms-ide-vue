@@ -265,7 +265,7 @@ describe('reinjectAllStencils({ sync: true }): сверка формы с рее
   // Форма хранит порты той версии символа, что была на момент сохранения. Символ
   // могли править, пока форма была закрыта, — на её открытии порты обязаны стать
   // такими, как в реестре, иначе новый порт не появился бы никогда. Реестр здесь
-  // настоящий (cell_qw из definitions).
+  // настоящий (cell_qw из src/library).
   const paper = { findViewByModel: () => null }
 
   function formWithStaleCell(items) {

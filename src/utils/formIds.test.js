@@ -7,8 +7,28 @@ import {
   remapNavigation,
   remapTree,
   remapProjectMeta,
-  withImportedTitles,
+  withImportedFormText,
+  normalizeFormTitle,
+  normalizeFormDescription,
+  FORM_TITLE_MAX,
 } from './formIds'
+
+describe('normalizeFormTitle', () => {
+  it('одна строка без краевых пробелов и управляющих символов', () => {
+    expect(normalizeFormTitle('  Главная\t\nсхема  ')).toBe('Главная схема')
+    expect(normalizeFormTitle('ТП\u0000-1')).toBe('ТП-1')
+  })
+
+  it('не строка — пусто, длинное режется', () => {
+    for (const bad of [null, undefined, 42, {}]) expect(normalizeFormTitle(bad)).toBe('')
+    expect(normalizeFormTitle('я'.repeat(FORM_TITLE_MAX + 10))).toHaveLength(FORM_TITLE_MAX)
+  })
+})
+
+it('normalizeFormDescription: переносы строк остаются, прочие управляющие — нет', () => {
+  expect(normalizeFormDescription(' Вводы\r\n10\u0000 кВ\n ')).toBe('Вводы\n10 кВ')
+  expect(normalizeFormDescription(42)).toBe('')
+})
 
 describe('renameFormIds', () => {
   it('годные имена не двигаются', () => {
@@ -96,27 +116,30 @@ describe('перенос ссылок на новые имена', () => {
   })
 })
 
-describe('withImportedTitles', () => {
+describe('withImportedFormText', () => {
   it('nav.json главнее project.json, прежнее имя переименованной формы — название', () => {
     const project = {
       formBg: { main: '#123456' },
       formTitle: { main: 'Из меты', aux: 'Вне дерева' },
+      formDescription: { main: 'Описание из меты', aux: 'Вне дерева' },
     }
-    const out = withImportedTitles(project, { main: 'С сервера' }, [['Главная схема', 'form_1']])
+    const nav = { titles: { main: 'С сервера' }, descriptions: { main: 'Описание с сервера' } }
+    const out = withImportedFormText(project, nav, [['Главная схема', 'form_1']])
     expect(out).toEqual({
       formBg: { main: '#123456' },
       formTitle: { 'Главная схема': 'Главная схема', main: 'С сервера', aux: 'Вне дерева' },
+      formDescription: { main: 'Описание с сервера', aux: 'Вне дерева' },
     })
   })
 
   it('своё название переименованной формы главнее её прежнего имени', () => {
-    const out = withImportedTitles(null, { 'a b': 'Схема' }, [['a b', 'a_b']])
+    const out = withImportedFormText(null, { titles: { 'a b': 'Схема' } }, [['a b', 'a_b']])
     expect(out.formTitle).toEqual({ 'a b': 'Схема' })
   })
 
-  it('названий нет — мета как была', () => {
-    expect(withImportedTitles(null, {}, [])).toBe(null)
+  it('текстов нет — мета как была', () => {
+    expect(withImportedFormText(null, {}, [])).toBe(null)
     const project = { formBg: {} }
-    expect(withImportedTitles(project, undefined, [])).toBe(project)
+    expect(withImportedFormText(project, undefined, [])).toBe(project)
   })
 })

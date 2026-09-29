@@ -2,7 +2,7 @@ import { getStencilById, getAllStencils } from '../stencils/registry'
 import { instantiate } from '../stencils/parser'
 import { contentTransform, contentScales } from '../stencils/svgInjector'
 import { isShapeCell } from '../stencils/shapeElement'
-import { serializeShape } from '../utils/stencilSvg'
+import { serializeShape } from '../utils/shapeSvg'
 import { buildBusExportSvg, collectBusMarks } from '../stencils/busCell'
 import {
   LINK_Z,

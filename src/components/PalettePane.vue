@@ -11,7 +11,6 @@ import Accordion from 'primevue/accordion'
 import AccordionPanel from 'primevue/accordionpanel'
 import AccordionHeader from 'primevue/accordionheader'
 import AccordionContent from 'primevue/accordioncontent'
-import { useConfirm } from 'primevue/useconfirm'
 import {
   getAllStencils,
   getCategories,
@@ -29,10 +28,10 @@ import { hasPresetPatch } from '../utils/presetPatch'
 import { useUiStore } from '../stores/useUiStore'
 import { STENCIL_DOMAINS, matchesDomains } from '../constants/domains'
 import { nplural } from '../utils/plural'
-import { confirmDanger } from '../utils/confirmDanger'
+import { useConfirmDanger } from '../composables/useConfirmDanger'
 
 const ui = useUiStore()
-const confirm = useConfirm()
+const confirmDanger = useConfirmDanger()
 const notify = useNotify()
 const canvas = useCanvas()
 const { stencilUsage } = useStencilUsage()
@@ -228,7 +227,7 @@ function confirmDeleteStencil(event, stencil) {
     )
     return
   }
-  confirmDanger(confirm, {
+  confirmDanger({
     target: event.currentTarget,
     message: `Удалить символ «${stencil.label}»?`,
     acceptLabel: 'Удалить',
@@ -360,7 +359,7 @@ async function removeStencil(id) {
         <div class="tms-empty">
           <i class="pi pi-inbox text-3xl mb-3 opacity-60" />
           <div class="tms-empty-title">Реестр символов пуст</div>
-          <p class="tms-hint max-w-[180px]">Добавь папку в src/stencils/definitions/</p>
+          <p class="tms-hint max-w-[180px]">Добавь папку в src/library/</p>
         </div>
       </template>
 

@@ -363,6 +363,16 @@ describe('названия форм', () => {
     expect(store.formTitle).toEqual({})
   })
 
+  it('описание хранит переносы строк и едет за формой, как название', () => {
+    const store = seeded()
+    expect(store.setFormDescription('a', '  Вводы\r\n10 кВ  ')).toBe(true)
+    expect(store.activeFormDescription).toBe('Вводы\n10 кВ')
+    store.renameForm('a', 'a2')
+    expect(store.formDescription).toEqual({ a2: 'Вводы\n10 кВ' })
+    store.removeForm('a2')
+    expect(store.formDescription).toEqual({})
+  })
+
   it('id из прототипа объекта не отдаёт чужое значение', () => {
     const store = seeded(['constructor'])
     expect(store.activeFormTitle).toBe('')

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
-import { parseTagList, isBooleanType, isNumericType } from './parsers'
+import { parseTagList, isBooleanType, isNumericType } from './tagList'
 
 describe('parseTagList', () => {
   it('parses standard name=Type;... lines', () => {

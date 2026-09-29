@@ -70,7 +70,7 @@ describe('useBusSnap', () => {
     const size = cell.get('size')
     expect(pos.y + size.height / 2).toBe(210) // центр на линии шины
     // Вдоль шины — снап курсора к сетке: ожидание считаем из ФАКТИЧЕСКОЙ ширины
-    // символа (габариты definitions меняются при пересохранении, хардкод хрупок).
+    // символа (габариты встроенных символов меняются при пересохранении, хардкод хрупок).
     expect(pos.x).toBe(snapToGrid(143 - size.width / 2, 10))
     expect(cell.get('tms').busId).toBe(bus.id)
     expect(cell.get('z')).toBeGreaterThan(bus.get('z'))

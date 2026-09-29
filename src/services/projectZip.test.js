@@ -58,7 +58,7 @@ describe('projectZip', () => {
     expect(json('PRJ/nav.json')).toEqual([{ viewId: 'main', name: 'main', children: [] }])
   })
 
-  it('название формы уезжает в name узла nav.json и читается обратно', async () => {
+  it('название и описание формы уезжают в name и description узла nav.json', async () => {
     const blob = buildProjectZipBlob({
       projectId: 'PRJ',
       forms: [
@@ -67,17 +67,22 @@ describe('projectZip', () => {
       ],
       hierarchy: [{ id: 'main', children: [{ id: 'sub', children: [] }] }],
       titles: { main: 'Главная схема' },
+      descriptions: { main: 'Вводы 10 кВ' },
     })
     const entries = unzipSync(new Uint8Array(await blob.arrayBuffer()))
+    // Пустое описание не пишется: у `sub` поля нет.
     expect(JSON.parse(strFromU8(entries['PRJ/nav.json']))).toEqual([
       {
         viewId: 'main',
         name: 'Главная схема',
+        description: 'Вводы 10 кВ',
         children: [{ viewId: 'sub', name: 'sub', children: [] }],
       },
     ])
+    const data = await readProjectZipFile(blob)
     // name, равный id, — подпись по умолчанию, а не название.
-    expect((await readProjectZipFile(blob)).navTitles).toEqual({ main: 'Главная схема' })
+    expect(data.navTitles).toEqual({ main: 'Главная схема' })
+    expect(data.navDescriptions).toEqual({ main: 'Вводы 10 кВ' })
   })
 
   it('id формы из прототипа объекта не теряет name в nav.json', async () => {

@@ -3,14 +3,13 @@ import { ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
-import { useConfirm } from 'primevue/useconfirm'
 import { usePresets } from '../composables/usePresets'
 import { useUiStore } from '../stores/useUiStore'
-import { confirmDanger } from '../utils/confirmDanger'
+import { useConfirmDanger } from '../composables/useConfirmDanger'
 import { nplural } from '../utils/plural'
 
 const ui = useUiStore()
-const confirm = useConfirm()
+const confirmDanger = useConfirmDanger()
 const { presets, refreshPresets, installPresetFromFile, removePresetById } = usePresets()
 
 // Установка идёт из user-gesture (file-picker), поэтому кнопку гасим флагом, а не
@@ -52,7 +51,7 @@ async function install() {
 }
 
 function confirmRemove(event, preset) {
-  confirmDanger(confirm, {
+  confirmDanger({
     target: event.currentTarget,
     message: `Удалить набор «${preset.name}» целиком?`,
     acceptLabel: 'Удалить',
