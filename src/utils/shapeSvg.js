@@ -7,8 +7,9 @@
 
 import { ATTR_PARAM, ATTR_SUFFIX, isValidParamKey } from '../constants/ids'
 import { STATE_FILL_CLASS } from '../constants/animation'
+import { TEXT_SHAPE_SIZE, normalizeFont } from '../constants/text'
 import { escapeAttr, escapeXml } from './xml'
-import { measureTextWidth, normalizeFont } from './textMetrics'
+import { measureTextWidth } from './textMetrics'
 
 // Числа в атрибутах: без хвостовых нулей и float-мусора (12.0 → 12, 12.5 → 12.5).
 export function num(v) {
@@ -59,9 +60,8 @@ export function radii(shape) {
   return { rx, ry }
 }
 
-// Подпись: кегль по умолчанию и якорь для фигуры без поля `align` (центр). Шрифт —
-// из whitelist'а utils/textMetrics, тем же семейством идёт замер.
-export const TEXT_SHAPE_SIZE = 10
+// Якорь подписи без поля `align` — центр. Кегль по умолчанию и шрифт (whitelist, тем же
+// семейством идёт замер) — в constants/text.
 const TEXT_SHAPE_ANCHOR = 'middle'
 
 /** Межстрочный шаг подписи в долях кегля. Константа, а не поле фигуры. */
@@ -361,6 +361,94 @@ export function shapeBounds(s) {
     return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y }
   }
   return null
+}
+
+/**
+ * Пересекает ли отрезок прямоугольник `{ x1, y1, x2, y2 }` (Лианг — Барски: отрезок
+ * отсекается по четырём полуплоскостям, пустой остаток — промах). Конец внутри
+ * прямоугольника — попадание.
+ */
+function segmentHitsRect([ax, ay], [bx, by], r) {
+  const dx = bx - ax
+  const dy = by - ay
+  let t0 = 0
+  let t1 = 1
+  for (const [p, q] of [
+    [-dx, ax - r.x1],
+    [dx, r.x2 - ax],
+    [-dy, ay - r.y1],
+    [dy, r.y2 - ay],
+  ]) {
+    if (p === 0) {
+      if (q < 0) return false
+      continue
+    }
+    const t = q / p
+    if (p < 0) {
+      if (t > t1) return false
+      if (t > t0) t0 = t
+    } else {
+      if (t < t0) return false
+      if (t < t1) t1 = t
+    }
+  }
+  return true
+}
+
+/** Отрезки контура фигуры: стороны прямоугольника, звенья ломаной, сама линия. */
+function contourSegments(s) {
+  if (s.type === 'line')
+    return [
+      [
+        [s.x1, s.y1],
+        [s.x2, s.y2],
+      ],
+    ]
+  const pts =
+    s.type === 'rect'
+      ? [
+          [s.x, s.y],
+          [s.x + s.w, s.y],
+          [s.x + s.w, s.y + s.h],
+          [s.x, s.y + s.h],
+        ]
+      : s.points || []
+  const closed = s.type === 'rect' || !!s.closed
+  const out = []
+  for (let i = 0; i + 1 < pts.length; i++) out.push([pts[i], pts[i + 1]])
+  if (closed && pts.length > 2) out.push([pts[pts.length - 1], pts[0]])
+  return out
+}
+
+/**
+ * Задевает ли прямоугольник линию эллипса. Эллипс выпуклый: прямоугольник целиком
+ * внутри, если внутри все четыре угла; целиком снаружи, если снаружи его ближайшая к
+ * центру точка (в осях, где эллипс — единичный круг).
+ */
+function rectTouchesEllipse(s, r) {
+  const { rx, ry } = radii(s)
+  if (!(rx > 0) || !(ry > 0)) return false
+  const inside = (x, y) => ((x - s.cx) / rx) ** 2 + ((y - s.cy) / ry) ** 2 <= 1
+  const corners = [
+    [r.x1, r.y1],
+    [r.x2, r.y1],
+    [r.x2, r.y2],
+    [r.x1, r.y2],
+  ]
+  if (corners.every(([x, y]) => inside(x, y))) return false
+  const near = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
+  return inside(near(s.cx, r.x1, r.x2), near(s.cy, r.y1, r.y2))
+}
+
+/**
+ * Задевает ли прямоугольник `{ x1, y1, x2, y2 }` ЛИНИЮ фигуры, а не её площадь: для
+ * хит-теста контурных фигур, у которых пустое нутро не должно ловить ни клик, ни рамку.
+ * Отрезки контура — по Лиангу — Барски, эллипс — точно. У подписи контура нет.
+ */
+export function shapeTouchesRect(s, r) {
+  if (!s) return false
+  if (s.type === 'circle') return rectTouchesEllipse(s, r)
+  return contourSegments(s).some(([a, b]) => segmentHitsRect(a, b, r))
 }
 
 /**

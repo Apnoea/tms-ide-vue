@@ -80,7 +80,7 @@ let simCssKey = ''
  * догенерируется случайным и держится до конца тика.
  *
  * CSS под `.tms-simulating` инжектится в `<head>` и не протекает в обычный режим.
- * `stopSimulation` зовёт useProject перед экспортом и импортом.
+ * `stopSimulation` зовёт useProjectArchive перед экспортом и импортом.
  */
 export function useSimulation() {
   const canvas = useCanvas()

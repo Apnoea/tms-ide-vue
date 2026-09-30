@@ -75,6 +75,8 @@ src/
 │   ├── InspectorPane.vue      # оболочка правой панели: свитч контента по режиму
 │   ├── CanvasInspector.vue    # контент инспектора для холста (свойства ячейки)
 │   ├── StencilInspector.vue   # контент инспектора для редактора (свойства символа)
+│   ├── StencilAnimationFields.vue # анимации символа: режимы состояния, цвета, зоны, quality
+│   ├── StencilShapePanel.vue  # плашка «Фигура»: вид, подпись и видимость выделенных фигур
 │   ├── SimulationPanel.vue    # значения тегов, пока идёт превью (контрол по роли тега)
 │   ├── ProjectActions.vue     # открыть (.zip) + экспорт (.zip), топ-бар
 │   ├── TagListControl.vue     # загрузка tag-list + счётчик (шапка)
@@ -115,9 +117,15 @@ src/
 │   ├── useBusResize.js        # drag-resize шины
 │   ├── useWireSplice.js       # врезка символа в провод + превью над проводом
 │   ├── useBusSnap.js          # символ на шине: раскладка, закрепление (tms.busId), откреп
-│   ├── useProject.js          # оркестрация: переключение / CRUD форм (вкл. дублирование) / импорт / экспорт
+│   ├── useProject.js          # фасад проектных операций: общий контекст и гейт projectBusy
+│   ├── useForms.js            # формы: переключение / создание / дублирование / корзина / переименование
+│   ├── useProjectArchive.js   # проект целиком: импорт / экспорт .zip, миграции, сверка символа в закрытых формах
 │   ├── useStencilEditor.js    # модель редактора (фигуры / порты / снап / undo-redo / мультивыделение / loadStencil)
 │   ├── useEditorLasso.js      # рамочное выделение фигур в редакторе символов (hitShapes по bbox)
+│   ├── useEditorZoom.js       # масштаб стола редактора: вписывание, Ctrl+колесо, ± и «вписать»
+│   ├── useEditorDraw.js       # рисование жестами в редакторе (протяжка, клики ломаной, превью)
+│   ├── useEditorInteract.js   # перенос фигур и портов, ресайз ручками (interact.js)
+│   ├── useEditorHotkeys.js    # клавиши редактора символов (те же, что на холсте, где операция та же)
 │   ├── usePan.js / useLasso.js # pan (средняя кнопка / Space+ЛКМ) / рамочное выделение (ЛКМ)
 │   ├── useBlurOnPress.js      # нажатие по холсту / столу снимает фокус с поля инспектора
 │   ├── usePaletteDrag.js      # drag символа из палитры (превью + создание + врезка)
@@ -164,13 +172,13 @@ src/
 │   ├── icons.js               # свои path-иконки (текст, ломаная, поворот, прогон симуляции) — в primeicons их нет
 │   ├── domains.js             # области применения символа (энергетика / технология / сети) + фильтр палитры
 │   ├── wire.js                # допуски вида провода: толщина 0.5..20, виды наконечника, маршруты + normalizeWireStyle
-│   ├── text.js                # подпись-разметка: кегль по умолчанию, опции выравнивания и жирности
+│   ├── text.js                # подписи: кегль по умолчанию (холст и символ), шрифты (whitelist), опции выравнивания и жирности
 │   └── ids.js                 # wire-protocol: prefixes / data-attrs / маска id символа / slot resolver
 └── utils/
     ├── cellSearch.js          # getCellTags(FromTms) + match для Ctrl+F
     ├── tagHealth.js           # проблемы привязанного тега: нет в tag-list / пробел в имени
     ├── plain.js               # toPlain: JSON-клон без reactive-прокси (structuredClone на прокси падает)
-    ├── shapeSvg.js            # фигура-примитив (редактор и холст): serializeShape / bbox / перенос-масштаб / поворот-отражение / подпись
+    ├── shapeSvg.js            # фигура-примитив (редактор и холст): serializeShape / bbox / касание контура / перенос-масштаб / поворот-отражение / подпись
     ├── stencilSvg.js          # символ целиком: serializeSvg / parseStencilSvg / buildStencilJson / cropToContent / валидация черновика
     ├── plural.js              # русские падежи
     ├── bridgeLinks.js         # bridge-link при copy/paste
@@ -178,10 +186,10 @@ src/
     ├── busSnap.js             # геометрия «символ на шине»: линия, сторона подноса, раскладка
     ├── paperGeom.js           # projectToScreen + rotatedAabb + раскладка overlay-кнопок
     ├── portGeom.js            # где порт на холсте (с учётом поворота) — одна формула на всех
-    ├── paperBatch.js          # withPaperFrozen: заморозка перерисовки на массовую загрузку
+    ├── graphBatch.js          # массовая правка графа: withRestoreGuard (история молчит) + withPaperFrozen (без перерисовки)
     ├── formIds.js             # название и описание формы + имена форм из чужого архива → безопасные id + перенос ссылок
     ├── xml.js                 # SVG_NS + escapeXml / escapeAttr + svgEl (SVG-узел)
-    ├── textMetrics.js         # FONT_FAMILIES (whitelist) + normalizeFont + measureTextWidth
+    ├── textMetrics.js         # measureTextWidth: ширина строки canvas-метрикой
     ├── sanitizeSvg.js         # whitelist тегов/атрибутов чужого shape.svg
     ├── zOrder.js              # план порядка наложения (перенумерация слоя в его полосе z)
     ├── editorRulers.js        # сетка (тайл паттерна) и линейки редактора символов (деления/подписи)
@@ -191,10 +199,9 @@ src/
     ├── rangeRows.js           # правила строк диапазона: новая строка, низ 0, правка ввода, канон для сохранения
     ├── rangeSource.js         # откуда у элемента диапазоны: зоны символа + тег слота, наследование по цепи проводов
     ├── simValues.js           # правила симуляции: роль тега по слоту, значение → строка диапазона / состояние / текст, значение внутри зоны
-    ├── viewKeys.js            # клавиши вида: Ctrl+= / − / 0 → зум, цифра → номер инструмента
+    ├── viewKeys.js            # клавиши вида: Ctrl+= / − / 0 → зум, цифра → номер инструмента, фокус в поле/списке
     ├── tickHistory.js         # история тиков симуляции: шаг назад / вперёд, обрезка после правки
     ├── wireSplice.js          # врезка (pickPassThroughPorts/spliceRotation) + срастание (planWireBridge)
-    ├── restoreGuard.js        # withRestoreGuard: try/finally вокруг restoringHistory
     └── formTreeDnd.js         # DnD дерева форм: subtreeIds + computeDrop (цель/зона)
 ```
 

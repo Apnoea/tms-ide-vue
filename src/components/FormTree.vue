@@ -26,7 +26,7 @@ const confirmDanger = useConfirmDanger()
 // свёрнутых ветвей, персист в localStorage — как у аккордеона палитры.
 const panelCollapsed = useLocalStorage('tms-ide:forms-collapsed:v1', false)
 
-// id последней удалённой формы (корзина живёт в IDB, см. useProject.restoreForm).
+// id последней удалённой формы (корзина живёт в IDB, см. useForms.restoreForm).
 const lastTrashed = computed(() => canvas.formTrash.value[0]?.id || '')
 
 // Свёрнутые ветки (по id). По умолчанию всё раскрыто.

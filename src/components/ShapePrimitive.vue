@@ -22,13 +22,12 @@ import { computed } from 'vue'
 import {
   ROUND_RX,
   TEXT_LINE_HEIGHT,
-  TEXT_SHAPE_SIZE,
   radii,
   textAnchorOf,
   textLines,
   textShapeBox,
 } from '../utils/shapeSvg'
-import { normalizeFont } from '../utils/textMetrics'
+import { TEXT_SHAPE_SIZE, normalizeFont } from '../constants/text'
 import { TEXT_ICON } from '../constants/icons'
 
 /** Служебный серый (zinc-400): иконка — подсказка редактора, а не часть рисунка. */

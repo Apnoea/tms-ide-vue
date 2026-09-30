@@ -1,12 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
-import {
-  shapeBounds,
-  serializeShape,
-  textLines,
-  TEXT_SHAPE_SIZE,
-  TEXT_LINE_HEIGHT,
-} from './shapeSvg'
+import { shapeBounds, serializeShape, textLines, TEXT_LINE_HEIGHT } from './shapeSvg'
+import { TEXT_SHAPE_SIZE } from '../constants/text'
 import {
   serializeSvg,
   buildStencilJson,

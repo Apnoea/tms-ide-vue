@@ -8,7 +8,43 @@ import {
   canRotateShapes,
   canFlipShapes,
   takesStateFill,
+  shapeTouchesRect,
 } from './shapeSvg'
+
+// Касание ЛИНИИ, а не площади: рамка внутри пустой фигуры её не задевает.
+describe('shapeTouchesRect', () => {
+  const inner = { x1: 8, y1: 8, x2: 12, y2: 12 }
+
+  it('прямоугольник и ломаная: рамка на стороне — да, внутри — нет', () => {
+    const rect = { type: 'rect', x: 0, y: 0, w: 20, h: 20 }
+    expect(shapeTouchesRect(rect, inner)).toBe(false)
+    expect(shapeTouchesRect(rect, { x1: -2, y1: 8, x2: 2, y2: 12 })).toBe(true)
+    const open = {
+      type: 'polyline',
+      points: [
+        [0, 0],
+        [20, 0],
+        [20, 20],
+      ],
+    }
+    // Незамкнутая ломаная не закрывает контур: левый край — пусто.
+    expect(shapeTouchesRect(open, { x1: -2, y1: 8, x2: 2, y2: 12 })).toBe(false)
+    expect(shapeTouchesRect({ ...open, closed: true }, { x1: 8, y1: 8, x2: 12, y2: 12 })).toBe(true)
+  })
+
+  it('линия — по отрезку, эллипс — по кривой', () => {
+    expect(shapeTouchesRect({ type: 'line', x1: 0, y1: 0, x2: 20, y2: 20 }, inner)).toBe(true)
+    expect(shapeTouchesRect({ type: 'line', x1: 0, y1: 20, x2: 5, y2: 15 }, inner)).toBe(false)
+    const circle = { type: 'circle', cx: 10, cy: 10, r: 10 }
+    expect(shapeTouchesRect(circle, inner)).toBe(false)
+    expect(shapeTouchesRect(circle, { x1: 18, y1: 8, x2: 22, y2: 12 })).toBe(true)
+  })
+
+  it('подпись и пустота — не контур', () => {
+    expect(shapeTouchesRect({ type: 'text', x: 10, y: 10, text: 'A' }, inner)).toBe(false)
+    expect(shapeTouchesRect(null, inner)).toBe(false)
+  })
+})
 
 describe('takesStateFill', () => {
   it('замкнутая фигура без своей заливки — да, со своей — нет', () => {

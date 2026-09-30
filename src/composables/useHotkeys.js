@@ -3,17 +3,8 @@ import { useEventListener } from '@vueuse/core'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from './useCanvas'
 import { nplural } from '../utils/plural'
-import { zoomKeyOf, toolDigitOf } from '../utils/viewKeys'
+import { zoomKeyOf, toolDigitOf, isFocusInInput, isInListWidget } from '../utils/viewKeys'
 import { isFreeEnd } from '../stencils/linkDefaults'
-
-function isFocusInInput(t) {
-  return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
-}
-
-/** Фокус в выпадающем списке (Select, Listbox): там клавиши листают и ищут опции. */
-function isInListWidget(t) {
-  return !!t?.closest?.('[role="combobox"], [role="listbox"]')
-}
 
 /**
  * Выделен текст ВНЕ холста (id символа, тег в инспекторе) — такой Ctrl+C принадлежит

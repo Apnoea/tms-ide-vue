@@ -291,6 +291,23 @@ export function textSlotOf(slots) {
   return (slots || []).find((s) => s.type === 'Text') || null
 }
 
+/**
+ * Ключ слота-драйвера по payload ячейки: `onoff` у булевых, `value` у «по значению»,
+ * null у элементов без слотов (провод, шина, фигура-разметка). Для мест, где символ
+ * известен только через tms — вставка буфера и массовая привязка.
+ */
+export function stateSlotKeyOf(tms) {
+  return stateSlotOf(getStencilById(tms?.stencilId)?.slots)?.key || null
+}
+
+/**
+ * Ячейка без анимаций: статичный символ (`static: true` в stencil.json) или
+ * фигура-разметка. Диапазоны, булев источник и буфер анимаций к ней не применяются.
+ */
+export function isStaticTms(tms) {
+  return !!tms?.shape || !!getStencilById(tms?.stencilId)?.static
+}
+
 export function getAllStencils() {
   return Array.from(registry.values())
 }

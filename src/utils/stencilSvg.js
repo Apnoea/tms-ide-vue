@@ -19,9 +19,8 @@ import {
 import { normalizeStateColor } from '../constants/animation'
 import { normalizeDomains } from '../constants/domains'
 import { cleanRangeRows } from './rangeRows'
-import { normalizeFont } from './textMetrics'
+import { TEXT_SHAPE_SIZE, normalizeFont } from '../constants/text'
 import {
-  TEXT_SHAPE_SIZE,
   VALUE_TEXT_SUFFIX,
   isFillableShape,
   num,

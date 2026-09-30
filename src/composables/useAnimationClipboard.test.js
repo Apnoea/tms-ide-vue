@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   useAnimationClipboard,
   applyStateClip,
@@ -37,6 +37,46 @@ describe('useAnimationClipboard — буфер', () => {
     clip.copyState({ slotKey: 'onoff', tag: 'A' })
     expect(clip.hasDeps.value).toBe(false)
     expect(clip.hasValue.value).toBe(false)
+  })
+})
+
+// Вставка идёт на всё выделение: несовместимые и заблокированные считаются пропущенными,
+// нулевой итог — предупреждение, а не «успех».
+describe('useAnimationClipboard — вставка на выделение', () => {
+  const cell = (tms) => ({ tms, get: () => tms, set: vi.fn() })
+  function setup(cells, writable = cells) {
+    const canvas = {
+      paperRef: { value: null },
+      selection: { value: cells },
+      writableItems: () => writable,
+      bumpVersion: vi.fn(),
+      requestSnapshot: vi.fn(),
+    }
+    const notify = { success: vi.fn(), warn: vi.fn() }
+    return { clip: useAnimationClipboard({ canvas, notify }), canvas, notify }
+  }
+
+  it('зависимости ложатся на совместимые, статичные и под замком пропускаются', () => {
+    const wire = cell({})
+    const shape = cell({ shape: { type: 'rect' } })
+    const locked = cell({})
+    const { clip, canvas, notify } = setup([wire, shape, locked], [wire, shape])
+    clip.copyDeps({ groups: [['A']] })
+    clip.pasteDeps()
+    expect(wire.set).toHaveBeenCalledWith('tms', { boolSource: { groups: [['A']] } })
+    expect(shape.set).not.toHaveBeenCalled()
+    expect(canvas.requestSnapshot).toHaveBeenCalledOnce()
+    expect(notify.success.mock.calls[0][1]).toContain('пропущено: 2')
+  })
+
+  it('ни одна цель не подошла — предупреждение; пустой буфер — ничего', () => {
+    const { clip, canvas, notify } = setup([cell({ shape: { type: 'rect' } })])
+    clip.pasteState()
+    expect(canvas.bumpVersion).not.toHaveBeenCalled()
+    clip.copyDeps({ groups: [['A']] })
+    clip.pasteDeps()
+    expect(notify.warn).toHaveBeenCalledOnce()
+    expect(notify.success).not.toHaveBeenCalled()
   })
 })
 

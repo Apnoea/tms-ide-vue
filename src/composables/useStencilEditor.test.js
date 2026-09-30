@@ -4,7 +4,7 @@ import { createStencilEditor, useStencilEditor, PORT_GRID } from './useStencilEd
 
 /**
  * Видимость по состоянию — тем же путём, каким её ставит инспектор: выделить,
- * применить на выделение, зафиксировать шаг истории (см. StencilInspector.shapeState).
+ * применить на выделение, зафиксировать шаг истории (см. StencilShapePanel.shapeState).
  */
 function setState(ed, id, state) {
   ed.select(id)

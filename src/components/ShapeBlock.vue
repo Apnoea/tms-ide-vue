@@ -13,7 +13,7 @@ import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
 import SelectButton from 'primevue/selectbutton'
 import ColorField from './ColorField.vue'
-import { FONT_FAMILIES } from '../utils/textMetrics'
+import { FONT_FAMILIES } from '../constants/text'
 
 const props = defineProps({
   /** Поля выделенной фигуры: label/тип, обводка, заливка, поля подписи. */

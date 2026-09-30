@@ -29,3 +29,13 @@ export function toolDigitOf(event) {
   const m = /^(?:Digit|Numpad)([1-9])$/.exec(event.code || '')
   return m ? Number(m[1]) - 1 : -1
 }
+
+/** Фокус в поле ввода: клавиши там — правка текста, а не команды. */
+export function isFocusInInput(t) {
+  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || !!t.isContentEditable)
+}
+
+/** Фокус в выпадающем списке (Select, Listbox): там клавиши листают и ищут опции. */
+export function isInListWidget(t) {
+  return !!t?.closest?.('[role="combobox"], [role="listbox"]')
+}

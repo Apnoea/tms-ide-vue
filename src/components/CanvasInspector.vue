@@ -5,26 +5,26 @@ import AutoComplete from 'primevue/autocomplete'
 import ToggleSwitch from 'primevue/toggleswitch'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
-import {
-  useAnimationClipboard,
-  applyStateClip,
-  applyDepsClip,
-  applyValueClip,
-} from '../composables/useAnimationClipboard'
+import { useAnimationClipboard } from '../composables/useAnimationClipboard'
 import { useAlign } from '../composables/useAlign'
 import { useBoolGroups } from '../composables/useBoolGroups'
-import { ALIGN_OPTIONS, BOLD_OPTIONS, TEXT_FONT_SIZE } from '../constants/text'
+import { ALIGN_OPTIONS, BOLD_OPTIONS, TEXT_FONT_SIZE, normalizeFont } from '../constants/text'
 import { useNavigationField } from '../composables/useNavigationField'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
-import { getStencilById, stateSlotOf, textSlotOf } from '../stencils/registry'
+import {
+  getStencilById,
+  isStaticTms,
+  stateSlotKeyOf,
+  stateSlotOf,
+  textSlotOf,
+} from '../stencils/registry'
 import { inheritedRangeSource, jointGraphAccess } from '../utils/rangeSource'
 import { injectStencilSvg } from '../stencils/svgInjector'
 import { isShapeCell, shapeTypeLabel, applyShapePatch } from '../stencils/shapeElement'
 import { BUS_COLOR_DEFAULT, BUS_THICKNESS_MAX, setBusThickness } from '../stencils/busCell'
 import { nplural } from '../utils/plural'
 import { normalizeBoolSource } from '../utils/boolSource'
-import { normalizeFont } from '../utils/textMetrics'
 import { toPlain } from '../utils/plain'
 import { isBooleanType } from '../services/tagList'
 import TagPickerDialog from './TagPickerDialog.vue'
@@ -45,23 +45,7 @@ import {
   WIRE_STYLE_DEFAULTS,
 } from '../stencils/linkDefaults'
 
-// Ячейки без анимаций: статичные символы (`static: true` в stencil.json) и
-// фигуры-разметка. Диапазоны и булев источник к ним не применяются.
-function isStatic(tms) {
-  return !!tms?.shape || !!getStencilById(tms?.stencilId)?.static
-}
-
-/**
- * Ключ слота-драйвера символа по его payload: `onoff` у булевых, `value` у «по
- * значению», null у элементов без слотов (провод, шина, фигура-разметка). Нужен там, где символ
- * известен только через tms — вставка буфера и массовая привязка.
- */
-function stateSlotKeyOf(tms) {
-  return stateSlotOf(getStencilById(tms?.stencilId)?.slots)?.key || null
-}
-
 const canvas = useCanvas()
-const animClip = useAnimationClipboard()
 // Выравнивание + распределение выделенных ячеек (секция «Выравнивание» в мульти-режиме).
 const { canAlign, canDistribute, alignCells, distributeCells } = useAlign()
 
@@ -165,6 +149,10 @@ const ALIGN_ROWS = [
 const project = useProjectStore()
 const workspace = useWorkspaceStore()
 const notify = useNotify()
+// Буфер настроек анимаций: копирование — из выделенного здесь, вставка на всё выделение —
+// в самом буфере.
+const animClip = useAnimationClipboard({ canvas, notify })
+const { pasteState, pasteValue, pasteDeps } = animClip
 
 // Computed'ы читают canvas.graphVersion: JointJS-модели не Vue-reactive, изменения
 // ловятся явным version-тиком.
@@ -847,7 +835,7 @@ function onPickMultiBoolTag(tag) {
   let skipped = sel.length - writable.length
   for (const cell of writable) {
     const tms = cell.get('tms') || {}
-    if (isStatic(tms)) {
+    if (isStaticTms(tms)) {
       skipped++
       continue
     }
@@ -880,10 +868,8 @@ function onPickMultiBoolTag(tag) {
 }
 
 // ─── Копирование настроек анимаций между элементами ───
-// Буфер (useAnimationClipboard) держит четыре независимых слота — тег состояния,
-// карточку значения, зависимости и диапазоны; каждый копируется кнопкой в шапке своего
-// блока. Копируем ЦЕЛИКОМ, вместе с тегом. `toPlain` снимает reactive-прокси, иначе
-// цели делили бы одну ссылку. Вставка идёт на ВСЁ выделение, со счётчиком пропущенных.
+// Каждый блок копируется кнопкой в своей шапке, ЦЕЛИКОМ, вместе с тегом. `toPlain`
+// снимает reactive-прокси, иначе цели делили бы одну ссылку.
 
 /** Копировать тег состояния выделенного вместе с ключом слота: вставка проверит, что у
  *  цели слот тот же (булев тег в символ «по значению» не годится). */
@@ -915,91 +901,6 @@ function copyDeps() {
   if (!boolGroups.value.length) return
   animClip.copyDeps(toPlain({ groups: boolGroups.value }))
   notify.success('Скопировано', 'Зависимости от других элементов')
-}
-
-/**
- * Вставить тег состояния на всё выделение — только символам с ТЕМ ЖЕ ключом слота
- * (`onoff` или `value`): режимы анимации разные, а тег булев либо числовой. Остальные
- * цели идут в пропущенные.
- */
-function pasteState() {
-  const clip = animClip.stateClip.value
-  pasteClip(
-    clip,
-    (tms) => applyStateClip(tms, clip, { isStatic: isStatic(tms), slotKey: stateSlotKeyOf(tms) }),
-    { reinject: true }
-  )('Тег состояния вставлен')
-}
-
-/**
- * Вставить карточку значения на всё выделение — символам с Text-слотом того же ключа.
- * Подписи раздаём только по ключам, объявленным у цели: у другого символа они свои.
- */
-function pasteValue() {
-  const clip = animClip.valueClip.value
-  pasteClip(
-    clip,
-    (tms) => {
-      const stencil = getStencilById(tms.stencilId)
-      return applyValueClip(tms, clip, {
-        isStatic: isStatic(tms),
-        slotKey: textSlotOf(stencil?.slots)?.key || null,
-        paramKeys: (stencil?.params || []).map((p) => p.key),
-      })
-    },
-    { reinject: true }
-  )('Карточка значения вставлена')
-}
-
-/** Вставить зависимости из буфера на всё выделение (замена групп целиком). Применимы к
- *  любому не-static элементу, включая провод. */
-function pasteDeps() {
-  pasteClip(animClip.depsClip.value, (tms) =>
-    applyDepsClip(tms, animClip.depsClip.value, { isStatic: isStatic(tms) })
-  )('Зависимости вставлены')
-}
-
-/**
- * Каркас вставки буфера на всё выделение: для каждой цели зовёт apply(tms) → новый tms
- * либо null (несовместимо → пропуск со счётчиком). Заблокированные отсекает
- * `writableItems`, пустой буфер — no-op.
- *
- * `reinject: true` обязателен, когда вставка меняет слоты: тег уходит в bindings
- * разметки, и без перерисовки они остались бы от прежнего.
- *
- * @returns {(title: string) => void} финализатор с заголовком тоста
- */
-function pasteClip(clip, apply, { reinject = false } = {}) {
-  return (title) => {
-    if (!clip) return
-    const paper = canvas.paperRef.value
-    const sel = canvas.selection.value
-    const writable = canvas.writableItems(sel)
-    let applied = 0
-    let skipped = sel.length - writable.length // заблокированные
-    for (const cell of writable) {
-      const next = apply(cell.get('tms') || {})
-      if (!next) {
-        skipped++
-        continue
-      }
-      cell.set('tms', next)
-      if (reinject) {
-        const stencil = getStencilById(next.stencilId)
-        const cellView = stencil && paper?.findViewByModel(cell)
-        if (cellView) injectStencilSvg(cellView, stencil)
-      }
-      applied++
-    }
-    canvas.bumpVersion()
-    canvas.requestSnapshot()
-    const parts = [`Применено к ${nplural(applied, 'символ', 'символа', 'символов')}`]
-    if (skipped) parts.push(`пропущено: ${skipped}`)
-    const detail = parts.join(' · ')
-    // Нулевой результат — не «успех».
-    if (applied === 0) notify.warn('Настройки не применены', detail)
-    else notify.success(title, detail)
-  }
 }
 
 // ─── Hyperlink-навигация: клик в рантайме открывает другую view ───

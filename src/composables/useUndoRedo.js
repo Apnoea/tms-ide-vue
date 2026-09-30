@@ -1,7 +1,6 @@
 import { onBeforeUnmount } from 'vue'
 import { reinjectAllStencils } from '../stencils/svgInjector'
-import { withPaperFrozen } from '../utils/paperBatch'
-import { withRestoreGuard } from '../utils/restoreGuard'
+import { withPaperFrozen, withRestoreGuard } from '../utils/graphBatch'
 import { useCanvas } from './useCanvas'
 
 const HISTORY_LIMIT = 50

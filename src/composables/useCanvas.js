@@ -47,7 +47,7 @@ const exportArchiveFn = shallowRef(null)
 const fitViewFn = shallowRef(null)
 
 // Разнести правку символа по формам, кроме активной: зовёт редактор символов после
-// сохранения, оркестрацию (прогон форм через живой paper, запись в IDB) держит
+// сохранения, оркестрацию (прогон форм в теневом графе, запись в IDB) держит
 // useProject.
 const syncStencilFormsFn = shallowRef(null)
 

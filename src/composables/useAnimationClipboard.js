@@ -1,10 +1,15 @@
 import { ref, computed } from 'vue'
+import { getStencilById, isStaticTms, stateSlotKeyOf, textSlotOf } from '../stencils/registry'
+import { injectStencilSvg } from '../stencils/svgInjector'
+import { nplural } from '../utils/plural'
 
 /**
  * Буфер настроек анимаций на сессию (singleton, как useCanvas): переживает смену
  * выделения и формы, поэтому копировать можно с одного элемента, а вставлять на другой
- * и на другой форме. Блоки копируются раздельно, кнопками своих блоков инспектора.
- * Payload кладётся уже plain — reactive-прокси делили бы ссылки между целями.
+ * и на другой форме. Три независимых слота — тег состояния, карточка значения и
+ * зависимости; каждый копируется кнопкой в шапке своего блока инспектора, ЦЕЛИКОМ,
+ * вместе с тегом. Payload кладётся уже plain — reactive-прокси делили бы ссылки между
+ * целями.
  */
 const stateClip = ref(null) // { slotKey: string, tag: string } | null
 const depsClip = ref(null) // { groups: string[][] } | null
@@ -67,7 +72,51 @@ export function applyValueClip(
   return next
 }
 
-export function useAnimationClipboard() {
+/**
+ * @param {object} [deps] — нужны только вставке: буфер сам по себе живёт и без них
+ * @param {object} [deps.canvas] — useCanvas: выделение, paper, снимок истории
+ * @param {object} [deps.notify] — useNotify: итог вставки тостом
+ */
+export function useAnimationClipboard({ canvas = null, notify = null } = {}) {
+  /**
+   * Вставка на ВСЁ выделение: для каждой цели `apply(tms)` → новый tms либо null
+   * (несовместимо → пропуск со счётчиком). Заблокированные отсекает `writableItems`,
+   * пустой буфер — no-op.
+   *
+   * `reinject: true` обязателен, когда вставка меняет слоты: тег уходит в bindings
+   * разметки, и без перерисовки они остались бы от прежнего.
+   */
+  function pasteOnSelection(clip, apply, title, { reinject = false } = {}) {
+    if (!clip) return
+    const paper = canvas.paperRef.value
+    const sel = canvas.selection.value
+    const writable = canvas.writableItems(sel)
+    let applied = 0
+    let skipped = sel.length - writable.length // заблокированные
+    for (const cell of writable) {
+      const next = apply(cell.get('tms') || {})
+      if (!next) {
+        skipped++
+        continue
+      }
+      cell.set('tms', next)
+      if (reinject) {
+        const stencil = getStencilById(next.stencilId)
+        const cellView = stencil && paper?.findViewByModel(cell)
+        if (cellView) injectStencilSvg(cellView, stencil)
+      }
+      applied++
+    }
+    canvas.bumpVersion()
+    canvas.requestSnapshot()
+    const parts = [`Применено к ${nplural(applied, 'символ', 'символа', 'символов')}`]
+    if (skipped) parts.push(`пропущено: ${skipped}`)
+    const detail = parts.join(' · ')
+    // Нулевой результат — не «успех».
+    if (applied === 0) notify.warn('Настройки не применены', detail)
+    else notify.success(title, detail)
+  }
+
   return {
     stateClip,
     depsClip,
@@ -83,6 +132,43 @@ export function useAnimationClipboard() {
     },
     copyValue(payload) {
       valueClip.value = payload
+    },
+    /** Тег состояния — символам с тем же ключом слота-драйвера (см. applyStateClip). */
+    pasteState() {
+      const clip = stateClip.value
+      pasteOnSelection(
+        clip,
+        (tms) =>
+          applyStateClip(tms, clip, { isStatic: isStaticTms(tms), slotKey: stateSlotKeyOf(tms) }),
+        'Тег состояния вставлен',
+        { reinject: true }
+      )
+    },
+    /** Карточка значения — символам с Text-слотом того же ключа, подписи — по их ключам. */
+    pasteValue() {
+      const clip = valueClip.value
+      pasteOnSelection(
+        clip,
+        (tms) => {
+          const stencil = getStencilById(tms.stencilId)
+          return applyValueClip(tms, clip, {
+            isStatic: isStaticTms(tms),
+            slotKey: textSlotOf(stencil?.slots)?.key || null,
+            paramKeys: (stencil?.params || []).map((p) => p.key),
+          })
+        },
+        'Карточка значения вставлена',
+        { reinject: true }
+      )
+    },
+    /** Зависимости — любому не-static элементу, включая провод (замена групп целиком). */
+    pasteDeps() {
+      const clip = depsClip.value
+      pasteOnSelection(
+        clip,
+        (tms) => applyDepsClip(tms, clip, { isStatic: isStaticTms(tms) }),
+        'Зависимости вставлены'
+      )
     },
   }
 }

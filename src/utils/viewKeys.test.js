@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { zoomKeyOf, toolDigitOf } from './viewKeys'
+import { zoomKeyOf, toolDigitOf, isFocusInInput, isInListWidget } from './viewKeys'
 
 describe('zoomKeyOf', () => {
   it.each([
@@ -36,4 +36,16 @@ describe('toolDigitOf', () => {
     expect(toolDigitOf({ code: 'Digit0' })).toBe(-1)
     expect(toolDigitOf({ code: 'KeyR' })).toBe(-1)
   })
+})
+
+// Клавиши в полях и списках — их собственные: цифра это ввод, стрелка листает опции.
+it('isFocusInInput / isInListWidget: поля ввода и выпадающие списки', () => {
+  expect(isFocusInInput({ tagName: 'INPUT' })).toBe(true)
+  expect(isFocusInInput({ tagName: 'DIV', isContentEditable: true })).toBe(true)
+  expect(isFocusInInput({ tagName: 'BUTTON' })).toBe(false)
+  expect(isFocusInInput(null)).toBe(false)
+  const inSelect = { closest: (sel) => (sel.includes('combobox') ? {} : null) }
+  expect(isInListWidget(inSelect)).toBe(true)
+  expect(isInListWidget({ closest: () => null })).toBe(false)
+  expect(isInListWidget(null)).toBe(false)
 })

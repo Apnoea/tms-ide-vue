@@ -3,14 +3,13 @@
  * Редактор символов — оверлей поверх холста: рисование примитивов, порты, стиль фигур
  * и анимация состояния со снапом к сетке (вершины 1px, порты и размер — PORT_GRID).
  *
- * Модель и undo/redo — в useStencilEditor, здесь DOM: SVG-стол, жесты рисования и
- * привязка drag/resize через interact.js. Программный символ (шина) открывается только
- * ради зон диапазонов (`rangesOnly`). Сохранение валидирует, регистрирует в реестре и
- * пишет на диск dev-плагином.
+ * Модель и undo/redo — в useStencilEditor, здесь SVG-стол и сборка его механик:
+ * масштаб (useEditorZoom), рисование жестами (useEditorDraw), перенос и ресайз
+ * (useEditorInteract), лассо (useEditorLasso), клавиши (useEditorHotkeys). Программный
+ * символ (шина) открывается только ради зон диапазонов (`rangesOnly`). Сохранение
+ * валидирует, регистрирует в реестре и пишет на диск dev-плагином.
  */
-import { computed, ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
-import { useElementSize, useEventListener } from '@vueuse/core'
-import interact from 'interactjs'
+import { computed, ref, onMounted, watch } from 'vue'
 import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
 import InputNumber from 'primevue/inputnumber'
@@ -18,7 +17,6 @@ import Divider from 'primevue/divider'
 import { useUiStore } from '../stores/useUiStore'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
-import { snapToGrid } from '../utils/grid'
 import {
   takesStateFill,
   radii,
@@ -26,14 +24,12 @@ import {
   shapesBounds,
   canRotateShapes,
   canFlipShapes,
-  TEXT_SHAPE_SIZE,
 } from '../utils/shapeSvg'
 import { stencilDraftIssues, parseStencilSvg } from '../utils/stencilSvg'
 import { presetEditResult, sameShapeStates } from '../utils/presetPatch'
 import { sanitizeSvgMarkup } from '../utils/sanitizeSvg'
 import { overlayButtonPositions } from '../utils/paperGeom'
 import { useConfirmDanger } from '../composables/useConfirmDanger'
-import { zoomKeyOf, toolDigitOf } from '../utils/viewKeys'
 import { GRID_PERIOD, gridPatternLines, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
 import { TEXT_ICON, POLYLINE_ICON, ROTATE_ICON } from '../constants/icons'
@@ -50,8 +46,11 @@ import { nplural } from '../utils/plural'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
 import { removeStencilOverride, upsertStencilOverride } from '../services/stencilOverrides'
 import { presetStencilBase } from '../services/presetLibrary'
-import { useStencilEditor, SHAPE_GRID, PORT_GRID, BOX_GRID } from '../composables/useStencilEditor'
-import { ZOOM_STEP } from '../composables/useCanvasZoom'
+import { useStencilEditor, BOX_GRID } from '../composables/useStencilEditor'
+import { useEditorZoom, MIN_SCALE, MAX_SCALE } from '../composables/useEditorZoom'
+import { useEditorDraw } from '../composables/useEditorDraw'
+import { useEditorInteract } from '../composables/useEditorInteract'
+import { useEditorHotkeys } from '../composables/useEditorHotkeys'
 import { useEditorLasso } from '../composables/useEditorLasso'
 import { useBlurOnPress } from '../composables/useBlurOnPress'
 import ShapePrimitive from './ShapePrimitive.vue'
@@ -73,7 +72,6 @@ const {
   selectedId,
   selectedIds,
   selectedSet,
-  selectedPortIds,
   selectedPortSet,
   editingId,
   presetInfo,
@@ -89,15 +87,7 @@ const {
   select,
   toggleSelect,
   selectMany,
-  selectAll,
-  addShape,
-  updateShape,
-  updateShapes,
   removeShapes,
-  addPort,
-  movePorts,
-  dedupePorts,
-  removePorts,
   selectPort,
   setCanvasSize,
   contentOverflow,
@@ -134,7 +124,7 @@ const PORT_TOOL = {
   tip: 'Порт (клик по существующему — выделить, Del — удалить)',
 }
 
-// Порядок кнопок в тулбаре = номера клавиш 1…6 (см. keydown ниже).
+// Порядок кнопок в тулбаре = номера клавиш 1…6 (см. useEditorHotkeys).
 const TOOL_KEYS = [...DRAW_TOOLS, PORT_TOOL].map((t) => t.key)
 
 // Тогл инструментов: повторный клик по активному возвращает к select.
@@ -469,85 +459,16 @@ async function syncInstancesAndReport(stencilId, prev, title) {
   } else notify.success(title, detail)
 }
 
-// ─── Масштаб холста ───
-// bbox символа вписывается в доступную область с запасом; кламп держит мелкие символы
-// от раздувания до пикселизации, а крупные — в пределах области.
+// ─── Масштаб стола ───
 const stageEl = ref(null)
-const { width: stageW, height: stageH } = useElementSize(stageEl)
-// Доступная под символ область стола (за вычетом полей).
-const stageAvail = computed(() => ({
-  w: Math.max(1, stageW.value - 48),
-  h: Math.max(1, stageH.value - 48),
-}))
-const fitScale = computed(() => {
-  const { w, h } = stageAvail.value
-  const fit = Math.min(w / meta.width, h / meta.height)
-  return Math.max(3, Math.min(24, fit))
+const svgEl = ref(null)
+const { stageW, stageH, scale, pxW, pxH, zoomPercent, zoomIn, zoomOut, fitView } = useEditorZoom({
+  stageEl,
+  svgEl,
+  meta,
 })
-/**
- * Опорная точка шкалы: 100% = символ 50×50 во всю область стола. Проценты от
- * натуральной величины (единица модели = пиксель схемы) читались бы как «1200%».
- */
-const ZOOM_BASE_SIZE = 50
-const baseScale = computed(() => {
-  const { w, h } = stageAvail.value
-  return Math.min(w, h) / ZOOM_BASE_SIZE
-})
-/**
- * Ручной зум поверх авто-вписывания; жесты как на холсте схемы (Ctrl/Cmd+колесо к
- * курсору, ± шагом ZOOM_STEP, клик по проценту вписывает). `null` — «вписано»:
- * масштаб следует за размером символа и окна.
- *
- * Пределы — в единицах scale (px на единицу модели), а не в процентах: от размера
- * стола они не зависят.
- */
-const MIN_SCALE = 1
-const MAX_SCALE = 48
-const manualScale = ref(null)
-const scale = computed(() => manualScale.value ?? fitScale.value)
-const zoomPercent = computed(() => Math.round((scale.value / baseScale.value) * 100))
-
-/**
- * Зум с якорем: точка модели под курсором остаётся под ним. Пересчитываем по bbox
- * SVG уже ПОСЛЕ перерисовки — стол центрирует контент флексом, и предсказать новые
- * поля по scrollLeft/Top нельзя.
- */
-async function zoomAt(clientX, clientY, factor) {
-  const stage = stageEl.value
-  const svg = svgEl.value
-  if (!stage || !svg) return
-  const before = scale.value
-  const next = Math.max(MIN_SCALE, Math.min(MAX_SCALE, before * factor))
-  if (next === before) return
-  const rect = svg.getBoundingClientRect()
-  const ux = (clientX - rect.left) / before
-  const uy = (clientY - rect.top) / before
-  manualScale.value = next
-  await nextTick()
-  const after = svg.getBoundingClientRect()
-  stage.scrollLeft += after.left + ux * next - clientX
-  stage.scrollTop += after.top + uy * next - clientY
-}
-
-/** Кнопки ±: якорь — центр видимой области стола. */
-function zoomByStep(factor) {
-  const rect = stageEl.value?.getBoundingClientRect()
-  if (!rect) return
-  zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor)
-}
-
-// Голое колесо оставляем нативной прокрутке стола (у него overflow-auto) — как на
-// холсте, где оно панорамирует; зум только с Ctrl/Cmd, он же трекпадный pinch.
-function onStageWheel(e) {
-  if (!e.ctrlKey && !e.metaKey) return
-  e.preventDefault()
-  zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1 / ZOOM_STEP : ZOOM_STEP)
-}
-useEventListener(stageEl, 'wheel', onStageWheel, { passive: false })
 // Нажатие по столу снимает фокус с поля инспектора, как на холсте.
 useBlurOnPress(stageEl)
-const pxW = computed(() => meta.width * scale.value)
-const pxH = computed(() => meta.height * scale.value)
 // Ручки константного размера на экране (в user-единицах = px/scale).
 const hr = computed(() => 4 / scale.value)
 // Запас hit-обводки фигуры — 8 экранных px (в user-координатах, отсюда деление).
@@ -577,7 +498,6 @@ const gridPadY = computed(() =>
 )
 
 // ─── Пиксель события → user-координаты символа ───
-const svgEl = ref(null)
 function unitsFromEvent(e) {
   const r = svgEl.value.getBoundingClientRect()
   return {
@@ -615,153 +535,20 @@ const rulerTicksY = computed(() => rulerTicks(meta.height, scale.value))
 watch([pxW, pxH, stageW, stageH], updateRuler, { flush: 'post' })
 
 // ─── Рисование жестами (rect/line/circle — drag, polyline — клики) ───
-// Зажат ли Shift: у эллипса он держит равные полуоси и при рисовании, и при ресайзе
-// ручкой — в interact-колбэке самого события нет.
-const shiftHeld = ref(false)
-useEventListener(document, 'keydown', (e) => {
-  if (e.key === 'Shift') shiftHeld.value = true
-})
-useEventListener(document, 'keyup', (e) => {
-  if (e.key === 'Shift') shiftHeld.value = false
-})
-
-const drawing = ref(null) // { type, sx, sy, cx, cy } — тянущаяся фигура
-const polyPoints = ref([]) // накопленные вершины ломаной
-const polyCursor = ref(null) // «резинка» до курсора
-
-/**
- * Жест рисующего инструмента. Слушается со STAGE, а не с SVG символа: штрих и порт
- * можно начинать за пределами холста. К области символа координаты прижимает снап
- * (`snapShapeX/Y` и `portOnEdge` клампят в 0..width/height).
- */
-function onDrawDown(e) {
-  if (e.button !== 0) return
-  if (tool.value === 'port') {
-    if (e.target.closest('[data-se-move="port"]')) return // клик по порту — его хендлер
-    const u = unitsFromEvent(e)
-    addPort(u.x, u.y)
-    return
-  }
-  // Подпись ставится одним кликом: габарит задаёт шрифт, а не рамка. Якорь — левый
-  // край (клик = начало текста); у фигур БЕЗ поля `align` дефолт остаётся центром.
-  if (tool.value === 'text') {
-    const u = snappedShape(e)
-    addShape({
-      type: 'text',
-      x: u.x,
-      y: u.y,
-      text: 'Текст',
-      fontSize: TEXT_SHAPE_SIZE,
-      align: 'left',
-    })
-    return
-  }
-  if (tool.value === 'polyline') {
-    const u = snappedShape(e)
-    const pts = polyPoints.value
-    // Клик рядом с вершиной (при ≥2 точках): по стартовой — замыкание в polygon (без
-    // дубля точки, помечаем closed), по последней — конец открытой ломаной. Порог ~10
-    // экранных px.
-    if (pts.length >= 2) {
-      const near = (pt) => Math.hypot(u.x - pt[0], u.y - pt[1]) <= 10 / scale.value
-      if (near(pts[0]) || near(pts[pts.length - 1])) {
-        addShape({ type: 'polyline', points: [...pts], closed: near(pts[0]) })
-        polyPoints.value = []
-        polyCursor.value = null
-        return
-      }
-    }
-    polyPoints.value = [...pts, [u.x, u.y]]
-    return
-  }
-  const u = snappedShape(e)
-  drawing.value = { type: tool.value, sx: u.x, sy: u.y, cx: u.x, cy: u.y }
-  window.addEventListener('pointermove', onDrawMove)
-  window.addEventListener('pointerup', onDrawUp)
-}
-
-function onStageMove(e) {
-  if (tool.value === 'polyline' && polyPoints.value.length) {
-    const u = snappedShape(e)
-    polyCursor.value = [u.x, u.y]
-  }
-}
-
-function onDrawMove(e) {
-  if (!drawing.value) return
-  const u = snappedShape(e)
-  drawing.value = { ...drawing.value, cx: u.x, cy: u.y }
-}
-function onDrawUp() {
-  window.removeEventListener('pointermove', onDrawMove)
-  window.removeEventListener('pointerup', onDrawUp)
-  commitDrawing()
-}
-function commitDrawing() {
-  const d = drawing.value
-  drawing.value = null
-  if (!d) return
-  if (d.type === 'rect') {
-    const w = Math.abs(d.cx - d.sx)
-    const h = Math.abs(d.cy - d.sy)
-    if (w < SHAPE_GRID || h < SHAPE_GRID) return // клик без протяжки — не фигура
-    addShape({ type: 'rect', x: Math.min(d.sx, d.cx), y: Math.min(d.sy, d.cy), w, h })
-  } else if (d.type === 'line') {
-    if (d.sx === d.cx && d.sy === d.cy) return
-    addShape({ type: 'line', x1: d.sx, y1: d.sy, x2: d.cx, y2: d.cy })
-  } else if (d.type === 'circle') {
-    // Радиусы — полуоси габарита от центра (курсор идёт по границе), с Shift равные:
-    // один инструмент даёт и эллипс, и ровный круг.
-    const { rx, ry } = draftRadii(d)
-    if (rx < SHAPE_GRID || ry < SHAPE_GRID) return
-    addShape({ type: 'circle', cx: d.sx, cy: d.sy, rx, ry })
-  }
-}
-
-function finishPolyline() {
-  if (tool.value !== 'polyline') return
-  // Дедуп подряд идущих совпадающих точек: двойной клик добавляет лишнюю.
-  const pts = polyPoints.value.filter(
-    (p, i, arr) => i === 0 || p[0] !== arr[i - 1][0] || p[1] !== arr[i - 1][1]
-  )
-  if (pts.length >= 2) addShape({ type: 'polyline', points: pts })
-  polyPoints.value = []
-  polyCursor.value = null
-}
-
-// Превью тянущейся фигуры (пунктиром) считается из drawing.
-const draftRect = computed(() => {
-  const d = drawing.value
-  if (d?.type !== 'rect') return null
-  return {
-    x: Math.min(d.sx, d.cx),
-    y: Math.min(d.sy, d.cy),
-    w: Math.abs(d.cx - d.sx),
-    h: Math.abs(d.cy - d.sy),
-  }
-})
-/** Полуоси тянущегося эллипса от центра; Shift — равные (ровный круг). */
-function draftRadii(d) {
-  const rx = snapToGrid(Math.abs(d.cx - d.sx), SHAPE_GRID)
-  const ry = snapToGrid(Math.abs(d.cy - d.sy), SHAPE_GRID)
-  if (!shiftHeld.value) return { rx, ry }
-  const r = Math.max(rx, ry)
-  return { rx: r, ry: r }
-}
-const draftEllipse = computed(() => {
-  const d = drawing.value
-  if (d?.type !== 'circle') return null
-  const { rx, ry } = draftRadii(d)
-  return rx > 0 && ry > 0 ? { cx: d.sx, cy: d.sy, rx, ry } : null
-})
-const polyPreview = computed(() => {
-  if (!polyPoints.value.length) return ''
-  const pts = polyCursor.value ? [...polyPoints.value, polyCursor.value] : polyPoints.value
-  return pts.map(([x, y]) => `${x},${y}`).join(' ')
-})
+const {
+  shiftHeld,
+  drawing,
+  draftRect,
+  draftEllipse,
+  polyPreview,
+  onDrawDown,
+  onStageMove,
+  finishPolyline,
+  cancelDraw,
+} = useEditorDraw({ ed, scale, unitsFromEvent, snappedShape })
 
 // Клик по фигуре: Ctrl/Cmd — добавить или убрать из выделения, иначе выделить одну.
-// Перемещение пачки стартует в interact-хендлере ниже.
+// Перемещение пачки стартует в interact-хендлере (useEditorInteract).
 function onShapeSelect(id, e) {
   if (tool.value !== 'select') return
   if (e?.ctrlKey || e?.metaKey) toggleSelect(id)
@@ -812,10 +599,6 @@ const selectedShape = computed(() => shapes.value.find((s) => s.id === selectedI
 // считается пофигурно: с общим значением у тонкой линии halo раздувается в полосу, а у
 // толстой прячется под её же обводкой.
 const haloWidthFor = (s) => (s.strokeWidth || 2) + 4 / scale.value
-/**
- * Курсор ручки по ключу: угол габарита — диагональ растягивания, полуось эллипса —
- * своя ось, вершина линии/ломаной — перемещение точки.
- */
 /** Стиль порта: выделение красит обводку, курсор зависит от активного инструмента. */
 function portStyle(id) {
   return {
@@ -824,6 +607,10 @@ function portStyle(id) {
   }
 }
 
+/**
+ * Курсор ручки по ключу: угол габарита — диагональ растягивания, полуось эллипса —
+ * своя ось, вершина линии/ломаной — перемещение точки.
+ */
 function handleCursor(key) {
   if (key === 'nw' || key === 'se') return 'nwse-resize'
   if (key === 'ne' || key === 'sw') return 'nesw-resize'
@@ -844,7 +631,7 @@ const handles = computed(() => {
     ]
   }
   if (s.type === 'circle') {
-    // Две ручки: правая тянет rx, нижняя — ry (с Shift обе, см. onHandleMove).
+    // Две ручки: правая тянет rx, нижняя — ry (с Shift обе, см. useEditorInteract).
     const { rx, ry } = radii(s)
     return [
       { h: 'rx', x: s.cx + rx, y: s.cy },
@@ -861,131 +648,8 @@ const handles = computed(() => {
   return []
 })
 
-// ─── interact.js: перемещение фигур и портов, ресайз ручками ───
-// Селектор [data-se-move] существует только внутри редактора; колбэки берут абсолютную
-// позицию курсора, переводят в user-координаты, снапят и пишут в модель.
-let dragCtx = null
-const clone = (v) => JSON.parse(JSON.stringify(v))
-
-function anchorOf(s) {
-  // text ведёт себя как rect: точка привязки лежит в x/y (у подписи нет `points`).
-  if (s.type === 'rect' || s.type === 'text') return { x: s.x, y: s.y }
-  if (s.type === 'circle') return { x: s.cx, y: s.cy }
-  if (s.type === 'line') return { x: s.x1, y: s.y1 }
-  return { x: s.points[0][0], y: s.points[0][1] }
-}
-function translated(s, dx, dy) {
-  if (s.type === 'rect' || s.type === 'text') return { x: s.x + dx, y: s.y + dy }
-  if (s.type === 'circle') return { cx: s.cx + dx, cy: s.cy + dy }
-  if (s.type === 'line') return { x1: s.x1 + dx, y1: s.y1 + dy, x2: s.x2 + dx, y2: s.y2 + dy }
-  return { points: s.points.map(([x, y]) => [x + dx, y + dy]) }
-}
-
-function reshape(snap, hKey, cur) {
-  const p = { x: snapShapeX(cur.x), y: snapShapeY(cur.y) }
-  if (snap.type === 'rect') {
-    const fixed = {
-      nw: { x: snap.x + snap.w, y: snap.y + snap.h },
-      ne: { x: snap.x, y: snap.y + snap.h },
-      sw: { x: snap.x + snap.w, y: snap.y },
-      se: { x: snap.x, y: snap.y },
-    }[hKey]
-    updateShape(snap.id, {
-      x: Math.min(p.x, fixed.x),
-      y: Math.min(p.y, fixed.y),
-      w: Math.max(SHAPE_GRID, Math.abs(fixed.x - p.x)),
-      h: Math.max(SHAPE_GRID, Math.abs(fixed.y - p.y)),
-    })
-  } else if (snap.type === 'circle') {
-    const along = hKey === 'rx' ? Math.abs(p.x - snap.cx) : Math.abs(p.y - snap.cy)
-    const value = Math.max(SHAPE_GRID, snapToGrid(along, SHAPE_GRID))
-    // Shift держит круг: тянутся обе полуоси разом.
-    const both = shiftHeld.value
-    updateShape(
-      snap.id,
-      both ? { rx: value, ry: value } : hKey === 'rx' ? { rx: value } : { ry: value }
-    )
-  } else if (snap.type === 'line') {
-    updateShape(snap.id, hKey === 'v0' ? { x1: p.x, y1: p.y } : { x2: p.x, y2: p.y })
-  } else if (snap.type === 'polyline') {
-    const i = Number(hKey.slice(1))
-    updateShape(snap.id, { points: snap.points.map((pt, idx) => (idx === i ? [p.x, p.y] : pt)) })
-  }
-}
-
-function setupInteract() {
-  // Курсоры ставим сами. `styleCursor` выключается МЕТОДОМ Interactable (в опциях
-  // draggable он игнорируется): иначе interact пишет `element.style.cursor = 'move'`
-  // всем элементам селектора — и фигурам, и ручкам, и портам.
-  interact('[data-se-move]')
-    .styleCursor(false)
-    .draggable({
-      listeners: {
-        start(e) {
-          // Перетаскивание существующих объектов — только в режиме выбора: при активном
-          // инструменте клик по фигуре рисует поверх неё.
-          if (tool.value !== 'select' || shapesLocked) {
-            e.interaction.stop()
-            return
-          }
-          const el = e.target
-          const role = el.dataset.seMove
-          const id = el.dataset.id
-          dragCtx = { role, id, hKey: el.dataset.h }
-          if (role === 'port') {
-            // Порт тащится вместе с ВЫДЕЛЕНИЕМ, как фигуры: клик по невыделенному
-            // (его уже обработал onPortDown) оставляет в наборе только его.
-            dragCtx.ports = ports.value
-              .filter((p) => selectedPortSet.value.has(p.id) || p.id === id)
-              .map((p) => ({ id: p.id, x: p.x, y: p.y }))
-            dragCtx.start = unitsFromEvent(e)
-          } else if (role === 'shape') {
-            // Ведущая фигура задаёт сдвиг и снап. Если она в выделении — тащим всё
-            // выделение, иначе переключаемся на неё.
-            if (!selectedSet.value.has(id)) select(id)
-            dragCtx.snapshot = clone(shapes.value.find((s) => s.id === id))
-            dragCtx.group = clone(shapes.value.filter((s) => selectedSet.value.has(s.id)))
-            dragCtx.start = unitsFromEvent(e)
-          } else if (role === 'handle') {
-            dragCtx.snapshot = clone(shapes.value.find((s) => s.id === id))
-          }
-        },
-        move(e) {
-          if (!dragCtx) return
-          const cur = unitsFromEvent(e)
-          if (dragCtx.role === 'port') {
-            // Дельта считается от снимка (без дрейфа), проекцию на грань каждому порту
-            // делает модель.
-            const dx = cur.x - dragCtx.start.x
-            const dy = cur.y - dragCtx.start.y
-            movePorts(dragCtx.ports.map((p) => ({ id: p.id, x: p.x + dx, y: p.y + dy })))
-          } else if (dragCtx.role === 'handle') {
-            reshape(dragCtx.snapshot, dragCtx.hKey, cur)
-          } else if (dragCtx.role === 'shape') {
-            // Снап считается ОДИН раз по ведущей фигуре, общий dx/dy идёт всей пачке:
-            // поштучный снап развалил бы взаимное расположение.
-            const a = anchorOf(dragCtx.snapshot)
-            const dx = snapShapeX(a.x + (cur.x - dragCtx.start.x)) - a.x
-            const dy = snapShapeY(a.y + (cur.y - dragCtx.start.y)) - a.y
-            const byId = new Map(dragCtx.group.map((s) => [s.id, s]))
-            updateShapes(
-              dragCtx.group.map((s) => s.id),
-              (s) => translated(byId.get(s.id), dx, dy)
-            )
-          }
-        },
-        end() {
-          // Порты, брошенные друг на друга, сводим к одному — как при сжатии холста.
-          // На `move` этого не делаем: порт, проехавший СКВОЗЬ соседа, съел бы его.
-          if (dragCtx?.role === 'port') dedupePorts()
-          // Один снимок истории на весь жест (move'ы шли без коммита); commit
-          // сам дедупит, если фигуру/порт по факту не сдвинули.
-          if (dragCtx) commit()
-          dragCtx = null
-        },
-      },
-    })
-}
+// ─── Перемещение фигур и портов, ресайз ручками (interact.js) ───
+useEditorInteract({ ed, unitsFromEvent, shiftHeld, locked: shapesLocked })
 
 /**
  * Клик по порту ВЫДЕЛЯЕТ его (Ctrl/Cmd — добавляет к выделению), удаляет `Del`, как у
@@ -1003,176 +667,21 @@ function onPortDown(e, id) {
   selectPort(id, additive)
 }
 
-const ARROW_DIRS = {
-  ArrowLeft: { x: -1, y: 0 },
-  ArrowRight: { x: 1, y: 0 },
-  ArrowUp: { x: 0, y: -1 },
-  ArrowDown: { x: 0, y: 1 },
-}
-
-// Клавиши редактора: Del — удалить выделенную фигуру, Esc — отменить рисование
-// или закрыть редактор (не трогаем при фокусе в полях размера).
-function isInInput(t) {
-  return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
-}
-
-// Стрелки в фокусе Select'а (подпись состояния, шрифт, категория) листают его опции —
-// сдвиг фигур там был бы вторым, невидимым эффектом одного нажатия.
-function isInListWidget(t) {
-  return !!t?.closest?.('[role="combobox"], [role="listbox"]')
-}
-useEventListener(window, 'keydown', (e) => {
-  if (!ui.stencilEditorOpen) return
-  // Зум стола — как на холсте: Ctrl+= / Ctrl+− / Ctrl+0, и тоже только с курсором над
-  // столом (иначе это браузерный зум страницы).
-  const zoom = zoomKeyOf(e)
-  if (zoom && stageEl.value?.matches(':hover') && !document.querySelector('.p-dialog-mask')) {
-    e.preventDefault()
-    if (zoom === 'fit') manualScale.value = null
-    else zoomByStep(zoom === 'in' ? ZOOM_STEP : 1 / ZOOM_STEP)
-    return
-  }
-  // Undo/redo — по физической клавише (event.code): на русской раскладке
-  // e.key для Z/Y возвращает «Я»/«Н», литеральное сравнение сломалось бы.
-  // В полях ввода (id/название/размер) не перехватываем — там нативный undo.
-  if ((e.ctrlKey || e.metaKey) && !isInInput(e.target)) {
-    if (e.code === 'KeyZ') {
-      e.preventDefault()
-      if (e.shiftKey) redo()
-      else undo()
-      return
-    }
-    if (e.code === 'KeyY') {
-      e.preventDefault()
-      redo()
-      return
-    }
-    // Ctrl+S — сохранить символ (у браузера это «сохранить страницу», перехватываем).
-    // Доступен и программному символу: его зоны тоже сохраняются.
-    if (e.code === 'KeyS') {
-      e.preventDefault()
-      save()
-      return
-    }
-    // Ctrl+A остаётся и под замком: выделение нужно, чтобы задать фигурам состояние.
-    if (shapesLocked) {
-      if (e.code === 'KeyA' && animationOnly) {
-        e.preventDefault()
-        selectAll()
-      }
-      return
-    }
-    // Ctrl+C / Ctrl+V — копировать/вставить выделенное (со свойствами).
-    if (e.code === 'KeyC') {
-      e.preventDefault()
-      ed.copyShapes()
-      return
-    }
-    if (e.code === 'KeyV') {
-      e.preventDefault()
-      ed.pasteShapes()
-      return
-    }
-    // Ctrl+D — дублировать выделенное, как на холсте; буфер при этом не трогается.
-    if (e.code === 'KeyD') {
-      e.preventDefault()
-      ed.duplicateShapes()
-      return
-    }
-    // Ctrl+A — все фигуры (порты в выделение не входят, у них свой режим).
-    if (e.code === 'KeyA') {
-      e.preventDefault()
-      setTool('select')
-      selectAll()
-      return
-    }
-  }
-  if (e.key === 'Escape') {
-    // Открыт модальный диалог (справка / confirm) поверх редактора — Esc закрывает
-    // его сам (PrimeVue close-on-escape); редактор не трогаем, иначе один Esc закрыл
-    // бы и диалог, и сам редактор.
-    if (document.querySelector('.p-dialog-mask')) return
-    // Порядок как на холсте: сначала отменяем активный жест, потом снимаем
-    // выделение, и только «пустым» Esc закрываем редактор — иначе Esc после
-    // выделения рамкой уводил бы из редактора целиком.
-    if (drawing.value || polyPoints.value.length) {
-      drawing.value = null
-      polyPoints.value = []
-      polyCursor.value = null
-    } else if (selectedIds.value.length || selectedPortIds.value.length) {
-      select(null)
-    } else {
-      requestClose()
-    }
-    return
-  }
-  // Дальше — правка фигур и портов (см. shapesLocked).
-  if (shapesLocked) return
-  // 1…6 — инструмент по номеру в тулбаре (рисование, затем порт); та же цифра — к
-  // выбору, как повторный клик. В полях и списках цифра — это ввод.
-  const toolKey = TOOL_KEYS[toolDigitOf(e)]
-  if (toolKey && !isInInput(e.target) && !isInListWidget(e.target)) {
-    e.preventDefault()
-    pickTool(toolKey)
-    return
-  }
-  // Стрелки — сдвиг выделения, как на холсте: шаг сетки, с Shift — впятеро крупнее
-  // (у фигур сетка 1px, у портов и размера символа — 5). В полях ввода не
-  // перехватываем: там стрелки правят значение степпера.
-  const arrow = ARROW_DIRS[e.key]
-  if (arrow && !isInInput(e.target) && !isInListWidget(e.target)) {
-    // Порт живёт на сетке символа, поэтому у него шаг всегда PORT_GRID: пиксельный
-    // сдвиг увёл бы вывод с клетки, и провод на схеме перестал бы попадать в порт.
-    if (selectedPortIds.value.length) {
-      e.preventDefault()
-      ed.nudgePorts(arrow.x * PORT_GRID, arrow.y * PORT_GRID)
-      return
-    }
-    if (selectedIds.value.length) {
-      e.preventDefault()
-      const step = e.shiftKey ? PORT_GRID : SHAPE_GRID
-      ed.nudgeShapes(arrow.x * step, arrow.y * step)
-      return
-    }
-  }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && !isInInput(e.target)) {
-    // Выделение взаимно исключающее (см. selectPort), поэтому порядок проверок не спорит.
-    if (selectedPortIds.value.length) {
-      e.preventDefault()
-      removePorts(selectedPortIds.value)
-      return
-    }
-    if (selectedIds.value.length) {
-      e.preventDefault()
-      removeShapes(selectedIds.value)
-      return
-    }
-  }
-  // Поворот и отражение — те же клавиши, что на холсте (см. useHotkeys). Без Ctrl,
-  // поэтому проверяем поля ввода: R посреди набора подписи не должен крутить фигуру.
-  if (!e.ctrlKey && !e.metaKey && !e.altKey && !isInInput(e.target) && selectedIds.value.length) {
-    if (e.code === 'KeyR') {
-      e.preventDefault()
-      rotateSelectedBy(e.shiftKey ? -90 : 90)
-      return
-    }
-    if (e.shiftKey && (e.code === 'KeyH' || e.code === 'KeyV')) {
-      e.preventDefault()
-      flipSelected(e.code === 'KeyH' ? 'h' : 'v')
-      return
-    }
-  }
-  // Порядок наложения — те же аккорды, что на холсте (см. useHotkeys): Ctrl+] / Ctrl+[,
-  // с Shift — до края. У фигур слой задаёт позиция в массиве, а не z.
-  if ((e.ctrlKey || e.metaKey) && (e.code === 'BracketRight' || e.code === 'BracketLeft')) {
-    if (!selectedIds.value.length) return
-    e.preventDefault()
-    const up = e.code === 'BracketRight'
-    ed.reorderShapes(
-      selectedIds.value,
-      e.shiftKey ? (up ? 'front' : 'back') : up ? 'forward' : 'backward'
-    )
-  }
+useEditorHotkeys({
+  ed,
+  stageEl,
+  locked: shapesLocked,
+  animationOnly,
+  toolKeys: TOOL_KEYS,
+  pickTool,
+  zoomIn,
+  zoomOut,
+  fitView,
+  cancelDraw,
+  save,
+  requestClose,
+  rotateSelected,
+  flipSelected,
 })
 
 // Overlay-кнопки выделения: поворот на 90°, отражение и удаление — те же иконки,
@@ -1212,9 +721,9 @@ const shapeOverlay = computed(() => {
 
 // Гейт держим здесь, а не только в разметке: через него проходят и кнопка, и хоткей —
 // иначе клавиша делала бы «преобразование», которого не видно.
-function rotateSelectedBy(deg) {
+function rotateSelected(dir) {
   if (!canRotateSel.value) return
-  ed.rotateShapes(selectedIds.value, deg < 0 ? -1 : 1)
+  ed.rotateShapes(selectedIds.value, dir < 0 ? -1 : 1)
 }
 function flipSelected(axis) {
   if (!(axis === 'h' ? canFlipSelH.value : canFlipSelV.value)) return
@@ -1282,15 +791,7 @@ function onShapeContextMenu(event) {
   ctxMenu.value?.show(event)
 }
 
-onMounted(() => {
-  setupInteract()
-  updateRuler()
-})
-onBeforeUnmount(() => {
-  interact('[data-se-move]').unset()
-  window.removeEventListener('pointermove', onDrawMove)
-  window.removeEventListener('pointerup', onDrawUp)
-})
+onMounted(updateRuler)
 </script>
 
 <template>
@@ -1477,7 +978,7 @@ onBeforeUnmount(() => {
           size="small"
           class="tms-icon-btn"
           :disabled="scale <= MIN_SCALE"
-          @click="zoomByStep(1 / ZOOM_STEP)"
+          @click="zoomOut"
         />
         <Button
           v-tooltip.bottom="'Вписать символ · Ctrl+0; зум — Ctrl+колесо'"
@@ -1486,7 +987,7 @@ onBeforeUnmount(() => {
           text
           size="small"
           class="font-mono! min-w-[3.25rem]! justify-center!"
-          @click="manualScale = null"
+          @click="fitView"
         />
         <Button
           v-tooltip.bottom="'Увеличить · Ctrl+='"
@@ -1496,7 +997,7 @@ onBeforeUnmount(() => {
           size="small"
           class="tms-icon-btn"
           :disabled="scale >= MAX_SCALE"
-          @click="zoomByStep(ZOOM_STEP)"
+          @click="zoomIn"
         />
       </div>
 
@@ -1583,7 +1084,7 @@ onBeforeUnmount(() => {
       </div>
       <!-- Левая линейка (Y) + холст -->
       <div class="relative flex flex-1 min-h-0">
-        <!-- Превью состояния выбирается в СТРОКЕ состояния (StencilInspector): «какая
+        <!-- Превью состояния выбирается в СТРОКЕ состояния (StencilAnimationFields): «какая
              строка ↔ что видно на столе» — одна и та же вещь, отдельный контрол над
              столом эту связь разрывал. Плашка-напоминание висит, пока превью включено:
              иначе «часть фигур пропала» читается как баг. -->
@@ -1942,7 +1443,7 @@ onBeforeUnmount(() => {
                 data-se-overlay="1"
                 class="tms-overlay-btn"
                 :style="shapeOverlay.rotateCcw"
-                @click="rotateSelectedBy(-90)"
+                @click="rotateSelected(-1)"
               >
                 <template #icon><GlyphIcon :glyph="ROTATE_ICON" mirror /></template>
               </Button>
@@ -1955,7 +1456,7 @@ onBeforeUnmount(() => {
                 data-se-overlay="1"
                 class="tms-overlay-btn"
                 :style="shapeOverlay.rotateCw"
-                @click="rotateSelectedBy(90)"
+                @click="rotateSelected(1)"
               >
                 <template #icon><GlyphIcon :glyph="ROTATE_ICON" /></template>
               </Button>

@@ -99,7 +99,7 @@ function fromNavTree(nodes) {
 }
 
 /**
- * Собирает ZIP проекта из экспортного бандла (см. useProject.buildAndDeliverBundle).
+ * Собирает ZIP проекта из экспортного бандла (см. useProjectArchive.buildAndDeliverBundle).
  *
  * @param {{
  *   projectId: string,
@@ -204,7 +204,7 @@ export async function pickProjectArchive() {
 }
 
 /**
- * Читает .zip проекта → структура-бандл для applyImportedBundle (см. useProject).
+ * Читает .zip проекта → структура-бандл для applyImportedBundle (см. useProjectArchive).
  * Структуру не валидирует жёстко: отсутствующие/битые части — пустые/пропущены.
  *
  * @param {File} file
