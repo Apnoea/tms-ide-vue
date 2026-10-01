@@ -67,6 +67,23 @@ describe('useEditorHotkeys', () => {
     expect(rotateSelected.mock.calls).toEqual([[1], [-1]])
   })
 
+  it('Ctrl+C при выделенном тексте вне стола — копирование браузера, не фигур', () => {
+    const { ed } = setup()
+    const copy = vi.spyOn(ed, 'copyShapes')
+    const hint = document.createElement('p')
+    hint.textContent = 'Подсказка инспектора'
+    document.body.append(hint)
+    const range = document.createRange()
+    range.selectNodeContents(hint)
+    window.getSelection().addRange(range)
+    key({ code: 'KeyC', ctrlKey: true })
+    expect(copy).not.toHaveBeenCalled()
+    window.getSelection().removeAllRanges()
+    key({ code: 'KeyC', ctrlKey: true })
+    expect(copy).toHaveBeenCalledOnce()
+    hint.remove()
+  })
+
   it('под замком рисунок не правится, но выделить всё у символа набора можно', () => {
     const { ed, pickTool } = setup({ locked: true, animationOnly: true })
     ed.select(null)

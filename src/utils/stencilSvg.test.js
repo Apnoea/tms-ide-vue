@@ -5,9 +5,11 @@ import { TEXT_SHAPE_SIZE } from '../constants/text'
 import {
   serializeSvg,
   buildStencilJson,
-  stencilDraftIssues,
+  stencilDraftProblems,
   cropToContent,
   parseStencilSvg,
+  joinStateKeys,
+  shapeStateKeys,
 } from './stencilSvg'
 
 describe('serializeSvg', () => {
@@ -237,9 +239,15 @@ describe('buildStencilJson', () => {
   })
 })
 
-describe('stencilDraftIssues', () => {
+describe('stencilDraftProblems', () => {
   const ok = { id: 'cell_x', label: 'X', category: 'Прочее', width: 20, height: 20 }
   const shape = [{ type: 'rect', x: 0, y: 0, w: 10, h: 10 }]
+  const stencilDraftIssues = (...args) => stencilDraftProblems(...args).map((p) => p.message)
+
+  it('каждая проблема помечена полем — по нему панель подсвечивает ввод', () => {
+    const fields = stencilDraftProblems({ ...ok, id: '', label: '' }, []).map((p) => p.field)
+    expect(fields).toEqual(['id', 'label', 'shapes'])
+  })
 
   it('валидный черновик — без проблем', () => {
     expect(stencilDraftIssues(ok, shape, ['cell_a'])).toEqual([])
@@ -473,6 +481,53 @@ describe('внутренняя анимация (state)', () => {
     )
     expect(json.animationTemplate).toHaveLength(1)
     expect(json.animationTemplate[0].idSuffix).toBe('.true')
+  })
+})
+
+// Фигура может быть общей для нескольких положений: своя группа и карточка на набор.
+describe('привязка к нескольким состояниям (on+mid)', () => {
+  const meta = {
+    width: 20,
+    height: 20,
+    stateful: true,
+    stateMode: 'value',
+    stateSlot: { key: 'value' },
+    states: [
+      { key: 'on', label: 'Включен', code: '1' },
+      { key: 'mid', label: 'Промежуточное', code: '2' },
+      { key: 'off', label: 'Отключен', code: '0' },
+    ],
+  }
+  const rect = { type: 'rect', x: 0, y: 0, w: 10, h: 10, stroke: '#000', strokeWidth: 2 }
+  const shapes = [
+    { ...rect, state: 'on' },
+    // Порядок ключей в записи не важен: группа одна на набор.
+    { ...rect, x: 5, state: 'mid+on' },
+  ]
+
+  it('joinStateKeys: порядок объявления, без неизвестных, пусто — always', () => {
+    const declared = ['on', 'mid', 'off']
+    expect(joinStateKeys(['off', 'on'], declared)).toBe('on+off')
+    expect(joinStateKeys(['gone', 'mid'], declared)).toBe('mid')
+    expect(joinStateKeys([], declared)).toBe('always')
+    expect(shapeStateKeys('on+off')).toEqual(['on', 'off'])
+    expect(shapeStateKeys('always')).toEqual([])
+  })
+
+  it('своя группа на набор после одиночных, разбор возвращает привязку', () => {
+    const svg = serializeSvg(shapes, meta)
+    expect(svg.indexOf('data-anim-suffix=".on"')).toBeLessThan(
+      svg.indexOf('data-anim-suffix=".on+mid"')
+    )
+    expect(parseStencilSvg(svg).map((s) => s.state)).toEqual(['on', 'on+mid'])
+  })
+
+  it('карточка набора прячет группу только на кодах состояний вне него', () => {
+    const json = buildStencilJson({ id: 'cell_x', label: 'X', category: 'C', ...meta }, [], shapes)
+    const cases = (suffix) =>
+      Object.keys(json.animationTemplate.find((c) => c.idSuffix === suffix).bindings[0].when.cases)
+    expect(cases('.on').sort()).toEqual(['0', '2'])
+    expect(cases('.on+mid')).toEqual(['0'])
   })
 })
 

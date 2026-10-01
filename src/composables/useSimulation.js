@@ -20,6 +20,7 @@ import {
   boolOf,
   rangeRowFor,
   stateKeyFor,
+  stateGroupsOf,
   formatValueText,
   randomValueForTag,
   slotRole,
@@ -358,9 +359,10 @@ export function useSimulation() {
       const view = paper.findViewByModel(cell)
       if (!view?.el) continue
       const activeKey = stateKeyFor(states, valueOf(tag))
-      for (const st of states) {
-        if (st.key === activeKey) continue
-        const el = view.el.querySelector(`[id="${innerKey(stencil.id, cell.id, '.' + st.key)}"]`)
+      // Видна группа, в чей набор входит активное состояние (см. stateGroupsOf).
+      for (const { suffix, keys } of stateGroupsOf(stencil)) {
+        if (keys.includes(activeKey)) continue
+        const el = view.el.querySelector(`[id="${innerKey(stencil.id, cell.id, suffix)}"]`)
         if (el) el.classList.add(CLASS_HIDDEN)
       }
       if (activeKey && stencil.stateColors?.[activeKey]) {

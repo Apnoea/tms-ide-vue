@@ -10,6 +10,7 @@ import { useAlign } from '../composables/useAlign'
 import { useBoolGroups } from '../composables/useBoolGroups'
 import { ALIGN_OPTIONS, BOLD_OPTIONS, TEXT_FONT_SIZE, normalizeFont } from '../constants/text'
 import { useNavigationField } from '../composables/useNavigationField'
+import { useSelectionHeading } from '../composables/useSelectionHeading'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import {
@@ -26,6 +27,7 @@ import { BUS_COLOR_DEFAULT, BUS_THICKNESS_MAX, setBusThickness } from '../stenci
 import { nplural } from '../utils/plural'
 import { normalizeBoolSource } from '../utils/boolSource'
 import { toPlain } from '../utils/plain'
+import { replayClass } from '../utils/replayClass'
 import { isBooleanType } from '../services/tagList'
 import TagPickerDialog from './TagPickerDialog.vue'
 import RangeBlock from './RangeBlock.vue'
@@ -37,6 +39,7 @@ import ValueBlock from './ValueBlock.vue'
 import AlignBlock from './AlignBlock.vue'
 import BodyStyleFields from './BodyStyleFields.vue'
 import FormFields from './FormFields.vue'
+import InspectorHeading from './InspectorHeading.vue'
 import { RANGE_SLOT, previewOuterKey } from '../constants/ids'
 import {
   isDefaultWireValue,
@@ -604,30 +607,6 @@ function applyLinkStyle(key, value) {
   canvas.requestSnapshot()
 }
 
-// ─── Замок ячейки ───
-function applyLockToggle() {
-  const d = details.value
-  if (!d || d.kind !== 'cell') return
-  canvas.toggleLocked([{ kind: 'cell', id: d.id }])
-}
-
-// Замок для ЦЕЛЬНОЙ группы (у произвольного мультивыделения его нет): тумблер включён,
-// когда все члены группы locked, клик блокирует или снимает всю группу.
-const multiLock = computed(() => {
-  canvas.graphVersion.value
-  const graph = canvas.graphRef.value
-  if (!graph) return { allLocked: false }
-  const cells = canvas.selection.value
-    .filter((s) => s.kind === 'cell')
-    .map((s) => graph.getCell(s.id))
-    .filter(Boolean)
-  return { allLocked: cells.length > 0 && cells.every((c) => c.get('tms')?.locked) }
-})
-
-function applyMultiLockToggle() {
-  canvas.toggleLocked(canvas.selection.value)
-}
-
 // Состав выделения: символы и провода считаются РАЗДЕЛЬНО — в выделение авто-попадают
 // мостовые провода, и лассо по двум связанным символам дало бы «3 символа».
 // `deletable` — сколько реально удалится, чтобы кнопка «Удалить (N)» не обещала больше.
@@ -690,37 +669,12 @@ const panelKind = computed(() => {
   return d.isShape ? 'shape' : d.kind
 })
 
-// Проявление содержимого при смене типа: класс вешается на тело панели и снимается по
-// концу анимации; рефлоу между снятием и добавлением перезапускает её, если предыдущая
-// ещё идёт (быстрые переключения выделения).
+// Лист заголовка «Инспектор › …»; null — ничего не выделено, под заголовком свойства формы.
+const headingLeaf = useSelectionHeading()
+
+// Проявление содержимого при смене типа — на теле панели, после перерисовки.
 const bodyEl = ref(null)
-watch(
-  panelKind,
-  () => {
-    const el = bodyEl.value
-    if (!el) return
-    el.classList.remove('tms-panel-in')
-    void el.offsetWidth
-    el.classList.add('tms-panel-in')
-    el.addEventListener('animationend', () => el.classList.remove('tms-panel-in'), { once: true })
-  },
-  { flush: 'post' }
-)
-
-// Кнопка-замок в шапке инспектора: доступна для одиночной ячейки и для цельной
-// группы (единый объект); у произвольного мультивыделения замка нет.
-const lockState = computed(() => {
-  const d = details.value
-  if (d && d.kind === 'cell') return { show: true, locked: d.locked }
-  if (multiGroup.value.ungroup) return { show: true, locked: multiLock.value.allLocked }
-  return { show: false, locked: false }
-})
-
-function onToggleLock() {
-  const d = details.value
-  if (d && d.kind === 'cell') applyLockToggle()
-  else if (multiGroup.value.ungroup) applyMultiLockToggle()
-}
+watch(panelKind, () => replayClass(bodyEl.value, 'tms-panel-in'), { flush: 'post' })
 
 /**
  * Точность значения. Пустое поле = дефолт протокола, поэтому ключ удаляем, а не пишем
@@ -920,20 +874,12 @@ const {
 
 <template>
   <aside class="h-full flex flex-col bg-surface-50">
-    <div class="relative min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
-      <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Инспектор</h2>
-      <!-- Замок выделенного (одиночная ячейка или цельная группа) — абсолютом
-           справа-сверху, единая точка во всех случаях. -->
-      <Button
-        v-if="lockState.show"
-        v-tooltip.bottom="lockState.locked ? 'Разблокировать' : 'Заблокировать'"
-        :icon="lockState.locked ? 'pi pi-lock' : 'pi pi-unlock'"
-        :severity="lockState.locked ? 'primary' : 'secondary'"
-        text
-        rounded
-        size="small"
-        class="absolute! right-2! top-1/2! !-translate-y-1/2 w-8! h-8! p-0!"
-        @click="onToggleLock"
+    <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
+      <InspectorHeading
+        root="Инспектор"
+        :leaf="headingLeaf"
+        back-tip="К свойствам формы · Esc"
+        @back="canvas.clearSelection()"
       />
     </div>
 
@@ -1049,8 +995,8 @@ const {
       </template>
 
       <template v-else-if="details">
-        <!-- Замок ячейки — кнопка в шапке инспектора (см. выше), не строкой. При
-             locked свойства блокируются inert'ом; кнопка-замок вне его — снять можно. -->
+        <!-- При locked свойства блокируются inert'ом; снять замок — кнопкой над
+             выделением или из контекстного меню. -->
         <div
           :inert="!!details.locked"
           :class="{ 'opacity-60': details.locked }"
@@ -1072,7 +1018,6 @@ const {
 
           <template v-else-if="details.kind === 'cell'">
             <div>
-              <div class="tms-field-label mb-1">Символ</div>
               <!-- Кнопка рядом с названием: «такие же» — свойство символа, а не
                    выделения. Иконка та же, что у подсветки по тегу — оба жеста ищут
                    на схеме родню выделенного. -->
@@ -1175,11 +1120,6 @@ const {
 
           <template v-else>
             <div class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4">
-              <div>
-                <div class="tms-field-label mb-1">Элемент</div>
-                <div class="font-medium text-surface-900">Провод</div>
-              </div>
-
               <WireStyleFields
                 :values="linkStyle"
                 :arrow-options="ARROW_OPTIONS"

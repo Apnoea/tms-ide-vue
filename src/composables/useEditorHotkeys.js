@@ -1,7 +1,16 @@
 import { useEventListener } from '@vueuse/core'
 import { useUiStore } from '../stores/useUiStore'
-import { zoomKeyOf, toolDigitOf, isFocusInInput, isInListWidget } from '../utils/viewKeys'
+import {
+  zoomKeyOf,
+  toolDigitOf,
+  isFocusInInput,
+  isInListWidget,
+  hasTextSelectionOutside,
+} from '../utils/viewKeys'
 import { PORT_GRID, SHAPE_GRID } from './useStencilEditor'
+
+// Стол редактора (`data-se-stage` в StencilEditor).
+const STAGE_SELECTOR = '[data-se-stage]'
 
 const ARROW_DIRS = {
   ArrowLeft: { x: -1, y: 0 },
@@ -85,8 +94,10 @@ export function useEditorHotkeys({
         }
         return
       }
-      // Ctrl+C / Ctrl+V — копировать/вставить выделенное (со свойствами).
+      // Ctrl+C / Ctrl+V — копировать/вставить выделенное (со свойствами). Выделенный
+      // текст вне стола (подсказка, подпись поля в инспекторе) копирует браузер.
       if (e.code === 'KeyC') {
+        if (hasTextSelectionOutside(STAGE_SELECTOR)) return
         e.preventDefault()
         ed.copyShapes()
         return

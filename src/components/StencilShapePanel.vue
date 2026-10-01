@@ -1,8 +1,8 @@
 <script setup>
 /**
- * Плашка «Фигура» в свойствах символа: свойства выделенного, на всё выделение сразу.
- * Видимость (в каком состоянии видна фигура) живёт здесь — это свойство элемента.
- * Контролы показаны, если свойство применимо хоть к одной выделенной фигуре, и правят
+ * Свойства выделенных фигур — инспектор редактора показывает их вместо свойств символа,
+ * пока есть выделение (как инспектор холста). Правка идёт на всё выделение сразу:
+ * контролы показаны, если свойство применимо хоть к одной выделенной фигуре, и правят
  * только применимые; геометрия и подпись — только при одной выделенной.
  */
 import { computed, ref, watch } from 'vue'
@@ -15,6 +15,7 @@ import Message from 'primevue/message'
 import ColorField from './ColorField.vue'
 import { useStencilEditor } from '../composables/useStencilEditor'
 import { ALIGN_OPTIONS, FONT_FAMILIES, TEXT_SHAPE_SIZE, normalizeFont } from '../constants/text'
+import { joinStateKeys, shapeStateKeys } from '../utils/stencilSvg'
 
 const {
   meta,
@@ -29,7 +30,7 @@ const {
   commit,
 } = useStencilEditor()
 
-// У символа из набора рисунок задаёт набор: правится только видимость по состоянию.
+// У символа из набора рисунок задаёт набор: правится только привязка к состоянию.
 const isPresetSymbol = computed(() => !!presetInfo.value)
 
 const selectedShape = computed(() => shapes.value.find((s) => s.id === selectedId.value) || null)
@@ -200,241 +201,290 @@ function toggleRounded(on) {
   commit()
 }
 
-// Видимость выделенной фигуры. Булев: Всегда/При вкл/При выкл. По значению:
-// Всегда + все объявленные состояния (по подписи, значение — стабильный key).
-const STATE_OPTIONS = [
-  { label: 'Всегда', value: 'always' },
-  { label: 'При вкл', value: 'true' },
-  { label: 'При выкл', value: 'false' },
+/**
+ * Привязка к состоянию — где видна выделенная фигура: «Всегда» (статика символа) либо
+ * состояния — в булевом режиме одно из Вкл/Выкл, «по значению» — ЛЮБОЙ набор заданных
+ * автором (`on+mid`, см. joinStateKeys): одна фигура может быть общей для нескольких
+ * положений.
+ *
+ * Подпись здесь участвует: `animation-hidden` — это display:none на группе состояния,
+ * он работает и для <text>. Из перекраски (stateColors) текст исключён — см.
+ * `:not(text)` в constants/animation.
+ */
+const BOOLEAN_STATES = [
+  { key: 'true', label: 'Вкл', code: 'true' },
+  { key: 'false', label: 'Выкл', code: 'false' },
 ]
-const shapeStateOptions = computed(() => {
-  if (meta.stateMode !== 'value') return STATE_OPTIONS
-  return [
-    { label: 'Всегда', value: 'always' },
-    ...meta.states.map((s) => ({ label: s.label || s.key, value: s.key })),
-  ]
-})
-// Видимость — тоже на всё выделение; при расхождении селект пуст (placeholder «—»),
-// выбор применяется ко всем. Дискретная операция → снимок истории сразу.
-// Подпись здесь участвует: `animation-hidden` — это display:none на группе
-// состояния, он работает и для <text>. Из перекраски (stateColors) текст
-// исключён — см. `:not(text)` в constants/animation.
+const multiState = computed(() => meta.stateMode === 'value')
+const declaredStates = computed(() => (multiState.value ? meta.states : BOOLEAN_STATES))
+const stateBindings = computed(() => [
+  { value: 'always', label: 'Всегда', code: null },
+  ...declaredStates.value.map((s) => ({
+    value: s.key,
+    label: s.label || s.key,
+    code: s.code !== '' && s.code != null ? s.code : null,
+  })),
+])
 const hasShapeState = computed(() => meta.stateful && selectedFor().length > 0)
-const shapeState = computed({
-  get: () => commonValue((s) => s.state || 'always') ?? null,
-  set: (v) => {
-    if (!v) return
-    applyToSelected({ state: v })
-    commit()
-  },
-})
+// Общее у выделенных; null — у фигур пачки привязки разные, ни одна строка не отмечена.
+const shapeState = computed(() => commonValue((s) => s.state || 'always') ?? null)
+const boundKeys = computed(() => new Set(shapeStateKeys(shapeState.value)))
+
+function isBound(value) {
+  return value === 'always' ? shapeState.value === 'always' : boundKeys.value.has(value)
+}
+
+// Привязка — на всё выделение; дискретная операция → снимок истории сразу. «По
+// значению» состояние переключается в наборе (снял последнее — фигура снова «всегда»),
+// в булевом режиме и у «Всегда» выбор единственный.
+function bindToState(value) {
+  let state = value
+  if (value !== 'always' && multiState.value) {
+    const keys = new Set(boundKeys.value)
+    if (keys.has(value)) keys.delete(value)
+    else keys.add(value)
+    state = joinStateKeys(
+      [...keys],
+      declaredStates.value.map((s) => s.key)
+    )
+  }
+  applyToSelected({ state })
+  commit()
+}
 </script>
 
 <template>
-  <div class="flex min-h-0 max-h-[50%] shrink-0 flex-col border-t border-surface-200">
-    <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center gap-2">
-      <h2 class="text-sm font-semibold text-surface-900 uppercase tracking-wide">Фигура</h2>
-      <span v-if="multiCount > 1" class="text-xs text-surface-500">выделено: {{ multiCount }}</span>
-    </div>
-    <div class="p-4 overflow-y-auto text-sm">
-      <div v-if="multiCount" class="space-y-2.5">
-        <p v-if="isPresetSymbol" class="tms-hint">
-          Вид фигуры задаёт набор — здесь правится только её видимость по состоянию.
-        </p>
-        <!-- Подпись: содержимое + размер + жирность. Обводки, заливки, скругления
-             и видимости по состоянию у неё нет — текст всегда статичен. -->
-        <template v-if="isTextShape && !isPresetSymbol">
-          <div>
-            <div class="tms-field-label mb-1">Текст</div>
-            <!-- Пустая подпись остаётся фигурой и рисуется иконкой (её текст
-                 приходит с холста, если она помечена правимой); убрать её — Del,
-                 как любую другую. Enter добавляет строку. -->
-            <Textarea
-              :model-value="textValue"
-              rows="2"
-              auto-resize
-              size="small"
-              class="w-full"
-              placeholder="Текст подписи"
-              @update:model-value="setText"
-              @blur="commitText"
-            />
-          </div>
-          <label class="flex items-center justify-between">
-            <span class="tms-field-label">Размер, pt</span>
-            <InputNumber
-              :model-value="textSize"
-              :min="4"
-              :max="72"
-              :step="1"
-              show-buttons
-              button-layout="horizontal"
-              size="small"
-              input-class="w-12! text-center"
-              @update:model-value="setTextSize"
-              @blur="commit"
-            />
-          </label>
-          <!-- Выравнивание = якорь роста: точка привязки стоит на месте, текст
-               растёт от неё (те же варианты, что у подписи на холсте). -->
-          <label class="flex items-center justify-between">
-            <span class="tms-field-label">Выравнивание</span>
-            <SelectButton
-              :model-value="textAlign"
-              :options="ALIGN_OPTIONS"
-              option-value="value"
-              data-key="value"
-              :allow-empty="false"
-              size="small"
-              @update:model-value="setTextAlign"
-            >
-              <template #option="{ option }">
-                <i :class="option.icon" v-tooltip.top="option.tip" />
-              </template>
-            </SelectButton>
-          </label>
-          <label class="flex items-center justify-between">
-            <span class="tms-field-label">Шрифт</span>
-            <!-- Пункты рисуются своим же семейством — выбор виден до применения. -->
-            <Select
-              :model-value="textFont"
-              :options="FONT_FAMILIES"
-              option-label="label"
-              option-value="value"
-              size="small"
-              class="w-40"
-              @update:model-value="setTextFont"
-            >
-              <template #option="{ option }">
-                <span :style="{ fontFamily: option.value }">{{ option.label }}</span>
-              </template>
-            </Select>
-          </label>
-          <label class="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              :model-value="!!selectedShape.bold"
-              binary
-              input-id="se-text-bold"
-              @update:model-value="setTextBold"
-            />
-            <span class="text-surface-700">Жирный</span>
-          </label>
-          <!-- Текст из тега: содержимое подписи в рантайме заменяет значение
-               сигнала. Сам текст в символе остаётся заглушкой (её видно в
-               редакторе, на холсте и в схеме до прихода данных). -->
-          <label class="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              :model-value="!!selectedShape.valueText"
-              binary
-              input-id="se-text-value"
-              @update:model-value="setValueText"
-            />
-            <span class="text-surface-700">Показывает значение тега</span>
-          </label>
-          <Message v-if="valueTextConflict" severity="warn" variant="simple" size="small">
-            Значение тега может показывать только одна подпись — сними флаг с остальных.
-          </Message>
-          <!-- Параметр: текст правится у каждого экземпляра на холсте, а здешний
-               остаётся значением по умолчанию и подписью поля в инспекторе. У
-               подписи со значением тега его нет: содержимое приходит из рантайма,
-               и правка на холсте всё равно была бы затёрта. -->
-          <label v-if="!selectedShape.valueText" class="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              :model-value="!!selectedShape.param"
-              binary
-              input-id="se-text-param"
-              @update:model-value="setParam"
-            />
-            <span class="text-surface-700">Правится на холсте</span>
-          </label>
-        </template>
-        <!-- Вид фигуры (цвет, толщина, заливка, скругление) — у символа из набора его
-             задаёт поставка, остаётся только видимость по состоянию ниже. -->
-        <template v-if="!isPresetSymbol">
-          <label class="flex items-center justify-between cursor-pointer">
-            <span class="tms-field-label">
-              {{ isTextShape ? 'Цвет' : 'Цвет линии' }}
-              <span v-if="strokeMixed" class="text-xs text-surface-400">разные</span>
-            </span>
-            <ColorField
-              :model-value="strokeColor"
-              @update:model-value="setStroke"
-              @change="commit"
-            />
-          </label>
-          <label v-if="hasStrokeWidth" class="flex items-center justify-between">
-            <span class="tms-field-label">Толщина, px</span>
-            <InputNumber
-              :model-value="strokeWidth"
-              :min="0.5"
-              :max="20"
-              :step="0.5"
-              :max-fraction-digits="1"
-              show-buttons
-              button-layout="horizontal"
-              size="small"
-              input-class="w-12! text-center"
-              placeholder="—"
-              @update:model-value="setStrokeWidth"
-              @blur="commit"
-            />
-          </label>
-          <!-- Свотч заливки — справа на строке чекбокса (появляется при включении),
-               чтобы тумблер не добавлял новую строку и layout не прыгал. -->
-          <div v-if="hasFill" class="flex min-h-7 items-center justify-between">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <!-- indeterminate — заливка есть у части выделенных: галка не врёт,
-                   что её нет, а первый клик включает всем. -->
-              <Checkbox
-                :model-value="fillEnabled"
-                :indeterminate="fillMixed"
-                binary
-                input-id="se-fill"
-                @update:model-value="toggleFill"
-              />
-              <span class="text-surface-700">Заливка</span>
-            </label>
-            <ColorField
-              v-if="fillEnabled"
-              :model-value="fillColor"
-              @update:model-value="setFill"
-              @change="commit"
-            />
-          </div>
-          <label v-if="hasRounding" class="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              :model-value="roundedEnabled"
-              :indeterminate="roundedMixed"
-              binary
-              input-id="se-rounded"
-              @update:model-value="toggleRounded"
-            />
-            <span class="text-surface-700">Скругление</span>
-          </label>
-        </template>
-        <!-- Видимость (в каком состоянии видна фигура) — только при включённой
-             анимации состояния; опции зависят от режима (см. shapeStateOptions). -->
-        <div v-if="hasShapeState" class="pt-1">
-          <div class="tms-field-label mb-1">Видимость</div>
-          <Select
-            v-model="shapeState"
-            :options="shapeStateOptions"
-            option-label="label"
-            option-value="value"
-            size="small"
-            class="w-full"
-            placeholder="—"
-          />
-        </div>
-        <!-- Геометрия и текст правятся по одной фигуре: у пачки нет общего
-             «размера», а массовая замена текста снесла бы разные подписи. -->
-        <p v-if="multiCount > 1" class="pt-1 text-xs text-surface-400">
-          Размер и текст — при выделении одной фигуры.
-        </p>
+  <div class="space-y-2.5">
+    <p v-if="isPresetSymbol" class="tms-hint">
+      Вид фигуры задаёт набор — здесь правится только её привязка к состоянию.
+    </p>
+    <!-- Подпись: содержимое + размер + жирность. Обводки, заливки и скругления у неё
+         нет. -->
+    <template v-if="isTextShape && !isPresetSymbol">
+      <div>
+        <div class="tms-field-label mb-1">Текст</div>
+        <!-- Пустая подпись остаётся фигурой и рисуется иконкой (её текст
+             приходит с холста, если она помечена правимой); убрать её — Del,
+             как любую другую. Enter добавляет строку. -->
+        <Textarea
+          :model-value="textValue"
+          rows="2"
+          auto-resize
+          size="small"
+          class="w-full"
+          placeholder="Текст подписи"
+          @update:model-value="setText"
+          @blur="commitText"
+        />
       </div>
-      <!-- Без иконки и отступов `tms-empty`: плашка «Фигура» занимает нижнюю
-           половину панели, развёрнутое пустое состояние съело бы её целиком. -->
-      <p v-else class="tms-hint">Выдели фигуру на холсте</p>
+      <label class="flex items-center justify-between">
+        <span class="tms-field-label">Размер, pt</span>
+        <InputNumber
+          :model-value="textSize"
+          :min="4"
+          :max="72"
+          :step="1"
+          show-buttons
+          button-layout="horizontal"
+          size="small"
+          input-class="w-12! text-center"
+          @update:model-value="setTextSize"
+          @blur="commit"
+        />
+      </label>
+      <!-- Выравнивание = якорь роста: точка привязки стоит на месте, текст
+           растёт от неё (те же варианты, что у подписи на холсте). -->
+      <label class="flex items-center justify-between">
+        <span class="tms-field-label">Выравнивание</span>
+        <SelectButton
+          :model-value="textAlign"
+          :options="ALIGN_OPTIONS"
+          option-value="value"
+          data-key="value"
+          :allow-empty="false"
+          size="small"
+          @update:model-value="setTextAlign"
+        >
+          <template #option="{ option }">
+            <i :class="option.icon" v-tooltip.top="option.tip" />
+          </template>
+        </SelectButton>
+      </label>
+      <label class="flex items-center justify-between">
+        <span class="tms-field-label">Шрифт</span>
+        <!-- Пункты рисуются своим же семейством — выбор виден до применения. -->
+        <Select
+          :model-value="textFont"
+          :options="FONT_FAMILIES"
+          option-label="label"
+          option-value="value"
+          size="small"
+          class="w-40"
+          @update:model-value="setTextFont"
+        >
+          <template #option="{ option }">
+            <span :style="{ fontFamily: option.value }">{{ option.label }}</span>
+          </template>
+        </Select>
+      </label>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <Checkbox
+          :model-value="!!selectedShape.bold"
+          binary
+          input-id="se-text-bold"
+          @update:model-value="setTextBold"
+        />
+        <span class="text-surface-700">Жирный</span>
+      </label>
+      <!-- Текст из тега: содержимое подписи в рантайме заменяет значение
+           сигнала. Сам текст в символе остаётся заглушкой (её видно в
+           редакторе, на холсте и в схеме до прихода данных). -->
+      <label class="flex items-center gap-2 cursor-pointer">
+        <Checkbox
+          :model-value="!!selectedShape.valueText"
+          binary
+          input-id="se-text-value"
+          @update:model-value="setValueText"
+        />
+        <span class="text-surface-700">Показывает значение тега</span>
+      </label>
+      <Message v-if="valueTextConflict" severity="warn" variant="simple" size="small">
+        Значение тега может показывать только одна подпись — сними флаг с остальных.
+      </Message>
+      <!-- Параметр: текст правится у каждого экземпляра на холсте, а здешний
+           остаётся значением по умолчанию и подписью поля в инспекторе. У
+           подписи со значением тега его нет: содержимое приходит из рантайма,
+           и правка на холсте всё равно была бы затёрта. -->
+      <label v-if="!selectedShape.valueText" class="flex items-center gap-2 cursor-pointer">
+        <Checkbox
+          :model-value="!!selectedShape.param"
+          binary
+          input-id="se-text-param"
+          @update:model-value="setParam"
+        />
+        <span class="text-surface-700">Правится на холсте</span>
+      </label>
+    </template>
+    <!-- Вид фигуры (цвет, толщина, заливка, скругление) — у символа из набора его
+         задаёт поставка, остаётся только привязка к состоянию ниже. -->
+    <template v-if="!isPresetSymbol">
+      <label class="flex items-center justify-between cursor-pointer">
+        <span class="tms-field-label">
+          {{ isTextShape ? 'Цвет' : 'Цвет линии' }}
+          <span v-if="strokeMixed" class="text-xs text-surface-400">разные</span>
+        </span>
+        <ColorField :model-value="strokeColor" @update:model-value="setStroke" @change="commit" />
+      </label>
+      <label v-if="hasStrokeWidth" class="flex items-center justify-between">
+        <span class="tms-field-label">Толщина, px</span>
+        <InputNumber
+          :model-value="strokeWidth"
+          :min="0.5"
+          :max="20"
+          :step="0.5"
+          :max-fraction-digits="1"
+          show-buttons
+          button-layout="horizontal"
+          size="small"
+          input-class="w-12! text-center"
+          placeholder="—"
+          @update:model-value="setStrokeWidth"
+          @blur="commit"
+        />
+      </label>
+      <!-- Свотч заливки — справа на строке чекбокса (появляется при включении),
+           чтобы тумблер не добавлял новую строку. Высота строки — по свотчу (30px):
+           ниже неё строка росла бы при включении, и панель прыгала. -->
+      <div v-if="hasFill" class="flex min-h-[30px] items-center justify-between">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <!-- indeterminate — заливка есть у части выделенных: галка не врёт,
+               что её нет, а первый клик включает всем. -->
+          <Checkbox
+            :model-value="fillEnabled"
+            :indeterminate="fillMixed"
+            binary
+            input-id="se-fill"
+            @update:model-value="toggleFill"
+          />
+          <span class="text-surface-700">Заливка</span>
+        </label>
+        <ColorField
+          v-if="fillEnabled"
+          :model-value="fillColor"
+          @update:model-value="setFill"
+          @change="commit"
+        />
+      </div>
+      <label v-if="hasRounding" class="flex items-center gap-2 cursor-pointer">
+        <Checkbox
+          :model-value="roundedEnabled"
+          :indeterminate="roundedMixed"
+          binary
+          input-id="se-rounded"
+          @update:model-value="toggleRounded"
+        />
+        <span class="text-surface-700">Скругление</span>
+      </label>
+    </template>
+    <!-- Привязка к состоянию — карточкой под «Анимации», как в свойствах символа: та же
+         настройка со стороны фигуры. Только при включённой анимации состояния. -->
+    <div v-if="hasShapeState" class="space-y-2 border-t border-surface-200 pt-4">
+      <div class="tms-field-label">Анимации</div>
+      <div class="border border-surface-200 rounded p-3 bg-surface-0" data-test="state-binding">
+        <div class="flex items-center gap-2 mb-2 min-h-6">
+          <i class="pi pi-eye text-cyan-500" />
+          <div class="flex items-baseline gap-1.5 min-w-0">
+            <span class="text-xs font-medium text-surface-700">Привязка</span>
+            <span class="tms-hint truncate">к состоянию</span>
+          </div>
+          <span v-if="shapeState === null" class="ml-auto text-[11px] text-surface-400">
+            у выделенных разная
+          </span>
+        </div>
+        <p class="tms-hint mb-2">
+          {{
+            multiState
+              ? 'Где видна фигура: всегда или в отмеченных состояниях.'
+              : 'Где видна фигура: всегда или только в одном состоянии.'
+          }}
+        </p>
+        <div class="space-y-1">
+          <button
+            v-for="opt in stateBindings"
+            :key="opt.value"
+            type="button"
+            class="flex w-full cursor-pointer items-center gap-2 rounded border px-2 py-1.5 text-left text-xs transition-colors"
+            :class="
+              isBound(opt.value)
+                ? 'border-primary-300 bg-primary-50 text-primary-700'
+                : 'border-surface-200 text-surface-700 hover:bg-surface-50'
+            "
+            @click="bindToState(opt.value)"
+          >
+            <i
+              class="pi text-[11px]!"
+              :class="
+                multiState && opt.value !== 'always'
+                  ? isBound(opt.value)
+                    ? 'pi-check-square'
+                    : 'pi-stop'
+                  : isBound(opt.value)
+                    ? 'pi-check-circle'
+                    : 'pi-circle'
+              "
+            />
+            <span class="min-w-0 flex-1 truncate">{{ opt.label }}</span>
+            <code v-if="opt.code" class="font-mono text-[11px] text-surface-400">
+              {{ opt.code }}
+            </code>
+          </button>
+        </div>
+      </div>
     </div>
+    <!-- Геометрия и текст правятся по одной фигуре: у пачки нет общего
+         «размера», а массовая замена текста снесла бы разные подписи. -->
+    <p v-if="multiCount > 1" class="pt-1 text-xs text-surface-400">
+      Размер и текст — при выделении одной фигуры.
+    </p>
   </div>
 </template>

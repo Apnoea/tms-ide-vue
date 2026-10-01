@@ -1,4 +1,4 @@
-// Релиз портативной сборки. Версионирование — CalVer `YYYY.M.PATCH`: SemVer тут
+// Релиз портативной сборки. Версионирование — CalVer `YY.M.PATCH` (`26.10.0`): SemVer тут
 // мерить нечем (пакет private, API никто не импортирует), а ломать совместимость
 // можно только в формате .zip — у него будет свой отдельный номер.
 //
@@ -26,16 +26,16 @@ function fail(msg) {
 }
 
 /**
- * Следующая версия: тот же месяц → патч+1, новый месяц → `.0`.
- * Ведущих нулей нет намеренно — `2026.08.0` невалиден для semver, а его парсят
+ * Следующая версия: тот же месяц → патч+1, новый месяц → `.0`. Год — двумя цифрами.
+ * Ведущих нулей нет намеренно — `26.08.0` невалиден для semver, а его парсят
  * и npm, и electron-builder.
  * @param {string} current
  * @param {Date} now
  * @returns {string}
  */
 function nextVersion(current, now) {
-  const stamp = `${now.getFullYear()}.${now.getMonth() + 1}`
-  // Точка в префиксе обязательна: без неё «2026.10.x» сошёл бы за январский.
+  const stamp = `${now.getFullYear() % 100}.${now.getMonth() + 1}`
+  // Точка в префиксе обязательна: без неё «26.10.x» сошёл бы за январский.
   if (!current.startsWith(`${stamp}.`)) return `${stamp}.0`
   const patch = Number(current.slice(stamp.length + 1))
   return `${stamp}.${Number.isFinite(patch) ? patch + 1 : 0}`

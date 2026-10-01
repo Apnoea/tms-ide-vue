@@ -25,7 +25,7 @@ import {
   canRotateShapes,
   canFlipShapes,
 } from '../utils/shapeSvg'
-import { stencilDraftIssues, parseStencilSvg } from '../utils/stencilSvg'
+import { stencilDraftProblems, parseStencilSvg, shapeStateKeys } from '../utils/stencilSvg'
 import { presetEditResult, sameShapeStates } from '../utils/presetPatch'
 import { sanitizeSvgMarkup } from '../utils/sanitizeSvg'
 import { overlayButtonPositions } from '../utils/paperGeom'
@@ -154,30 +154,28 @@ function markStrokeFor(s) {
   return showStateMarks.value && s.state && s.state !== 'always' ? STATE_MARK_STROKE : ''
 }
 
-/** Подписи состояний — по габариту фигуры, над её левым верхним углом. */
+/**
+ * Подписи состояний — по габариту фигуры, над её левым верхним углом. Фигура в нескольких
+ * состояниях подписана всеми через точку.
+ */
 const stateLabels = computed(() => {
   if (!showStateMarks.value) return []
   return shapes.value
     .filter((s) => s.state && s.state !== 'always')
     .map((s) => {
       const box = shapeBounds(s)
-      return { id: s.id, label: stateLabelOf(s.state), x: box.x, y: box.y }
+      const label = shapeStateKeys(s.state).map(stateLabelOf).join(' · ')
+      return { id: s.id, label, x: box.x, y: box.y }
     })
 })
 
-const previewLabel = computed(() => {
-  const key = previewState.value
-  if (meta.stateMode === 'value') {
-    return meta.states?.find((s) => s.key === key)?.label || key
-  }
-  return key === 'true' ? 'Вкл' : 'Выкл'
-})
+const previewLabel = computed(() => stateLabelOf(previewState.value))
 const renderShapes = computed(() => {
   if (!meta.stateful || previewState.value === 'all') return shapes.value
   const key = previewState.value
   const visible = shapes.value.filter((s) => {
-    const st = s.state || 'always'
-    return st === 'always' || st === key
+    const keys = shapeStateKeys(s.state)
+    return !keys.length || keys.includes(key)
   })
   // Превью цвета состояния: тонируется обводка видимых фигур, заливка — только у
   // замкнутых без своей заливки (как в экспорте). Подпись не тонируется: в CSS
@@ -322,6 +320,9 @@ function requestClose(event) {
   })
 }
 
+// Поля черновика, которые подсвечивает панель символа (StencilInspector, `problemOf`).
+const SYMBOL_FIELDS = new Set(['id', 'label', 'category'])
+
 // Сохранение: валидация → регистрация в реестре → персист на диск (в проде плагина
 // нет, символ уедет в library/ проекта). При правке id исключается из проверки
 // уникальности, а после сохранения активная форма переинжектится: расставленные
@@ -332,9 +333,11 @@ async function save() {
     .map((s) => s.id)
     .filter((id) => id !== editing)
   // Проверки черновика — про фигуры и поля, которых у программного символа не правят.
-  const issues = rangesOnly ? [] : stencilDraftIssues(meta, shapes.value, existingIds)
-  if (issues.length) {
-    notify.warn('Проверь символ', issues.join('; '))
+  const problems = rangesOnly ? [] : stencilDraftProblems(meta, shapes.value, existingIds)
+  if (problems.length) {
+    notify.warn('Проверь символ', problems.map((p) => p.message).join('; '))
+    // Поля символа подсвечены в его панели, а её не видно, пока выделены фигуры.
+    if (problems.some((p) => SYMBOL_FIELDS.has(p.field))) select(null)
     return
   }
   const prev = editing ? getStencilById(editing) : null
@@ -799,7 +802,7 @@ onMounted(updateRuler)
        `absolute inset-0`, а в Tailwind `.relative` объявлен позже `.absolute` и
        перебил бы его — редактор выпал бы из позиционирования. -->
   <div v-bind="$attrs" class="flex flex-col bg-surface-0">
-    <!-- Сохранение и закрытие — в шапке плашки «Символ»: это действия над символом
+    <!-- Сохранение и закрытие — в шапке инспектора «Символ»: это действия над символом
          целиком, там же автор заполняет его поля. В тулбаре они читались как ещё одна
          кнопка рисования, а поверх стола закрывали рисунок. Места в шапке мало, поэтому
          все три — иконками с подсказкой. «Сохранить» залита цветом, только когда есть
@@ -1139,6 +1142,7 @@ onMounted(updateRuler)
            «синее выделение» вместо фигуры. -->
         <div
           ref="stageEl"
+          data-se-stage
           class="flex flex-1 items-center justify-center overflow-auto bg-surface-100 select-none"
           @scroll="updateRuler"
           @pointerdown="onStageDown"

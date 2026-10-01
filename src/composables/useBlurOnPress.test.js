@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
-// Холст гасит действие браузера на нажатии, и фокус оставался в поле инспектора: его
-// blur-коммит не случался. Нажатие по холсту снимает фокус само.
+// Нажатие по холсту снимает фокус с поля инспектора и выделение текста вне холста.
 import { describe, it, expect, afterEach } from 'vitest'
 import { defineComponent, h, nextTick, ref } from 'vue'
 import { mount } from '@vue/test-utils'
@@ -14,6 +13,7 @@ const Host = defineComponent({
       h('div', [
         h('input', { id: 'field' }),
         h('button', { id: 'btn' }),
+        h('p', { id: 'hint' }, 'Подсказка инспектора'),
         h('div', { id: 'canvas', ref: canvas }, [h('input', { id: 'inner' })]),
       ])
   },
@@ -33,6 +33,18 @@ describe('useBlurOnPress', () => {
     field.focus()
     press()
     expect(document.activeElement).not.toBe(field)
+  })
+
+  it('нажатие по холсту снимает выделение текста вне него', async () => {
+    wrapper = mount(Host, { attachTo: document.body })
+    await nextTick()
+    const range = document.createRange()
+    range.selectNodeContents(wrapper.find('#hint').element)
+    window.getSelection().removeAllRanges()
+    window.getSelection().addRange(range)
+    expect(String(window.getSelection())).toBe('Подсказка инспектора')
+    press()
+    expect(window.getSelection().isCollapsed).toBe(true)
   })
 
   it('поле внутри холста и не-поле вне его фокус сохраняют', async () => {

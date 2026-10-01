@@ -86,6 +86,46 @@ function stateKeys(meta) {
 }
 
 /**
+ * Разделитель в привязке фигуры к НЕСКОЛЬКИМ состояниям («по значению»): `state: 'on+mid'`,
+ * группа `data-anim-suffix=".on+mid"`. В ключах состояний его нет (STATE_KEY_RE), поэтому
+ * одиночный ключ — частный случай набора.
+ */
+const STATE_JOIN = '+'
+
+/** Ключи состояний, к которым привязана фигура; [] — видна всегда. */
+export function shapeStateKeys(state) {
+  return !state || state === 'always' ? [] : String(state).split(STATE_JOIN)
+}
+
+/**
+ * Привязка из набора ключей — в порядке объявленных состояний, без неизвестных (состояние
+ * удалили, а привязка осталась); пусто — `always`. Одна запись на один набор: иначе
+ * `on+mid` и `mid+on` стали бы разными группами.
+ */
+export function joinStateKeys(keys, declared) {
+  const set = new Set(keys)
+  const ordered = (declared || []).filter((k) => set.has(k))
+  return ordered.length ? ordered.join(STATE_JOIN) : 'always'
+}
+
+/**
+ * Группы состояний у фигур символа в порядке вывода: одиночные — как объявлены, затем
+ * составные — по первому появлению. Порядок один на shape.svg и на карточки.
+ */
+function stateGroups(shapes, meta) {
+  const declared = stateKeys(meta)
+  const present = new Set()
+  const compound = []
+  for (const s of shapes || []) {
+    const g = joinStateKeys(shapeStateKeys(s.state), declared)
+    if (g === 'always' || present.has(g)) continue
+    present.add(g)
+    if (g.includes(STATE_JOIN)) compound.push(g)
+  }
+  return [...declared.filter((k) => present.has(k)), ...compound]
+}
+
+/**
  * Модель → строка shape.svg. viewBox/width/height берём из meta (кратны шагу сетки).
  * Фигуры оборачиваем в `<g>` — единый формат с рукописными символами (у них
  * всё в группе); на группу состояния вешается data-anim-suffix.
@@ -99,22 +139,23 @@ export function serializeSvg(shapes, meta) {
   const markFill = !!meta?.stateful
   let groups
   if (meta?.stateful) {
-    // Внутренняя анимация: статику — в базовую группу, каждое состояние — в свой
+    // Внутренняя анимация: статику — в базовую группу, каждую привязку — в свой
     // <g data-anim-suffix=".<ключ>"> (рантайм вешает animation-hidden, когда
     // значение тега не совпадает). Порядок: база → состояния (анимируемое поверх).
     // В базовую группу — статика И фигуры на неизвестном ключе (состояние удалили, а
     // привязка осталась): иначе такая фигура не попала бы ни в одну группу.
-    const known = new Set(stateKeys(meta))
+    const declared = stateKeys(meta)
+    const groupOf = (s) => joinStateKeys(shapeStateKeys(s.state), declared)
     const base = groupBody(
-      all.filter((s) => !s.state || s.state === 'always' || !known.has(s.state)),
+      all.filter((s) => groupOf(s) === 'always'),
       markFill
     )
     // Пустую базовую группу не пишем — у символа, где все фигуры привязаны к
     // состояниям, это мусорная строка. Разбору она не нужна (collectShapes рекурсивен).
     groups = base ? `  <g>\n${base}\n  </g>\n` : ''
-    for (const key of stateKeys(meta)) {
+    for (const key of stateGroups(all, meta)) {
       const body = groupBody(
-        all.filter((s) => s.state === key),
+        all.filter((s) => groupOf(s) === key),
         markFill
       )
       if (body) groups += `  <g ${ATTR_SUFFIX}=".${key}">\n${body}\n  </g>\n`
@@ -309,11 +350,6 @@ export function stencilDraftProblems(meta, shapes, existingIds = []) {
   return problems
 }
 
-/** Те же проблемы строками — для тоста на сохранении. */
-export function stencilDraftIssues(meta, shapes, existingIds = []) {
-  return stencilDraftProblems(meta, shapes, existingIds).map((p) => p.message)
-}
-
 // Карточка animationTemplate для состояния: элемент виден только в «своём»
 // значении тега, т.е. получает animation-hidden на КАЖДОМ из чужих значений
 // (hideOn). Булев режим: одно чужое значение (.true прячется на 'false'). Режим
@@ -339,13 +375,15 @@ export function hideCases(hideOn) {
 
 /**
  * Коды, на которых прячется группа состояния `key` в режиме «по значению»: коды
- * ОСТАЛЬНЫХ состояний. Состояние без кода рантайм не различает — в список не входит.
- * Одно правило на редактор и на патч проекта поверх набора: смена кода меняет карточки
- * соседей, и считать их надо одинаково.
+ * ОСТАЛЬНЫХ состояний (у составной привязки `on+mid` — всех, что не входят в набор).
+ * Состояние без кода рантайм не различает — в список не входит. Одно правило на
+ * редактор и на патч проекта поверх набора: смена кода меняет карточки соседей, и
+ * считать их надо одинаково.
  */
 export function hideOnCodes(states, key) {
+  const own = new Set(shapeStateKeys(key))
   return (states || [])
-    .filter((s) => s.key !== key && s.code !== '' && s.code != null)
+    .filter((s) => !own.has(s.key) && s.code !== '' && s.code != null)
     .map((s) => s.code)
 }
 
@@ -501,10 +539,11 @@ function buildBooleanState(json, meta, shapes) {
 }
 
 // Режим «по значению»: слот value + список состояний (states — редакторные
-// подписи/коды для round-trip, рантайм игнорит) + по карточке на каждое состояние
-// С ФИГУРАМИ (прячется на кодах остальных). Слот — признак режима, поэтому пишется
-// всегда; `states` — при объявленных состояниях, карточки — когда есть что анимировать.
-// Смена кода → другой список cases, суффиксы/фигуры не трогаются.
+// подписи/коды для round-trip, рантайм игнорит) + по карточке на каждую привязку
+// С ФИГУРАМИ — одиночную или составную (прячется на кодах состояний вне набора). Слот —
+// признак режима, поэтому пишется всегда; `states` — при объявленных состояниях,
+// карточки — когда есть что анимировать. Смена кода → другой список cases,
+// суффиксы/фигуры не трогаются.
 function buildValueState(json, meta, shapes) {
   const declared = meta.states || []
   const key = meta.stateSlot?.key || 'value'
@@ -512,9 +551,8 @@ function buildValueState(json, meta, shapes) {
   addSlot(json, { key, type: 'Value' })
   if (!declared.length) return
   json.states = declared.map((s) => ({ key: s.key, label: s.label || '', code: s.code ?? '' }))
-  const shapeStates = new Set((shapes || []).map((s) => s.state).filter(Boolean))
-  const cards = declared
-    .filter((s) => shapeStates.has(s.key))
-    .map((st) => stateCard(`.${st.key}`, tag, hideOnCodes(declared, st.key)))
+  const cards = stateGroups(shapes, meta).map((g) =>
+    stateCard(`.${g}`, tag, hideOnCodes(declared, g))
+  )
   addCards(json, cards)
 }

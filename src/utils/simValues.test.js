@@ -4,6 +4,7 @@ import {
   rangeRowFor,
   zoneValueFor,
   stateKeyFor,
+  stateGroupsOf,
   formatValueText,
   randomValueForTag,
   slotRole,
@@ -55,6 +56,25 @@ describe('rangeRowFor', () => {
     // Без нижнего порога верх — единственная граница строки, он не открывается.
     expect(rangeRowFor({ ranges: [{ max: 10, color: '#fff' }] }, 50)).toBeNull()
   })
+})
+
+// Составная группа фигуры в нескольких состояниях видна в каждом из них.
+it('stateGroupsOf: одиночные по состояниям, составные по карточкам шаблона', () => {
+  const stencil = {
+    states: [{ key: 'on' }, { key: 'mid' }, { key: 'off' }],
+    animationTemplate: [
+      { idSuffix: '.on', type: 'shape' },
+      { idSuffix: '.on+mid', type: 'shape' },
+      { idSuffix: '.value', type: 'text' },
+    ],
+  }
+  expect(stateGroupsOf(stencil)).toEqual([
+    { suffix: '.on', keys: ['on'] },
+    { suffix: '.mid', keys: ['mid'] },
+    { suffix: '.off', keys: ['off'] },
+    { suffix: '.on+mid', keys: ['on', 'mid'] },
+  ])
+  expect(stateGroupsOf(null)).toEqual([])
 })
 
 describe('stateKeyFor', () => {

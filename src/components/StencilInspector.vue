@@ -1,23 +1,31 @@
 <script setup>
 /**
- * Свойства символа — правая панель редактора, две плашки: «Символ» (идентификация,
- * флаги поведения, анимации — StencilAnimationFields) и «Фигура» (свойства выделенной —
- * StencilShapePanel). Стейт — синглтон useStencilEditor, тот же, что рисует стол, поэтому
- * части панели берут его сами, без пропсов.
+ * Правая панель редактора. Ничего не выделено — свойства символа (идентификация, флаги
+ * поведения, анимации — StencilAnimationFields), выделены фигуры — их свойства
+ * (StencilShapePanel). Стейт — синглтон useStencilEditor, тот же, что рисует стол,
+ * поэтому части панели берут его сами, без пропсов.
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
 import Chip from 'primevue/chip'
 import StencilAnimationFields from './StencilAnimationFields.vue'
 import StencilShapePanel from './StencilShapePanel.vue'
+import InspectorHeading from './InspectorHeading.vue'
 import { getAllStencils, getCategories, registryVersion } from '../stencils/registry'
 import { useStencilEditor } from '../composables/useStencilEditor'
 import { STENCIL_DOMAINS } from '../constants/domains'
 import { stencilDraftProblems } from '../utils/stencilSvg'
+import { replayClass } from '../utils/replayClass'
 
-const { meta, editingId, presetInfo, shapes, commit } = useStencilEditor()
+const { meta, editingId, presetInfo, shapes, selectedIds, select, commit } = useStencilEditor()
+
+const shapeMode = computed(() => selectedIds.value.length > 0)
+
+// Смена «символ ↔ фигура» проявляется; перещёлкивание между фигурами панель не меняет.
+const bodyEl = ref(null)
+watch(shapeMode, () => replayClass(bodyEl.value, 'tms-panel-in'), { flush: 'post' })
 
 /**
  * Проблемы черновика ЖИВЬЁМ, по полям: занятый id или пустая категория видны сразу,
@@ -79,19 +87,25 @@ function onIdInput(e) {
 
 <template>
   <aside class="h-full flex flex-col bg-surface-50">
-    <!-- Плашка «Символ»: свойства документа (идентификация/поведение/анимация) -->
-    <div class="flex-1 min-h-0 flex flex-col">
-      <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center gap-2">
-        <h2 class="shrink-0 text-sm font-semibold text-surface-900 uppercase tracking-wide">
-          Символ
-        </h2>
-        <!-- Действия над символом целиком (сохранить/закрыть) — в его же шапке. Разметку
-             телепортирует сюда StencilEditor: там живут `save`/`requestClose` и признак
-             несохранённого. -->
-        <div id="tms-editor-actions" class="ml-auto flex items-center gap-1"></div>
-      </div>
+    <!-- Шапка постоянная при любом выделении: в неё телепортирует кнопки StencilEditor, и
+         размонтированная цель унесла бы их. -->
+    <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center gap-2">
+      <InspectorHeading
+        root="Символ"
+        :leaf="shapeMode ? 'Фигура' : null"
+        :note="selectedIds.length > 1 ? `выделено: ${selectedIds.length}` : null"
+        back-tip="К свойствам символа · Esc"
+        @back="select(null)"
+      />
+      <!-- Действия над символом целиком (сохранить/закрыть) — в его же шапке. Разметку
+           телепортирует сюда StencilEditor: там живут `save`/`requestClose` и признак
+           несохранённого. -->
+      <div id="tms-editor-actions" class="ml-auto flex items-center gap-1"></div>
+    </div>
 
-      <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-4">
+    <div ref="bodyEl" class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-4">
+      <StencilShapePanel v-if="shapeMode" />
+      <template v-else>
         <!-- Свойства показаны как есть, но правке не подлежат: у программного символа
              (шина) их задаёт код, у символа из набора — поставка. -->
         <p v-if="meta.locked" class="tms-hint">
@@ -214,9 +228,7 @@ function onIdInput(e) {
         </div>
 
         <StencilAnimationFields />
-      </div>
+      </template>
     </div>
-
-    <StencilShapePanel />
   </aside>
 </template>

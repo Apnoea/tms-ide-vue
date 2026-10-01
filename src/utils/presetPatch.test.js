@@ -139,6 +139,15 @@ describe('applyPresetPatch', () => {
     expect(hideOn(json, 'mid').sort()).toEqual(['0', '5'])
   })
 
+  it('смена кода пересчитывает и карточку фигуры в нескольких состояниях', () => {
+    const base = symbol({}, [
+      ...SHAPES,
+      { type: 'rect', x: 10, y: 10, w: 10, h: 10, state: 'on+mid' },
+    ])
+    const { json } = applyPresetPatch(base, { states: { off: { code: '7' } } })
+    expect(hideOn(json, 'on+mid')).toEqual(['7'])
+  })
+
   it('на новой версии: правки проекта сверху, новое из набора приходит само', () => {
     const v1 = symbol()
     const project = symbol({

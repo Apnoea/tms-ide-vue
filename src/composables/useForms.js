@@ -4,6 +4,7 @@ import { withPaperFrozen, withRestoreGuard } from '../utils/graphBatch'
 import { FORM_ID_RE } from '../constants/ids'
 import { nplural } from '../utils/plural'
 import { toPlain } from '../utils/plain'
+import { replayClass } from '../utils/replayClass'
 
 /**
  * Формы проекта: переключение, создание, дублирование, удаление с корзиной,
@@ -67,14 +68,7 @@ export function useForms(ctx) {
    * длительность анимации.
    */
   function playFormIn(paper) {
-    const el = paper?.el
-    if (!el) return
-    // Перезапуск, если предыдущее проявление ещё идёт (быстрое перещёлкивание форм):
-    // без снятия класса и рефлоу анимация второй раз не стартует.
-    el.classList.remove('tms-form-in')
-    void el.offsetWidth
-    el.classList.add('tms-form-in')
-    el.addEventListener('animationend', () => el.classList.remove('tms-form-in'), { once: true })
+    replayClass(paper?.el, 'tms-form-in')
   }
 
   /**

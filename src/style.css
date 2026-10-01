@@ -425,7 +425,7 @@ body,
 
 /* Инспектор при смене ТИПА выделения (ничего → символ → провод → разметка → мульти):
    под каждый тип своя раскладка, и без проявления подмена читается как рывок. Класс
-   ставит watch в CanvasInspector. */
+   ставят watch'и в CanvasInspector и StencilInspector (`replayClass`). */
 @keyframes tms-panel-in {
   from {
     opacity: 0;
@@ -515,7 +515,6 @@ body,
   .tms-list-enter-active,
   .tms-list-leave-active,
   .tms-list-move,
-  .tms-panel-in,
   .p-button,
   .tms-icon-action {
     transition: none;
@@ -524,6 +523,8 @@ body,
   .tms-icon-action:not(:disabled):active {
     transform: none;
   }
+  /* Проявления — `animation`, а не `transition`: `transition: none` их не гасит. */
+  .tms-panel-in,
   .joint-paper.tms-form-in {
     animation: none;
   }

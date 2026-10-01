@@ -649,6 +649,20 @@ describe('useStencilEditor', () => {
     expect(ed.shapes.value[0].state).toBe('always')
   })
 
+  it('removeState убирает ключ из привязки к нескольким состояниям, а не снимает её', () => {
+    const ed = createStencilEditor()
+    ed.setAnimationMode('value')
+    ed.addState()
+    ed.addState()
+    const [a, b] = ed.meta.states.map((s) => s.key)
+    const s = ed.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    setState(ed, s.id, `${a}+${b}`)
+    ed.removeState(b)
+    expect(ed.shapes.value[0].state).toBe(a)
+    ed.removeState(a)
+    expect(ed.shapes.value[0].state).toBe('always')
+  })
+
   it('loadStencil c полем states → режим value, ключи состояний из суффиксов', () => {
     const ed = createStencilEditor()
     ed.loadStencil({

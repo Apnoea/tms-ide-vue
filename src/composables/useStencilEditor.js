@@ -26,6 +26,8 @@ import {
   cropToContent,
   parseStencilSvg,
   portSeqFrom,
+  shapeStateKeys,
+  joinStateKeys,
 } from '../utils/stencilSvg'
 import { normalizeStateColor } from '../constants/animation'
 import { normalizeDomains } from '../constants/domains'
@@ -584,9 +586,20 @@ export function createStencilEditor() {
   function removeState(key) {
     meta.states = meta.states.filter((s) => s.key !== key)
     setStateColor(key, '') // снять цвет удалённого состояния
-    // Осиротевшие фигуры (были в этом состоянии) → снова always.
-    shapes.value = shapes.value.map((s) => (s.state === key ? { ...s, state: 'always' } : s))
+    // Удалённое состояние уходит из привязок фигур; осиротевшие (были только в нём) →
+    // снова always.
+    shapes.value = shapes.value.map((s) =>
+      shapeStateKeys(s.state).includes(key) ? { ...s, state: rebindState(s.state) } : s
+    )
     commit()
+  }
+
+  /** Привязка фигуры без состояний, которых больше нет в meta.states. */
+  function rebindState(state) {
+    return joinStateKeys(
+      shapeStateKeys(state),
+      meta.states.map((s) => s.key)
+    )
   }
 
   // Шаблон «Сигнал положения»: 4 состояния с пресет-подписями, коды пустые. Набор
@@ -600,9 +613,10 @@ export function createStencilEditor() {
       label: STATE_PRESETS.find((p) => p.key === k)?.label || k,
       code: '',
     }))
-    shapes.value = shapes.value.map((s) =>
-      s.state && s.state !== 'always' && !nextKeys.has(s.state) ? { ...s, state: 'always' } : s
-    )
+    shapes.value = shapes.value.map((s) => {
+      const state = rebindState(s.state)
+      return state === (s.state || 'always') ? s : { ...s, state }
+    })
     commit()
   }
 

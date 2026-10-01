@@ -52,6 +52,8 @@ vi.mock('../stencils/registry', () => ({
   // в нём, иначе мок разошёлся бы с продом на первой же смене правила.
   stateSlotOf: (slots) => (slots || []).find((s) => s.type !== 'Text') || null,
   textSlotOf: (slots) => (slots || []).find((s) => s.type === 'Text') || null,
+  stateSlotKeyOf: () => 'onoff',
+  isStaticTms: (tms) => !!tms?.shape,
 }))
 
 // SVG-инъекция в DOM в тестах не нужна (paper.findViewByModel → null и так её
@@ -110,6 +112,22 @@ describe('CanvasInspector', () => {
     useProjectStore().setTags(TAGS)
     return wrapper
   }
+
+  it('заголовок «Инспектор › Символ», клик по корню снимает выделение', async () => {
+    const cell = makeCell()
+    graph.addCell(cell)
+    setup()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('h2').text()).toBe('Инспектор')
+
+    canvas.selectOnly('cell', cell.id)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('h2').text()).toMatch(/Инспектор\s*›\s*Символ/)
+
+    await wrapper.find('h2 button').trigger('click')
+    expect(canvas.selection.value).toEqual([])
+    expect(wrapper.find('h2').text()).toBe('Инспектор')
+  })
 
   it('tag-picker булева слота получает bool-теги (getters стора — без .value)', async () => {
     const cell = makeCell()
@@ -255,8 +273,7 @@ describe('CanvasInspector: фигура-разметка', () => {
     selectShape({ type: 'rect', x: 0, y: 0, w: 40, h: 20, stroke: '#000', strokeWidth: 2 })
     await wrapper.vm.$nextTick()
     const text = wrapper.text()
-    expect(text).toContain('Фигура')
-    expect(text).toContain('Прямоугольник')
+    expect(wrapper.find('h2').text()).toMatch(/Инспектор\s*›\s*Прямоугольник/)
     // Анимаций у разметки нет — блоки тегов не рендерим (иначе привязка вела бы
     // в никуда: карточек для фигур exporter не эмитит).
     expect(wrapper.findComponent(StateBlock).exists()).toBe(false)

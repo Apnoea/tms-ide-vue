@@ -10,6 +10,7 @@
 import { rangeRowColor } from '../constants/animation'
 import { RANGE_SLOT } from '../constants/ids'
 import { rowMax } from './rangeRows'
+import { shapeStateKeys } from './stencilSvg'
 
 /**
  * Роль тега по слоту символа, к которому он привязан: подпись со значением (`Text`) и
@@ -90,6 +91,22 @@ export function stateKeyFor(states, value) {
   const code = String(value)
   const hit = (states || []).find((s) => s.code !== '' && s.code != null && String(s.code) === code)
   return hit?.key ?? null
+}
+
+/**
+ * Группы состояний символа «по значению» для превью: одиночные — по объявленным ключам,
+ * составные (фигура в нескольких состояниях, `.on+mid`) — по shape-карточкам шаблона.
+ * Группа видна, если активное состояние входит в её `keys`.
+ *
+ * @returns {Array<{suffix: string, keys: string[]}>}
+ */
+export function stateGroupsOf(stencil) {
+  const singles = (stencil?.states || []).map((st) => ({ suffix: `.${st.key}`, keys: [st.key] }))
+  const compound = (stencil?.animationTemplate || [])
+    .filter((t) => t.type === 'shape' && t.idSuffix?.startsWith('.'))
+    .map((t) => ({ suffix: t.idSuffix, keys: shapeStateKeys(t.idSuffix.slice(1)) }))
+    .filter((g) => g.keys.length > 1)
+  return [...singles, ...compound]
 }
 
 /** Текст подписи со значением: число — с точностью карточки, прочее — как есть. */

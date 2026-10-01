@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest'
-import { zoomKeyOf, toolDigitOf, isFocusInInput, isInListWidget } from './viewKeys'
+import { describe, it, expect, vi } from 'vitest'
+import {
+  zoomKeyOf,
+  toolDigitOf,
+  isFocusInInput,
+  isInListWidget,
+  hasTextSelectionOutside,
+} from './viewKeys'
 
 describe('zoomKeyOf', () => {
   it.each([
@@ -48,4 +54,23 @@ it('isFocusInInput / isInListWidget: поля ввода и выпадающие
   expect(isInListWidget(inSelect)).toBe(true)
   expect(isInListWidget({ closest: () => null })).toBe(false)
   expect(isInListWidget(null)).toBe(false)
+})
+
+// Выделенный текст вне холста или стола — Ctrl+C браузера, внутри — копирование фигур.
+it('hasTextSelectionOutside: выделение вне области, внутри и пустое', () => {
+  const select = (text, closest) =>
+    vi.stubGlobal('window', {
+      getSelection: () => ({
+        isCollapsed: !text,
+        toString: () => text,
+        anchorNode: { nodeType: 3, parentElement: { closest } },
+      }),
+    })
+  select('id символа', () => null)
+  expect(hasTextSelectionOutside('[data-se-stage]')).toBe(true)
+  select('подпись', () => ({}))
+  expect(hasTextSelectionOutside('[data-se-stage]')).toBe(false)
+  select('', () => null)
+  expect(hasTextSelectionOutside('[data-se-stage]')).toBe(false)
+  vi.unstubAllGlobals()
 })

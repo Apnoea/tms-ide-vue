@@ -3,21 +3,14 @@ import { useEventListener } from '@vueuse/core'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from './useCanvas'
 import { nplural } from '../utils/plural'
-import { zoomKeyOf, toolDigitOf, isFocusInInput, isInListWidget } from '../utils/viewKeys'
+import {
+  zoomKeyOf,
+  toolDigitOf,
+  isFocusInInput,
+  isInListWidget,
+  hasTextSelectionOutside,
+} from '../utils/viewKeys'
 import { isFreeEnd } from '../stencils/linkDefaults'
-
-/**
- * Выделен текст ВНЕ холста (id символа, тег в инспекторе) — такой Ctrl+C принадлежит
- * браузеру. Выделение внутри paper'а не считается: подписи на схеме это `<text>` в
- * SVG, их легко зацепить мышью, и Ctrl+C перестал бы копировать символы.
- */
-function hasTextSelectionOutsideCanvas() {
-  const sel = typeof window !== 'undefined' ? window.getSelection?.() : null
-  if (!sel || sel.isCollapsed || !String(sel).trim()) return false
-  const node = sel.anchorNode
-  const el = node?.nodeType === 1 ? node : node?.parentElement
-  return !el?.closest?.('.joint-paper')
-}
 
 /**
  * Все горячие клавиши IDE через единый raw-keydown handler на window.
@@ -175,7 +168,9 @@ export function useHotkeys({
         // Выделен ТЕКСТ вне холста (id символа в инспекторе, подпись в панели) — это
         // штатное копирование браузером: перехват отдавал бы Ctrl+C нашему буферу и
         // отвечал тостом «Нечего копировать» вместо копирования выделенного текста.
-        if (hasTextSelectionOutsideCanvas()) return
+        // Выделение внутри paper'а не считается: подписи на схеме — `<text>` в SVG, их
+        // легко зацепить мышью, и Ctrl+C перестал бы копировать символы.
+        if (hasTextSelectionOutside('.joint-paper')) return
         event.preventDefault()
         event.stopPropagation()
         copySelection() // read-only, безопасно под busy

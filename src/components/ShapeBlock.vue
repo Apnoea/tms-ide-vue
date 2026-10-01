@@ -16,7 +16,7 @@ import ColorField from './ColorField.vue'
 import { FONT_FAMILIES } from '../constants/text'
 
 const props = defineProps({
-  /** Поля выделенной фигуры: label/тип, обводка, заливка, поля подписи. */
+  /** Поля выделенной фигуры: обводка, заливка, поля подписи. */
   values: { type: Object, required: true },
   /** Черновик текста подписи (правится в родителе: пустой коммит удаляет фигуру). */
   text: { type: String, default: '' },
@@ -35,11 +35,6 @@ function toggleFill(on) {
 </script>
 
 <template>
-  <div>
-    <div class="tms-field-label mb-1">Фигура</div>
-    <div class="font-medium text-surface-900">{{ values.shapeLabel }}</div>
-  </div>
-
   <div class="space-y-2.5">
     <div v-if="values.isShapeText">
       <div class="tms-field-label mb-1">Текст</div>

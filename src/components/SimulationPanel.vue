@@ -18,6 +18,7 @@ import ToggleSwitch from 'primevue/toggleswitch'
 import { rangeRowColor } from '../constants/animation'
 import { rangeBound, rangeRowFor, zoneValueFor } from '../utils/simValues'
 import { rowMax } from '../utils/rangeRows'
+import InspectorHeading from './InspectorHeading.vue'
 
 const props = defineProps({
   /** `[{ tag, kind: 'state'|'bool'|'value', states?, rangeSource?, type }]`. */
@@ -29,9 +30,11 @@ const props = defineProps({
    * настраивают тот символ, на который смотрят.
    */
   selected: { type: Object, default: () => new Set() },
+  /** Что выделено на холсте — лист заголовка «Симуляция › Символ»; null — ничего. */
+  selectionLeaf: { type: String, default: null },
 })
 
-const emit = defineEmits(['set-tag', 'reset'])
+const emit = defineEmits(['set-tag', 'reset', 'clear-selection'])
 
 const query = ref('')
 
@@ -125,8 +128,15 @@ const zoneTip = (zone) =>
 
 <template>
   <div class="h-full flex flex-col">
+    <!-- Путь — как у инспектора: при выделении список сужен до его тегов, клик по
+         «Симуляция» снимает выделение и возвращает теги всей формы. -->
     <div class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex items-center">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-surface-900">Симуляция</h2>
+      <InspectorHeading
+        root="Симуляция"
+        :leaf="selectionLeaf"
+        back-tip="К тегам всей формы · Esc"
+        @back="emit('clear-selection')"
+      />
     </div>
 
     <!-- Описание и поиск закреплены: список тегов формы уезжает под скролл. -->

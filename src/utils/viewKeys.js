@@ -39,3 +39,15 @@ export function isFocusInInput(t) {
 export function isInListWidget(t) {
   return !!t?.closest?.('[role="combobox"], [role="listbox"]')
 }
+
+/**
+ * Выделен текст вне области `selector` (поле инспектора, подсказка, id символа) — такой
+ * Ctrl+C принадлежит браузеру, а не буферу фигур.
+ */
+export function hasTextSelectionOutside(selector) {
+  const sel = typeof window !== 'undefined' ? window.getSelection?.() : null
+  if (!sel || sel.isCollapsed || !String(sel).trim()) return false
+  const node = sel.anchorNode
+  const el = node?.nodeType === 1 ? node : node?.parentElement
+  return !el?.closest?.(selector)
+}

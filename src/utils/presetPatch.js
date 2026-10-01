@@ -20,7 +20,7 @@ import { normalizeDomains } from '../constants/domains'
 import { cssColor, normalizeStateColor, STATE_KEY_RE } from '../constants/animation'
 import { RANGE_SLOT } from '../constants/ids'
 import { cleanRangeRows } from './rangeRows'
-import { hideCases, hideOnCodes } from './stencilSvg'
+import { hideCases, hideOnCodes, shapeStateKeys } from './stencilSvg'
 
 const FLAGS = ['quality', 'noRotate', 'noFlip']
 
@@ -129,7 +129,9 @@ export function applyPresetPatch(base, patch) {
       if (card.type !== 'shape') continue
       const key = card.idSuffix?.startsWith('.') ? card.idSuffix.slice(1) : ''
       const when = card.bindings?.[0]?.when
-      if (when && states.some((s) => s.key === key))
+      // Составная привязка (`on+mid`) — своя карточка, пересчёт тот же.
+      const own = shapeStateKeys(key)
+      if (when && own.length && own.every((k) => states.some((s) => s.key === k)))
         when.cases = hideCases(hideOnCodes(states, key))
     }
   }

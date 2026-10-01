@@ -23,6 +23,16 @@ const mountPanel = (tags, values = new Map()) =>
 
 const zones = (w) => w.findAll('button').filter((b) => /[≤≥–=]/.test(b.text()))
 
+// Путь как у инспектора: при выделении список сужен до его тегов, корень снимает выделение.
+it('SimulationPanel: заголовок «Симуляция › Символ», корень снимает выделение', async () => {
+  const w = mountWithApp(SimulationPanel, {
+    props: { tags: [tag()], values: new Map(), selectionLeaf: 'Символ' },
+  })
+  expect(w.find('h2').text()).toMatch(/Симуляция\s*›\s*Символ/)
+  await w.find('h2 button').trigger('click')
+  expect(w.emitted('clear-selection')).toHaveLength(1)
+})
+
 describe('SimulationPanel: зоны диапазонов', () => {
   it('подписи по порогам и значение из зоны по клику', async () => {
     const w = mountPanel([tag()])

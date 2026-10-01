@@ -3,6 +3,7 @@
 // синглтон useStencilEditor там, где юнит не достаёт — правка полей подписи меняет
 // модель, а не удаляет фигуру.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { mountWithApp } from '../composables/test-utils'
 import StencilInspector from './StencilInspector.vue'
 import { useStencilEditor } from '../composables/useStencilEditor'
@@ -61,7 +62,58 @@ describe('StencilInspector: подпись', () => {
   })
 })
 
-// Кнопки «Сохранить/Закрыть» телепортирует StencilEditor — цель в шапке плашки «Символ».
+// Шапка остаётся при выделении: её цель телепорта не должна размонтироваться.
+it('StencilInspector: выделение переключает на свойства фигуры, шапка остаётся', async () => {
+  const editor = useStencilEditor()
+  editor.reset()
+  editor.meta.label = 'Задвижка'
+  const wrapper = mountWithApp(StencilInspector)
+  expect(wrapper.find('input[placeholder="Задвижка"]').exists()).toBe(true)
+  editor.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+  await nextTick()
+  expect(wrapper.find('input[placeholder="Задвижка"]').exists()).toBe(false)
+  expect(wrapper.text()).toContain('Фигура')
+  expect(wrapper.find('#tms-editor-actions').exists()).toBe(true)
+  await wrapper.find('h2 button').trigger('click')
+  expect(editor.selectedIds.value).toEqual([])
+  expect(wrapper.find('input[placeholder="Задвижка"]').exists()).toBe(true)
+})
+
+// Привязка к состоянию — строки «Всегда» и состояний; выбор пишется всем выделенным.
+it('StencilInspector: привязка к состоянию отмечает выбранное и пишет его фигурам', async () => {
+  const editor = useStencilEditor()
+  editor.reset()
+  editor.setAnimationMode('boolean')
+  editor.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+  const wrapper = mountWithApp(StencilInspector)
+  const rows = () => wrapper.findAll('[data-test="state-binding"] button')
+  expect(rows().map((r) => r.find('span').text())).toEqual(['Всегда', 'Вкл', 'Выкл'])
+  await rows()[1].trigger('click')
+  expect(editor.shapes.value[0].state).toBe('true')
+  expect(rows()[1].classes()).toContain('bg-primary-50')
+})
+
+// «По значению» фигура может быть общей для нескольких состояний; булев — одно.
+it('StencilInspector: «по значению» состояния привязки переключаются набором', async () => {
+  const editor = useStencilEditor()
+  editor.reset()
+  editor.setAnimationMode('value')
+  editor.addState()
+  editor.addState()
+  const [a, b] = editor.meta.states.map((s) => s.key)
+  editor.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+  const wrapper = mountWithApp(StencilInspector)
+  const rows = () => wrapper.findAll('[data-test="state-binding"] button')
+  await rows()[1].trigger('click')
+  await rows()[2].trigger('click')
+  expect(editor.shapes.value[0].state).toBe(`${a}+${b}`)
+  await rows()[1].trigger('click')
+  expect(editor.shapes.value[0].state).toBe(b)
+  await rows()[0].trigger('click')
+  expect(editor.shapes.value[0].state).toBe('always')
+})
+
+// Кнопки «Сохранить/Закрыть» телепортирует StencilEditor — цель в шапке инспектора.
 it('StencilInspector: цель кнопок редактора — в шапке «Символ»', () => {
   useStencilEditor().reset()
   const wrapper = mountWithApp(StencilInspector)
@@ -91,6 +143,8 @@ describe('StencilInspector: подсветка проблем', () => {
   it('начатый символ без названия и категории подсвечивает поля', () => {
     editor.meta.id = 'cell_new'
     editor.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    // Новая фигура выделена, а поля символа видны при пустом выделении.
+    editor.select(null)
     wrapper = mountWithApp(StencilInspector)
     expect(errors().join(' ')).toContain('Укажи название')
     expect(errors().join(' ')).toContain('Укажи категорию')
@@ -101,6 +155,7 @@ describe('StencilInspector: подсветка проблем', () => {
     editor.meta.label = 'X'
     editor.meta.category = 'Тест'
     editor.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
+    editor.select(null)
     wrapper = mountWithApp(StencilInspector)
     expect(errors().join(' ')).toContain('уже занят')
   })
