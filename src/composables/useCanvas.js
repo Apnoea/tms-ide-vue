@@ -155,28 +155,6 @@ const linksCount = computed(() => {
 // Ровно один выделенный элемент — для одиночного режима инспектора.
 const singleSelection = computed(() => (selection.value.length === 1 ? selection.value[0] : null))
 
-// Краткое описание выделения для статус-полосы.
-const selectionLabel = computed(() => {
-  graphVersion.value // touch для reactive-зависимости
-  const sel = selection.value
-  if (sel.length === 0) return null
-  if (sel.length > 1) return `выделено: ${sel.length}`
-  const item = sel[0]
-  const graph = graphRef.value
-  const cell = graph?.getCell(item.id)
-  if (!cell) return null
-  if (item.kind === 'cell') {
-    // Первый заполненный слот работает как идентификатор объекта; слотов нет —
-    // просто «символ».
-    const tms = cell.get('tms') || {}
-    const slots = tms.slots || {}
-    const firstTag = Object.values(slots).find((v) => v)
-    return firstTag ? `символ · ${firstTag}` : 'символ'
-  }
-  if (item.kind === 'link') return 'провод'
-  return null
-})
-
 /**
  * Экземпляры символа на активной форме. Общий для кнопки «такие же» в инспекторе и
  * пункта контекстного меню: считать их двумя способами незачем.
@@ -203,7 +181,6 @@ export function useCanvas() {
     canUndo,
     canRedo,
     snapshotTick,
-    selectionLabel,
     setCanvasRefs(graph, paper) {
       graphRef.value = graph
       paperRef.value = paper

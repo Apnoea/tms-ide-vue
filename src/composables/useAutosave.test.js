@@ -156,18 +156,6 @@ describe('useAutosave', () => {
       expect(idbSet).toHaveBeenCalledTimes(2)
     })
 
-    it('после clearActiveForm тот же граф пишется заново (память о IDB сброшена)', async () => {
-      seedActiveForm()
-      mockCanvas.graphRef.value = makeMockGraph([{ id: 'c1' }])
-      const { saveActiveForm, clearActiveForm } = setup()
-      await saveActiveForm()
-      await clearActiveForm() // в IDB теперь пусто, а не наш граф
-      idbSet.mockClear()
-      await saveActiveForm()
-      expect(idbSet).toHaveBeenCalledTimes(1)
-      expect(idbStore.get(formKey('main'))).toEqual({ cells: [{ id: 'c1' }] })
-    })
-
     it('no-op если нет активной формы', async () => {
       mockCanvas.graphRef.value = makeMockGraph([{ id: 'c1' }])
       const { saveActiveForm } = setup()
@@ -382,15 +370,6 @@ describe('useAutosave', () => {
       await vi.advanceTimersByTimeAsync(400)
       vi.useRealTimers()
       expect(idbStore.get(META_KEY).formTitle).toEqual({ main: 'Главная схема' })
-    })
-  })
-
-  describe('clearActiveForm', () => {
-    it('обнуляет граф активной формы в IndexedDB', async () => {
-      useWorkspaceStore().loadForms([{ id: 'main', graphJson: { cells: [{ id: 'c1' }] } }], 'main')
-      const { clearActiveForm } = setup()
-      await clearActiveForm()
-      expect(idbStore.get(formKey('main'))).toEqual({ cells: [] })
     })
   })
 

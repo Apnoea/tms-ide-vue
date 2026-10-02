@@ -60,7 +60,7 @@ export function stateColorClass(stencilId, key) {
 // руками, и цвет состояния её не перебивает. См. takesStateFill.
 export const STATE_FILL_CLASS = 'tms-state-fill'
 
-// Opt-in заливка по диапазонам/off: тело шины, точка соединения, наконечник провода.
+// Opt-in заливка по диапазонам/off: тело шины, точка свободного конца и наконечник провода.
 // Ставится и в экспортном SVG, и в живом DOM: иначе симуляция расходится с view.svg.
 export const RANGE_FILL_CLASS = 'tms-range-fill'
 

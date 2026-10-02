@@ -15,8 +15,8 @@
  * Мышь работает по HIT-СЛОЮ — прозрачной копии геометрии с широкой обводкой: у
  * контурной фигуры иначе ловится только линия.
  *
- * Шаблон двухкорневой и держит DOM плоским: interact.js цепляется по глобальному
- * `[data-se-move]`, z-порядок фигур совпадает с порядком экспорта.
+ * Шаблон двухкорневой и держит DOM плоским: перенос (useEditorInteract) цепляется по
+ * глобальному `[data-se-move]`, z-порядок фигур совпадает с порядком экспорта.
  */
 import { computed } from 'vue'
 import {
@@ -292,7 +292,7 @@ const capJoin = computed(() => {
     />
   </template>
   <!-- Пустая подпись: иконка и область попадания поверх неё. data-se-move на
-       прямоугольнике — interact.js читает атрибут у самого target'а. -->
+       прямоугольнике — иконка pointer-events не ловит, target всегда он. -->
   <g v-if="emptyText" :transform="emptyIconTransform" pointer-events="none">
     <path
       v-for="(part, i) in TEXT_ICON"

@@ -16,12 +16,6 @@ import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
 import { sanitizeShape } from '../stencils/shapeElement'
 import { isBackgroundZ, BACKGROUND_Z_BOUNDS } from '../utils/zOrder'
 import { portPoints } from '../utils/portGeom'
-import { valueCellToParams, dissolveNodeCells } from './legacyFormat'
-
-// Габарит точки соединения прошлого формата: своего определения у неё больше нет, а
-// центр (куда встаёт конец провода) считается по размеру. Мета без width/height —
-// архивы тех версий, где размер узла был константой.
-const NODE_SIZE_LEGACY = 20
 
 /**
  * Первая и последняя точки пути провода — последняя линия обороны: если в meta конец
@@ -151,23 +145,6 @@ export function parseSvgProject(svgText) {
       const x = parseFloat(m[1])
       const y = parseFloat(m[2])
 
-      // Точка соединения прошлого формата: символа с таким id больше нет, поэтому
-      // ячейку не строим, а кладём заготовку — dissolveNodeCells ниже уберёт её и
-      // переставит концы подключённых проводов в её центр. Без этой ветки узел отсеяла
-      // бы проверка реестра, и провода остались бы привязаны к несуществующей ячейке.
-      if (meta.stencilId === 'cell_node') {
-        cells.push({
-          id: meta.id,
-          position: { x, y },
-          size: { width: meta.width ?? NODE_SIZE_LEGACY, height: meta.height ?? NODE_SIZE_LEGACY },
-          tms: { stencilId: 'cell_node' },
-        })
-        // В elementIds — чтобы привязку к узлу не отвязал resolveEnd: конец должен
-        // встать в ЦЕНТР узла, а не в конец пути (наконечник его укорачивает).
-        elementIds.add(meta.id)
-        continue
-      }
-
       stencilIds.add(meta.stencilId)
       const stencil = getStencilById(meta.stencilId)
       if (!stencil) {
@@ -212,14 +189,10 @@ export function parseSvgProject(svgText) {
       if (Number.isFinite(angle) && angle % 360 !== 0) cellJson.angle = ((angle % 360) + 360) % 360
       const z = Number.parseFloat(meta.z)
       if (Number.isFinite(z)) cellJson.z = Math.max(0, z)
-      // Карточка значения прошлого формата: тег переезжает в слот, подписи — в params.
-      // Дальше по функции работаем с ТЕМ ЖЕ объектом, что попал в набор: конвертер
-      // отдаёт копию, и индекс портов по исходному описывал бы уже чужую ячейку.
-      const cellNext = valueCellToParams(cellJson) || cellJson
-      cells.push(cellNext)
+      cells.push(cellJson)
       elementIds.add(meta.id)
       if (meta.stencilId === 'cell_bus') busIds.add(meta.id)
-      indexPorts(portIndex, cellNext, portByCellPoint)
+      indexPorts(portIndex, cellJson, portByCellPoint)
       cellPorts.set(meta.id, new Set(portItems.map((it) => it.id)))
     } catch (e) {
       errors.push(`Парсинг символа: ${e.message}`)
@@ -323,12 +296,6 @@ export function parseSvgProject(svgText) {
     errors.push(`Символ ${cell.id}: шина ${busId} не найдена — закрепление снято`)
   }
 
-  // Точки соединения прошлого формата растворяем в свободные концы проводов — тем же
-  // конвертером, что чинит формы в IDB (см. legacyFormat.dissolveNodeCells).
-  const nodes = dissolveNodeCells(cells)
-
   // ok = SVG распарсился (см. docstring). Пустой cells — валидная пустая форма.
-  // Подписи снятого символа `cell_text` сюда не доходят: их отсекает проверка реестра
-  // выше — «символ не зарегистрирован», с предупреждением, как любой чужой символ.
-  return { ok: true, cells: nodes.cells, errors, stencilIds: [...stencilIds] }
+  return { ok: true, cells, errors, stencilIds: [...stencilIds] }
 }

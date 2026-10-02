@@ -5,9 +5,8 @@ import { useCanvas } from './useCanvas'
  * Pan холста: drag двигает paper (translate). onPanStart вызывается из CanvasPane
  * при нажатии средней кнопки или Space+ЛКМ; move/up слушаются на document (drag
  * может уйти за пределы холста) — auto-cleanup через useEventListener.
- * `isPanning()` отдаём наружу — hover-tooltip гасится во время pan'а.
  *
- * Курсор (grab/grabbing) не трогаем — им единолично управляет CanvasPane
+ * Курсор (grab/grabbing) не трогаем — им единолично управляет CanvasPane по `isPanning()`
  * (там же живёт состояние Space), чтобы не было двух владельцев одного стиля.
  */
 export function usePan() {

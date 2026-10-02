@@ -7,7 +7,6 @@ import { idbGet, idbTryGet, idbSet, idbDel, idbKeys } from '../services/idb'
 import { loadStencilOverrides, replaceStencilOverrides } from '../services/stencilOverrides'
 import { loadPresets, rebaseOverrides } from '../services/presetLibrary'
 import { parseTagList } from '../services/tagList'
-import { migrateGraphJson } from '../services/legacyFormat'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useCanvas } from './useCanvas'
@@ -96,11 +95,7 @@ export function useAutosave({ restoringHistory }) {
           canvas.setSaveError(true)
           return -1
         }
-        // Прошлый формат переписывается сразу: экспорт уже пишет новый вид, и без
-        // перезаписи форма с архивом разъедутся.
-        const { json: graphJson, changed } = migrateGraphJson(read.value || { cells: [] })
-        if (changed) await idbSet(formKey(id), graphJson)
-        forms.push({ id, graphJson })
+        forms.push({ id, graphJson: read.value || { cells: [] } })
       }
       workspace.loadForms(forms, meta.activeFormId)
       workspace.setFormTree(meta.hierarchy) // null у старых проектов → плоский
@@ -175,14 +170,6 @@ export function useAutosave({ restoringHistory }) {
     canvas.setSaveError(!ok)
     // Неудачную запись не запоминаем: следующий сейв должен попробовать снова.
     lastSaved = ok ? { id, str } : null
-  }
-
-  /** Очищает граф активной формы (для «очистить холст» — только активную). */
-  async function clearActiveForm() {
-    const id = workspace.activeFormId
-    workspace.clearActiveForm()
-    lastSaved = null // пишем в обход saveActiveForm — его память о IDB устарела
-    if (id && !readOnly()) await idbSet(formKey(id), { cells: [] })
   }
 
   /**
@@ -296,7 +283,6 @@ export function useAutosave({ restoringHistory }) {
   return {
     restoreProject,
     saveActiveForm,
-    clearActiveForm,
     persistMeta,
     replaceProject,
     readTagsText,

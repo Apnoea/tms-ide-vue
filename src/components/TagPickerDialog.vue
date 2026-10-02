@@ -27,7 +27,7 @@ const props = defineProps({
   header: { type: String, default: 'Выбери тег' },
 })
 
-const emit = defineEmits(['select', 'cancel', 'update:visible'])
+const emit = defineEmits(['select', 'update:visible'])
 
 const search = ref('')
 const picked = ref(null)
@@ -114,11 +114,6 @@ watch(
       : null
   }
 )
-
-function cancel() {
-  emit('cancel')
-  emit('update:visible', false)
-}
 </script>
 
 <template>
@@ -198,7 +193,7 @@ function cancel() {
     </div>
 
     <template #footer>
-      <Button label="Отмена" severity="secondary" text @click="cancel" />
+      <Button label="Отмена" severity="secondary" text @click="emit('update:visible', false)" />
     </template>
   </Dialog>
 </template>

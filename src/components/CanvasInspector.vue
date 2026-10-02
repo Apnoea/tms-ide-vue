@@ -272,7 +272,7 @@ const details = computed(() => {
   return null
 })
 
-/** Унаследованный источник диапазонов провода/точки — тем же обходом, что экспорт. */
+/** Унаследованный источник диапазонов провода — тем же обходом, что экспорт. */
 function inheritedRangeOf(cell) {
   const access = jointGraphAccess(canvas.graphRef.value)
   return inheritedRangeSource(access.of(cell), access, getStencilById)
@@ -672,6 +672,13 @@ const panelKind = computed(() => {
 // Лист заголовка «Инспектор › …»; null — ничего не выделено, под заголовком свойства формы.
 const headingLeaf = useSelectionHeading()
 
+// Состав мультивыделения — уточнением в заголовке, рядом с «Выделение» / «Группа».
+const headingNote = computed(() => {
+  if (panelKind.value !== 'multi') return null
+  const { label, locked } = selectionSummary.value
+  return locked ? `${label} · ${locked} заблокировано` : label
+})
+
 // Проявление содержимого при смене типа — на теле панели, после перерисовки.
 const bodyEl = ref(null)
 watch(panelKind, () => replayClass(bodyEl.value, 'tms-panel-in'), { flush: 'post' })
@@ -878,30 +885,16 @@ const {
       <InspectorHeading
         root="Инспектор"
         :leaf="headingLeaf"
+        :note="headingNote"
         back-tip="К свойствам формы · Esc"
         @back="canvas.clearSelection()"
       />
     </div>
 
     <div ref="bodyEl" class="flex-1 min-h-0 p-4 overflow-y-auto text-sm">
-      <!-- Multi-select: больше одного символа — показываем сводку + удаление -->
+      <!-- Multi-select: состав выделения — в заголовке, здесь правка на всё выделение -->
       <template v-if="canvas.selection.value.length > 1">
         <div class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4">
-          <div>
-            <div class="text-[11px] text-surface-500 mb-1">
-              {{ multiGroup.ungroup ? 'Группа' : 'Выделено' }}
-            </div>
-            <div class="font-medium text-surface-900">
-              {{ selectionSummary.label }}
-              <span v-if="selectionSummary.locked" class="text-[11px] font-normal text-surface-500">
-                · {{ selectionSummary.locked }} заблокировано
-              </span>
-            </div>
-            <p v-if="multiGroup.ungroup" class="text-[11px] text-surface-500 mt-2">
-              Группа ведёт себя как один символ. Анимации применяются ко всем членам.
-            </p>
-          </div>
-
           <!-- Вид проводов правится на ВСЁ выделение (как анимации ниже): выделил
                серию линий — задал цвет и толщину один раз. Показываем, только когда
                в выделении нет символов, иначе непонятно, к чему относятся поля. -->
@@ -916,6 +909,9 @@ const {
           <!-- Группировка: объединить выделенное в группу (клик по члену выделяет
                всю группу) либо разгруппировать. -->
           <div v-if="multiGroup.show">
+            <p v-if="multiGroup.ungroup" class="tms-hint mb-2">
+              Группа ведёт себя как один символ. Анимации применяются ко всем членам.
+            </p>
             <Button
               :label="multiGroup.ungroup ? 'Разгруппировать' : 'Сгруппировать'"
               :icon="multiGroup.ungroup ? 'pi pi-table' : 'pi pi-th-large'"
@@ -970,28 +966,9 @@ const {
         </div>
       </template>
 
-      <!-- Ничего не выделено — свойства активной формы: название, описание и сводка. -->
+      <!-- Ничего не выделено — свойства активной формы: название и описание. -->
       <template v-else-if="!details">
-        <div class="space-y-4 text-[11px]">
-          <FormFields />
-          <div>
-            <div class="mb-2 uppercase tracking-wider text-surface-500">Сводка формы</div>
-            <div class="flex flex-col gap-1 text-surface-600">
-              <div class="flex justify-between">
-                <span>Символы</span>
-                <span class="font-mono">{{ canvas.cellsCount.value }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span>Провода</span>
-                <span class="font-mono">{{ canvas.linksCount.value }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span>Теги в tag-list</span>
-                <span class="font-mono">{{ project.tags.length }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <FormFields />
       </template>
 
       <template v-else-if="details">
@@ -1202,7 +1179,7 @@ const {
               @highlight="canvas.toggleHighlightedTag(details.rangeTag)"
               @remove="bindRangeSlotTag('')"
             />
-            <!-- Провод и точка без своей настройки: показываем унаследованное по цепи
+            <!-- Провод без своей настройки: показываем унаследованное по цепи
                  (шина / символ / провод прошлых схем) — только чтение, снимать нечего. -->
             <RangeBlock
               v-else-if="details.rangeInherited && !details.rangeSource"
@@ -1211,8 +1188,8 @@ const {
               @highlight="canvas.toggleHighlightedTag(details.rangeInherited.tag)"
             />
             <!-- Собственная настройка прошлых схем (у любого элемента): видно, × убирает
-                 целиком — заново своё не задать. Пустым блок остаётся только у провода и
-                 точки: там подсказка объясняет, откуда берётся цвет. У символа без зон
+                 целиком — заново своё не задать. Пустым блок остаётся только у провода:
+                 там подсказка объясняет, откуда берётся цвет. У символа без зон
                  настраивать на холсте нечего — зоны задают в редакторе символов. -->
             <RangeBlock
               v-else-if="details.rangeSource || details.isWire"

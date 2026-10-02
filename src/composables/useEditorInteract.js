@@ -1,11 +1,12 @@
-import { onBeforeUnmount, onMounted } from 'vue'
-import interact from 'interactjs'
+import { useEventListener } from '@vueuse/core'
 import { snapToGrid } from '../utils/grid'
 import { toPlain } from '../utils/plain'
 import { SHAPE_GRID } from './useStencilEditor'
 
 // Селектор существует только внутри редактора символов.
 const MOVE_SELECTOR = '[data-se-move]'
+// Сдвиг курсора в px экрана, после которого нажатие становится переносом.
+const MOVE_TOLERANCE = 1
 
 /** Точка, по которой снапится перенос фигуры. У подписи она в x/y, как у rect. */
 function anchorOf(s) {
@@ -24,18 +25,16 @@ function translated(s, dx, dy) {
 }
 
 /**
- * Перемещение фигур и портов и ресайз ручками на столе редактора — через interact.js.
- * Колбэки берут абсолютную позицию курсора, переводят в user-координаты, снапят и
- * пишут в модель; на весь жест — один снимок истории.
+ * Перемещение фигур и портов и ресайз ручками на столе редактора. Обработчики берут
+ * абсолютную позицию курсора, переводят в user-координаты, снапят и пишут в модель; на
+ * весь жест — один снимок истории.
  *
  * @param {object} deps
  * @param {object} deps.ed — модель редактора (useStencilEditor)
  * @param {(e: object) => {x: number, y: number}} deps.unitsFromEvent
- * @param {import('vue').Ref<boolean>} deps.shiftHeld — Shift держит круг при ресайзе
- *   ручкой: в колбэке interact самого события клавиатуры нет
  * @param {boolean} deps.locked — рисунок заперт (символ набора, программный символ)
  */
-export function useEditorInteract({ ed, unitsFromEvent, shiftHeld, locked }) {
+export function useEditorInteract({ ed, unitsFromEvent, locked }) {
   const {
     tool,
     shapes,
@@ -54,7 +53,7 @@ export function useEditorInteract({ ed, unitsFromEvent, shiftHeld, locked }) {
 
   let dragCtx = null
 
-  function reshape(snap, hKey, cur) {
+  function reshape(snap, hKey, cur, shift) {
     const p = { x: snapShapeX(cur.x), y: snapShapeY(cur.y) }
     if (snap.type === 'rect') {
       const fixed = {
@@ -75,7 +74,7 @@ export function useEditorInteract({ ed, unitsFromEvent, shiftHeld, locked }) {
       // Shift держит круг: тянутся обе полуоси разом.
       updateShape(
         snap.id,
-        shiftHeld.value ? { rx: value, ry: value } : hKey === 'rx' ? { rx: value } : { ry: value }
+        shift ? { rx: value, ry: value } : hKey === 'rx' ? { rx: value } : { ry: value }
       )
     } else if (snap.type === 'line') {
       updateShape(snap.id, hKey === 'v0' ? { x1: p.x, y1: p.y } : { x2: p.x, y2: p.y })
@@ -85,14 +84,8 @@ export function useEditorInteract({ ed, unitsFromEvent, shiftHeld, locked }) {
     }
   }
 
-  function start(e) {
-    // Перетаскивание существующих объектов — только в режиме выбора: при активном
-    // инструменте клик по фигуре рисует поверх неё.
-    if (tool.value !== 'select' || locked) {
-      e.interaction.stop()
-      return
-    }
-    const el = e.target
+  /** Жест начался: `el` — нажатый `[data-se-move]`, `e` — его pointerdown. */
+  function start(el, e) {
     const role = el.dataset.seMove
     const id = el.dataset.id
     dragCtx = { role, id, hKey: el.dataset.h }
@@ -125,7 +118,7 @@ export function useEditorInteract({ ed, unitsFromEvent, shiftHeld, locked }) {
       const dy = cur.y - dragCtx.start.y
       movePorts(dragCtx.ports.map((p) => ({ id: p.id, x: p.x + dx, y: p.y + dy })))
     } else if (dragCtx.role === 'handle') {
-      reshape(dragCtx.snapshot, dragCtx.hKey, cur)
+      reshape(dragCtx.snapshot, dragCtx.hKey, cur, e.shiftKey)
     } else if (dragCtx.role === 'shape') {
       // Снап считается ОДИН раз по ведущей фигуре, общий dx/dy идёт всей пачке:
       // поштучный снап развалил бы взаимное расположение.
@@ -150,11 +143,35 @@ export function useEditorInteract({ ed, unitsFromEvent, shiftHeld, locked }) {
     dragCtx = null
   }
 
-  onMounted(() => {
-    // Курсоры ставим сами. `styleCursor` выключается МЕТОДОМ Interactable (в опциях
-    // draggable он игнорируется): иначе interact пишет `element.style.cursor = 'move'`
-    // всем элементам селектора — и фигурам, и ручкам, и портам.
-    interact(MOVE_SELECTOR).styleCursor(false).draggable({ listeners: { start, move, end } })
+  // Нажатие, ещё не ставшее жестом: перенос стартует, только когда курсор сдвинулся, —
+  // иначе клик по фигуре (выделение, Ctrl+клик) уже был бы переносом.
+  let pending = null
+
+  // Слушаем документ: курсор уходит с фигуры и со стола, а жест продолжается. Поэтому
+  // свои pointerdown фигур и портов (выделение) всплытие не гасят.
+  useEventListener(document, 'pointerdown', (e) => {
+    // Перетаскивание — только ЛКМ в режиме выбора: при активном инструменте клик по
+    // фигуре рисует поверх неё.
+    if (e.button !== 0 || tool.value !== 'select' || locked) return
+    const el = e.target.closest?.(MOVE_SELECTOR)
+    if (el) pending = { el, down: e }
   })
-  onBeforeUnmount(() => interact(MOVE_SELECTOR).unset())
+  useEventListener(document, 'pointermove', (e) => {
+    if (pending) {
+      const { el, down } = pending
+      const moved = Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY)
+      if (moved <= MOVE_TOLERANCE) return
+      pending = null
+      start(el, down)
+    }
+    if (!dragCtx) return
+    e.preventDefault()
+    move(e)
+  })
+  const finish = () => {
+    pending = null
+    end()
+  }
+  useEventListener(document, 'pointerup', finish)
+  useEventListener(document, 'pointercancel', finish)
 }

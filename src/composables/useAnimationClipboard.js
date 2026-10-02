@@ -118,9 +118,6 @@ export function useAnimationClipboard({ canvas = null, notify = null } = {}) {
   }
 
   return {
-    stateClip,
-    depsClip,
-    valueClip,
     hasState,
     hasDeps,
     hasValue,

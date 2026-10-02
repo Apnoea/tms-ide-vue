@@ -166,12 +166,6 @@ export const CELL_META_FIELDS = [
   // должен переживать пропорционально, а по одному габариту «40×40» не понять, чего
   // хотел автор. ×1 — дефолт, в meta не пишем.
   { key: 'scale', keep: (v) => v > 1, normalize: clampNumber(1, 4, undefined) },
-  // Тег, подпись и единица карточки значения ПРОШЛОГО формата: новых ячеек с этими
-  // полями не появляется (тег живёт в slots.value_text, подписи — в params), но их
-  // читает миграция, поэтому дескрипторы живут, пока жив её слой.
-  { key: 'valueTag', keep: (v) => v !== undefined },
-  { key: 'valueLabel', keep: Boolean },
-  { key: 'valueUnit', keep: Boolean },
   // Знаков после запятой у text-анимации. Пустое = дефолт (VALUE_DECIMALS_DEFAULT).
   { key: 'decimals', keep: (v) => Number.isFinite(v), normalize: clampNumber(0, 20, undefined) },
   { key: 'locked', keep: Boolean, flag: true },
@@ -220,7 +214,7 @@ export function outerKey(stencilId, animId) {
 }
 
 /**
- * Тот же id для UI-превью (инспектор / hover-плашка), но animId без разрешения
+ * Тот же id для UI-превью (инспектор), но animId без разрешения
  * коллизий (его делает exporter.uniqueShortId). Один источник — превью и экспорт
  * не разъезжаются.
  */

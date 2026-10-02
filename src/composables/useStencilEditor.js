@@ -719,14 +719,9 @@ export function createStencilEditor() {
     return port
   }
 
-  // Как updateShape: идёт во время drag'а порта, историю коммитит компонент.
-  function movePort(id, x, y) {
-    movePorts([{ id, x, y }])
-  }
-
   /**
    * Перетаскивание ПАЧКИ портов: каждый проецируется на свою ближайшую грань, как в
-   * `nudgePorts`.
+   * `nudgePorts`. Идёт во время drag'а, историю коммитит вызывающий.
    *
    * @param {Array<{id: string, x: number, y: number}>} moves — новые позиции ДО проекции
    */
@@ -930,7 +925,6 @@ export function createStencilEditor() {
     setStateColor,
     applyPositionPreset,
     addPort,
-    movePort,
     movePorts,
     dedupePorts,
     setCanvasSize,

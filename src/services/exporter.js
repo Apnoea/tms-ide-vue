@@ -203,7 +203,7 @@ export function exportProject(graph, paper = null) {
     const animId = uniqueShortId(cell.id, (id) => usedOuterKeys.has(outerKeyFor(tms.stencilId, id)))
     usedOuterKeys.add(outerKeyFor(tms.stencilId, animId))
 
-    // Разметка экземпляра: у программных символов (шина, точка соединения) её строит
+    // Разметка экземпляра: у программного символа (шина) её строит
     // билдер СТРОКОЙ по фактическому размеру и без редактор-декораций, у остальных
     // это клон разобранного `shape.svg` (DOM). Оба вида сериализуются ниже.
     let cellSvg
@@ -270,11 +270,6 @@ export function exportProject(graph, paper = null) {
       groupId: tms.groupId,
       // busId — закрепление на шине: без round-trip'а символ перестал бы за ней ездить.
       busId: tms.busId,
-      // Поля карточки значения прошлого формата: у новых ячеек их нет, а старые
-      // конвертирует миграция — экспорт их только переносит.
-      valueTag: tms.valueTag,
-      valueLabel: tms.valueLabel,
-      valueUnit: tms.valueUnit,
       decimals: tms.decimals,
       // Геометрический трансформ для round-trip: angle применяется как rotate вокруг
       // центра ячейки на outer-`<g>`.

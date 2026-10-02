@@ -18,7 +18,7 @@ function mountShape(shape, props = {}) {
 }
 
 describe('ShapePrimitive', () => {
-  it('rect: геометрия, стиль и data-атрибуты для interact', () => {
+  it('rect: геометрия, стиль и data-атрибуты для переноса', () => {
     const w = mountShape({
       id: 's1',
       type: 'rect',

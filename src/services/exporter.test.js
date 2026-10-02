@@ -191,8 +191,8 @@ describe('exportProject', () => {
   })
 
   it('свободный конец провода помечается точкой в группе провода', () => {
-    // Точка заменила символ «точка соединения»: рисуется тем же приёмом, что
-    // наконечник (внутри группы), поэтому классы анимации достают и её.
+    // Точка рисуется тем же приёмом, что наконечник (внутри группы), поэтому классы
+    // анимации достают и её.
     const graph = mockGraph(
       [mockCell({ id: 'c1', stencilId: 'cell_qw', x: 0, y: 0, w: 20, h: 20 })],
       [mockLink({ id: 'l1', source: { id: 'c1' }, target: { x: 100, y: 60 }, tms: {} })]
@@ -989,15 +989,7 @@ describe('exportProject', () => {
   const CELL_SAMPLES = {
     slots: { onoff: 'PS031VK001.ONOFF' },
     params: { p1: 'Ia' },
-    text: 'Подпись',
-    fontSize: 18,
-    bold: true,
     color: '#ff8800',
-    fontFamily: 'monospace',
-    align: 'right',
-    valueTag: 'PS031.VALUE',
-    valueLabel: 'Напряжение',
-    valueUnit: 'кВ',
     decimals: 3,
     scale: 2,
     locked: true,
@@ -1067,7 +1059,6 @@ describe('exportProject', () => {
       mockCell({
         id: 'c1',
         stencilId: 'cell_value',
-        valueTag: 'PS031.VALUE',
         decimals: 500,
         fontSize: 'huge',
         align: 'sideways',

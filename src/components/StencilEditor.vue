@@ -248,7 +248,7 @@ const overflowClip = computed(() => {
 })
 
 // При активном инструменте рисования фигуры прозрачны для указателя: pointerdown
-// уходит на холст, interact-драг над фигурой не стартует. В режиме select они
+// уходит на холст, перенос фигуры не стартует. В режиме select они
 // интерактивны; порты и ручки не трогаются.
 const shapePointerEvents = computed(() => (tool.value === 'select' ? null : 'none'))
 
@@ -539,7 +539,6 @@ watch([pxW, pxH, stageW, stageH], updateRuler, { flush: 'post' })
 
 // ─── Рисование жестами (rect/line/circle — drag, polyline — клики) ───
 const {
-  shiftHeld,
   drawing,
   draftRect,
   draftEllipse,
@@ -551,7 +550,7 @@ const {
 } = useEditorDraw({ ed, scale, unitsFromEvent, snappedShape })
 
 // Клик по фигуре: Ctrl/Cmd — добавить или убрать из выделения, иначе выделить одну.
-// Перемещение пачки стартует в interact-хендлере (useEditorInteract).
+// Перемещение пачки стартует в useEditorInteract.
 function onShapeSelect(id, e) {
   if (tool.value !== 'select') return
   if (e?.ctrlKey || e?.metaKey) toggleSelect(id)
@@ -573,7 +572,7 @@ function onStageDown(e) {
     onDrawDown(e)
     return
   }
-  // Клик по фигуре, ручке или порту — их собственный жест (interact.js).
+  // Клик по фигуре, ручке или порту — их собственный жест (useEditorInteract).
   if (e.target.closest('[data-se-move]')) return
   startLasso(e)
 }
@@ -651,12 +650,12 @@ const handles = computed(() => {
   return []
 })
 
-// ─── Перемещение фигур и портов, ресайз ручками (interact.js) ───
-useEditorInteract({ ed, unitsFromEvent, shiftHeld, locked: shapesLocked })
+// ─── Перемещение фигур и портов, ресайз ручками ───
+useEditorInteract({ ed, unitsFromEvent, locked: shapesLocked })
 
 /**
  * Клик по порту ВЫДЕЛЯЕТ его (Ctrl/Cmd — добавляет к выделению), удаляет `Del`, как у
- * фигур. Всплытие НЕ гасим: interact.js слушает pointerdown на документе, и с
+ * фигур. Всплытие НЕ гасим: useEditorInteract слушает pointerdown на документе, и с
  * `stopPropagation` перетаскивание порта не стартует. Чужие обработчики порт
  * пропускают сами — по `[data-se-move="port"]` и `[data-se-move]`.
  */
@@ -665,7 +664,7 @@ function onPortDown(e, id) {
   if (shapesLocked) return
   const additive = e.ctrlKey || e.metaKey
   // Клик по порту ИЗ выделения набор не трогает (как у фигур): схлопнув группу здесь,
-  // до `start` interact'а, групповой drag тащил бы один порт.
+  // до старта переноса, групповой drag тащил бы один порт.
   if (!additive && selectedPortSet.value.has(id)) return
   selectPort(id, additive)
 }
@@ -943,8 +942,8 @@ onMounted(updateRuler)
         </div>
       </template>
 
-      <!-- Инструменты рисования и размер прижаты влево, история │ вид │ удаление — к
-         правому краю, как в тулбаре холста. -->
+      <!-- Инструменты рисования и размер прижаты влево, история │ вид — к правому краю,
+         как в тулбаре холста. -->
       <div class="flex-1"></div>
 
       <Button
@@ -1003,20 +1002,6 @@ onMounted(updateRuler)
           @click="zoomIn"
         />
       </div>
-
-      <Divider v-if="!shapesLocked" layout="vertical" class="tms-toolbar-divider" />
-
-      <Button
-        v-if="!shapesLocked"
-        v-tooltip.bottom="'Удалить выделенное'"
-        icon="pi pi-trash"
-        severity="secondary"
-        text
-        size="small"
-        class="tms-icon-btn"
-        :disabled="!selectedIds.length"
-        @click="removeShapes(selectedIds)"
-      />
     </div>
 
     <!-- Программный символ: вместо стола — его рисунок и пояснение, что правится. -->

@@ -8,7 +8,7 @@ defineProps({
   root: { type: String, required: true },
   /** Что выделено; null — ничего, заголовок — один корень. */
   leaf: { type: String, default: null },
-  /** Уточнение после листа: «выделено: 3». */
+  /** Уточнение после листа: «выделено: 3». В узкой панели сокращается первым. */
   note: { type: String, default: null },
   /** Подсказка кнопки-корня: куда она возвращает. */
   backTip: { type: String, default: '' },
@@ -36,7 +36,8 @@ defineEmits(['back'])
       <span class="truncate">{{ leaf }}</span>
       <span
         v-if="note"
-        class="shrink-0 text-xs font-normal normal-case tracking-normal text-surface-500"
+        :title="note"
+        class="shrink-[10] truncate text-xs font-normal normal-case tracking-normal text-surface-500"
       >
         {{ note }}
       </span>

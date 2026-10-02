@@ -22,8 +22,8 @@ import { SHAPE_GRID } from './useStencilEditor'
 export function useEditorDraw({ ed, scale, unitsFromEvent, snappedShape }) {
   const { tool, addShape, addPort } = ed
 
-  // Зажат ли Shift: у эллипса он держит равные полуоси и при рисовании, и при ресайзе
-  // ручкой — в interact-колбэке самого события нет.
+  // Зажат ли Shift: у рисуемого эллипса он держит равные полуоси. Ref, а не shiftKey
+  // события — нажатие Shift без движения мыши перерисовывает черновик сразу.
   const shiftHeld = ref(false)
   useEventListener(document, 'keydown', (e) => {
     if (e.key === 'Shift') shiftHeld.value = true
@@ -176,7 +176,6 @@ export function useEditorDraw({ ed, scale, unitsFromEvent, snappedShape }) {
   })
 
   return {
-    shiftHeld,
     drawing,
     draftRect,
     draftEllipse,

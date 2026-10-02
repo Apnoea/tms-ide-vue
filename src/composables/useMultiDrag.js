@@ -107,10 +107,5 @@ export function useMultiDrag() {
     dragLinkSnapshot = null
   }
 
-  /** «Идёт multi-drag» — hover-tooltip подавляется на время жеста. */
-  function isMultiDragging() {
-    return !!activeDragCellId
-  }
-
-  return { prepareMultiDrag, onPositionChange, endMultiDrag, isMultiDragging }
+  return { prepareMultiDrag, onPositionChange, endMultiDrag }
 }

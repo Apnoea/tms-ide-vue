@@ -5,7 +5,7 @@ import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
 import Tag from 'primevue/tag'
 import Divider from 'primevue/divider'
-import { useNotify, TOAST_LIFE } from '../composables/useNotify'
+import { useNotify } from '../composables/useNotify'
 import {
   normalizeLinkZ,
   attachLinkTools,
@@ -35,7 +35,6 @@ import { useBusSnap } from '../composables/useBusSnap'
 import { useProject } from '../composables/useProject'
 import { useHotkeys } from '../composables/useHotkeys'
 import { useSelectionOverlay } from '../composables/useSelectionOverlay'
-import { useHoverTooltip } from '../composables/useHoverTooltip'
 import { usePan } from '../composables/usePan'
 import { useBlurOnPress } from '../composables/useBlurOnPress'
 import { useCanvasZoom, ZOOM_STEP } from '../composables/useCanvasZoom'
@@ -46,9 +45,7 @@ import { useCanvasDraw } from '../composables/useCanvasDraw'
 import { useCanvasResize } from '../composables/useCanvasResize'
 import { useContextMenu } from '../composables/useContextMenu'
 import { usePaletteDrag } from '../composables/usePaletteDrag'
-import { nplural } from '../utils/plural'
 import { withRestoreGuard } from '../utils/graphBatch'
-import { useConfirmDanger } from '../composables/useConfirmDanger'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cssColor } from '../constants/animation'
 import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
@@ -72,7 +69,6 @@ const workspace = useWorkspaceStore()
 const canvas = useCanvas()
 
 const notify = useNotify()
-const confirmDanger = useConfirmDanger()
 
 // Общий флаг «идёт восстановление графа» (useAutosave + useUndoRedo): без него
 // snapshot → save → restore зацикливается. Взводится и на массовых правках графа.
@@ -81,7 +77,6 @@ const restoringHistory = ref(false)
 const {
   restoreProject,
   saveActiveForm,
-  clearActiveForm,
   persistMeta,
   replaceProject,
   readTagsText,
@@ -92,7 +87,7 @@ const {
   popTrash,
 } = useAutosave({ restoringHistory })
 
-const { initHistory, snapshot, scheduleSnapshot, undo, redo, cancelPendingSnapshot } = useUndoRedo({
+const { initHistory, scheduleSnapshot, undo, redo, cancelPendingSnapshot } = useUndoRedo({
   restoringHistory,
   saveAutosave: saveActiveForm,
 })
@@ -257,11 +252,10 @@ function toggleSearch() {
 
 // Multi-drag выделенных ячеек (и изломов проводов между ними) — в useMultiDrag,
 // хендлеры цепляются на paper/graph в onMounted.
-const { prepareMultiDrag, onPositionChange, endMultiDrag, isMultiDragging } = useMultiDrag()
+const { prepareMultiDrag, onPositionChange, endMultiDrag } = useMultiDrag()
 
 // ─── Overlay-фичи холста ───
-// Кнопки выделенной ячейки, hover-tooltip и контекстное меню: все читают graph/paper
-// через canvas.*-ref, tooltip получает предикат «идёт взаимодействие».
+// Кнопки выделенной ячейки и контекстное меню: оба читают graph/paper через canvas.*-ref.
 const { overlayBtns, rotateSelectedBy, flipSelected, onDeleteSelected, toggleLockSelected } =
   useSelectionOverlay({
     scheduleSnapshot,
@@ -303,9 +297,6 @@ const groupHoverRect = computed(() => {
   }
 })
 
-const { cellHoverTooltip, showCellTooltip, hideCellTooltip } = useHoverTooltip({
-  suppress: () => isPanning() || isMultiDragging() || bus.isResizing(),
-})
 const { ctxMenuRef, ctxItems, showContextMenu } = useContextMenu({
   hasClipboard,
   pasteClipboard,
@@ -429,8 +420,6 @@ function selectCellsWithBridges(cellItems, keepLinks = []) {
 }
 
 // ─── Resize шины (cell_bus), undo/redo, autosave — в композаблах.
-// onMaybeStartResize вешается на mousedown в onMounted, isResizing() читают те, кто
-// гасит свой UI на время жеста.
 
 onMounted(async () => {
   if (!paperContainer.value) return
@@ -454,7 +443,6 @@ onMounted(async () => {
 
   // ─── Клик по пустому месту ───
   paper.on('blank:pointerdown', (evt) => {
-    hideCellTooltip()
     // ЛКМ по пустому — лассо; pan перехватывает capture-mousedown и сюда не доходит.
     // Снятие выделения при клике без drag'а делает onLassoEnd. Активный инструмент
     // рисования забирает жест себе.
@@ -539,34 +527,27 @@ onMounted(async () => {
   // Отпустили символ: лёг на шину — закрепляем, увели с неё — закрепление снимаем.
   paper.on('element:pointerup', (view) => syncBusAttachment(view.model))
 
-  // Hover-tooltip: показывается при mouseenter, скрывается при leave и
-  // element:pointerdown (blank:pointerdown гасит его выше). Символ под курсором
-  // поднимается над соседями, иначе они закрывают его порты (hoverRaise).
+  // Ховер: символ под курсором поднимается над соседями, иначе они закрывают его порты
+  // (hoverRaise); у члена группы видна её рамка.
   const hoverRaise = createHoverRaise(paper)
   paper.on('element:mouseenter', (view) => {
     hoveredCellId.value = view.model.id // для пунктирной рамки группы
     hoverRaise.raise(view)
-    showCellTooltip(view)
   })
   paper.on('element:mouseleave', () => {
     hoveredCellId.value = null
     hoverRaise.lower()
-    hideCellTooltip()
   })
-  paper.on('element:pointerdown', hideCellTooltip)
 
   // Контекстное меню: ПКМ по ячейке, проводу или пустому месту. Нативное меню
   // браузера JointJS подавляет сам.
   paper.on('element:contextmenu', (view, evt) => {
-    hideCellTooltip()
     showContextMenu({ kind: 'cell', id: view.model.id }, evt)
   })
   paper.on('link:contextmenu', (view, evt) => {
-    hideCellTooltip()
     showContextMenu({ kind: 'link', id: view.model.id }, evt)
   })
   paper.on('blank:contextmenu', (evt) => {
-    hideCellTooltip()
     showContextMenu(null, evt)
   })
 
@@ -690,12 +671,7 @@ onMounted(async () => {
   })
 
   // Удаление любой ячейки или провода.
-  graph.on('remove', () => {
-    scheduleSnapshot()
-    // Hover-tooltip над удаляемой ячейкой надо снять вручную: mouseleave уже не
-    // придёт.
-    hideCellTooltip()
-  })
+  graph.on('remove', () => scheduleSnapshot())
 
   // Pointerup на любом cell-view: конец drag'а ячейки, draw'а линии или правки
   // link-tools.
@@ -840,7 +816,6 @@ watch(
 onBeforeUnmount(() => {
   // useEventListener / useResizeObserver / composable'ы сами снимают свои
   // ресурсы — здесь только сбрасываем singleton-ссылки на graph/paper.
-  hideCellTooltip() // pending hover-tooltip не должен стрелять после unmount
   canvas.clearCanvasRefs()
   canvas.setSelectFormFn(null)
   canvas.setArchiveFns({ importFromArchive: null, exportToArchive: null })
@@ -874,49 +849,6 @@ function onCanvasMouseMove(event) {
 function onCanvasMouseLeave() {
   canvas.setCursorLocal(null)
   overCanvas = false
-}
-
-// ─── Очистить холст ───
-// event приходит из @click="onClearCanvas($event)" — нужен ConfirmPopup'у как
-// якорь, чтобы всплыть прямо у кнопки-урны. Без target popup упадёт в (0,0).
-function onClearCanvas(event) {
-  if (!graph) return
-  const count = graph.getElements().length + graph.getLinks().length
-  if (count === 0) {
-    // Уже пусто — на всякий случай вытираем сейв активной формы и выходим
-    clearActiveForm()
-    return
-  }
-  confirmDanger({
-    target: event.currentTarget,
-    // count = символы + провода, поэтому зонтичный «элемент», а не «символ».
-    // Число после двоеточия: «будет удалено/удалён/удалены» с числом не согласовать.
-    message: `Очистить холст? Будет удалено: ${nplural(count, 'элемент', 'элемента', 'элементов')}.`,
-    acceptLabel: 'Очистить',
-    accept: () => performClearCanvas(count),
-  })
-}
-
-function performClearCanvas(count) {
-  cancelPendingSnapshot()
-  // Снимок состояния ДО очистки (flush pending-правки в стек), затем чистим под
-  // guard'ом и снимаем пустое поверх. НЕ initHistory: сброс истории делал очистку
-  // безвозвратной (Ctrl+Z не спасал, autosave тут же перезаписывал пустоту).
-  snapshot()
-  withRestoreGuard(restoringHistory, () => {
-    graph.clear()
-    canvas.bumpVersion()
-  })
-  clearActiveForm()
-  snapshot() // пустое состояние в стек — очистка откатывается Ctrl+Z
-  canvas.clearSelection()
-  canvas.markDirty() // очистка формы → проект разошёлся с .zip
-
-  notify.info(
-    'Холст очищен',
-    `Удалено: ${nplural(count, 'элемент', 'элемента', 'элементов')}`,
-    TOAST_LIFE.SHORT
-  )
 }
 </script>
 
@@ -988,8 +920,8 @@ function performClearCanvas(count) {
         </template>
       </div>
 
-      <!-- Справа — инструменты группами: вид формы (фон + поиск) │ история │ зум │
-           удаление. История стоит вплотную к зуму, как в тулбаре редактора символов. -->
+      <!-- Справа — инструменты группами: вид формы (фон + поиск) │ история │ зум. История
+           стоит вплотную к зуму, как в тулбаре редактора символов. -->
       <div class="flex items-center gap-2">
         <!-- Фон АКТИВНОЙ ФОРМЫ (см. workspace.formBg): общее поле цвета, но триггер
              свой — иконка палитры в тулбаре вместо свотча. Палитра ведёт живое превью
@@ -1096,19 +1028,6 @@ function performClearCanvas(count) {
             @click="zoomByStep(ZOOM_STEP)"
           />
         </div>
-
-        <Divider layout="vertical" class="tms-toolbar-divider" />
-
-        <Button
-          v-tooltip.bottom="'Очистить холст'"
-          icon="pi pi-trash"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-icon-btn"
-          :disabled="canvas.cellsCount.value === 0"
-          @click="onClearCanvas($event)"
-        />
       </div>
     </div>
 
@@ -1171,35 +1090,6 @@ function performClearCanvas(count) {
           v-html="draggingStencilSvg"
         />
       </div>
-
-      <!-- Hover-tooltip над ячейкой: лейбл символа + «В группе (N)» у сгруппированной.
- pointer-events отключены чтобы tooltip не перехватывал клики/hover,
- иначе после mouseenter он бы сам ловил mouseleave при выходе из cell-bbox.
- Fade на исчезновение делает выход с ячейки мягче: появление с задержкой
- 400ms (см. HOVER_DELAY_MS), исчезновение — через Transition. -->
-      <Transition
-        enter-active-class="transition-opacity duration-100"
-        leave-active-class="transition-opacity duration-150"
-        enter-from-class="opacity-0"
-        leave-to-class="opacity-0"
-      >
-        <div
-          v-if="cellHoverTooltip"
-          class="absolute z-20 pointer-events-none bg-surface-800 text-surface-0 text-[11px] px-2 py-1.5 rounded shadow-lg max-w-[260px] font-sans leading-tight"
-          :style="cellHoverTooltip.style"
-        >
-          <div class="font-semibold text-[11px]">
-            {{ cellHoverTooltip.stencilLabel }}
-          </div>
-          <div
-            v-if="cellHoverTooltip.groupCount > 1"
-            class="text-[10px] opacity-75 mt-1 flex items-center gap-1"
-          >
-            <i class="pi pi-th-large text-[9px]!" />
-            В группе ({{ cellHoverTooltip.groupCount }})
-          </div>
-        </div>
-      </Transition>
 
       <!-- Inline-overlay одиночной выделенной ячейки: поворот ↺/↻ и отражение H/V
            (гейты `canRotate`/`canFlipH`/`canFlipV`: noRotate, замок, а у фигур — меняет ли
@@ -1286,24 +1176,13 @@ function performClearCanvas(count) {
         :style="groupHoverRect"
       />
 
-      <!-- Floating info-bar: координаты курсора + selection label. Плавает
-           внизу-справа холста, появляется только когда есть что показать. -->
+      <!-- Floating info-bar: координаты курсора внизу-справа холста, пока курсор над
+           ним. -->
       <div
-        v-if="canvas.cursorLocal.value || canvas.selectionLabel.value"
-        class="absolute bottom-2 right-2 pointer-events-none flex items-center gap-2 px-2 py-1 rounded bg-surface-0/90 border border-surface-200 text-[11px] font-mono text-surface-500 shadow-sm backdrop-blur-sm"
+        v-if="canvas.cursorLocal.value"
+        class="absolute bottom-2 right-2 pointer-events-none px-2 py-1 rounded bg-surface-0/90 border border-surface-200 text-[11px] font-mono text-surface-500 shadow-sm backdrop-blur-sm"
       >
-        <span v-if="canvas.cursorLocal.value">
-          {{ canvas.cursorLocal.value.x }}, {{ canvas.cursorLocal.value.y }}
-        </span>
-        <span
-          v-if="canvas.cursorLocal.value && canvas.selectionLabel.value"
-          class="text-surface-300"
-        >
-          ·
-        </span>
-        <span v-if="canvas.selectionLabel.value" class="text-primary-600">
-          {{ canvas.selectionLabel.value }}
-        </span>
+        {{ canvas.cursorLocal.value.x }}, {{ canvas.cursorLocal.value.y }}
       </div>
 
       <!-- Lasso overlay (ЛКМ-drag по пустому): рамка выделения, координаты в container-px -->

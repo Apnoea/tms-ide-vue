@@ -51,34 +51,20 @@ describe('parseSvgProject', () => {
     expect(cell.tms.slots).toEqual({ onoff: 'PS031VK001.ONOFF' })
   })
 
-  it('cell_text из старого архива пропускается с предупреждением', () => {
-    // Символ-подпись не поддерживается, определения нет — восстановить надпись нечем.
-    // Отдельной ветки для неё не держим: ячейку отсекает общая проверка реестра, и
-    // предупреждение о пропуске такое же, как у любого чужого символа.
-    const meta = { id: 'c1', stencilId: 'cell_text', width: 60, height: 20, text: 'Hello' }
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
-      <g transform="translate(0,0)" data-tms-meta='${JSON.stringify(meta).replace(/"/g, '&quot;')}'/>
-    </svg>`
-    const out = parseSvgProject(svg)
-    expect(out.cells).toHaveLength(0)
-    expect(out.errors.join(' ')).toContain('cell_text')
-  })
-
-  it('cell_node из старого архива растворяется: конец провода встаёт в его центр', () => {
-    // Символа больше нет, но ячейку нельзя просто отсеять проверкой реестра: провод
-    // остался бы привязан к несуществующему id. Узел разбирается отдельной веткой и
-    // растворяется (legacyFormat.dissolveNodeCells) — конец уходит в ЦЕНТР узла, а не
-    // в конец пути (его укорачивает наконечник).
-    const node = { id: 'n1', stencilId: 'cell_node', width: 20, height: 20 }
+  it('символ не из реестра пропускается с предупреждением, провод к нему — по геометрии', () => {
+    // Чужой или снятый символ: ячейку собрать не из чего, а линия на схеме нарисована —
+    // конец встаёт в точку конца пути.
+    const ghost = { id: 'n1', stencilId: 'cell_gone', width: 20, height: 20 }
     const link = { id: 'L1', source: { id: 'c1', port: 'p1' }, target: { id: 'n1' } }
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">
       ${cellG('c1')}
-      <g transform="translate(100,200)" data-tms-meta='${attr(node)}'/>
+      <g transform="translate(100,200)" data-tms-meta='${attr(ghost)}'/>
       <path d="M 0 0 L 90 190" data-tms-meta='${attr(link)}'/>
     </svg>`
     const out = parseSvgProject(svg)
     expect(out.cells.find((c) => c.id === 'n1')).toBeUndefined()
-    expect(out.cells.find((c) => c.id === 'L1').target).toEqual({ x: 110, y: 210 })
+    expect(out.cells.find((c) => c.id === 'L1').target).toEqual({ x: 90, y: 190 })
+    expect(out.errors.join(' ')).toContain('cell_gone')
   })
 
   it('round-trip angle/navigation/boolSource/rangeSource на ячейке', () => {
@@ -323,37 +309,15 @@ describe('parseSvgProject', () => {
     expect(out.errors.length).toBeGreaterThan(0)
   })
 
-  it('карточка значения из старого архива приходит уже переведённой', () => {
-    // Конвертер один на оба входа данных (формы из IDB и .zip), иначе формат жил бы
-    // в двух вариантах.
-    const meta = {
-      id: 'v1',
-      stencilId: 'cell_value',
-      width: 100,
-      height: 20,
-      valueTag: 'T1.UA',
-      valueLabel: 'Ua',
-      valueUnit: 'кВ',
-    }
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg">
-      <g transform="translate(0,0)" data-tms-meta='${attr(meta)}'/>
-    </svg>`
-    const { tms } = parseSvgProject(svg).cells[0]
-    expect(tms.slots).toEqual({ value_text: 'T1.UA' })
-    expect(tms.params).toEqual({ p1: 'Ua', p2: 'кВ' })
-    expect(tms.valueTag).toBeUndefined()
-  })
-
   it('чистит числовые/перечислимые поля чужой meta', () => {
     // Архив приходит извне: `decimals: 500` валит `toFixed` в рантайме, мусорная
-    // граница диапазона — сравнение. Поля шрифта в meta ячейки больше не читаются
-    // (это поля неподдерживаемого cell_text) и просто не доезжают до tms.
+    // граница диапазона — сравнение. Поля шрифта у ячейки не читаются вовсе и до tms
+    // не доезжают.
     const meta = {
       id: 'c1',
       stencilId: 'cell_value',
       width: 60,
       height: 20,
-      valueTag: 'PS031.VALUE',
       decimals: 500,
       fontSize: 'huge',
       align: 'sideways',

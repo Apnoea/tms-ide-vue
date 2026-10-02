@@ -17,7 +17,7 @@ import { useCanvas } from './useCanvas'
  * длину. Жест живёт на document-listener'ах параллельно JointJS.
  *
  * `onMaybeStartResize` цепляется в capture-фазе, до JointJS, иначе тот начнёт свой
- * drag. `isResizing()` читают те, кто гасит свой UI на время жеста.
+ * drag.
  */
 export function useBusResize({ scheduleSnapshot }) {
   const canvas = useCanvas()
@@ -27,10 +27,6 @@ export function useBusResize({ scheduleSnapshot }) {
 
   useEventListener(dragTarget, 'mousemove', onResizeMove)
   useEventListener(dragTarget, 'mouseup', onResizeEnd)
-
-  function isResizing() {
-    return dragging.value
-  }
 
   function onMaybeStartResize(evt) {
     if (evt.button !== 0) return
@@ -217,5 +213,5 @@ export function useBusResize({ scheduleSnapshot }) {
     scheduleSnapshot()
   }
 
-  return { isResizing, onMaybeStartResize }
+  return { onMaybeStartResize }
 }

@@ -174,11 +174,11 @@ describe('CanvasInspector', () => {
     setup()
     await wrapper.vm.$nextTick()
 
-    const text = wrapper.text()
-    expect(text).toContain('2 символа + 1 провод') // не «3 символа»
-    expect(text).toContain('1 заблокировано')
+    const heading = wrapper.find('h2').text()
+    expect(heading).toMatch(/Инспектор\s*›\s*Выделение/)
+    expect(heading).toContain('2 символа + 1 провод · 1 заблокировано') // не «3 символа»
     // Удалятся свободная ячейка + провод; locked остаётся.
-    expect(text).toContain('Удалить (2)')
+    expect(wrapper.text()).toContain('Удалить (2)')
   })
 
   it('commitNav не пишет навигацию в ЧУЖУЮ ячейку после смены выделения', async () => {
@@ -438,7 +438,6 @@ describe('CanvasInspector: стиль провода', () => {
     mount()
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('Название формы')
-    expect(wrapper.text()).toContain('Сводка формы')
     expect(wrapper.findComponent(ColorField).exists()).toBe(false)
   })
 

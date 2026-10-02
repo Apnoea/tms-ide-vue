@@ -47,13 +47,6 @@ describe('useWorkspaceStore', () => {
     expect(ws.activeFormId).toBe('b')
   })
 
-  it('clearActiveForm обнуляет граф активной формы', () => {
-    const ws = useWorkspaceStore()
-    ws.loadForms(sample(), 'a')
-    ws.clearActiveForm()
-    expect(ws.getFormGraph('a')).toEqual({ cells: [] })
-  })
-
   it('addForm добавляет пустую форму; дубль id → false', () => {
     const ws = useWorkspaceStore()
     ws.loadForms(sample(), 'a')

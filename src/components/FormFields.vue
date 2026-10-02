@@ -64,9 +64,7 @@ const descriptionDraft = description.draft
 <template>
   <div class="space-y-3">
     <div>
-      <label for="tms-form-title" class="mb-2 block uppercase tracking-wider text-surface-500">
-        Название формы
-      </label>
+      <label for="tms-form-title" class="tms-field-label mb-2 block">Название формы</label>
       <InputText
         id="tms-form-title"
         :model-value="titleDraft"
@@ -80,12 +78,7 @@ const descriptionDraft = description.draft
       />
     </div>
     <div>
-      <label
-        for="tms-form-description"
-        class="mb-2 block uppercase tracking-wider text-surface-500"
-      >
-        Описание формы
-      </label>
+      <label for="tms-form-description" class="tms-field-label mb-2 block">Описание формы</label>
       <Textarea
         id="tms-form-description"
         :model-value="descriptionDraft"

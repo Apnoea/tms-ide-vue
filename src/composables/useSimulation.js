@@ -180,8 +180,8 @@ export function useSimulation() {
 
   /**
    * Действующий источник диапазонов элемента — тем же резолвером, что экспорт: у
-   * символа зоны определения плюс тег слота `range`, у шины свой `tms.rangeSource`, у
-   * провода и точки — унаследованный по цепи. `access` — один на проход по графу.
+   * символа (и шины) зоны определения плюс тег слота `range`, у провода — унаследованный
+   * по цепи. `access` — один на проход по графу.
    */
   function cellRangeSource(cell, access) {
     return resolveRangeSource(access.of(cell), access, getStencilById)

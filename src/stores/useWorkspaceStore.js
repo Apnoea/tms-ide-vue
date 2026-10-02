@@ -304,10 +304,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   /** Обнулить граф активной формы (для «очистить холст» — только активную). */
-  function clearActiveForm() {
-    if (forms.has(activeFormId.value)) forms.set(activeFormId.value, { cells: [] })
-  }
-
   function hasForm(id) {
     return forms.has(id)
   }
@@ -409,7 +405,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     getFormGraph,
     setFormGraph,
     setActiveFormId,
-    clearActiveForm,
     hasForm,
     addForm,
     removeForm,

@@ -328,10 +328,10 @@ describe('useStencilEditor', () => {
     expect(ed.addPort(10, 0).name).toBe('p8')
   })
 
-  it('movePort снапит к сетке и держит порт на границе', () => {
+  it('movePorts снапит к сетке и держит порт на границе', () => {
     const ed = createStencilEditor() // 40×40
     const p = ed.addPort(0, 0)
-    ed.movePort(p.id, 37, 15) // снап к 5 → (35,15) → ближайшая сторона right → (40,15)
+    ed.movePorts([{ id: p.id, x: 37, y: 15 }]) // снап к 5 → (35,15) → ближайшая сторона right → (40,15)
     const moved = ed.ports.value.find((x) => x.id === p.id)
     expect(moved).toMatchObject({ x: 40, y: 15 })
   })
