@@ -45,20 +45,14 @@ export function useContextMenu({
             label: 'Разгруппировать',
             icon: 'pi pi-table',
             shortcut: 'Ctrl+Shift+G',
-            command: () => {
-              const n = canvas.ungroupCells(canvas.selection.value)
-              if (n) notify.success('Разгруппировано', nplural(n, 'символ', 'символа', 'символов'))
-            },
+            command: () => canvas.toggleGroupSelection(true, notify),
           }
         : selCellCount >= 2
           ? {
               label: 'Сгруппировать',
               icon: 'pi pi-th-large',
               shortcut: 'Ctrl+G',
-              command: () => {
-                const n = canvas.groupCells(canvas.selection.value)
-                if (n) notify.success('Сгруппировано', nplural(n, 'символ', 'символа', 'символов'))
-              },
+              command: () => canvas.toggleGroupSelection(false, notify),
             }
           : null
       // Замок работает на всё выделение (хоть одна свободна → лочим все), поэтому

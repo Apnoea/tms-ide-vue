@@ -2,6 +2,7 @@
 import Button from 'primevue/button'
 import TagField from './TagField.vue'
 import RangeRows from './RangeRows.vue'
+import AnimationCard from './AnimationCard.vue'
 
 /**
  * Карточка анимации «Значение тега → цвет по диапазону» в инспекторе холста. Строки
@@ -35,26 +36,19 @@ defineEmits(['open-tag-picker', 'highlight', 'remove'])
 </script>
 
 <template>
-  <div class="border border-surface-200 rounded p-3 bg-surface-0">
-    <div class="flex items-center gap-2 mb-2 min-h-6">
-      <i class="pi pi-chart-bar text-yellow-500" />
-      <div class="flex items-baseline gap-1.5 min-w-0">
-        <span class="text-xs font-medium text-surface-700">Цвет</span>
-        <span class="tms-hint truncate">по диапазону тега</span>
-      </div>
-      <div class="ml-auto flex items-center">
-        <Button
-          v-if="rangeSource && !inheritedFrom"
-          v-tooltip.bottom="pickable ? 'Очистить тег' : 'Убрать настройку'"
-          icon="pi pi-times"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-row-btn"
-          @click="$emit('remove')"
-        />
-      </div>
-    </div>
+  <AnimationCard icon="pi pi-chart-bar text-yellow-500" title="Цвет" hint="по диапазону тега">
+    <template #actions>
+      <Button
+        v-if="rangeSource && !inheritedFrom"
+        v-tooltip.bottom="pickable ? 'Очистить тег' : 'Убрать настройку'"
+        icon="pi pi-times"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-row-btn"
+        @click="$emit('remove')"
+      />
+    </template>
 
     <p v-if="pickable || rangeSource" class="tms-hint mb-2">
       Цвет по диапазону значения. Одинаковые границы — точное значение: «3 — 3» сработает только на
@@ -94,5 +88,5 @@ defineEmits(['open-tag-picker', 'highlight', 'remove'])
         <RangeRows :ranges="rangeSource.ranges || []" readonly />
       </div>
     </div>
-  </div>
+  </AnimationCard>
 </template>

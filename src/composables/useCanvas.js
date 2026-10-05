@@ -11,6 +11,7 @@ import {
 } from '../utils/zOrder'
 import { LINK_Z_BOUNDS } from '../stencils/linkDefaults'
 import { isShapeCell } from '../stencils/shapeElement'
+import { nplural } from '../utils/plural'
 
 // Уникальный id логической группы ячеек (`tms.groupId`). Короткий, но глобально
 // уникальный — round-trip'ится в data-tms-meta.
@@ -33,36 +34,29 @@ export function genGroupId() {
 const graphRef = shallowRef(null)
 const paperRef = shallowRef(null)
 
-// Переключение формы: панель форм дёргает selectForm(id), оркестрацию (сохранить
-// текущую → загрузить выбранную + сброс undo) держит useProject.
-const selectFormFn = shallowRef(null)
-
-// Импорт и экспорт .zip: кнопки в ProjectActions дёргают эти fn, оркестрацию
-// (распаковка, прогон форм через paper, бандл) держит useProject.
-const importArchiveFn = shallowRef(null)
-const exportArchiveFn = shallowRef(null)
-
-// Вписать контент в область видимости: реализация в CanvasPane (у неё paper и размеры
-// контейнера), зовётся после импорта и переключения формы.
-const fitViewFn = shallowRef(null)
-
-// Разнести правку символа по формам, кроме активной: зовёт редактор символов после
-// сохранения, оркестрацию (прогон форм в теневом графе, запись в IDB) держит
-// useProject.
-const syncStencilFormsFn = shallowRef(null)
-
-// CRUD форм и DnD-перенос узла дерева; оркестрацию (стор, IDB, перезагрузка холста)
-// держит useProject.
-const createFormFn = shallowRef(null)
-const duplicateFormFn = shallowRef(null)
-const deleteFormFn = shallowRef(null)
-const restoreFormFn = shallowRef(null)
-// Корзина удалённых форм: данные держит useProject, здесь ссылка на его ref. Наружу
-// отдаём развёрнутый массив — иначе к потребителю уходит объект Ref.
-const formTrashSource = shallowRef(null)
-const formTrash = computed(() => formTrashSource.value?.value ?? [])
-const renameFormFn = shallowRef(null)
-const moveFormFn = shallowRef(null)
+// Проектные операции: оркестрацию держит useProject в CanvasPane (ему нужны graph и
+// paper), а зовут другие панели — дерево форм, ProjectActions, редактор символов.
+// CanvasPane кладёт объект сюда при монтировании и снимает при размонтировании; без
+// холста вызовы — no-op.
+const projectActions = shallowRef(null)
+const PROJECT_ACTIONS = [
+  'selectForm',
+  'importProjectFromArchive',
+  'exportProjectToArchive',
+  'fitToContent',
+  'createForm',
+  'duplicateForm',
+  'deleteForm',
+  'restoreForm',
+  'renameForm',
+  'moveFormNode',
+]
+const projectProxies = Object.fromEntries(
+  PROJECT_ACTIONS.map((name) => [name, (...args) => projectActions.value?.[name]?.(...args)])
+)
+// Корзина удалённых форм — ref из useProject; наружу развёрнутый массив, иначе к
+// потребителю ушёл бы объект Ref.
+const formTrash = computed(() => projectActions.value?.trash?.value ?? [])
 
 const selection = ref([]) // Array<{ kind, id }>
 
@@ -165,6 +159,62 @@ function cellsOfStencil(stencilId) {
   return graph.getElements().filter((c) => c.get('tms')?.stencilId === stencilId)
 }
 
+/** Объединить выделенные ячейки (≥2) в новую группу (общий `groupId`).
+ *  Возвращает число сгруппированных ячеек (0 — если группировать нечего). */
+function groupCells(items) {
+  const graph = graphRef.value
+  if (!graph) return 0
+  // locked-ячейки не группируем: groupId — правка tms.
+  const cells = (items || [])
+    .filter((i) => i.kind === 'cell')
+    .map((i) => graph.getCell(i.id))
+    .filter((c) => c && !c.get('tms')?.locked)
+  if (cells.length < 2) return 0
+  const gid = genGroupId()
+  for (const c of cells) c.set('tms', { ...(c.get('tms') || {}), groupId: gid })
+  graphVersion.value++
+  snapshotTick.value++
+  return cells.length
+}
+
+/** Снять группировку с выделенных ячеек. Возвращает число разгруппированных. */
+function ungroupCells(items) {
+  const graph = graphRef.value
+  if (!graph) return 0
+  let count = 0
+  for (const i of items || []) {
+    if (i.kind !== 'cell') continue
+    const c = graph.getCell(i.id)
+    const tms = c?.get('tms')
+    // locked не разгруппировываем: groupId — правка tms.
+    if (!tms?.groupId || tms.locked) continue
+    const next = { ...tms }
+    delete next.groupId
+    c.set('tms', next)
+    count++
+  }
+  if (count) {
+    graphVersion.value++
+    snapshotTick.value++
+  }
+  return count
+}
+
+/**
+ * Сгруппировать или разгруппировать выделение с тостом-итогом — одно действие у клавиш,
+ * контекстного меню и инспектора. Ничего не изменилось — молчит.
+ */
+function toggleGroupSelection(ungroup, notify) {
+  const n = ungroup ? ungroupCells(selection.value) : groupCells(selection.value)
+  if (n) {
+    notify.success(
+      ungroup ? 'Разгруппировано' : 'Сгруппировано',
+      nplural(n, 'символ', 'символа', 'символов')
+    )
+  }
+  return n
+}
+
 export function useCanvas() {
   return {
     graphRef,
@@ -185,75 +235,20 @@ export function useCanvas() {
       graphRef.value = graph
       paperRef.value = paper
     },
-    setSelectFormFn(fn) {
-      selectFormFn.value = fn
+    /** @param {object|null} actions — объект useProject (+ fitToContent) или null */
+    setProjectActions(actions) {
+      projectActions.value = actions
     },
-    selectForm(id) {
-      return selectFormFn.value?.(id)
-    },
-    setArchiveFns({ importFromArchive, exportToArchive }) {
-      importArchiveFn.value = importFromArchive
-      exportArchiveFn.value = exportToArchive
-    },
-    importProjectFromArchive() {
-      return importArchiveFn.value?.()
-    },
-    exportProjectToArchive() {
-      return exportArchiveFn.value?.()
-    },
-    setFitViewFn(fn) {
-      fitViewFn.value = fn
-    },
-    fitToContent() {
-      return fitViewFn.value?.()
-    },
-    setSyncStencilFormsFn(fn) {
-      syncStencilFormsFn.value = fn
-    },
+    ...projectProxies,
     /** @returns {Promise<{forms: number, changed: number, detached: number}>} */
     async syncStencilInClosedForms(stencilId, prev) {
       // Прогон обёрнут проектным гейтом: занято другой операцией или упало внутри —
       // вернётся undefined. Нормализуем здесь, иначе вызывающий читал бы поля у него
       // (Ctrl+S в редакторе работает и при `projectBusy` — `inert` гасит только клики).
-      const report = await syncStencilFormsFn.value?.(stencilId, prev)
+      const report = await projectActions.value?.syncStencilInClosedForms?.(stencilId, prev)
       return report || { forms: 0, changed: 0, detached: 0 }
     },
-    setFormCrudFns({
-      createForm,
-      duplicateForm,
-      deleteForm,
-      restoreForm,
-      renameForm,
-      moveForm,
-      trash,
-    }) {
-      createFormFn.value = createForm
-      duplicateFormFn.value = duplicateForm
-      deleteFormFn.value = deleteForm
-      restoreFormFn.value = restoreForm
-      formTrashSource.value = trash || null
-      renameFormFn.value = renameForm
-      moveFormFn.value = moveForm
-    },
-    createForm() {
-      return createFormFn.value?.()
-    },
-    duplicateForm(id) {
-      return duplicateFormFn.value?.(id)
-    },
-    deleteForm(id) {
-      return deleteFormFn.value?.(id)
-    },
-    restoreForm(id) {
-      return restoreFormFn.value?.(id)
-    },
     formTrash,
-    renameForm(oldId, newId) {
-      return renameFormFn.value?.(oldId, newId)
-    },
-    moveFormNode(dragId, targetId, zone) {
-      return moveFormFn.value?.(dragId, targetId, zone)
-    },
     clearCanvasRefs() {
       graphRef.value = null
       paperRef.value = null
@@ -400,8 +395,8 @@ export function useCanvas() {
     searchMatchIds,
     searchCurrentIdx,
     /**
-     * Прогнать query по всем ячейкам графа: пересчитывает matchIds и сбрасывает
-     * currentIdx. Пустой запрос даёт пустой результат; порядок — сверху вниз, слева
+     * Прогнать query по всем ячейкам графа: пересчитывает searchMatchIds и сбрасывает
+     * searchCurrentIdx. Пустой запрос даёт пустой результат; порядок — сверху вниз, слева
      * направо по bbox.
      */
     runSearch(query) {
@@ -487,47 +482,9 @@ export function useCanvas() {
       }
       return result
     },
-    /** Объединить выделенные ячейки (≥2) в новую группу (общий `groupId`).
-     *  Возвращает число сгруппированных ячеек (0 — если группировать нечего). */
-    groupCells(items) {
-      const graph = graphRef.value
-      if (!graph) return 0
-      // locked-ячейки не группируем: groupId — правка tms.
-      const cells = (items || [])
-        .filter((i) => i.kind === 'cell')
-        .map((i) => graph.getCell(i.id))
-        .filter((c) => c && !c.get('tms')?.locked)
-      if (cells.length < 2) return 0
-      const gid = genGroupId()
-      for (const c of cells) c.set('tms', { ...(c.get('tms') || {}), groupId: gid })
-      graphVersion.value++
-      snapshotTick.value++
-      return cells.length
-    },
+    toggleGroupSelection,
     writableItems(items) {
       return writableCells(graphRef.value, items)
-    },
-    /** Снять группировку с выделенных ячеек. Возвращает число разгруппированных. */
-    ungroupCells(items) {
-      const graph = graphRef.value
-      if (!graph) return 0
-      let count = 0
-      for (const i of items || []) {
-        if (i.kind !== 'cell') continue
-        const c = graph.getCell(i.id)
-        const tms = c?.get('tms')
-        // locked не разгруппировываем: groupId — правка tms.
-        if (!tms?.groupId || tms.locked) continue
-        const next = { ...tms }
-        delete next.groupId
-        c.set('tms', next)
-        count++
-      }
-      if (count) {
-        graphVersion.value++
-        snapshotTick.value++
-      }
-      return count
     },
     /**
      * Порядок наложения (z): 'front' / 'back' / 'forward' / 'backward'. У слоёв

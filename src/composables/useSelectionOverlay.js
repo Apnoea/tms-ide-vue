@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useCanvas } from './useCanvas'
 import { getStencilById, registryVersion } from '../stencils/registry'
 import {
@@ -77,6 +77,43 @@ export function useSelectionOverlay({ scheduleSnapshot, dragging }) {
       // Замок виден всегда — им же снимают блокировку, когда остальное read-only.
       locked: !!cell.get('tms')?.locked,
       ...overlayButtonPositions({ left: tl.x, top: tl.y, right: br.x, bottom: br.y }),
+    }
+  })
+
+  // Пунктирная рамка группы по ховеру: границы видны до клика. Ячейку под курсором кладёт
+  // CanvasPane (element:mouseenter/leave).
+  const hoveredCellId = ref(null)
+  const groupHoverRect = computed(() => {
+    canvas.graphVersion.value
+    canvas.paperViewTick.value
+    if (dragging?.value) return null
+    const id = hoveredCellId.value
+    const paper = canvas.paperRef.value
+    const graph = canvas.graphRef.value
+    if (!id || !paper || !graph) return null
+    const gid = graph.getCell(id)?.get('tms')?.groupId
+    if (!gid) return null
+    const members = graph.getElements().filter((e) => e.get('tms')?.groupId === gid)
+    if (members.length < 2) return null
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const m of members) {
+      const aabb = rotatedAabb(m.get('position'), m.get('size'), m.angle() || 0)
+      minX = Math.min(minX, aabb.x)
+      minY = Math.min(minY, aabb.y)
+      maxX = Math.max(maxX, aabb.x + aabb.width)
+      maxY = Math.max(maxY, aabb.y + aabb.height)
+    }
+    const tl = projectToScreen(paper, minX, minY)
+    const br = projectToScreen(paper, maxX, maxY)
+    const pad = 4
+    return {
+      left: `${tl.x - pad}px`,
+      top: `${tl.y - pad}px`,
+      width: `${br.x - tl.x + 2 * pad}px`,
+      height: `${br.y - tl.y + 2 * pad}px`,
     }
   })
 
@@ -171,5 +208,13 @@ export function useSelectionOverlay({ scheduleSnapshot, dragging }) {
     canvas.toggleLocked(canvas.selection.value)
   }
 
-  return { overlayBtns, rotateSelectedBy, flipSelected, onDeleteSelected, toggleLockSelected }
+  return {
+    overlayBtns,
+    rotateSelectedBy,
+    flipSelected,
+    onDeleteSelected,
+    toggleLockSelected,
+    hoveredCellId,
+    groupHoverRect,
+  }
 }

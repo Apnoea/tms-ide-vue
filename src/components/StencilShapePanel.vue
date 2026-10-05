@@ -13,6 +13,7 @@ import Checkbox from 'primevue/checkbox'
 import SelectButton from 'primevue/selectbutton'
 import Message from 'primevue/message'
 import ColorField from './ColorField.vue'
+import AnimationCard from './AnimationCard.vue'
 import { useStencilEditor } from '../composables/useStencilEditor'
 import { ALIGN_OPTIONS, FONT_FAMILIES, TEXT_SHAPE_SIZE, normalizeFont } from '../constants/text'
 import { joinStateKeys, shapeStateKeys } from '../utils/stencilSvg'
@@ -430,17 +431,15 @@ function bindToState(value) {
          настройка со стороны фигуры. Только при включённой анимации состояния. -->
     <div v-if="hasShapeState" class="space-y-2 border-t border-surface-200 pt-4">
       <div class="tms-field-label">Анимации</div>
-      <div class="border border-surface-200 rounded p-3 bg-surface-0" data-test="state-binding">
-        <div class="flex items-center gap-2 mb-2 min-h-6">
-          <i class="pi pi-eye text-cyan-500" />
-          <div class="flex items-baseline gap-1.5 min-w-0">
-            <span class="text-xs font-medium text-surface-700">Привязка</span>
-            <span class="tms-hint truncate">к состоянию</span>
-          </div>
-          <span v-if="shapeState === null" class="ml-auto text-[11px] text-surface-400">
-            у выделенных разная
-          </span>
-        </div>
+      <AnimationCard
+        icon="pi pi-eye text-cyan-500"
+        title="Привязка"
+        hint="к состоянию"
+        data-test="state-binding"
+      >
+        <template v-if="shapeState === null" #actions>
+          <span class="text-[11px] text-surface-400">у выделенных разная</span>
+        </template>
         <p class="tms-hint mb-2">
           {{
             multiState
@@ -479,7 +478,7 @@ function bindToState(value) {
             </code>
           </button>
         </div>
-      </div>
+      </AnimationCard>
     </div>
     <!-- Геометрия и текст правятся по одной фигуре: у пачки нет общего
          «размера», а массовая замена текста снесла бы разные подписи. -->

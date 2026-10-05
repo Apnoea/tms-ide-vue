@@ -94,7 +94,7 @@ async function openProject() {
       text
       size="small"
       :disabled="importing"
-      @click="canvas.exportProjectToArchive"
+      @click="canvas.exportProjectToArchive()"
     />
   </div>
 </template>

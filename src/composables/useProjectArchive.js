@@ -415,7 +415,7 @@ export function useProjectArchive(ctx) {
   /**
    * Прогон всех форм через живой paper → бандл проекта, затем `deliver(bundle)`.
    * Геометрию провода exporter берёт с отрисованного paper, а там живёт только активная
-   * форма, поэтому каждая прогоняется через живой граф (под restoreGuard, без autosave
+   * форма, поэтому каждая прогоняется через живой граф (под withRestoreGuard, без autosave
    * и undo); в finally возвращается исходная.
    */
   async function buildAndDeliverBundle(deliver) {

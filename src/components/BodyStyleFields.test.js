@@ -22,7 +22,7 @@ const mount = (props = {}) =>
   })
 
 /** Крестики сброса — мелкие кнопки-бейджи: первая у цвета, вторая у толщины. */
-const resetButtons = (w) => w.findAll('button.h-3\\.5')
+const resetButtons = (w) => w.findAll('button.tms-reset-badge')
 
 describe('BodyStyleFields', () => {
   it('у дефолтных цвета и толщины сбросов нет', () => {

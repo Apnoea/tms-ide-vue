@@ -161,7 +161,7 @@ describe('CanvasInspector', () => {
     expect(cell.get('tms').slots).toBeUndefined()
   })
 
-  it('мульти-режим: провода не считаются символами, «Удалить» — по фактически удаляемым', async () => {
+  it('мульти-режим: провода в составе не считаются символами', async () => {
     const a = makeCell()
     const b = makeCell({ locked: true })
     const link = new shapes.standard.Link({ source: { id: a.id }, target: { id: b.id } })
@@ -177,8 +177,6 @@ describe('CanvasInspector', () => {
     const heading = wrapper.find('h2').text()
     expect(heading).toMatch(/Инспектор\s*›\s*Выделение/)
     expect(heading).toContain('2 символа + 1 провод · 1 заблокировано') // не «3 символа»
-    // Удалятся свободная ячейка + провод; locked остаётся.
-    expect(wrapper.text()).toContain('Удалить (2)')
   })
 
   it('commitNav не пишет навигацию в ЧУЖУЮ ячейку после смены выделения', async () => {

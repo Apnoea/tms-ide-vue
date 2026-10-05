@@ -6,18 +6,13 @@ import {
   isFocusInInput,
   isInListWidget,
   hasTextSelectionOutside,
+  runKey,
+  ARROW_DIRS,
 } from '../utils/viewKeys'
 import { PORT_GRID, SHAPE_GRID } from './useStencilEditor'
 
 // Стол редактора (`data-se-stage` в StencilEditor).
 const STAGE_SELECTOR = '[data-se-stage]'
-
-const ARROW_DIRS = {
-  ArrowLeft: { x: -1, y: 0 },
-  ArrowRight: { x: 1, y: 0 },
-  ArrowUp: { x: 0, y: -1 },
-  ArrowDown: { x: 0, y: 1 },
-}
 
 // Открыт модальный диалог (справка / confirm) поверх редактора: клавиши — его.
 const dialogOpen = () => !!document.querySelector('.p-dialog-mask')
@@ -61,64 +56,34 @@ export function useEditorHotkeys({
     // Зум стола — только с курсором над столом (иначе это браузерный зум страницы).
     const zoom = zoomKeyOf(e)
     if (zoom && stageEl.value?.matches(':hover') && !dialogOpen()) {
-      e.preventDefault()
-      if (zoom === 'fit') fitView()
-      else if (zoom === 'in') zoomIn()
-      else zoomOut()
-      return
+      return runKey(e, { fit: fitView, in: zoomIn, out: zoomOut }[zoom])
     }
     if ((e.ctrlKey || e.metaKey) && !inInput) {
-      if (e.code === 'KeyZ') {
-        e.preventDefault()
-        if (e.shiftKey) ed.redo()
-        else ed.undo()
-        return
-      }
-      if (e.code === 'KeyY') {
-        e.preventDefault()
-        ed.redo()
-        return
-      }
+      if (e.code === 'KeyZ') return runKey(e, e.shiftKey ? ed.redo : ed.undo)
+      if (e.code === 'KeyY') return runKey(e, ed.redo)
       // Ctrl+S — сохранить символ (у браузера это «сохранить страницу», перехватываем).
       // Доступен и программному символу: его зоны тоже сохраняются.
-      if (e.code === 'KeyS') {
-        e.preventDefault()
-        save()
-        return
-      }
+      if (e.code === 'KeyS') return runKey(e, save)
       // Ctrl+A остаётся и под замком: выделение нужно, чтобы задать фигурам состояние.
       if (locked) {
-        if (e.code === 'KeyA' && animationOnly) {
-          e.preventDefault()
-          selectAll()
-        }
+        if (e.code === 'KeyA' && animationOnly) runKey(e, selectAll)
         return
       }
       // Ctrl+C / Ctrl+V — копировать/вставить выделенное (со свойствами). Выделенный
       // текст вне стола (подсказка, подпись поля в инспекторе) копирует браузер.
       if (e.code === 'KeyC') {
         if (hasTextSelectionOutside(STAGE_SELECTOR)) return
-        e.preventDefault()
-        ed.copyShapes()
-        return
+        return runKey(e, ed.copyShapes)
       }
-      if (e.code === 'KeyV') {
-        e.preventDefault()
-        ed.pasteShapes()
-        return
-      }
+      if (e.code === 'KeyV') return runKey(e, ed.pasteShapes)
       // Ctrl+D — дублировать выделенное, как на холсте; буфер при этом не трогается.
-      if (e.code === 'KeyD') {
-        e.preventDefault()
-        ed.duplicateShapes()
-        return
-      }
+      if (e.code === 'KeyD') return runKey(e, ed.duplicateShapes)
       // Ctrl+A — все фигуры (порты в выделение не входят, у них свой режим).
       if (e.code === 'KeyA') {
-        e.preventDefault()
-        setTool('select')
-        selectAll()
-        return
+        return runKey(e, () => {
+          setTool('select')
+          selectAll()
+        })
       }
     }
     if (e.key === 'Escape') {
@@ -142,11 +107,7 @@ export function useEditorHotkeys({
     // 1…6 — инструмент по номеру в тулбаре (рисование, затем порт); та же цифра — к
     // выбору, как повторный клик.
     const toolKey = toolKeys[toolDigitOf(e)]
-    if (toolKey && ownKeys) {
-      e.preventDefault()
-      pickTool(toolKey)
-      return
-    }
+    if (toolKey && ownKeys) return runKey(e, () => pickTool(toolKey))
     // Стрелки — сдвиг выделения, как на холсте: шаг сетки, с Shift — впятеро крупнее
     // (у фигур сетка 1px, у портов и размера символа — 5).
     const arrow = ARROW_DIRS[e.key]
@@ -154,54 +115,34 @@ export function useEditorHotkeys({
       // Порт живёт на сетке символа, поэтому у него шаг всегда PORT_GRID: пиксельный
       // сдвиг увёл бы вывод с клетки, и провод на схеме перестал бы попадать в порт.
       if (selectedPortIds.value.length) {
-        e.preventDefault()
-        ed.nudgePorts(arrow.x * PORT_GRID, arrow.y * PORT_GRID)
-        return
+        return runKey(e, () => ed.nudgePorts(arrow.x * PORT_GRID, arrow.y * PORT_GRID))
       }
       if (selectedIds.value.length) {
-        e.preventDefault()
         const step = e.shiftKey ? PORT_GRID : SHAPE_GRID
-        ed.nudgeShapes(arrow.x * step, arrow.y * step)
-        return
+        return runKey(e, () => ed.nudgeShapes(arrow.x * step, arrow.y * step))
       }
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && !inInput) {
       // Выделение взаимно исключающее (см. selectPort), поэтому порядок проверок не спорит.
-      if (selectedPortIds.value.length) {
-        e.preventDefault()
-        ed.removePorts(selectedPortIds.value)
-        return
-      }
-      if (selectedIds.value.length) {
-        e.preventDefault()
-        ed.removeShapes(selectedIds.value)
-        return
-      }
+      if (selectedPortIds.value.length)
+        return runKey(e, () => ed.removePorts(selectedPortIds.value))
+      if (selectedIds.value.length) return runKey(e, () => ed.removeShapes(selectedIds.value))
     }
     // Поворот и отражение без Ctrl, поэтому проверяем поля ввода: R посреди набора
     // подписи не должен крутить фигуру.
     if (!e.ctrlKey && !e.metaKey && !e.altKey && !inInput && selectedIds.value.length) {
-      if (e.code === 'KeyR') {
-        e.preventDefault()
-        rotateSelected(e.shiftKey ? -1 : 1)
-        return
-      }
+      if (e.code === 'KeyR') return runKey(e, () => rotateSelected(e.shiftKey ? -1 : 1))
       if (e.shiftKey && (e.code === 'KeyH' || e.code === 'KeyV')) {
-        e.preventDefault()
-        flipSelected(e.code === 'KeyH' ? 'h' : 'v')
-        return
+        return runKey(e, () => flipSelected(e.code === 'KeyH' ? 'h' : 'v'))
       }
     }
     // Порядок наложения: Ctrl+] / Ctrl+[, с Shift — до края. У фигур слой задаёт
     // позиция в массиве, а не z.
     if ((e.ctrlKey || e.metaKey) && (e.code === 'BracketRight' || e.code === 'BracketLeft')) {
       if (!selectedIds.value.length) return
-      e.preventDefault()
       const up = e.code === 'BracketRight'
-      ed.reorderShapes(
-        selectedIds.value,
-        e.shiftKey ? (up ? 'front' : 'back') : up ? 'forward' : 'backward'
-      )
+      const mode = e.shiftKey ? (up ? 'front' : 'back') : up ? 'forward' : 'backward'
+      runKey(e, () => ed.reorderShapes(selectedIds.value, mode))
     }
   }
 

@@ -48,10 +48,8 @@ import { usePaletteDrag } from '../composables/usePaletteDrag'
 import { withRestoreGuard } from '../utils/graphBatch'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
 import { cssColor } from '../constants/animation'
-import { projectToScreen, rotatedAabb } from '../utils/paperGeom'
 import {
-  TEXT_ICON,
-  POLYLINE_ICON,
+  DRAW_TOOLS,
   ROTATE_ICON,
   PAUSE_ICON,
   PLAY_ICON,
@@ -110,24 +108,19 @@ const { onWheel, zoomByStep, fitToContent, centerOnCell } = useCanvasZoom(paperC
 // Подсветки по тегу и результатам поиска (CSS-классы на view'ах) — в композабле;
 // clearCellClass используется ниже и для `.tms-selected`.
 const { clearCellClass } = useCellHighlight({ centerOnCell })
-// Pan — в usePan (свои document move/up); onPanStart зовётся из capture-mousedown
-// ниже (средняя кнопка или Space+ЛКМ).
-const { onPanStart, isPanning } = usePan()
 
 // useEventListener снимает всё на unmount. Значения из композаблов (`const`) можно
 // ссылать только после объявления, hoisted-функции — до.
 useEventListener(paperContainer, 'wheel', onWheel, { passive: false })
 useEventListener(paperContainer, 'mousemove', onCanvasMouseMove)
-useEventListener(paperContainer, 'mouseenter', onCanvasEnter)
 useEventListener(paperContainer, 'mouseleave', onCanvasMouseLeave)
 // Capture-фаза: ресайз шины и pan перехватывают mousedown раньше JointJS, иначе он
 // начнёт свой drag.
 useEventListener(paperContainer, 'mousedown', bus.onMaybeStartResize, true)
-useEventListener(paperContainer, 'mousedown', onPanMouseDown, true)
+// Pan: средняя кнопка или Space+ЛКМ, курсор grab/grabbing — после ресайза шины, тем же
+// порядком в capture-фазе.
+usePan(paperContainer)
 useBlurOnPress(paperContainer)
-useEventListener(document, 'mouseup', onPanMouseUp)
-useEventListener(window, 'keydown', onSpaceDown)
-useEventListener(window, 'keyup', onSpaceUp)
 // Свои document/window-события pan/lasso/palette-drag слушают сами.
 
 // Ресайз окна → пересчёт paper'а. Регистрируется в синхронном setup-скоупе: из async
@@ -178,26 +171,10 @@ const { previewVisible, previewStyle, draggingStencilSvg } = usePaletteDrag(
   busSnap
 )
 
-// Проектная оркестрация (переключение формы, импорт и экспорт .zip): функции приходят
-// уже обёрнутыми в общий busy-флаг, плюс флаг оверлея.
-const {
-  exportingProject,
-  projectBusy,
-  selectForm: guardedSelectForm,
-  importProjectFromArchive: guardedImportArchive,
-  exportProjectToArchive: guardedExportArchive,
-  createForm: guardedCreateForm,
-  duplicateForm: guardedDuplicateForm,
-  deleteForm: guardedDeleteForm,
-  restoreForm: guardedRestoreForm,
-  renameForm: guardedRenameForm,
-  moveFormNode: guardedMoveForm,
-  migrateRangesToStencils,
-  cleanupInheritedRanges,
-  syncStencilInClosedForms,
-  trash: formTrash,
-  refreshTrash,
-} = useProject({
+// Проектная оркестрация (формы, импорт и экспорт .zip): функции приходят уже обёрнутыми
+// в общий busy-флаг, плюс флаг оверлея. Другим панелям они уходят через
+// canvas.setProjectActions.
+const projectApi = useProject({
   restoringHistory,
   autosave: {
     saveActiveForm,
@@ -213,6 +190,8 @@ const {
   undo: { cancelPendingSnapshot, initHistory },
   simulation: { stopSimulation, simulating },
 })
+const { exportingProject, projectBusy, migrateRangesToStencils, cleanupInheritedRanges } =
+  projectApi
 
 // useHotkeys навешивает window-keydown через useEventListener (снимается сам).
 useHotkeys({
@@ -227,14 +206,13 @@ useHotkeys({
   rotateSelected: (deg) => rotateSelectedBy(deg),
   flipSelected: (axis) => flipSelected(axis),
   cancelDraw: () => cancelDraw(),
-  onExport: guardedExportArchive,
+  onExport: projectApi.exportProjectToArchive,
   zoomIn: () => zoomByStep(ZOOM_STEP),
   zoomOut: () => zoomByStep(1 / ZOOM_STEP),
   fitView: () => fitToContent(),
   // Вся область холста, а не только paper: поверх него лежат поиск, кнопки выделения и
   // плашки — курсор на них всё равно «над схемой».
   pointerOverCanvas: () => !!canvasArea.value?.matches(':hover'),
-  drawTools: () => DRAW_TOOLS.map((t) => t.key),
   projectBusy,
   notify,
 })
@@ -256,45 +234,17 @@ const { prepareMultiDrag, onPositionChange, endMultiDrag } = useMultiDrag()
 
 // ─── Overlay-фичи холста ───
 // Кнопки выделенной ячейки и контекстное меню: оба читают graph/paper через canvas.*-ref.
-const { overlayBtns, rotateSelectedBy, flipSelected, onDeleteSelected, toggleLockSelected } =
-  useSelectionOverlay({
-    scheduleSnapshot,
-    dragging: cellDragging,
-  })
-// Пунктирная рамка группы по ховеру: границы видны до клика.
-const hoveredCellId = ref(null)
-const groupHoverRect = computed(() => {
-  canvas.graphVersion.value
-  canvas.paperViewTick.value
-  if (cellDragging.value) return null
-  const id = hoveredCellId.value
-  const paper = canvas.paperRef.value
-  const graph = canvas.graphRef.value
-  if (!id || !paper || !graph) return null
-  const gid = graph.getCell(id)?.get('tms')?.groupId
-  if (!gid) return null
-  const members = graph.getElements().filter((e) => e.get('tms')?.groupId === gid)
-  if (members.length < 2) return null
-  let minX = Infinity
-  let minY = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
-  for (const m of members) {
-    const aabb = rotatedAabb(m.get('position'), m.get('size'), m.angle() || 0)
-    minX = Math.min(minX, aabb.x)
-    minY = Math.min(minY, aabb.y)
-    maxX = Math.max(maxX, aabb.x + aabb.width)
-    maxY = Math.max(maxY, aabb.y + aabb.height)
-  }
-  const tl = projectToScreen(paper, minX, minY)
-  const br = projectToScreen(paper, maxX, maxY)
-  const pad = 4
-  return {
-    left: `${tl.x - pad}px`,
-    top: `${tl.y - pad}px`,
-    width: `${br.x - tl.x + 2 * pad}px`,
-    height: `${br.y - tl.y + 2 * pad}px`,
-  }
+const {
+  overlayBtns,
+  rotateSelectedBy,
+  flipSelected,
+  onDeleteSelected,
+  toggleLockSelected,
+  hoveredCellId,
+  groupHoverRect,
+} = useSelectionOverlay({
+  scheduleSnapshot,
+  dragging: cellDragging,
 })
 
 const { ctxMenuRef, ctxItems, showContextMenu } = useContextMenu({
@@ -319,19 +269,6 @@ const { resizeHandles, onHandleDown } = useCanvasResize({
   dragging: cellDragging,
   syncBusAttachment,
 })
-// Иконки те же, что в тулбаре редактора символов: жест и результат совпадают.
-const DRAW_TOOLS = [
-  { key: 'line', icon: 'pi pi-minus', tip: 'Линия' },
-  { key: 'rect', icon: 'pi pi-stop', tip: 'Прямоугольник' },
-  { key: 'circle', icon: 'pi pi-circle', tip: 'Эллипс (Shift — ровный круг)' },
-  {
-    key: 'polyline',
-    glyph: POLYLINE_ICON,
-    tip: 'Ломаная (клик по началу замыкает, двойной клик завершает)',
-  },
-  { key: 'text', glyph: TEXT_ICON, tip: 'Подпись (текст правится в инспекторе)' },
-]
-
 // Управление прогоном симуляции: шаг назад, пауза/продолжить, шаг вперёд.
 const SIM_CONTROLS = computed(() => [
   {
@@ -349,53 +286,6 @@ const SIM_CONTROLS = computed(() => [
   },
   { key: 'forward', tip: 'Шаг вперёд', glyph: STEP_FORWARD_ICON, act: stepForward },
 ])
-
-// ─── Pan-жесты ──────────────────────────────────────────────────────────────
-// Средняя кнопка или Space+ЛКМ панят холст, обычный ЛКМ по пустому — лассо.
-// Курсор: Space над холстом → grab, во время pan → grabbing. spaceHeld и overCanvas —
-// модульные флаги, не reactive: их читают raw-хендлеры.
-let spaceHeld = false
-let overCanvas = false
-
-function setCursor(value) {
-  if (paperContainer.value) paperContainer.value.style.cursor = value
-}
-
-// Space-pan работает только когда курсор над холстом: иначе пробел перехватывался бы
-// в остальном UI.
-function onCanvasEnter() {
-  overCanvas = true
-}
-function onSpaceDown(event) {
-  if (event.code !== 'Space' || spaceHeld || !overCanvas) return
-  const t = event.target
-  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-  spaceHeld = true
-  event.preventDefault() // пробел не должен скроллить страницу / жать фокус-кнопку
-  setCursor('grab')
-}
-function onSpaceUp(event) {
-  if (event.code !== 'Space') return
-  spaceHeld = false
-  if (!isPanning()) setCursor('')
-}
-
-// Capture-фаза: перехват ДО JointJS, чтобы средняя кнопка и Space+ЛКМ не начали drag
-// элемента и не всплыли в blank:pointerdown как лассо. preventDefault на средней
-// кнопке гасит autoscroll-кружок Windows.
-function onPanMouseDown(event) {
-  const wantPan = event.button === 1 || (event.button === 0 && spaceHeld)
-  if (!wantPan) return
-  event.preventDefault()
-  event.stopPropagation()
-  onPanStart(event)
-  setCursor('grabbing')
-}
-// После любого mouseup курсор возвращается в покой: grab, если Space ещё зажат над
-// холстом, иначе обычный.
-function onPanMouseUp() {
-  setCursor(spaceHeld ? 'grab' : '')
-}
 
 /**
  * Заменяет выделение на cells + «мостовые» провода между ними (computeBridgeLinks —
@@ -677,32 +567,12 @@ onMounted(async () => {
   // link-tools.
   paper.on('cell:pointerup', () => scheduleSnapshot())
 
-  // Проектные операции регистрируются, чтобы их могли вызвать другие панели:
-  // переключение формы идёт через canvas.selectForm.
-  canvas.setSelectFormFn(guardedSelectForm)
-  // Импорт и экспорт .zip — ProjectActions зовёт через canvas.*Archive.
-  canvas.setArchiveFns({
-    importFromArchive: guardedImportArchive,
-    exportToArchive: guardedExportArchive,
-  })
-  // Вписать контент в область видимости — импорт зовёт canvas.fitToContent.
-  canvas.setFitViewFn(fitToContent)
-  // Разнести правку символа по закрытым формам — зовёт редактор символов после
-  // сохранения (canvas.syncStencilInClosedForms).
-  canvas.setSyncStencilFormsFn(syncStencilInClosedForms)
-  // CRUD форм и DnD-перенос — FormTree зовёт canvas.createForm/…/moveFormNode.
-  canvas.setFormCrudFns({
-    createForm: guardedCreateForm,
-    duplicateForm: guardedDuplicateForm,
-    deleteForm: guardedDeleteForm,
-    restoreForm: guardedRestoreForm,
-    renameForm: guardedRenameForm,
-    moveForm: guardedMoveForm,
-    trash: formTrash,
-  })
+  // Проектные операции — другим панелям (формы, ProjectActions, редактор символов) через
+  // canvas.*; вписывание в экран — своё, у него paper и размеры контейнера.
+  canvas.setProjectActions({ ...projectApi, fitToContent })
   // Корзина живёт в IDB: после перезагрузки кнопка возврата должна знать про формы,
   // удалённые в прошлой сессии.
-  refreshTrash()
+  projectApi.refreshTrash()
 
   // Хранилище не читается (restoreProject вернул -1): данные в IDB целы, но в сторе
   // пустышка, поэтому autosave выключен до перезагрузки. Говорим прямо — иначе
@@ -726,8 +596,8 @@ onMounted(async () => {
 })
 
 // ─── Подсветка выделенных элементов ───
-// На каждое изменение selection: откатываем стили всех ранее выделенных линий
-// + снимаем resize-tools с предыдущих шин, затем накладываем выделение на текущие.
+// На каждое изменение selection: снимаем метку и ручки с ранее выделенных, затем
+// накладываем на текущие.
 watch(
   () => canvas.selection.value,
   (sel, oldSel) => {
@@ -754,9 +624,6 @@ watch(
       // attachLinkTools в linkDefaults.
       if (cell.isLink?.()) attachLinkTools(view)
     }
-    // Inline-× — HTML-overlay (deleteBtnStyle в template). JointJS
-    // elementTools.Remove кэширует bbox при addTools, не пересчитывает на
-    // cell.resize → × застревал после ресайза шины.
   }
   // deep НЕ нужен: selection всегда ЗАМЕНЯЕТСЯ новым массивом (selectOnly/
   // setSelection/toggle/clear), ref-сравнения достаточно.
@@ -817,18 +684,7 @@ onBeforeUnmount(() => {
   // useEventListener / useResizeObserver / composable'ы сами снимают свои
   // ресурсы — здесь только сбрасываем singleton-ссылки на graph/paper.
   canvas.clearCanvasRefs()
-  canvas.setSelectFormFn(null)
-  canvas.setArchiveFns({ importFromArchive: null, exportToArchive: null })
-  canvas.setFitViewFn(null)
-  canvas.setFormCrudFns({
-    createForm: null,
-    duplicateForm: null,
-    deleteForm: null,
-    restoreForm: null,
-    renameForm: null,
-    moveForm: null,
-    trash: [],
-  })
+  canvas.setProjectActions(null)
   paper?.remove()
   paper = null
   graph = null
@@ -848,7 +704,6 @@ function onCanvasMouseMove(event) {
 
 function onCanvasMouseLeave() {
   canvas.setCursorLocal(null)
-  overCanvas = false
 }
 </script>
 
@@ -950,10 +805,10 @@ function onCanvasMouseLeave() {
               v-if="workspace.activeFormBg"
               v-tooltip.bottom="'Вернуть фон по умолчанию'"
               type="button"
-              class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+              class="tms-reset-badge"
               @click.stop="commitFormBackground(null)"
             >
-              <i class="pi pi-times text-[7px]!" />
+              <i class="pi pi-times" />
             </button>
           </template>
         </ColorField>
@@ -1156,7 +1011,7 @@ function onCanvasMouseLeave() {
           @click="onDeleteSelected"
         />
         <!-- Замок: виден всегда. При locked это единственная активная кнопка (delete
-             скрыт, rotate скрыт через canTransform) — ей же замок и снимают. -->
+             скрыт, поворот — через canRotate) — ей же замок и снимают. -->
         <Button
           v-tooltip.top="overlayBtns.locked ? 'Разблокировать' : 'Заблокировать'"
           :icon="overlayBtns.locked ? 'pi pi-lock' : 'pi pi-unlock'"

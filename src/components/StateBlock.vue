@@ -15,6 +15,7 @@ import { computed } from 'vue'
 import Button from 'primevue/button'
 import TagField from './TagField.vue'
 import { isBooleanType } from '../services/tagList'
+import AnimationCard from './AnimationCard.vue'
 
 const props = defineProps({
   /** Слот-драйвер: `{ key, type, value }`. */
@@ -43,50 +44,47 @@ const displayStates = computed(() => (isBool.value ? BOOL_STATES : props.states)
 </script>
 
 <template>
-  <div class="border border-surface-200 rounded p-3 bg-surface-0">
-    <div class="flex items-center gap-2 mb-2 min-h-6">
-      <i class="pi text-cyan-500" :class="isBool ? 'pi-power-off' : 'pi-sliders-h'" />
-      <!-- Заголовок один на оба режима: режим задан символом и на холсте не меняется,
-           поэтому он уточнением, а не вторым именем блока. -->
-      <div class="flex items-baseline gap-1.5 min-w-0">
-        <span class="text-xs font-medium text-surface-700">Состояние</span>
-        <span class="tms-hint truncate">{{ isBool ? 'по булеву тегу' : 'по коду значения' }}</span>
-      </div>
-      <div class="ml-auto flex items-center">
-        <Button
-          v-if="pasteable"
-          v-tooltip.bottom="'Вставить тег состояния'"
-          icon="pi pi-clipboard"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-row-btn"
-          @click="$emit('paste')"
-        />
-        <Button
-          v-if="copyable"
-          v-tooltip.bottom="'Копировать тег состояния'"
-          icon="pi pi-copy"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-row-btn"
-          @click="$emit('copy')"
-        />
-        <!-- × в шапке, а не в строке тега: случайный клик по чипу не должен стирать
-             привязку. -->
-        <Button
-          v-if="slotInfo.value"
-          v-tooltip.bottom="'Очистить тег'"
-          icon="pi pi-times"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-row-btn"
-          @click="$emit('clear')"
-        />
-      </div>
-    </div>
+  <AnimationCard
+    :icon="`pi ${isBool ? 'pi-power-off' : 'pi-sliders-h'} text-cyan-500`"
+    title="Состояние"
+    :hint="isBool ? 'по булеву тегу' : 'по коду значения'"
+  >
+    <!-- Заголовок один на оба режима: режим задан символом и на холсте не меняется,
+         поэтому он уточнением, а не вторым именем блока. -->
+    <template #actions>
+      <Button
+        v-if="pasteable"
+        v-tooltip.bottom="'Вставить тег состояния'"
+        icon="pi pi-clipboard"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-row-btn"
+        @click="$emit('paste')"
+      />
+      <Button
+        v-if="copyable"
+        v-tooltip.bottom="'Копировать тег состояния'"
+        icon="pi pi-copy"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-row-btn"
+        @click="$emit('copy')"
+      />
+      <!-- × в шапке, а не в строке тега: случайный клик по чипу не должен стирать
+           привязку. -->
+      <Button
+        v-if="slotInfo.value"
+        v-tooltip.bottom="'Очистить тег'"
+        icon="pi pi-times"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-row-btn"
+        @click="$emit('clear')"
+      />
+    </template>
 
     <TagField
       :value="slotInfo.value || ''"
@@ -118,5 +116,5 @@ const displayStates = computed(() => (isBool.value ? BOOL_STATES : props.states)
     <p v-if="!tagsLoaded" class="tms-hint mt-1 text-surface-400">
       Загрузи tag-list, чтобы выбрать тег.
     </p>
-  </div>
+  </AnimationCard>
 </template>

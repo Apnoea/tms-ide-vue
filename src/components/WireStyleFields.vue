@@ -10,6 +10,7 @@
 import InputNumber from 'primevue/inputnumber'
 import SelectButton from 'primevue/selectbutton'
 import ColorField from './ColorField.vue'
+import GlyphIcon from './GlyphIcon.vue'
 import { isDefaultWireValue, WIRE_STYLE_DEFAULTS } from '../stencils/linkDefaults'
 import { WIRE_ROUTE_STRAIGHT, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire'
 
@@ -59,10 +60,10 @@ const ROUTE_OPTIONS = [
             v-if="isCustom('strokeColor')"
             v-tooltip.bottom="'Вернуть цвет по умолчанию'"
             type="button"
-            class="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+            class="tms-reset-badge"
             @click.stop="emit('apply', 'strokeColor', WIRE_STYLE_DEFAULTS.strokeColor)"
           >
-            <i class="pi pi-times text-[7px]!" />
+            <i class="pi pi-times" />
           </button>
         </template>
       </ColorField>
@@ -91,10 +92,10 @@ const ROUTE_OPTIONS = [
           v-if="isCustom('strokeWidth')"
           v-tooltip.bottom="'Вернуть толщину по умолчанию'"
           type="button"
-          class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+          class="tms-reset-badge"
           @click.stop="emit('apply', 'strokeWidth', WIRE_STYLE_DEFAULTS.strokeWidth)"
         >
-          <i class="pi pi-times text-[7px]!" />
+          <i class="pi pi-times" />
         </button>
       </span>
     </div>
@@ -136,18 +137,7 @@ const ROUTE_OPTIONS = [
         @update:model-value="(v) => emit('apply', end.key, v === 'none' ? null : v)"
       >
         <template #option="{ option }">
-          <svg v-tooltip.bottom="option.tip" viewBox="0 0 16 16" class="h-4 w-4" aria-hidden="true">
-            <path
-              v-for="(el, i) in option.glyph"
-              :key="i"
-              :d="el.d"
-              :fill="el.mode === 'fill' ? 'currentColor' : 'none'"
-              :stroke="el.mode === 'stroke' ? 'currentColor' : 'none'"
-              stroke-width="1.6"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
+          <GlyphIcon v-tooltip.bottom="option.tip" :glyph="option.glyph" class="h-4! w-4!" />
         </template>
       </SelectButton>
     </div>

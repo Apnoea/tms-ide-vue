@@ -46,10 +46,10 @@ const isCustomThickness = computed(() => props.thickness !== props.thicknessDefa
             v-if="isCustomColor"
             v-tooltip.bottom="'Вернуть цвет по умолчанию'"
             type="button"
-            class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+            class="tms-reset-badge"
             @click.stop="emit('update-color', colorDefault)"
           >
-            <i class="pi pi-times text-[7px]!" />
+            <i class="pi pi-times" />
           </button>
         </template>
       </ColorField>
@@ -74,10 +74,10 @@ const isCustomThickness = computed(() => props.thickness !== props.thicknessDefa
           v-if="isCustomThickness"
           v-tooltip.bottom="'Вернуть толщину по умолчанию'"
           type="button"
-          class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+          class="tms-reset-badge"
           @click.stop="emit('update-thickness', thicknessDefault)"
         >
-          <i class="pi pi-times text-[7px]!" />
+          <i class="pi pi-times" />
         </button>
       </span>
     </div>

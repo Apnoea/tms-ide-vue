@@ -2,15 +2,17 @@ import { nextTick } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from './useCanvas'
-import { nplural } from '../utils/plural'
 import {
   zoomKeyOf,
   toolDigitOf,
   isFocusInInput,
   isInListWidget,
   hasTextSelectionOutside,
+  runKey,
+  ARROW_DIRS,
 } from '../utils/viewKeys'
 import { isFreeEnd } from '../stencils/linkDefaults'
+import { DRAW_TOOLS } from '../constants/icons'
 
 /**
  * Все горячие клавиши IDE через единый raw-keydown handler на window.
@@ -31,9 +33,8 @@ import { isFreeEnd } from '../stencils/linkDefaults'
  * граф между await'ами держит ЧУЖУЮ форму. Copy и поиск read-only.
  *
  * Зум (Ctrl+= / Ctrl+− / Ctrl+0) — только с курсором над холстом (`pointerOverCanvas`):
- * в остальном UI это браузерный зум страницы, и отбирать его незачем. `drawTools` —
- * ключи инструментов в порядке тулбара, цифра выбирает по номеру (функцией: массив
- * объявлен в CanvasPane ниже вызова).
+ * в остальном UI это браузерный зум страницы, и отбирать его незачем. Цифра выбирает
+ * инструмент рисования по номеру в тулбаре (`DRAW_TOOLS`).
  */
 export function useHotkeys({
   undo,
@@ -50,7 +51,6 @@ export function useHotkeys({
   zoomOut = () => {},
   fitView = () => {},
   pointerOverCanvas = () => false,
-  drawTools = () => [],
   projectBusy = { value: false },
   notify = { success: () => {} },
 }) {
@@ -67,25 +67,22 @@ export function useHotkeys({
     const cmd = event.ctrlKey || event.metaKey
     const code = event.code
     const inInput = isFocusInInput(event.target)
+    const busy = projectBusy.value
+    // Мутирующая команда: браузерный дефолт комбо гасим всегда, а саму команду — не под
+    // busy (см. docstring).
+    const runMutating = (action) => runKey(event, () => !busy && action())
 
     if (cmd && !event.shiftKey && code === 'KeyF') {
-      event.preventDefault()
-      event.stopPropagation()
-      if (ui.searchOpen) {
+      return runKey(event, () => {
+        if (!ui.searchOpen) return ui.openSearch()
         ui.closeSearch()
         nextTick(() => ui.openSearch())
-      } else {
-        ui.openSearch()
-      }
-      return
+      })
     }
 
     if (code === 'F3') {
       if (!ui.searchOpen) return
-      event.preventDefault()
-      event.stopPropagation()
-      canvas.cycleSearchMatch(event.shiftKey ? -1 : 1)
-      return
+      return runKey(event, () => canvas.cycleSearchMatch(event.shiftKey ? -1 : 1))
     }
 
     if (code === 'Escape') {
@@ -104,66 +101,33 @@ export function useHotkeys({
     // Глобальные команды приложения — до гварда !inInput, работают из любого
     // фокуса. preventDefault давит браузерный page-action (Сохранить страницу /
     // открыть файл), который иначе перехватил бы комбо в инпуте.
-    if (cmd && code === 'KeyS') {
-      event.preventDefault()
-      event.stopPropagation()
-      onExport()
-      return
-    }
+    if (cmd && code === 'KeyS') return runKey(event, onExport)
     if (cmd && code === 'KeyO') {
-      event.preventDefault()
-      event.stopPropagation()
-      window.dispatchEvent(new CustomEvent('tms-open-project'))
-      return
+      return runKey(event, () => window.dispatchEvent(new CustomEvent('tms-open-project')))
     }
-    // Ctrl+D: браузерную закладку давим всегда, дублируем — только вне инпута и не под busy.
-    if (cmd && code === 'KeyD') {
-      event.preventDefault()
-      event.stopPropagation()
-      if (!inInput && !projectBusy.value) duplicateSelection()
-      return
-    }
+    // Ctrl+D: браузерную закладку давим всегда, дублируем — только вне инпута.
+    if (cmd && code === 'KeyD') return runMutating(() => !inInput && duplicateSelection())
 
     // Зум вида — из любого фокуса, но только над холстом (см. docstring). Открытый
     // диалог накрывает холст маской — тогда клавиша остаётся браузеру.
     const zoom = zoomKeyOf(event)
     if (zoom && pointerOverCanvas() && !document.querySelector('.p-dialog-mask')) {
-      event.preventDefault()
-      event.stopPropagation()
-      if (projectBusy.value) return
-      if (zoom === 'in') zoomIn()
-      else if (zoom === 'out') zoomOut()
-      else fitView()
-      return
+      return runMutating({ in: zoomIn, out: zoomOut, fit: fitView }[zoom])
     }
 
     // 1…5 — инструмент рисования по номеру в тулбаре; та же цифра возвращает к выбору,
     // как повторный клик по активной кнопке. Цифры, а не буквы: R, H и V заняты
     // поворотом и отражением. В поле и в списке (Select инспектора ищет по первой
     // букве) цифра — это ввод.
-    const toolKey = drawTools()[toolDigitOf(event)]
+    const toolKey = DRAW_TOOLS[toolDigitOf(event)]?.key
     if (toolKey) {
-      if (inInput || isInListWidget(event.target) || projectBusy.value) return
-      event.preventDefault()
-      ui.setCanvasTool(toolKey)
-      return
+      if (inInput || isInListWidget(event.target) || busy) return
+      return runKey(event, () => ui.setCanvasTool(toolKey))
     }
 
     if (cmd && !inInput) {
-      // Мутирующие граф/стор — не под busy (см. docstring). preventDefault всё
-      // равно давим, чтобы не сработал браузерный дефолт комбо.
-      if (code === 'KeyZ') {
-        event.preventDefault()
-        event.stopPropagation()
-        if (!projectBusy.value) (event.shiftKey ? redo : undo)()
-        return
-      }
-      if (code === 'KeyY') {
-        event.preventDefault()
-        event.stopPropagation()
-        if (!projectBusy.value) redo()
-        return
-      }
+      if (code === 'KeyZ') return runMutating(event.shiftKey ? redo : undo)
+      if (code === 'KeyY') return runMutating(redo)
       if (code === 'KeyC' && !event.shiftKey) {
         // Выделен ТЕКСТ вне холста (id символа в инспекторе, подпись в панели) — это
         // штатное копирование браузером: перехват отдавал бы Ctrl+C нашему буферу и
@@ -171,118 +135,70 @@ export function useHotkeys({
         // Выделение внутри paper'а не считается: подписи на схеме — `<text>` в SVG, их
         // легко зацепить мышью, и Ctrl+C перестал бы копировать символы.
         if (hasTextSelectionOutside('.joint-paper')) return
-        event.preventDefault()
-        event.stopPropagation()
-        copySelection() // read-only, безопасно под busy
-        return
+        return runKey(event, copySelection) // read-only, безопасно под busy
       }
-      if (code === 'KeyV' && !event.shiftKey) {
-        event.preventDefault()
-        event.stopPropagation()
-        if (!projectBusy.value) pasteClipboard()
-        return
-      }
+      if (code === 'KeyV' && !event.shiftKey) return runMutating(pasteClipboard)
       if (code === 'KeyA') {
-        if (!graph || projectBusy.value) return
-        event.preventDefault()
-        event.stopPropagation()
-        canvas.selectAllCells()
-        return
+        if (!graph || busy) return
+        return runKey(event, canvas.selectAllCells)
       }
       // Ctrl+] / Ctrl+[ — выше / ниже, с Shift — на передний / задний план.
       // Работает и на проводах (у них порядок виден на пересечении).
       if (code === 'BracketRight' || code === 'BracketLeft') {
-        event.preventDefault()
-        event.stopPropagation()
-        if (projectBusy.value) return
         const up = code === 'BracketRight'
         const mode = event.shiftKey ? (up ? 'front' : 'back') : up ? 'forward' : 'backward'
-        canvas.reorderCells(canvas.selection.value, mode)
-        return
+        return runMutating(() => canvas.reorderCells(canvas.selection.value, mode))
       }
       // Ctrl+G — сгруппировать выделенное, Ctrl+Shift+G — разгруппировать.
       if (code === 'KeyG') {
-        event.preventDefault()
-        event.stopPropagation()
-        if (!projectBusy.value) {
-          if (event.shiftKey) {
-            const n = canvas.ungroupCells(canvas.selection.value)
-            if (n) notify.success('Разгруппировано', nplural(n, 'символ', 'символа', 'символов'))
-          } else {
-            const n = canvas.groupCells(canvas.selection.value)
-            if (n) notify.success('Сгруппировано', nplural(n, 'символ', 'символа', 'символов'))
-          }
-        }
-        return
+        return runMutating(() => canvas.toggleGroupSelection(event.shiftKey, notify))
       }
     }
 
-    // R / Shift+R — поворот выделенных ячеек. Без cmd: Ctrl+R отдаём браузеру
-    // (перезагрузка). rotateSelected сам фильтрует noRotate-символы и снапшотит.
-    if (code === 'KeyR' && !cmd && !event.altKey) {
-      if (inInput || projectBusy.value) return
-      event.preventDefault()
-      event.stopPropagation()
-      rotateSelected?.(event.shiftKey ? -90 : 90)
-      return
+    // Поворот и отражение без cmd: Ctrl+R (перезагрузка) и Ctrl+H (история) — браузерные.
+    // rotateSelected / flipSelected сами фильтруют noRotate/locked и снапшотят.
+    const bare = !cmd && !event.altKey && !inInput && !busy
+    if (code === 'KeyR' && bare) {
+      return runKey(event, () => rotateSelected?.(event.shiftKey ? -90 : 90))
+    }
+    if ((code === 'KeyH' || code === 'KeyV') && event.shiftKey && bare) {
+      return runKey(event, () => flipSelected?.(code === 'KeyH' ? 'h' : 'v'))
     }
 
-    // Shift+H / Shift+V — отразить выделенные ячейки по горизонтали / вертикали.
-    // Без cmd (Ctrl+H — браузерная история). flipSelected сам фильтрует
-    // noRotate/locked-символы и снапшотит.
-    if ((code === 'KeyH' || code === 'KeyV') && event.shiftKey && !cmd && !event.altKey) {
-      if (inInput || projectBusy.value) return
-      event.preventDefault()
-      event.stopPropagation()
-      flipSelected?.(code === 'KeyH' ? 'h' : 'v')
-      return
-    }
-
-    const isArrow =
-      event.key === 'ArrowUp' ||
-      event.key === 'ArrowDown' ||
-      event.key === 'ArrowLeft' ||
-      event.key === 'ArrowRight'
-    if (isArrow) {
-      if (inInput || !graph || !paper || projectBusy.value) return
-      const cellSel = canvas.selection.value.filter((s) => s.kind === 'cell')
-      if (!cellSel.length) return
-      event.preventDefault()
-      event.stopPropagation()
-      const grid = paper.options.gridSize || 10
-      const step = (event.shiftKey ? 5 : 1) * grid
-      const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0
-      const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0
-      // uiNudge — стрелки сами двигают ВСЁ выделение; помечаем, чтобы multi-drag
-      // change:position-хендлер (CanvasPane) не сдвинул соседей повторно, если в
-      // этот момент зажата ЛКМ на ячейке (activeDragCellId выставлен без drag'а).
-      // locked-ячейки пропускаем — read-only не двигаем даже стрелками.
-      for (const item of cellSel) {
-        const c = graph.getCell(item.id)
-        if (c && !c.get('tms')?.locked) c.translate(dx, dy, { uiNudge: true })
-      }
-      // Свободные концы выделенных проводов (точки на холсте) ни за чем не следуют —
-      // сдвигаем их тем же шагом, иначе провод растянулся бы, а точка осталась.
-      for (const item of canvas.selection.value) {
-        if (item.kind !== 'link') continue
-        const link = graph.getCell(item.id)
-        if (!link) continue
-        for (const key of ['source', 'target']) {
-          const end = link.get(key)
-          if (isFreeEnd(end)) link.set(key, { x: end.x + dx, y: end.y + dy }, { uiNudge: true })
-        }
-      }
-      scheduleSnapshot()
-      return
+    const arrow = ARROW_DIRS[event.key]
+    if (arrow) {
+      if (inInput || !graph || !paper || busy) return
+      if (!canvas.selection.value.some((s) => s.kind === 'cell')) return
+      const step = (event.shiftKey ? 5 : 1) * (paper.options.gridSize || 10)
+      return runKey(event, () => nudgeSelection(graph, arrow.x * step, arrow.y * step))
     }
 
     if (event.key !== 'Delete' && event.key !== 'Backspace') return
-    if (inInput || projectBusy.value) return
-    const sel = canvas.selection.value
-    if (!sel.length || !graph) return
-    event.preventDefault()
-    event.stopPropagation()
-    canvas.deleteItems([...sel])
+    if (inInput || busy || !graph || !canvas.selection.value.length) return
+    runKey(event, () => canvas.deleteItems([...canvas.selection.value]))
+  }
+
+  /**
+   * Сдвиг выделения стрелками. uiNudge — стрелки сами двигают ВСЁ выделение: помечаем,
+   * чтобы multi-drag change:position-хендлер (CanvasPane) не сдвинул соседей повторно,
+   * если в этот момент зажата ЛКМ на ячейке. locked-ячейки не двигаем даже стрелками.
+   */
+  function nudgeSelection(graph, dx, dy) {
+    for (const item of canvas.selection.value) {
+      const cell = graph.getCell(item.id)
+      if (!cell) continue
+      if (item.kind === 'cell') {
+        if (!cell.get('tms')?.locked) cell.translate(dx, dy, { uiNudge: true })
+        continue
+      }
+      // Свободные концы выделенных проводов (точки на холсте) ни за чем не следуют —
+      // сдвигаем их тем же шагом, иначе провод растянулся бы, а точка осталась.
+      for (const key of ['source', 'target']) {
+        const end = cell.get(key)
+        if (isFreeEnd(end)) cell.set(key, { x: end.x + dx, y: end.y + dy }, { uiNudge: true })
+      }
+    }
+    scheduleSnapshot()
   }
 
   useEventListener(window, 'keydown', onKeyDown)

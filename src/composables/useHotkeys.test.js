@@ -18,6 +18,7 @@ const mockCanvas = {
   clearSelection: vi.fn(),
   clearHighlightedTag: vi.fn(),
   cycleSearchMatch: vi.fn(),
+  toggleGroupSelection: vi.fn(),
 }
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
@@ -177,7 +178,6 @@ describe('useHotkeys — зум и инструменты', () => {
       zoomOut: vi.fn(),
       fitView: vi.fn(),
       pointerOverCanvas: () => over,
-      drawTools: () => ['line', 'rect', 'circle', 'polyline', 'text'],
       projectBusy: ref(false),
     }
     ;[, scope] = withSetup(() => useHotkeys(deps))
@@ -232,5 +232,66 @@ describe('useHotkeys — зум и инструменты', () => {
     select.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit1', bubbles: true }))
     expect(useUiStore().canvasTool).toBe('select')
     select.remove()
+  })
+})
+
+// Группировка и сдвиг стрелками: Ctrl+G / Ctrl+Shift+G — одно действие с меню и
+// инспектором; стрелки двигают ячейки (кроме заблокированных) и свободные концы проводов.
+describe('useHotkeys — группы и сдвиг', () => {
+  let scope
+  let deps
+  const savedGraph = mockCanvas.graphRef.value
+  const savedSelection = mockCanvas.selection.value
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    mockCanvas.toggleGroupSelection.mockClear()
+    deps = {
+      undo: vi.fn(),
+      redo: vi.fn(),
+      scheduleSnapshot: vi.fn(),
+      copySelection: vi.fn(),
+      pasteClipboard: vi.fn(),
+      duplicateSelection: vi.fn(),
+      onExport: vi.fn(),
+      projectBusy: ref(false),
+      notify: { success: vi.fn() },
+    }
+    ;[, scope] = withSetup(() => useHotkeys(deps))
+  })
+
+  afterEach(() => {
+    scope?.stop()
+    mockCanvas.graphRef.value = savedGraph
+    mockCanvas.selection.value = savedSelection
+  })
+
+  it('Ctrl+G группирует, Ctrl+Shift+G разгруппировывает', () => {
+    key('KeyG', { ctrlKey: true })
+    key('KeyG', { ctrlKey: true, shiftKey: true })
+    expect(mockCanvas.toggleGroupSelection.mock.calls).toEqual([
+      [false, deps.notify],
+      [true, deps.notify],
+    ])
+  })
+
+  it('стрелка двигает свободную ячейку и свободный конец провода, замок стоит', () => {
+    const cellOf = (tms) => ({ get: () => tms, translate: vi.fn() })
+    const free = cellOf({})
+    const locked = cellOf({ locked: true })
+    const ends = { source: { id: 'c1' }, target: { x: 50, y: 50 } }
+    const link = { get: (k) => ends[k], set: vi.fn() }
+    const cells = { c1: free, c2: locked, l1: link }
+    mockCanvas.graphRef.value = { getCell: (id) => cells[id] }
+    mockCanvas.selection.value = [
+      { kind: 'cell', id: 'c1' },
+      { kind: 'cell', id: 'c2' },
+      { kind: 'link', id: 'l1' },
+    ]
+    key('ArrowRight', { key: 'ArrowRight', shiftKey: true })
+    expect(free.translate).toHaveBeenCalledWith(50, 0, { uiNudge: true })
+    expect(locked.translate).not.toHaveBeenCalled()
+    expect(link.set).toHaveBeenCalledWith('target', { x: 100, y: 50 }, { uiNudge: true })
+    expect(deps.scheduleSnapshot).toHaveBeenCalledTimes(1)
   })
 })

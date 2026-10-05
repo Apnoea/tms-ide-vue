@@ -1,6 +1,6 @@
 // Замок (`tms.locked`) = read-only. `paper.interactive` его НЕ защищает: массовые
 // операции пишут в модель программно, поэтому единая точка фильтра — writableItems.
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ref } from 'vue'
 import { dia, shapes } from '@joint/core'
 import { TMSStencil, TMSShape, tmsNamespace } from '../stencils/tmsStencil'
@@ -78,15 +78,18 @@ describe('useCanvas: замок в массовых операциях', () => {
     expect(links).toEqual([{ kind: 'link', id: ab.id }])
   })
 
-  it('ungroupCells не снимает groupId с заблокированной ячейки', () => {
+  it('разгруппировка не снимает groupId с заблокированной ячейки, тост — по факту', () => {
     const free = cell({ groupId: 'grp-1' })
     const locked = cell({ groupId: 'grp-1', locked: true })
     graph.addCells([free, locked])
-    const n = canvas.ungroupCells([
+    canvas.setSelection([
       { kind: 'cell', id: free.id },
       { kind: 'cell', id: locked.id },
     ])
+    const notify = { success: vi.fn() }
+    const n = canvas.toggleGroupSelection(true, notify)
     expect(n).toBe(1)
+    expect(notify.success).toHaveBeenCalledWith('Разгруппировано', '1 символ')
     expect(free.get('tms').groupId).toBeUndefined()
     expect(locked.get('tms').groupId).toBe('grp-1')
   })
@@ -267,13 +270,32 @@ describe('useCanvas: корзина форм', () => {
     // Ref внутри ref: наружу ушёл бы объект Ref, и `[0]` был бы undefined.
     const canvas = useCanvas()
     const trash = ref([{ id: 'formA' }])
-    canvas.setFormCrudFns({ trash })
+    canvas.setProjectActions({ trash })
     expect(canvas.formTrash.value[0]?.id).toBe('formA')
 
     trash.value = []
     expect(canvas.formTrash.value).toEqual([])
 
-    canvas.setFormCrudFns({ trash: null })
+    canvas.setProjectActions(null)
     expect(canvas.formTrash.value).toEqual([])
+  })
+})
+
+describe('useCanvas: проектные операции', () => {
+  it('прокси зовут функции, положенные холстом, а без холста молчат', async () => {
+    const canvas = useCanvas()
+    let created = 0
+    canvas.setProjectActions({ createForm: () => ++created, renameForm: (a, b) => `${a}>${b}` })
+    canvas.createForm()
+    expect(created).toBe(1)
+    expect(canvas.renameForm('a', 'b')).toBe('a>b')
+
+    canvas.setProjectActions(null)
+    expect(canvas.createForm()).toBeUndefined()
+    expect(await canvas.syncStencilInClosedForms('cell_qw')).toEqual({
+      forms: 0,
+      changed: 0,
+      detached: 0,
+    })
   })
 })

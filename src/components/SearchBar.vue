@@ -9,7 +9,7 @@ import { useCanvas } from '../composables/useCanvas'
  * Плавающий поиск по схеме (Ctrl+F). Открывается из CanvasPane через
  * ui.openSearch(), монтируется как overlay в правом верхнем углу холста.
  *
- * Состояние поиска (query, matches, currentIdx) живёт в useCanvas — компонент
+ * Состояние поиска (`searchQuery`, `searchMatchIds`, `searchCurrentIdx`) живёт в useCanvas — компонент
  * только редактирует query и листает match'и. Подсветка на холсте применяется
  * watch'ем в CanvasPane (см. tms-search-match/-current классы).
  */

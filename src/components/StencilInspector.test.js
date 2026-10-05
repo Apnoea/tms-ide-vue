@@ -128,7 +128,7 @@ describe('StencilInspector: подсветка проблем', () => {
   let editor
   let wrapper
 
-  const errors = () => wrapper.findAll('.text-red-500').map((n) => n.text())
+  const errors = () => wrapper.findAll('.tms-field-error').map((n) => n.text())
 
   beforeEach(() => {
     editor = useStencilEditor()

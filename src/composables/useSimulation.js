@@ -192,17 +192,6 @@ export function useSimulation() {
     return (vs?.ranges || []).filter((r) => rangeRowColor(r))
   }
 
-  /** Цвета всех источников формы — из них собираются CSS-правила симуляции. */
-  function collectRangeColors() {
-    const graph = canvas.graphRef.value
-    const access = jointGraphAccess(graph)
-    const out = []
-    for (const cell of graph?.getCells() || []) {
-      for (const r of colorRows(cellRangeSource(cell, access))) out.push(rangeRowColor(r))
-    }
-    return out
-  }
-
   /** `{slot.X}` → тег из tms.slots[X] тем же резолвером, что у экспорта. */
   function resolveBindingTag(rawTag, tms) {
     if (!rawTag) return null
@@ -235,28 +224,30 @@ export function useSimulation() {
     document.head.appendChild(style)
   }
 
-  /** Снимает все sim-классы — range-класс с outer-g, animation-hidden/off с descendants. */
+  /** Снимает sim-классы элемента — range-класс с outer-g, animation-hidden/off с descendants. */
+  function clearSimClassesOf(root) {
+    // Цвет диапазона (animation-c-<цвет>) и цвет состояния (animation-color-<ключ>)
+    // генерируются из данных, поэтому чистятся по префиксам, а не по списку.
+    for (const cls of [...root.classList]) {
+      if (cls.startsWith(STATE_COLOR_PREFIX) || cls.startsWith(RANGE_COLOR_PREFIX)) {
+        root.classList.remove(cls)
+      }
+    }
+    // animation-off от boolSource висит на outer-g, от символьного template — на
+    // внутренних элементах: чистим оба места.
+    root.classList.remove(CLASS_OFF)
+    for (const el of root.querySelectorAll(`.${CLASS_HIDDEN}, .${CLASS_OFF}`)) {
+      el.classList.remove(CLASS_HIDDEN)
+      el.classList.remove(CLASS_OFF)
+    }
+  }
+
   function clearSimClasses() {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
-    if (!graph || !paper) return
-    for (const cell of graph.getCells()) {
-      const view = paper.findViewByModel(cell)
-      if (!view?.el) continue
-      // Цвет диапазона (animation-c-<цвет>) и цвет состояния (animation-color-<ключ>)
-      // генерируются из данных, поэтому чистятся по префиксам, а не по списку.
-      for (const cls of [...view.el.classList]) {
-        if (cls.startsWith(STATE_COLOR_PREFIX) || cls.startsWith(RANGE_COLOR_PREFIX)) {
-          view.el.classList.remove(cls)
-        }
-      }
-      // animation-off от boolSource висит на outer-g, от символьного template — на
-      // внутренних элементах: чистим оба места.
-      view.el.classList.remove(CLASS_OFF)
-      for (const el of view.el.querySelectorAll(`.${CLASS_HIDDEN}, .${CLASS_OFF}`)) {
-        el.classList.remove(CLASS_HIDDEN)
-        el.classList.remove(CLASS_OFF)
-      }
+    for (const cell of graph?.getCells() || []) {
+      const el = paper?.findViewByModel(cell)?.el
+      if (el) clearSimClassesOf(el)
     }
   }
 
@@ -271,10 +262,6 @@ export function useSimulation() {
     const graph = canvas.graphRef.value
     const paper = canvas.paperRef.value
     if (!graph || !paper) return null
-    clearSimClasses()
-    // Цвет строки могли поменять на ходу — правило под него могло не попасть в CSS.
-    const colors = collectRangeColors()
-    if (colors.join('|') !== simCssKey) injectSimulationCss(colors)
 
     // Значения тегов на этот тик: заданные вручную приоритетнее, остальные
     // догенерируются один раз и держатся до конца тика — иначе элементы с общим тегом
@@ -287,118 +274,86 @@ export function useSimulation() {
       }
       return tickValues.get(tag)
     }
-    const boolFalseFor = (tag) => !boolOf(valueOf(tag))
-    /** Класс строки источника по значению тега: цвет берём из НАСТРОЕК этого элемента. */
-    const rangeClassFor = (vs) => {
-      const row = rangeRowFor(vs, valueOf(vs.tag))
-      return row ? rangeColorClass(rangeRowColor(row)) : null
-    }
-
-    // Источник значения: значение общее по тегу, цвет — свой у каждого элемента
-    // (у провода — унаследованный, см. cellRangeSource).
+    const boolKey = (tag) => (boolOf(valueOf(tag)) ? 'true' : 'false')
     const access = jointGraphAccess(graph)
+    // Цвета всех строк всех источников — из них CSS-правила (пересобираются, если цвет
+    // поменяли на ходу).
+    const colors = []
+
     for (const cell of graph.getCells()) {
+      const view = paper.findViewByModel(cell)
+      if (!view?.el) continue
+      clearSimClassesOf(view.el)
+      const tms = cell.get('tms') || {}
+
+      // Диапазоны: значение общее по тегу, цвет — из НАСТРОЕК этого элемента (у провода —
+      // унаследованный, см. cellRangeSource).
       const vs = cellRangeSource(cell, access)
-      if (!vs?.tag) continue
-      const cls = rangeClassFor(vs)
-      if (!cls) continue
-      paper.findViewByModel(cell)?.el?.classList.add(cls)
-    }
+      for (const r of colorRows(vs)) colors.push(rangeRowColor(r))
+      const row = vs?.tag ? rangeRowFor(vs, valueOf(vs.tag)) : null
+      if (row) view.el.classList.add(rangeColorClass(rangeRowColor(row)))
 
-    // Bool-биндинги символьного template: у каждого резолвится тег ({slot.X} →
-    // tms.slots[X]), значение тега приводится к boolean и применяется класс нужного
-    // case'а. Несколько биндингов на одном теге переключаются согласованно.
-    for (const cell of graph.getElements()) {
-      const tms = cell.get('tms') || {}
-      const stencil = getStencilById(tms.stencilId)
-      if (!stencil?.animationTemplate?.length) continue
-      const view = paper.findViewByModel(cell)
-      if (!view?.el) continue
-      for (const tpl of stencil.animationTemplate) {
-        const targetId = innerKey(stencil.id, cell.id, tpl.idSuffix)
-        const el = view.el.querySelector(`[id="${targetId}"]`)
-        if (!el) continue
-        for (const binding of tpl.bindings || []) {
-          const tag = resolveBindingTag(binding.tag, tms)
-          if (!tag) continue
-          const cases = binding.when?.cases
-          if (!cases || typeof cases !== 'object') continue
-          const stateKey = boolFalseFor(tag) ? 'false' : 'true'
-          const cls = cases[stateKey]?.apply?.addClass
-          if (cls) el.classList.add(cls)
-        }
+      // boolSource: группы условий. Элемент активен, если ЛЮБАЯ группа выполнена целиком.
+      const { groups } = normalizeBoolSource(tms.boolSource)
+      if (groups.length && !groups.some((g) => g.every((t) => boolKey(t) === 'true'))) {
+        view.el.classList.add(CLASS_OFF)
       }
-    }
-    // State-color БУЛЕВ: класс перекраса по значению тега, согласованно с видимостью
-    // выше. Value-символы — проход ниже.
-    for (const cell of graph.getElements()) {
-      const tms = cell.get('tms') || {}
-      const stencil = getStencilById(tms.stencilId)
-      const colors = stencil?.stateColors
-      if (!colors || !Object.keys(colors).length) continue
-      if (Array.isArray(stencil.states) && stencil.states.length) continue // value — ниже
-      const slotKey = stateSlotKey(stencil)
-      const tag = slotKey ? tms.slots?.[slotKey] : null
-      if (!tag) continue
-      const key = boolFalseFor(tag) ? 'false' : 'true'
-      if (colors[key])
-        paper.findViewByModel(cell)?.el?.classList.add(stateColorClass(stencil.id, key))
+
+      const stencil = cell.isLink() ? null : getStencilById(tms.stencilId)
+      if (stencil) applyStencilState(view.el, cell, tms, stencil, valueOf, boolKey)
     }
 
-    // Value-состояния: активное выбирает КОД под значение тега (как cases рантайма).
-    // Совпадения нет — скрыты все группы. Гейт по привязанному тегу слота value: без
-    // тега рантайм показал бы все группы.
-    for (const cell of graph.getElements()) {
-      const tms = cell.get('tms') || {}
-      const stencil = getStencilById(tms.stencilId)
-      const states = stencil?.states
-      if (!Array.isArray(states) || !states.length) continue
-      const slotKey = stateSlotKey(stencil)
-      const tag = slotKey ? tms.slots?.[slotKey] : null
-      if (!tag) continue
-      const view = paper.findViewByModel(cell)
-      if (!view?.el) continue
-      const activeKey = stateKeyFor(states, valueOf(tag))
-      // Видна группа, в чей набор входит активное состояние (см. stateGroupsOf).
-      for (const { suffix, keys } of stateGroupsOf(stencil)) {
-        if (keys.includes(activeKey)) continue
-        const el = view.el.querySelector(`[id="${innerKey(stencil.id, cell.id, suffix)}"]`)
-        if (el) el.classList.add(CLASS_HIDDEN)
-      }
-      if (activeKey && stencil.stateColors?.[activeKey]) {
-        view.el.classList.add(stateColorClass(stencil.id, activeKey))
-      }
-    }
+    if (colors.join('|') !== simCssKey) injectSimulationCss(colors)
+    return tickValues
+  }
 
-    // boolSource: группы условий. Тег делит состояние со всеми своими
-    // использованиями; элемент активен, если ЛЮБАЯ группа выполнена целиком.
-    for (const cell of graph.getCells()) {
-      const { groups } = normalizeBoolSource(cell.get('tms')?.boolSource)
-      if (!groups.length) continue
-      const active = groups.some((g) => g.every((t) => !boolFalseFor(t)))
-      if (active) continue
-      paper.findViewByModel(cell)?.el?.classList.add(CLASS_OFF)
-    }
+  /** Анимации символа на тик: биндинги шаблона, цвет и группы состояний, подписи. */
+  function applyStencilState(root, cell, tms, stencil, valueOf, boolKey) {
+    const byId = (suffix) => root.querySelector(`[id="${innerKey(stencil.id, cell.id, suffix)}"]`)
+    const states = Array.isArray(stencil.states) && stencil.states.length ? stencil.states : null
+    const slotKey = stateSlotKey(stencil)
+    const stateTag = slotKey ? tms.slots?.[slotKey] : null
 
-    // Подпись со значением тега: рантайм пишет её textContent, превью — то же, с
-    // точностью карточки. Исходный текст запомнен на старте (restoreValueTexts).
-    for (const cell of graph.getElements()) {
-      const tms = cell.get('tms') || {}
-      const stencil = getStencilById(tms.stencilId)
-      if (!stencil?.animationTemplate?.length) continue
-      const view = paper.findViewByModel(cell)
-      if (!view?.el) continue
-      for (const tpl of stencil.animationTemplate) {
-        if (tpl.type !== 'text') continue
+    // Биндинги шаблона: тег резолвится ({slot.X} → tms.slots[X]); у булевых — класс
+    // нужного case'а, у подписи со значением — текст, как пишет рантайм (исходный
+    // запомнен на старте, restoreValueTexts).
+    for (const tpl of stencil.animationTemplate || []) {
+      const el = byId(tpl.idSuffix)
+      if (!el) continue
+      if (tpl.type === 'text') {
         const tag = resolveBindingTag(tpl.bindings?.[0]?.tag, tms)
         if (!tag) continue
-        const el = view.el.querySelector(`[id="${innerKey(stencil.id, cell.id, tpl.idSuffix)}"]`)
-        if (!el) continue
         if (!valueTexts.has(el)) valueTexts.set(el, el.textContent)
         el.textContent = formatValueText(valueOf(tag), resolveValueDecimals(tms))
+        continue
+      }
+      for (const binding of tpl.bindings || []) {
+        const tag = resolveBindingTag(binding.tag, tms)
+        const cases = binding.when?.cases
+        if (!tag || !cases || typeof cases !== 'object') continue
+        const cls = cases[boolKey(tag)]?.apply?.addClass
+        if (cls) el.classList.add(cls)
       }
     }
-    return tickValues
+
+    // Без тега слота-драйвера состояние не выбрать: рантайм показал бы все группы.
+    if (!stateTag) return
+    if (!states) {
+      // Булев: перекрас по значению тега, согласованно с видимостью выше.
+      const key = boolKey(stateTag)
+      if (stencil.stateColors?.[key]) root.classList.add(stateColorClass(stencil.id, key))
+      return
+    }
+    // «По значению»: активное выбирает КОД под значение тега (как cases рантайма);
+    // совпадения нет — скрыты все группы. Видна группа, в чей набор входит активное
+    // состояние (см. stateGroupsOf).
+    const activeKey = stateKeyFor(states, valueOf(stateTag))
+    for (const { suffix, keys } of stateGroupsOf(stencil)) {
+      if (!keys.includes(activeKey)) byId(suffix)?.classList.add(CLASS_HIDDEN)
+    }
+    if (activeKey && stencil.stateColors?.[activeKey]) {
+      root.classList.add(stateColorClass(stencil.id, activeKey))
+    }
   }
 
   /** Новый тик: значения генерируются и запоминаются как последний шаг истории. */
@@ -460,7 +415,7 @@ export function useSimulation() {
 
   function startSimulation() {
     if (simulating.value || !canvas.paperRef.value) return
-    injectSimulationCss(collectRangeColors())
+    simCssKey = null // CSS собирается заново на первом тике
     // Класс tms-simulating вешает Vue через :class на paperContainer.
     simulating.value = true
     paused.value = false

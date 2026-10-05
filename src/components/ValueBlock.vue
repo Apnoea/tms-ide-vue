@@ -9,6 +9,7 @@ import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import TagField from './TagField.vue'
 import { VALUE_DECIMALS_DEFAULT } from '../constants/animation'
+import AnimationCard from './AnimationCard.vue'
 
 defineProps({
   /** Слот подписи со значением тега: `{ key, type, value }`. */
@@ -36,49 +37,42 @@ const emit = defineEmits([
 </script>
 
 <template>
-  <div class="border border-surface-200 rounded p-3 bg-surface-0">
-    <div class="flex items-center gap-2 mb-2 min-h-6">
-      <i class="pi pi-hashtag text-cyan-600" />
-      <div class="flex items-baseline gap-1.5 min-w-0">
-        <span class="text-xs font-medium text-surface-700">Значение</span>
-        <span class="tms-hint truncate">тега</span>
-      </div>
-      <div class="ml-auto flex items-center">
-        <!-- Копируется карточка ЦЕЛИКОМ (тег, точность, подписи): ряд однотипных
-             показаний настраивают один раз. × снимает только привязку тега — точность и
-             подписи это вид символа, а не анимация. -->
-        <Button
-          v-if="pasteable"
-          v-tooltip.bottom="'Вставить карточку значения'"
-          icon="pi pi-clipboard"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-row-btn"
-          @click="emit('paste')"
-        />
-        <Button
-          v-if="copyable"
-          v-tooltip.bottom="'Копировать карточку значения'"
-          icon="pi pi-copy"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-row-btn"
-          @click="emit('copy')"
-        />
-        <Button
-          v-if="slotInfo.value"
-          v-tooltip.bottom="'Очистить тег'"
-          icon="pi pi-times"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-row-btn"
-          @click="emit('clear')"
-        />
-      </div>
-    </div>
+  <AnimationCard icon="pi pi-hashtag text-cyan-600" title="Значение" hint="тега">
+    <template #actions>
+      <!-- Копируется карточка ЦЕЛИКОМ (тег, точность, подписи): ряд однотипных
+           показаний настраивают один раз. × снимает только привязку тега — точность и
+           подписи это вид символа, а не анимация. -->
+      <Button
+        v-if="pasteable"
+        v-tooltip.bottom="'Вставить карточку значения'"
+        icon="pi pi-clipboard"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-row-btn"
+        @click="emit('paste')"
+      />
+      <Button
+        v-if="copyable"
+        v-tooltip.bottom="'Копировать карточку значения'"
+        icon="pi pi-copy"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-row-btn"
+        @click="emit('copy')"
+      />
+      <Button
+        v-if="slotInfo.value"
+        v-tooltip.bottom="'Очистить тег'"
+        icon="pi pi-times"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-row-btn"
+        @click="emit('clear')"
+      />
+    </template>
     <TagField
       :value="slotInfo.value"
       :can-pick="tagsLoaded"
@@ -125,5 +119,5 @@ const emit = defineEmits([
         />
       </div>
     </div>
-  </div>
+  </AnimationCard>
 </template>

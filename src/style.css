@@ -150,6 +150,51 @@ body,
     color: var(--p-surface-500);
   }
 
+  /* Карточка блока инспектора (анимации холста, режимы и привязка в редакторе). */
+  .tms-card {
+    padding: 0.75rem;
+    border: 1px solid var(--p-surface-200);
+    border-radius: 0.25rem;
+    background: var(--p-surface-0);
+  }
+
+  /* Ошибка поля — в строке его подписи, справа и абсолютом: в потоке она сдвигала бы
+     поля панели при каждом вводе. Полный текст — в тултипе. */
+  .tms-field-error {
+    position: absolute;
+    top: 0;
+    right: 0;
+    max-width: 70%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--p-red-500);
+    pointer-events: auto;
+  }
+
+  /* Крестик «вернуть по умолчанию» на углу свотча или поля: виден, только когда
+     значение своё. */
+  .tms-reset-badge {
+    position: absolute;
+    top: -0.125rem;
+    right: -0.125rem;
+    z-index: 10;
+    display: flex;
+    width: 0.875rem;
+    height: 0.875rem;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--p-surface-300);
+    border-radius: 9999px;
+    background: var(--p-surface-0);
+    color: var(--p-surface-500);
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+  .tms-reset-badge:hover {
+    color: var(--p-surface-800);
+  }
+
   /* Пустое состояние панели (нет выделения, пустой реестр, поиск без результатов):
      иконка — заголовок — пояснение по центру. Отступы и размеры у четырёх таких
      блоков разъезжались (py-8 / py-10 / pb-6 pt-8), поэтому канон один на всех. */
@@ -224,6 +269,11 @@ body,
   height: 1.5rem;
   min-width: 1.5rem;
   padding: 0.25rem;
+}
+
+/* Иконка крестика сброса: `.pi` задаёт размер вне слоёв, правило из слоя ему проиграло бы. */
+.tms-reset-badge .pi {
+  font-size: 7px;
 }
 
 /* Фильтр областей применения (палитра и свойства символа) на `Chip`: своего состояния

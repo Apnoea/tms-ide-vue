@@ -114,10 +114,8 @@ function onIdInput(e) {
         <p v-else-if="isPresetSymbol" class="tms-hint">
           Символ из набора «{{ presetInfo.name }}» {{ presetInfo.version }}.
         </p>
-        <!-- Проблемы черновика подсвечиваются ЖИВЬЁМ (`problemOf`): иначе занятый id
-             или пустая категория всплывали только тостом после клика «Сохранить».
-             Сообщение — в строке заголовка поля и АБСОЛЮТОМ: в потоке оно сдвигало бы
-             остальные поля панели при каждом вводе. -->
+        <!-- Проблемы черновика подсвечиваются ЖИВЬЁМ (`problemOf`): занятый id или пустая
+             категория видны до клика «Сохранить». Сообщение — `tms-field-error`. -->
         <label class="relative block">
           <div class="tms-field-label mb-1">Название</div>
           <InputText
@@ -129,11 +127,7 @@ function onIdInput(e) {
             placeholder="Задвижка"
             @change="commit"
           />
-          <p
-            v-if="problemOf('label')"
-            v-tooltip.left="problemOf('label')"
-            class="pointer-events-auto absolute right-0 top-0 max-w-[70%] truncate text-[11px] text-red-500"
-          >
+          <p v-if="problemOf('label')" v-tooltip.left="problemOf('label')" class="tms-field-error">
             {{ problemOf('label') }}
           </p>
         </label>
@@ -151,11 +145,7 @@ function onIdInput(e) {
             @input="onIdInput"
             @change="commit"
           />
-          <p
-            v-if="problemOf('id')"
-            v-tooltip.left="problemOf('id')"
-            class="pointer-events-auto absolute right-0 top-0 max-w-[70%] truncate text-[11px] text-red-500"
-          >
+          <p v-if="problemOf('id')" v-tooltip.left="problemOf('id')" class="tms-field-error">
             {{ problemOf('id') }}
           </p>
         </label>
@@ -176,7 +166,7 @@ function onIdInput(e) {
           <p
             v-if="problemOf('category')"
             v-tooltip.left="problemOf('category')"
-            class="pointer-events-auto absolute right-0 top-0 max-w-[70%] truncate text-[11px] text-red-500"
+            class="tms-field-error"
           >
             {{ problemOf('category') }}
           </p>

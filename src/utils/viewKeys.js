@@ -30,6 +30,21 @@ export function toolDigitOf(event) {
   return m ? Number(m[1]) - 1 : -1
 }
 
+/** Стрелка → направление сдвига выделения (единичный вектор). */
+export const ARROW_DIRS = {
+  ArrowLeft: { x: -1, y: 0 },
+  ArrowRight: { x: 1, y: 0 },
+  ArrowUp: { x: 0, y: -1 },
+  ArrowDown: { x: 0, y: 1 },
+}
+
+/** Клавиша наша: действие браузера и всплытие гасим, команду выполняем. */
+export function runKey(event, action) {
+  event.preventDefault()
+  event.stopPropagation()
+  action?.()
+}
+
 /** Фокус в поле ввода: клавиши там — правка текста, а не команды. */
 export function isFocusInInput(t) {
   return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || !!t.isContentEditable)

@@ -11,6 +11,7 @@
  */
 import Button from 'primevue/button'
 import TagField from './TagField.vue'
+import AnimationCard from './AnimationCard.vue'
 
 defineProps({
   groups: { type: Array, default: () => [] }, // Array<Array<string>>
@@ -36,46 +37,39 @@ defineEmits([
 </script>
 
 <template>
-  <div class="border border-surface-200 rounded p-3 bg-surface-0">
-    <div class="flex items-center gap-2 mb-2 min-h-6">
-      <i class="pi pi-sitemap text-purple-500" />
-      <div class="flex items-baseline gap-1.5 min-w-0">
-        <span class="text-xs font-medium text-surface-700">Зависимость</span>
-        <span class="tms-hint truncate">от тегов</span>
-      </div>
-      <div class="ml-auto flex items-center">
-        <Button
-          v-if="pasteable"
-          v-tooltip.bottom="'Вставить зависимости'"
-          icon="pi pi-clipboard"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-row-btn"
-          @click="$emit('paste')"
-        />
-        <Button
-          v-if="copyable"
-          v-tooltip.bottom="'Копировать зависимости'"
-          icon="pi pi-copy"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-row-btn"
-          @click="$emit('copy')"
-        />
-        <Button
-          v-if="removable"
-          v-tooltip.bottom="'Удалить все зависимости'"
-          icon="pi pi-times"
-          severity="secondary"
-          text
-          size="small"
-          class="tms-row-btn"
-          @click="$emit('remove')"
-        />
-      </div>
-    </div>
+  <AnimationCard icon="pi pi-sitemap text-purple-500" title="Зависимость" hint="от тегов">
+    <template #actions>
+      <Button
+        v-if="pasteable"
+        v-tooltip.bottom="'Вставить зависимости'"
+        icon="pi pi-clipboard"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-row-btn"
+        @click="$emit('paste')"
+      />
+      <Button
+        v-if="copyable"
+        v-tooltip.bottom="'Копировать зависимости'"
+        icon="pi pi-copy"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-row-btn"
+        @click="$emit('copy')"
+      />
+      <Button
+        v-if="removable"
+        v-tooltip.bottom="'Удалить все зависимости'"
+        icon="pi pi-times"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-row-btn"
+        @click="$emit('remove')"
+      />
+    </template>
 
     <!-- Правило показываем, только когда группы есть: пустому блоку хватает кнопки, а
          абзац делал бы самым заметным то, что нужно реже всего. -->
@@ -142,5 +136,5 @@ defineEmits([
     <p v-if="!tagsLoaded" class="tms-hint mt-1 text-surface-400">
       Загрузи tag-list, чтобы выбрать тег.
     </p>
-  </div>
+  </AnimationCard>
 </template>

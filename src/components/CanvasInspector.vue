@@ -307,11 +307,6 @@ const valueCopyable = computed(() => {
   return !!(slot.value || d.decimals !== null || d.params.some((p) => p.value))
 })
 
-// ─── Удаление ───
-function onDelete() {
-  canvas.deleteItems([...canvas.selection.value])
-}
-
 // ─── Единый tag-picker ───
 // Один диалог на все места: `openPicker(config)` снимает selected и header при
 // открытии, а `tags` передаётся ГЕТТЕРОМ — пустой picker сам грузит tag-list, и список
@@ -609,7 +604,6 @@ function applyLinkStyle(key, value) {
 
 // Состав выделения: символы и провода считаются РАЗДЕЛЬНО — в выделение авто-попадают
 // мостовые провода, и лассо по двум связанным символам дало бы «3 символа».
-// `deletable` — сколько реально удалится, чтобы кнопка «Удалить (N)» не обещала больше.
 const selectionSummary = computed(() => {
   canvas.graphVersion.value
   const sel = canvas.selection.value
@@ -624,8 +618,6 @@ const selectionSummary = computed(() => {
   if (links.length) parts.push(nplural(links.length, 'провод', 'провода', 'проводов'))
   return {
     label: parts.join(' + ') || 'ничего',
-    // Тот же фильтр, что у deleteItems и пункта «Удалить» контекст-меню.
-    deletable: canvas.writableItems(sel).length,
     locked: lockedCells,
   }
 })
@@ -648,13 +640,7 @@ const multiGroup = computed(() => {
 })
 
 function applyGroupToggle() {
-  if (multiGroup.value.ungroup) {
-    const n = canvas.ungroupCells(canvas.selection.value)
-    if (n) notify.success('Разгруппировано', nplural(n, 'символ', 'символа', 'символов'))
-  } else {
-    const n = canvas.groupCells(canvas.selection.value)
-    if (n) notify.success('Сгруппировано', nplural(n, 'символ', 'символа', 'символов'))
-  }
+  canvas.toggleGroupSelection(multiGroup.value.ungroup, notify)
 }
 
 /**
@@ -950,17 +936,6 @@ const {
               :pasteable="animClip.hasDeps.value"
               @add-group="openMultiBoolPicker"
               @paste="pasteDeps"
-            />
-          </div>
-
-          <div class="pt-2 border-t border-surface-200">
-            <Button
-              :label="`Удалить (${selectionSummary.deletable})`"
-              icon="pi pi-trash"
-              severity="danger"
-              text
-              size="small"
-              @click="onDelete"
             />
           </div>
         </div>

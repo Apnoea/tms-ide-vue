@@ -385,19 +385,11 @@ const sections = [
             <span class="text-surface-700">
               {{ item.desc }}
             </span>
+            <!-- Аккорды: основной и альтернативный того же действия — через «/». -->
             <span class="flex items-center gap-1">
-              <template v-for="(k, idx) in item.keys" :key="'k' + idx">
-                <span v-if="idx > 0" class="text-surface-400 text-xs">+</span>
-                <kbd
-                  class="px-1.5 py-0.5 bg-surface-100 border border-surface-200 rounded text-[11px] font-mono text-surface-700"
-                >
-                  {{ k }}
-                </kbd>
-              </template>
-              <!-- Альтернативный аккорд того же действия — через «/» -->
-              <template v-if="item.keysAlt">
-                <span class="text-surface-400 text-xs">/</span>
-                <template v-for="(k, idx) in item.keysAlt" :key="'a' + idx">
+              <template v-for="(chord, ci) in [item.keys, item.keysAlt].filter(Boolean)" :key="ci">
+                <span v-if="ci > 0" class="text-surface-400 text-xs">/</span>
+                <template v-for="(k, idx) in chord" :key="idx">
                   <span v-if="idx > 0" class="text-surface-400 text-xs">+</span>
                   <kbd
                     class="px-1.5 py-0.5 bg-surface-100 border border-surface-200 rounded text-[11px] font-mono text-surface-700"

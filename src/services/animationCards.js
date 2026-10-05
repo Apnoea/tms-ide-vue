@@ -159,7 +159,7 @@ export function buildMultiCard(c) {
  * Биндинг перекраса всего символа по состоянию (stateColors в stencil.json):
  * значение тега-слота состояния → класс `animation-color-<stencilId>-<ключ>` на outer, цвет
  * каскадит на потомков через CSS (см. inlineStyles). Кладётся слоем на outer
- * (assignOrMerge — уживается с диапазонами/булевым/quality). Коды: режим значения —
+ * (assignOrMergeAnimation — уживается с диапазонами/булевым/quality). Коды: режим значения —
  * из states, булев — сами ключи 'true'/'false'. null, если красить нечего или
  * тег слота не привязан. Обесточивание (animation-off) бьёт цвет в CSS.
  */

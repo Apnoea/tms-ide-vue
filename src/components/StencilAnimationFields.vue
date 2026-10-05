@@ -17,6 +17,7 @@ import AccordionHeader from 'primevue/accordionheader'
 import AccordionContent from 'primevue/accordioncontent'
 import ColorField from './ColorField.vue'
 import RangeRows from './RangeRows.vue'
+import AnimationCard from './AnimationCard.vue'
 import { useStencilEditor, STATE_PRESETS } from '../composables/useStencilEditor'
 import { normalizeStateColor } from '../constants/animation'
 import { isFillableShape } from '../utils/shapeSvg'
@@ -264,10 +265,10 @@ function clearStateColor(key, which) {
                           v-if="stateColor(st.key, col.which)"
                           type="button"
                           v-tooltip.top="col.clearTip"
-                          class="absolute -right-0.5 -top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-surface-300 bg-surface-0 text-surface-500 shadow-sm hover:text-surface-800"
+                          class="tms-reset-badge"
                           @click.stop="clearStateColor(st.key, col.which)"
                         >
-                          <i class="pi pi-times text-[7px]!" />
+                          <i class="pi pi-times" />
                         </button>
                       </template>
                     </ColorField>
@@ -313,14 +314,7 @@ function clearStateColor(key, which) {
     <!-- Зоны диапазонов — НЕЗАВИСИМО от анимации состояния (символ показывает
          положение по своему тегу и красится по числу другого), поэтому карточка вне
          `stateful`-ветки. У программного символа это единственное, что правится. -->
-    <div class="border border-surface-200 rounded p-3 bg-surface-0">
-      <div class="flex items-center gap-2 mb-2 min-h-6">
-        <i class="pi pi-chart-bar text-yellow-500" />
-        <div class="flex items-baseline gap-1.5 min-w-0">
-          <span class="text-xs font-medium text-surface-700">Цвет</span>
-          <span class="tms-hint truncate">по диапазону тега</span>
-        </div>
-      </div>
+    <AnimationCard icon="pi pi-chart-bar text-yellow-500" title="Цвет" hint="по диапазону тега">
       <p class="tms-hint mb-2">
         Цвет символа по числу тега. Границы включаются в диапазон: одинаковые («3 — 3») задают
         точное значение.
@@ -331,7 +325,7 @@ function clearStateColor(key, which) {
         @add-range="addRange"
         @remove-range="removeRange"
       />
-    </div>
+    </AnimationCard>
 
     <!-- Quality — свойство символа, а не отдельной анимации: серость и «показать
          все положения» при bad-качестве драйвящего тега работают в любом режиме,
