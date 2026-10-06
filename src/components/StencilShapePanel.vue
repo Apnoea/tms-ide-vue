@@ -17,6 +17,7 @@ import AnimationCard from './AnimationCard.vue'
 import { useStencilEditor } from '../composables/useStencilEditor'
 import { ALIGN_OPTIONS, FONT_FAMILIES, TEXT_SHAPE_SIZE, normalizeFont } from '../constants/text'
 import { joinStateKeys, shapeStateKeys } from '../utils/stencilSvg'
+import { STEPPER_PROPS } from '../constants/icons'
 
 const {
   meta,
@@ -279,14 +280,16 @@ function bindToState(value) {
         />
       </div>
       <label class="flex items-center justify-between">
-        <span class="tms-field-label">Размер, pt</span>
+        <span class="tms-field-label">
+          Размер,
+          <span class="normal-case">pt</span>
+        </span>
         <InputNumber
           :model-value="textSize"
           :min="4"
           :max="72"
           :step="1"
-          show-buttons
-          button-layout="horizontal"
+          v-bind="STEPPER_PROPS"
           size="small"
           input-class="w-12! text-center"
           @update:model-value="setTextSize"
@@ -377,15 +380,17 @@ function bindToState(value) {
         <ColorField :model-value="strokeColor" @update:model-value="setStroke" @change="commit" />
       </label>
       <label v-if="hasStrokeWidth" class="flex items-center justify-between">
-        <span class="tms-field-label">Толщина, px</span>
+        <span class="tms-field-label">
+          Толщина,
+          <span class="normal-case">px</span>
+        </span>
         <InputNumber
           :model-value="strokeWidth"
           :min="0.5"
           :max="20"
           :step="0.5"
           :max-fraction-digits="1"
-          show-buttons
-          button-layout="horizontal"
+          v-bind="STEPPER_PROPS"
           size="small"
           input-class="w-12! text-center"
           placeholder="—"

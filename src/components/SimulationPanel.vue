@@ -70,7 +70,10 @@ function setBoolAt(tag, event) {
   emit('set-tag', tag, event.clientX - box.left >= box.width / 2)
 }
 
-/** Незаданный тумблер бледный: «случайно» и зафиксированный «выкл» иначе неразличимы. */
+/**
+ * Незаданный тумблер подписан «случайно»: иначе он неотличим от зафиксированного «выкл».
+ * Подпись, а не бледность — полупрозрачный тумблер читался как выключенный контрол.
+ */
 const boolHint = (tag) =>
   props.values.has(tag) ? '' : 'Значение случайное: щёлкни нужную половину'
 
@@ -141,7 +144,9 @@ const zoneTip = (zone) =>
 
     <!-- Описание и поиск закреплены: список тегов формы уезжает под скролл. -->
     <div class="px-4 pt-4 space-y-2">
-      <div class="flex items-start gap-2">
+      <!-- Высота строки — под кнопку сброса (`min-h-5`): кнопка есть только при заданных
+           значениях, и без резерва всё ниже прыгало на первом заданном и на сбросе. -->
+      <div class="flex min-h-5 items-center gap-2">
         <p class="flex-1 text-[11px] text-surface-500">Пустое поле - тег меняется случайно.</p>
         <!-- Сброс ВСЕХ заданных значений: круговая стрелка отличает его от крестика,
              который снимает значение одной строки. -->
@@ -191,18 +196,19 @@ const zoneTip = (zone) =>
           </div>
 
           <span class="flex shrink-0 items-center gap-1">
-            <span
-              v-if="t.kind === 'bool'"
-              v-tooltip.left="boolHint(t.tag)"
-              class="inline-flex"
-              :class="values.has(t.tag) ? '' : 'opacity-40'"
-              @click.capture.prevent="(e) => setBoolAt(t.tag, e)"
-            >
-              <ToggleSwitch
-                :model-value="!!valueOf(t.tag)"
-                @update:model-value="(v) => emit('set-tag', t.tag, v)"
-              />
-            </span>
+            <template v-if="t.kind === 'bool'">
+              <span v-if="!values.has(t.tag)" class="text-[11px] text-surface-400">случайно</span>
+              <span
+                v-tooltip.left="boolHint(t.tag)"
+                class="inline-flex"
+                @click.capture.prevent="(e) => setBoolAt(t.tag, e)"
+              >
+                <ToggleSwitch
+                  :model-value="!!valueOf(t.tag)"
+                  @update:model-value="(v) => emit('set-tag', t.tag, v)"
+                />
+              </span>
+            </template>
             <Select
               v-else-if="t.kind === 'state'"
               :model-value="valueOf(t.tag)"
@@ -218,8 +224,9 @@ const zoneTip = (zone) =>
               v-else
               :model-value="valueOf(t.tag)"
               :max-fraction-digits="3"
+              placeholder="случайно"
               size="small"
-              input-class="w-16! text-center"
+              input-class="w-24! text-center"
               @update:model-value="(v) => emit('set-tag', t.tag, v)"
             />
             <!-- Место под кнопку держим всегда: иначе первое заданное значение сдвигало

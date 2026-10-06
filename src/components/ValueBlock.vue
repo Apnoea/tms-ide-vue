@@ -10,6 +10,7 @@ import InputNumber from 'primevue/inputnumber'
 import TagField from './TagField.vue'
 import { VALUE_DECIMALS_DEFAULT } from '../constants/animation'
 import AnimationCard from './AnimationCard.vue'
+import { STEPPER_PROPS } from '../constants/icons'
 
 defineProps({
   /** Слот подписи со значением тега: `{ key, type, value }`. */
@@ -34,6 +35,10 @@ const emit = defineEmits([
   'update-decimals',
   'update-param',
 ])
+
+// Заголовки полей по позиции: у символа параметр — только текст по умолчанию («Величина»
+// или пусто), и над вторым полем не было ничего. Текст символа остаётся плейсхолдером.
+const PARAM_HEADINGS = ['Подпись', 'Ед. изм.']
 </script>
 
 <template>
@@ -92,22 +97,19 @@ const emit = defineEmits([
         :min="0"
         :max="6"
         :step="1"
-        show-buttons
-        button-layout="horizontal"
+        v-bind="STEPPER_PROPS"
         size="small"
         input-class="w-12! text-center"
         class="ml-auto"
         @update:model-value="(v) => emit('update-decimals', v)"
       />
     </div>
-    <!-- Две колонки: у карточки значения это «величина» и «единица» — они читаются
-         парой, как на самой карточке. Пустое поле = текст из символа. -->
-    <div v-if="params.length" class="mt-2 grid grid-cols-2 gap-2">
-      <div v-for="param in params" :key="param.key">
-        <!-- Строка заголовка есть всегда: у пустой по умолчанию подписи названия нет,
-             а без неё поля в паре разъезжаются по вертикали. -->
+    <!-- Две колонки: подпись и единица читаются парой, как на самой карточке; единица
+         короче — колонка уже. Пустое поле = текст из символа. -->
+    <div v-if="params.length" class="mt-2 grid grid-cols-[2fr_1fr] gap-2">
+      <div v-for="(param, i) in params" :key="param.key">
         <div class="text-[11px] text-surface-500 mb-1 truncate min-h-4">
-          {{ param.label }}
+          {{ PARAM_HEADINGS[i] ?? param.label }}
         </div>
         <InputText
           :model-value="param.value"

@@ -14,6 +14,7 @@ import Checkbox from 'primevue/checkbox'
 import SelectButton from 'primevue/selectbutton'
 import ColorField from './ColorField.vue'
 import { FONT_FAMILIES } from '../constants/text'
+import { STEPPER_PROPS } from '../constants/icons'
 
 const props = defineProps({
   /** Поля выделенной фигуры: обводка, заливка, поля подписи. */
@@ -66,15 +67,17 @@ function toggleFill(on) {
     </div>
 
     <div v-if="!values.isShapeText" class="flex items-center gap-3">
-      <span class="tms-field-label shrink-0">Толщина, px</span>
+      <span class="tms-field-label shrink-0">
+        Толщина,
+        <span class="normal-case">px</span>
+      </span>
       <InputNumber
         :model-value="values.strokeWidth"
         :min="0.5"
         :max="40"
         :step="0.5"
         :max-fraction-digits="1"
-        show-buttons
-        button-layout="horizontal"
+        v-bind="STEPPER_PROPS"
         size="small"
         input-class="w-12! text-center"
         class="ml-auto"
@@ -106,14 +109,16 @@ function toggleFill(on) {
 
     <template v-if="values.isShapeText">
       <div class="flex items-center gap-3">
-        <span class="tms-field-label shrink-0">Размер, pt</span>
+        <span class="tms-field-label shrink-0">
+          Размер,
+          <span class="normal-case">pt</span>
+        </span>
         <InputNumber
           :model-value="values.fontSize"
           :min="6"
           :max="72"
           :step="1"
-          show-buttons
-          button-layout="horizontal"
+          v-bind="STEPPER_PROPS"
           size="small"
           input-class="w-12! text-center"
           class="ml-auto"

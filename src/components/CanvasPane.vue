@@ -951,8 +951,9 @@ function onCanvasMouseLeave() {
            операция картинку), удаление (скрыто у locked)
            и замок (виден всегда — им же блокировку снимают). Reactive
            HTML-overlay, а не JointJS elementTools.Remove: тот кэширует позицию и
-           не следует за resize. -->
-      <template v-if="overlayBtns">
+           не следует за resize. В симуляции не показываем — там выделение только
+           сужает список тегов, и от правки остаётся одна рамка. -->
+      <template v-if="overlayBtns && !simulating">
         <Button
           v-if="overlayBtns.canRotate"
           v-tooltip.top="'Повернуть против часовой · Shift+R'"
@@ -1054,14 +1055,17 @@ function onCanvasMouseLeave() {
 
       <!-- Ручки ресайза выделенной фигуры-разметки: тянут её габарит, геометрия
            масштабируется под него. Overlay поверх холста — в DOM ячейки их держать
-           нельзя, иначе они видны у всех фигур и уедут в экспорт. -->
-      <div
-        v-for="h in resizeHandles"
-        :key="h.key"
-        class="absolute z-20 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-surface-0 bg-primary-500 shadow-sm"
-        :style="{ ...h.style, cursor: h.cursor }"
-        @pointerdown="onHandleDown($event, h.key)"
-      ></div>
+           нельзя, иначе они видны у всех фигур и уедут в экспорт. В симуляции их нет,
+           как и кнопок выделения. -->
+      <template v-if="!simulating">
+        <div
+          v-for="h in resizeHandles"
+          :key="h.key"
+          class="absolute z-20 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-surface-0 bg-primary-500 shadow-sm"
+          :style="{ ...h.style, cursor: h.cursor }"
+          @pointerdown="onHandleDown($event, h.key)"
+        ></div>
+      </template>
 
       <!-- Превью рисуемой фигуры (координаты в container-px, как у лассо). Рамка для
            прямоугольника/эллипса, линия и ломаная — своими примитивами. -->

@@ -990,13 +990,27 @@ const {
                   @click="selectSameStencil"
                 />
               </div>
-              <div class="text-[11px] text-surface-500 font-mono">
-                {{ details.stencilId }}
-              </div>
-              <!-- id outer-карточки в animations.json / экспортном SVG (тот же, что
-                   эмитит exporter; точная подстановка short-id см. constants/ids). -->
-              <div class="text-[11px] text-surface-500 font-mono break-all">
-                {{ details.exportId }}
+              <!-- Одна строка: id символа и через точку приглушённо — id элемента в
+                   animations.json / экспортном SVG (тот же, что эмитит exporter; точная
+                   подстановка short-id см. constants/ids). Что есть что — в тултипах. -->
+              <div class="flex min-w-0 items-baseline gap-1 text-[11px] font-mono">
+                <span
+                  v-tooltip.bottom="
+                    'id символа в палитре: по нему элемент берёт рисунок и анимации'
+                  "
+                  class="shrink-0 text-surface-500"
+                >
+                  {{ details.stencilId }}
+                </span>
+                <span class="shrink-0 text-surface-300" aria-hidden="true">·</span>
+                <span
+                  v-tooltip.bottom="
+                    `${details.exportId} — id элемента на схеме: под ним он уходит в view.svg и animations.json, по нему рантайм находит анимацию`
+                  "
+                  class="min-w-0 truncate text-surface-400"
+                >
+                  {{ details.exportId }}
+                </span>
               </div>
             </div>
 
@@ -1064,7 +1078,7 @@ const {
                   Внешняя view (не среди загруженных форм) — сработает, если она есть в рантайме
                 </div>
                 <div v-else-if="!otherFormIds.length" class="text-[11px] text-surface-500">
-                  Загруженных форм нет — введи view-id вручную
+                  Других форм в проекте нет — введи view-id вручную
                 </div>
               </template>
             </div>

@@ -32,6 +32,7 @@ const emit = defineEmits(['select', 'update:visible'])
 const search = ref('')
 const picked = ref(null)
 const searchRef = ref(null)
+const listboxRef = ref(null)
 
 const { pickTagList } = useTagList()
 
@@ -41,9 +42,14 @@ const { pickTagList } = useTagList()
 const project = useProjectStore()
 const tagListLoaded = computed(() => project.tags.length > 0)
 
-// Автофокус поиска после появления диалога (@show — уже отрисован/анимирован).
+// Автофокус поиска после появления диалога (@show — уже отрисован/анимирован). Текущий
+// тег предвыбран, но список открывается сверху — прокручиваем к нему, иначе выбор не
+// виден, а в длинном tag-list его и не найти.
 function onShow() {
   searchRef.value?.$el?.focus()
+  listboxRef.value?.$el
+    ?.querySelector('.p-listbox-option-selected')
+    ?.scrollIntoView({ block: 'center' })
 }
 
 function confirmTag(name) {
@@ -98,7 +104,14 @@ const grouped = computed(() => {
   }
   return Array.from(map.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, items]) => ({ name, items }))
+    .map(([name, items]) => ({
+      name,
+      items,
+      // Единственный тег объекта, а группа — префикс его имени: заголовок повторял бы
+      // имя строкой ниже. Группа по пути объектов (XML) заголовок сохраняет — в коротком
+      // имени тега пути нет.
+      solo: items.length === 1 && !items[0].path?.length,
+    }))
 })
 
 const hasResults = computed(() => grouped.value.length > 0)
@@ -149,12 +162,13 @@ watch(
 
       <Listbox
         v-if="hasResults"
+        ref="listboxRef"
         v-model="picked"
         :options="grouped"
         option-label="name"
         option-group-label="name"
         option-group-children="items"
-        class="w-full"
+        class="tms-tag-picker w-full"
         list-style="max-height: 320px"
         @change="onPick"
       >
@@ -171,8 +185,12 @@ watch(
             </span>
           </span>
         </template>
+        <!-- У `solo` вместо заголовка — метка, по ней правило `.tms-tag-picker` в
+             style.css прячет строку группы. Пустой слот не годится: Vue тогда рисует
+             запасную подпись Listbox. -->
         <template #optiongroup="{ option }">
-          <span class="text-[10px] uppercase tracking-wider text-surface-500 font-mono">
+          <span v-if="option.solo" class="tms-group-solo" />
+          <span v-else class="text-[10px] uppercase tracking-wider text-surface-500 font-mono">
             {{ option.name }}
           </span>
         </template>

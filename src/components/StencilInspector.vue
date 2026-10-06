@@ -124,7 +124,7 @@ function onIdInput(e) {
             :invalid="!!problemOf('label')"
             size="small"
             class="w-full"
-            placeholder="Задвижка"
+            data-field="label"
             @change="commit"
           />
           <p v-if="problemOf('label')" v-tooltip.left="problemOf('label')" class="tms-field-error">

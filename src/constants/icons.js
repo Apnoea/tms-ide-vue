@@ -17,6 +17,12 @@ export const TEXT_ICON = [
   { d: 'M4.4 4.8h7.2v1.7H8.85V11.6h-1.7V6.5H4.4z', mode: 'fill' },
 ]
 
+/**
+ * Линия: диагональ. `pi-minus` занят зумом «Уменьшить» в том же тулбаре, и две
+ * одинаковые чёрточки в одном ряду не различались.
+ */
+const LINE_ICON = [{ d: 'M3 13 13 3', mode: 'stroke' }]
+
 /** Ломаная: три звена с изломами — форма читается даже в 14px. */
 const POLYLINE_ICON = [{ d: 'M2 12.2 6 6.2l3.6 3L14 3.8', mode: 'stroke' }]
 
@@ -26,7 +32,7 @@ const POLYLINE_ICON = [{ d: 'M2 12.2 6 6.2l3.6 3L14 3.8', mode: 'stroke' }]
  * фоновый дефолт.
  */
 export const DRAW_TOOLS = [
-  { key: 'line', icon: 'pi pi-minus', tip: 'Линия' },
+  { key: 'line', glyph: LINE_ICON, tip: 'Линия' },
   { key: 'rect', icon: 'pi pi-stop', tip: 'Прямоугольник' },
   { key: 'circle', icon: 'pi pi-circle', tip: 'Эллипс (Shift — ровный круг)' },
   {
@@ -46,6 +52,18 @@ export const ROTATE_ICON = [
   { d: 'M2.2 10.4A5.5 5.5 0 0 1 13.2 10.4', mode: 'stroke' },
   { d: 'M11.1 9 13.2 11.2 15.1 8.8', mode: 'stroke' },
 ]
+
+/**
+ * Степпер числа (толщина, размер шрифта, знаки, размер символа): кнопки по бокам поля.
+ * Свои иконки обязательны — дефолтные шевроны PrimeVue ˅ ˄ при горизонтальной раскладке
+ * читаются как выпадающий список. Раздаётся `v-bind` на InputNumber.
+ */
+export const STEPPER_PROPS = {
+  showButtons: true,
+  buttonLayout: 'horizontal',
+  incrementButtonIcon: 'pi pi-plus',
+  decrementButtonIcon: 'pi pi-minus',
+}
 
 // Управление прогоном симуляции. Готовые `pi-pause`/`pi-step-forward` — сплошные
 // медиа-глифы, а тулбар холста набран линейными (`pi-undo`, `pi-search`, `pi-plus`),

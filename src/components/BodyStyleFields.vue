@@ -8,6 +8,7 @@
 import { computed } from 'vue'
 import InputNumber from 'primevue/inputnumber'
 import ColorField from './ColorField.vue'
+import { STEPPER_PROPS } from '../constants/icons'
 
 const props = defineProps({
   color: { type: String, required: true },
@@ -56,7 +57,10 @@ const isCustomThickness = computed(() => props.thickness !== props.thicknessDefa
     </div>
 
     <div class="flex items-center gap-3">
-      <span class="tms-field-label shrink-0">Толщина, px</span>
+      <span class="tms-field-label shrink-0">
+        Толщина,
+        <span class="normal-case">px</span>
+      </span>
       <!-- Крестик поверх поля — сброс к дефолту, как у толщины провода. -->
       <span class="relative ml-auto inline-flex">
         <InputNumber
@@ -64,8 +68,7 @@ const isCustomThickness = computed(() => props.thickness !== props.thicknessDefa
           :min="thicknessMin"
           :max="thicknessMax"
           :step="1"
-          show-buttons
-          button-layout="horizontal"
+          v-bind="STEPPER_PROPS"
           size="small"
           input-class="w-12! text-center"
           @update:model-value="(v) => emit('update-thickness', v)"

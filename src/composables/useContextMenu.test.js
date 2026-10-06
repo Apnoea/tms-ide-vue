@@ -78,26 +78,15 @@ describe('useContextMenu — «Удалить»', () => {
     mockCanvas.selection.value = sel
     const { api, scope } = setup()
 
+    // Подпись без счётчика: сколько выделено, видно в заголовке инспектора.
     const item = deleteItemFor(api, { kind: 'cell', id: 'b' })
-    expect(item.label).toBe('Удалить (3)')
+    expect(item.label).toBe('Удалить')
     item.command()
     expect(mockCanvas.deleteItems).toHaveBeenCalledWith(sel)
     scope.stop()
   })
 
-  it('locked-ячейки не попадают в счётчик — label не обещает лишнего', () => {
-    mockCanvas.graphRef.value = graphOf({ a: {}, b: { locked: true }, c: {} })
-    mockCanvas.selection.value = [
-      { kind: 'cell', id: 'a' },
-      { kind: 'cell', id: 'b' },
-      { kind: 'cell', id: 'c' },
-    ]
-    const { api, scope } = setup()
-    expect(deleteItemFor(api, { kind: 'cell', id: 'a' }).label).toBe('Удалить (2)')
-    scope.stop()
-  })
-
-  it('одиночная цель — label без счётчика, удаляется только она', () => {
+  it('одиночная цель — удаляется только она', () => {
     mockCanvas.graphRef.value = graphOf({ a: {} })
     mockCanvas.selection.value = [{ kind: 'cell', id: 'a' }]
     const { api, scope } = setup()
@@ -119,7 +108,7 @@ describe('useContextMenu — «Удалить»', () => {
     const { api, scope } = setup()
 
     const item = deleteItemFor(api, { kind: 'link', id: 'w1' })
-    expect(item.label).toBe('Удалить (2)')
+    expect(item.label).toBe('Удалить')
     item.command()
     expect(mockCanvas.deleteItems).toHaveBeenCalledWith(sel)
     scope.stop()
@@ -140,7 +129,7 @@ describe('useContextMenu — замок', () => {
     return api.ctxItems.value.find((i) => /блокировать/.test(i.label || ''))
   }
 
-  it('мультивыделение: пункт есть, со счётчиком, и лочит всё выделение', () => {
+  it('мультивыделение: пункт есть и лочит всё выделение', () => {
     mockCanvas.graphRef.value = graphOf({ a: {}, b: {}, c: {} })
     const sel = [
       { kind: 'cell', id: 'a' },
@@ -151,7 +140,7 @@ describe('useContextMenu — замок', () => {
     const { api, scope } = setup()
 
     const item = lockItemFor(api, { kind: 'cell', id: 'b' })
-    expect(item.label).toBe('Заблокировать (3)')
+    expect(item.label).toBe('Заблокировать')
     item.command()
     expect(mockCanvas.toggleLocked).toHaveBeenCalledWith(sel)
     scope.stop()
@@ -164,7 +153,7 @@ describe('useContextMenu — замок', () => {
       { kind: 'cell', id: 'b' },
     ]
     const { api, scope } = setup()
-    expect(lockItemFor(api, { kind: 'cell', id: 'a' }).label).toBe('Заблокировать (2)')
+    expect(lockItemFor(api, { kind: 'cell', id: 'a' }).label).toBe('Заблокировать')
     scope.stop()
   })
 
@@ -175,15 +164,7 @@ describe('useContextMenu — замок', () => {
       { kind: 'cell', id: 'b' },
     ]
     const { api, scope } = setup()
-    expect(lockItemFor(api, { kind: 'cell', id: 'b' }).label).toBe('Разблокировать (2)')
-    scope.stop()
-  })
-
-  it('одиночная ячейка — label без счётчика', () => {
-    mockCanvas.graphRef.value = graphOf({ a: {} })
-    mockCanvas.selection.value = [{ kind: 'cell', id: 'a' }]
-    const { api, scope } = setup()
-    expect(lockItemFor(api, { kind: 'cell', id: 'a' }).label).toBe('Заблокировать')
+    expect(lockItemFor(api, { kind: 'cell', id: 'b' }).label).toBe('Разблокировать')
     scope.stop()
   })
 })
@@ -272,7 +253,7 @@ describe('useContextMenu — символ под курсором', () => {
 
     mockCanvas.cellsOfStencil.mockReturnValue([{ id: 'a' }, { id: 'b' }])
     const item = same()
-    expect(item.label).toBe('Выделить такие же (2)')
+    expect(item.label).toBe('Выделить такие же')
     item.command()
     expect(mockCanvas.selectSameStencil).toHaveBeenCalledWith('cell_qw')
     scope.stop()

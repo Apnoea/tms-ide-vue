@@ -58,7 +58,7 @@ export function useContextMenu({
       // Замок работает на всё выделение (хоть одна свободна → лочим все), поэтому
       // доступен и в мультивыделении, и на группе. Overlay-кнопка остаётся
       // одиночной: она позиционируется по AABB одной ячейки.
-      const lockItem = lockMenuItem(t, locked, selCellCount)
+      const lockItem = lockMenuItem(t, locked)
       // «Снять с шины» — только на закреплённом символе: жест обратный присоединению
       // (см. useBusSnap.detachFromBus), сам символ остаётся на месте.
       const busItem = cell.get('tms')?.busId
@@ -187,10 +187,9 @@ export function useContextMenu({
     if (editLabel) {
       items.push({ label: editLabel, icon: 'pi pi-pencil', command: () => editStencil(stencil.id) })
     }
-    const same = canvas.cellsOfStencil(stencil.id).length
-    if (same > 1) {
+    if (canvas.cellsOfStencil(stencil.id).length > 1) {
       items.push({
-        label: `Выделить такие же (${same})`,
+        label: 'Выделить такие же',
         icon: 'pi pi-search-plus',
         command: () => canvas.selectSameStencil(stencil.id),
       })
@@ -209,9 +208,11 @@ export function useContextMenu({
 
   /**
    * Пункт замка. Направление — как у toggleLocked: есть свободная ячейка → лочим.
-   * Счётчик в label показывает, что операция затронет всё выделение.
+   * Числа в подписях нет ни у одного пункта: сколько выделено, видно в заголовке
+   * инспектора, а разные счётчики в одном меню (символы и символы с проводами)
+   * читались как противоречие.
    */
-  function lockMenuItem(target, targetLocked, selCellCount) {
+  function lockMenuItem(target, targetLocked) {
     const graph = canvas.graphRef.value
     const cells = canvas.selection.value
       .filter((i) => i.kind === 'cell')
@@ -219,21 +220,18 @@ export function useContextMenu({
       .filter(Boolean)
     // Меню по невыделенной ячейке — решает её собственный замок (выделит runOnTarget).
     const lock = cells.length ? cells.some((c) => !c.get('tms')?.locked) : !targetLocked
-    const n = Math.max(selCellCount, 1)
-    const suffix = n > 1 ? ` (${n})` : ''
     return {
-      label: (lock ? 'Заблокировать' : 'Разблокировать') + suffix,
+      label: lock ? 'Заблокировать' : 'Разблокировать',
       icon: lock ? 'pi pi-lock' : 'pi pi-unlock',
       command: () => runOnTarget(target, () => canvas.toggleLocked(canvas.selection.value)),
     }
   }
 
-  /** Пункт «Удалить»; счётчик в label при нескольких целях (locked не удаляются). */
+  /** Пункт «Удалить» (заблокированные из целей не удаляются — их отсеивает deleteItems). */
   function deleteItem(target) {
     const targets = deleteTargets(target)
-    const count = canvas.writableItems(targets).length
     return {
-      label: count > 1 ? `Удалить (${count})` : 'Удалить',
+      label: 'Удалить',
       icon: 'pi pi-trash',
       shortcut: 'Del',
       command: () => canvas.deleteItems(targets),

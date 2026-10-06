@@ -59,10 +59,10 @@ describe('rotatePoint', () => {
 describe('overlayButtonPositions', () => {
   it('повороты по верхним углам, отражения по серединам сторон, удаление снизу справа', () => {
     const pos = overlayButtonPositions({ left: 100, top: 200, right: 140, bottom: 260 })
-    expect(pos.rotateCcw).toEqual({ left: '60px', top: '160px' })
-    expect(pos.rotateCw).toEqual({ left: '148px', top: '160px' })
-    expect(pos.flipH).toEqual({ left: '104px', top: '160px' })
-    expect(pos.flipV).toEqual({ left: '60px', top: '214px' })
-    expect(pos.delete).toEqual({ left: '148px', top: '268px' })
+    expect(pos.rotateCcw).toEqual({ left: '66px', top: '166px' })
+    expect(pos.rotateCw).toEqual({ left: '150px', top: '166px' })
+    expect(pos.flipH).toEqual({ left: '108px', top: '166px' })
+    expect(pos.flipV).toEqual({ left: '66px', top: '218px' })
+    expect(pos.delete).toEqual({ left: '150px', top: '270px' })
   })
 })

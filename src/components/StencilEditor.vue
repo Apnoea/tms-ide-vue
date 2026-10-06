@@ -27,7 +27,7 @@ import { shapeStateKeys } from '../utils/stencilSvg'
 import { overlayButtonPositions } from '../utils/paperGeom'
 import { GRID_PERIOD, gridPatternLines, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
-import { DRAW_TOOLS, ROTATE_ICON } from '../constants/icons'
+import { DRAW_TOOLS, ROTATE_ICON, STEPPER_PROPS } from '../constants/icons'
 import ContextMenuItem from './ContextMenuItem.vue'
 import GlyphIcon from './GlyphIcon.vue'
 import { getStencilById } from '../stencils/registry'
@@ -709,8 +709,7 @@ onMounted(updateRuler)
             :model-value="meta.width"
             :min="BOX_GRID"
             :step="BOX_GRID"
-            show-buttons
-            button-layout="horizontal"
+            v-bind="STEPPER_PROPS"
             size="small"
             input-class="w-10! text-center pointer-events-none select-none"
             @update:model-value="setSize('width', $event)"
@@ -723,8 +722,7 @@ onMounted(updateRuler)
             :model-value="meta.height"
             :min="BOX_GRID"
             :step="BOX_GRID"
-            show-buttons
-            button-layout="horizontal"
+            v-bind="STEPPER_PROPS"
             size="small"
             input-class="w-10! text-center pointer-events-none select-none"
             @update:model-value="setSize('height', $event)"

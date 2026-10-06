@@ -13,6 +13,7 @@ import ColorField from './ColorField.vue'
 import GlyphIcon from './GlyphIcon.vue'
 import { isDefaultWireValue, WIRE_STYLE_DEFAULTS } from '../stencils/linkDefaults'
 import { WIRE_ROUTE_STRAIGHT, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire'
+import { STEPPER_PROPS } from '../constants/icons'
 
 const props = defineProps({
   /**
@@ -72,7 +73,8 @@ const ROUTE_OPTIONS = [
     <!-- Толщина линии — InputNumber со степперами, как в редакторе символов. -->
     <div class="flex items-center gap-3">
       <span class="tms-field-label shrink-0">
-        Толщина, px
+        Толщина,
+        <span class="normal-case">px</span>
         <span v-if="mixed('strokeWidth')" class="text-surface-400">разные</span>
       </span>
       <span class="relative ml-auto inline-flex">
@@ -82,8 +84,7 @@ const ROUTE_OPTIONS = [
           :max="WIRE_STROKE_MAX"
           :step="0.5"
           :max-fraction-digits="1"
-          show-buttons
-          button-layout="horizontal"
+          v-bind="STEPPER_PROPS"
           size="small"
           input-class="w-12! text-center"
           @update:model-value="(v) => emit('apply', 'strokeWidth', v)"

@@ -68,15 +68,15 @@ it('StencilInspector: выделение переключает на свойс�
   editor.reset()
   editor.meta.label = 'Задвижка'
   const wrapper = mountWithApp(StencilInspector)
-  expect(wrapper.find('input[placeholder="Задвижка"]').exists()).toBe(true)
+  expect(wrapper.find('input[data-field="label"]').exists()).toBe(true)
   editor.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
   await nextTick()
-  expect(wrapper.find('input[placeholder="Задвижка"]').exists()).toBe(false)
+  expect(wrapper.find('input[data-field="label"]').exists()).toBe(false)
   expect(wrapper.text()).toContain('Фигура')
   expect(wrapper.find('#tms-editor-actions').exists()).toBe(true)
   await wrapper.find('h2 button').trigger('click')
   expect(editor.selectedIds.value).toEqual([])
-  expect(wrapper.find('input[placeholder="Задвижка"]').exists()).toBe(true)
+  expect(wrapper.find('input[data-field="label"]').exists()).toBe(true)
 })
 
 // Привязка к состоянию — строки «Всегда» и состояний; выбор пишется всем выделенным.
@@ -252,7 +252,7 @@ describe('StencilInspector: символ набора', () => {
   })
 
   it('название заперто, категория и галки открыты', () => {
-    expect(wrapper.find('input[placeholder="Задвижка"]').element.disabled).toBe(true)
+    expect(wrapper.find('input[data-field="label"]').element.disabled).toBe(true)
     const category = wrapper.findAllComponents({ name: 'Select' }).find((s) => s.props('editable'))
     expect(category.props('disabled')).toBe(false)
     expect(wrapper.find('input#se-norotate').element.disabled).toBe(false)

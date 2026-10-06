@@ -352,12 +352,14 @@ onBeforeUnmount(() => {
               </button>
               <span v-else class="w-5 shrink-0" aria-hidden="true"></span>
 
+              <!-- Высота поля = высоте строки (25px): иначе на время правки строка
+                   менялась, и дерево с палитрой под ним прыгали. -->
               <InputText
                 v-if="editingId === row.id"
                 :ref="setRenameInput"
                 v-model="editValue"
                 size="small"
-                class="relative z-10 my-0.5 w-full py-0.5! font-mono text-xs!"
+                class="relative z-10 h-[25px]! w-full py-0! font-mono text-xs!"
                 @keyup.enter="commitRename"
                 @keyup.esc="cancelRename"
                 @blur="commitRename"
@@ -405,29 +407,29 @@ onBeforeUnmount(() => {
                       type="button"
                       data-nodrag
                       v-tooltip.bottom="'Изменить id'"
-                      class="tms-icon-action flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
+                      class="tms-icon-action flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
                       @click.stop="startRename(row.id)"
                     >
-                      <i class="pi pi-pencil text-[10px]!" />
+                      <i class="pi pi-pencil text-xs!" />
                     </button>
                     <button
                       type="button"
                       data-nodrag
                       v-tooltip.bottom="'Дублировать форму'"
-                      class="tms-icon-action flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
+                      class="tms-icon-action flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
                       @click.stop="canvas.duplicateForm(row.id)"
                     >
-                      <i class="pi pi-clone text-[10px]!" />
+                      <i class="pi pi-clone text-xs!" />
                     </button>
                     <button
                       v-if="workspace.formIds.length > 1"
                       type="button"
                       data-nodrag
                       v-tooltip.bottom="'Удалить форму'"
-                      class="tms-icon-action flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-red-600"
+                      class="tms-icon-action flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-red-600"
                       @click="confirmDelete($event, row.id)"
                     >
-                      <i class="pi pi-trash text-[10px]!" />
+                      <i class="pi pi-trash text-xs!" />
                     </button>
                   </div>
                 </div>
