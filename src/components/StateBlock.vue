@@ -12,7 +12,6 @@
  * и код значения тега не с чем сверить.
  */
 import { computed } from 'vue'
-import Button from 'primevue/button'
 import TagField from './TagField.vue'
 import { isBooleanType } from '../services/tagList'
 import AnimationCard from './AnimationCard.vue'
@@ -48,44 +47,16 @@ const displayStates = computed(() => (isBool.value ? BOOL_STATES : props.states)
     :icon="`pi ${isBool ? 'pi-power-off' : 'pi-sliders-h'} text-cyan-500`"
     title="Состояние"
     :hint="isBool ? 'по булеву тегу' : 'по коду значения'"
+    :paste-tip="pasteable && 'Вставить тег состояния'"
+    :copy-tip="copyable && 'Копировать тег состояния'"
+    :clear-tip="!!slotInfo.value && 'Очистить тег'"
+    @paste="$emit('paste')"
+    @copy="$emit('copy')"
+    @clear="$emit('clear')"
   >
     <!-- Заголовок один на оба режима: режим задан символом и на холсте не меняется,
-         поэтому он уточнением, а не вторым именем блока. -->
-    <template #actions>
-      <Button
-        v-if="pasteable"
-        v-tooltip.bottom="'Вставить тег состояния'"
-        icon="pi pi-clipboard"
-        severity="secondary"
-        text
-        size="small"
-        class="tms-row-btn"
-        @click="$emit('paste')"
-      />
-      <Button
-        v-if="copyable"
-        v-tooltip.bottom="'Копировать тег состояния'"
-        icon="pi pi-copy"
-        severity="secondary"
-        text
-        size="small"
-        class="tms-row-btn"
-        @click="$emit('copy')"
-      />
-      <!-- × в шапке, а не в строке тега: случайный клик по чипу не должен стирать
-           привязку. -->
-      <Button
-        v-if="slotInfo.value"
-        v-tooltip.bottom="'Очистить тег'"
-        icon="pi pi-times"
-        severity="secondary"
-        text
-        size="small"
-        class="tms-row-btn"
-        @click="$emit('clear')"
-      />
-    </template>
-
+         поэтому он уточнением, а не вторым именем блока. × — в шапке, а не в строке
+         тега: случайный клик по чипу не должен стирать привязку. -->
     <TagField
       :value="slotInfo.value || ''"
       :can-pick="tagsLoaded"
@@ -98,7 +69,7 @@ const displayStates = computed(() => (isBool.value ? BOOL_STATES : props.states)
          одинаково в обоих режимах: у булева слота это `true`/`false`, у режима «по
          значению» — коды, которые вписал автор символа. -->
     <div v-if="displayStates.length" class="mt-2">
-      <div class="text-[11px] text-surface-500 mb-1">Состояния символа</div>
+      <div class="tms-hint mb-1">Состояния символа</div>
       <div class="flex flex-wrap gap-1">
         <span
           v-for="st in displayStates"
@@ -112,9 +83,5 @@ const displayStates = computed(() => (isBool.value ? BOOL_STATES : props.states)
         </span>
       </div>
     </div>
-
-    <p v-if="!tagsLoaded" class="tms-hint mt-1 text-surface-400">
-      Загрузи tag-list, чтобы выбрать тег.
-    </p>
   </AnimationCard>
 </template>

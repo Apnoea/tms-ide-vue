@@ -12,7 +12,9 @@ import { tagIssue, tagIssueLabel } from '../utils/tagHealth'
 
 const props = defineProps({
   value: { type: String, default: '' },
-  // Можно ли выбирать тег (tag-list загружен). Иначе чип задизейблен.
+  // Можно ли выбирать тег. Иначе чип задизейблен и без тултипа: про незагруженный
+  // tag-list говорит одна плашка над «Анимациями» (TagListNotice), а у унаследованного
+  // тега источник подписан над полем.
   canPick: { type: Boolean, default: false },
   pickLabel: { type: String, default: 'Выбрать тег' }, // tooltip активного чипа
   highlightable: { type: Boolean, default: false }, // кнопка «подсветить» при value
@@ -36,7 +38,7 @@ const issueLabel = computed(() => tagIssueLabel(issue.value))
         canPick ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
         'border-surface-300 hover:border-primary-400',
       ]"
-      v-tooltip.bottom="canPick ? pickLabel : 'Загрузи tag-list, чтобы выбрать тег'"
+      v-tooltip.bottom="canPick ? pickLabel : ''"
       @click="canPick && $emit('pick')"
     >
       {{ value || '- тег не выбран -' }}

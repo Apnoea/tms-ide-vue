@@ -1,5 +1,4 @@
 <script setup>
-import Button from 'primevue/button'
 import TagField from './TagField.vue'
 import RangeRows from './RangeRows.vue'
 import AnimationCard from './AnimationCard.vue'
@@ -36,20 +35,13 @@ defineEmits(['open-tag-picker', 'highlight', 'remove'])
 </script>
 
 <template>
-  <AnimationCard icon="pi pi-chart-bar text-yellow-500" title="Цвет" hint="по диапазону тега">
-    <template #actions>
-      <Button
-        v-if="rangeSource && !inheritedFrom"
-        v-tooltip.bottom="pickable ? 'Очистить тег' : 'Убрать настройку'"
-        icon="pi pi-times"
-        severity="secondary"
-        text
-        size="small"
-        class="tms-row-btn"
-        @click="$emit('remove')"
-      />
-    </template>
-
+  <AnimationCard
+    icon="pi pi-chart-bar text-yellow-500"
+    title="Цвет"
+    hint="по диапазону тега"
+    :clear-tip="!!rangeSource && !inheritedFrom && (pickable ? 'Очистить тег' : 'Убрать настройку')"
+    @clear="$emit('remove')"
+  >
     <p v-if="pickable || rangeSource" class="tms-hint mb-2">
       Цвет по диапазону значения. Одинаковые границы — точное значение: «3 — 3» сработает только на
       3.
@@ -60,9 +52,7 @@ defineEmits(['open-tag-picker', 'highlight', 'remove'])
       <div>
         <!-- Строка над полем только у наследования: откуда пришёл источник, по самому
              чипу не видно. Свой тег в подписи не нуждается — его видно в чипе. -->
-        <div v-if="inheritedFrom" class="text-[11px] text-surface-400 mb-1">
-          наследуется {{ inheritedFrom }}
-        </div>
+        <div v-if="inheritedFrom" class="tms-hint mb-1">наследуется {{ inheritedFrom }}</div>
         <TagField
           :value="rangeSource?.tag || ''"
           :can-pick="tagsLoaded && pickable"
@@ -73,7 +63,7 @@ defineEmits(['open-tag-picker', 'highlight', 'remove'])
       </div>
 
       <div v-if="rangeSource?.tag">
-        <div class="text-[11px] text-surface-500 mb-1">
+        <div class="tms-hint mb-1">
           Диапазоны
           <span class="text-surface-400">
             {{

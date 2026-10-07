@@ -310,7 +310,7 @@ onBeforeUnmount(() => {
             <div
               v-if="row.kind === 'group'"
               :data-row-idx="i"
-              class="mt-2 px-2 py-1 text-[10px] uppercase tracking-wider text-surface-400"
+              class="tms-group-label mt-2 px-2 py-1"
             >
               {{ row.label }}
             </div>
@@ -359,7 +359,7 @@ onBeforeUnmount(() => {
                 :ref="setRenameInput"
                 v-model="editValue"
                 size="small"
-                class="relative z-10 h-[25px]! w-full py-0! font-mono text-xs!"
+                class="relative z-10 h-[25px]! w-full py-0! font-mono"
                 @keyup.enter="commitRename"
                 @keyup.esc="cancelRename"
                 @blur="commitRename"

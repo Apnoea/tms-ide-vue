@@ -55,9 +55,11 @@ describe('StateBlock', () => {
     expect(w.emitted('clear')).toHaveLength(1)
   })
 
-  it('без tag-list picker недоступен и об этом сказано', () => {
+  // Про незагруженный tag-list говорит одна плашка над «Анимациями» (TagListNotice), а
+  // не каждая карточка.
+  it('без tag-list picker недоступен, своей подсказки у карточки нет', () => {
     const w = mount({ slotInfo: { key: 'onoff', type: 'Boolean', value: '' }, tagsLoaded: false })
     expect(w.findComponent(TagField).props('canPick')).toBe(false)
-    expect(w.text()).toContain('Загрузи tag-list')
+    expect(w.text()).not.toContain('tag-list')
   })
 })

@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-// Шапка карточки анимации: иконка, заголовок, уточнение; полоса действий — только со слотом.
+// Шапка карточки анимации: иконка, заголовок, уточнение; полоса действий — только когда
+// есть слот или типовое действие.
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { mountWithApp } from '../composables/test-utils'
 import AnimationCard from './AnimationCard.vue'
 
 describe('AnimationCard', () => {
@@ -17,6 +19,23 @@ describe('AnimationCard', () => {
     expect(w.find('.body').exists()).toBe(true)
     expect(w.find('.ml-auto .act').exists()).toBe(true)
     expect(w.attributes('data-test')).toBe('card')
+  })
+
+  it('типовые действия: кнопка есть, когда задан тултип, клик — эмит', async () => {
+    const w = mountWithApp(AnimationCard, {
+      props: {
+        icon: 'pi pi-eye',
+        title: 'Т',
+        pasteTip: false,
+        copyTip: 'Копировать',
+        clearTip: 'Очистить',
+      },
+    })
+    const keys = w.findAll('[data-action]').map((b) => b.attributes('data-action'))
+    expect(keys).toEqual(['copy', 'clear'])
+    await w.find('[data-action="clear"]').trigger('click')
+    expect(w.emitted('clear')).toHaveLength(1)
+    expect(w.emitted('paste')).toBeUndefined()
   })
 
   it('без слота действий полосы справа нет, без уточнения — только заголовок', () => {

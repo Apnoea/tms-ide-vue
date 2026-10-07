@@ -443,7 +443,7 @@ function bindToState(value) {
         data-test="state-binding"
       >
         <template v-if="shapeState === null" #actions>
-          <span class="text-[11px] text-surface-400">у выделенных разная</span>
+          <span class="tms-hint">у выделенных разная</span>
         </template>
         <p class="tms-hint mb-2">
           {{

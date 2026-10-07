@@ -77,7 +77,7 @@ const boundText = (v, sign) => (v === null || v === undefined ? sign : String(v)
             :model-value="idx === 0 ? cellText(r.min) || '0' : cellText(r.min)"
             :disabled="idx === 0"
             size="small"
-            class="w-14! font-mono text-xs!"
+            class="w-14! font-mono"
             inputmode="decimal"
             @change="$emit('update-range', idx, 'min', $event.target.value)"
           />
@@ -85,7 +85,7 @@ const boundText = (v, sign) => (v === null || v === undefined ? sign : String(v)
           <InputText
             :model-value="cellText(r.max)"
             size="small"
-            class="w-14! font-mono text-xs!"
+            class="w-14! font-mono"
             inputmode="decimal"
             @change="$emit('update-range', idx, 'max', $event.target.value)"
           />

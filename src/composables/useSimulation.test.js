@@ -10,11 +10,6 @@ import { registerStencil, unregisterStencil } from '../stencils/registry'
 import { innerKey } from '../constants/ids'
 import { CLASS_HIDDEN, CLASS_OFF, rangeColorClass, stateColorClass } from '../constants/animation'
 
-vi.mock('./useNotify', () => ({
-  useNotify: () => ({ info: () => {}, success: () => {}, warn: () => {}, error: () => {} }),
-  TOAST_LIFE: { SHORT: 1, NORMAL: 1, LONG: 1 },
-}))
-
 const VALUE_ID = 'cell_sim_value'
 const BOOL_ID = 'cell_sim_bool'
 

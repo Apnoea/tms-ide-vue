@@ -1,5 +1,4 @@
 import { computed, ref, shallowRef, onBeforeUnmount } from 'vue'
-import { useNotify, TOAST_LIFE } from './useNotify'
 import {
   CLASS_OFF,
   CLASS_HIDDEN,
@@ -85,7 +84,6 @@ let simCssKey = ''
  */
 export function useSimulation() {
   const canvas = useCanvas()
-  const notify = useNotify()
   const project = useProjectStore()
 
   /** Пустое значение = вернуть тегу случайное: пустых записей в наборе не держим. */
@@ -434,14 +432,10 @@ export function useSimulation() {
     restoreValueTexts()
   }
 
+  // Без тоста: режим и так виден — кнопка в тулбаре, зелёная рамка и метка на холсте.
   function toggleSimulation() {
-    if (simulating.value) {
-      stopSimulation()
-      notify.info('Симуляция остановлена', undefined, TOAST_LIFE.SHORT)
-    } else {
-      startSimulation()
-      notify.info('Симуляция запущена', undefined, TOAST_LIFE.SHORT)
-    }
+    if (simulating.value) stopSimulation()
+    else startSimulation()
   }
 
   onBeforeUnmount(() => {

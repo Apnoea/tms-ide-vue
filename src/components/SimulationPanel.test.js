@@ -33,6 +33,16 @@ it('SimulationPanel: заголовок «Симуляция › Символ»,
   expect(w.emitted('clear-selection')).toHaveLength(1)
 })
 
+// Сброс всех значений — рядом с поиском; место под него держится, пока значений нет.
+it('SimulationPanel: сброс всех значений у поиска, без строк-пояснений', async () => {
+  const empty = mountPanel([tag()])
+  expect(empty.find('.pi-refresh').exists()).toBe(false)
+  expect(empty.text()).not.toContain('Пустое поле')
+  const w = mountPanel([tag()], new Map([['P1.VALUE', 5]]))
+  await w.find('.pi-refresh').element.closest('button').click()
+  expect(w.emitted('reset')).toHaveLength(1)
+})
+
 describe('SimulationPanel: зоны диапазонов', () => {
   it('подписи по порогам и значение из зоны по клику', async () => {
     const w = mountPanel([tag()])

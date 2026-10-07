@@ -46,7 +46,7 @@ const canvas = useCanvas()
       @click="ui.openHelp"
     >
       <i class="pi pi-question-circle text-sm" />
-      <kbd class="rounded bg-surface-100 px-1 py-0.5 font-mono text-[10px]">F1</kbd>
+      <kbd class="tms-kbd">F1</kbd>
     </button>
   </div>
 </template>

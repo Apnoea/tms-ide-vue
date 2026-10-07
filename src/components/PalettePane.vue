@@ -2,9 +2,6 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 import Button from 'primevue/button'
-import InputText from 'primevue/inputtext'
-import IconField from 'primevue/iconfield'
-import InputIcon from 'primevue/inputicon'
 import Badge from 'primevue/badge'
 import Chip from 'primevue/chip'
 import Accordion from 'primevue/accordion'
@@ -29,6 +26,7 @@ import { useUiStore } from '../stores/useUiStore'
 import { STENCIL_DOMAINS, matchesDomains } from '../constants/domains'
 import { nplural } from '../utils/plural'
 import { useConfirmDanger } from '../composables/useConfirmDanger'
+import SearchField from './SearchField.vue'
 
 const ui = useUiStore()
 const confirmDanger = useConfirmDanger()
@@ -44,16 +42,11 @@ const searchInput = ref(null)
 async function openSearch() {
   searchOpen.value = true
   await nextTick()
-  searchInput.value?.$el?.focus()
+  searchInput.value?.focus()
 }
 function closeSearch() {
   search.value = ''
   searchOpen.value = false
-}
-// Крестик в поле: только чистит запрос, поле остаётся открытым и в фокусе.
-function clearQuery() {
-  search.value = ''
-  searchInput.value?.$el?.focus()
 }
 // Кнопка-лупа тогглит поиск: закрыта → открыть+фокус, открыта → закрыть (фильтр
 // снимается). Закрыть поле можно кнопкой-лупой или Esc в самом поле; клик-вне не
@@ -303,21 +296,13 @@ async function removeStencil(id) {
             class="px-3 py-2 bg-surface-0"
             :class="{ 'border-b border-surface-200': searchOpen }"
           >
-            <IconField class="w-full">
-              <InputText
-                ref="searchInput"
-                v-model="search"
-                size="small"
-                class="w-full h-8!"
-                placeholder="Поиск по названию или id..."
-                @keyup.esc="closeSearch"
-              />
-              <InputIcon
-                v-if="search"
-                class="pi pi-times cursor-pointer hover:text-surface-700"
-                @click="clearQuery"
-              />
-            </IconField>
+            <SearchField
+              ref="searchInput"
+              v-model="search"
+              class="w-full"
+              placeholder="Поиск по названию или id…"
+              @keyup.esc="closeSearch"
+            />
           </div>
         </div>
       </div>
@@ -345,10 +330,7 @@ async function removeStencil(id) {
           class="tms-domain-chip tms-domain-chip-on"
           @remove="presetFilter = null"
         />
-        <span
-          v-if="(domainFilter.length || presetFilter) && search.trim()"
-          class="tms-hint text-surface-400"
-        >
+        <span v-if="(domainFilter.length || presetFilter) && search.trim()" class="tms-hint">
           поиск по всей палитре
         </span>
       </div>
@@ -385,9 +367,7 @@ async function removeStencil(id) {
       <Accordion v-else v-model:value="accordionActive" multiple class="tms-palette-accordion">
         <AccordionPanel v-for="cat in categories" :key="cat" :value="cat">
           <AccordionHeader>
-            <span
-              class="flex items-center gap-2 w-full pr-2 text-[11px] uppercase tracking-wider font-semibold"
-            >
+            <span class="tms-group-label flex items-center gap-2 w-full pr-2">
               <span class="flex-1 text-left">{{ cat }}</span>
               <Badge
                 :value="stencilsByCategory.get(cat)?.length || 0"

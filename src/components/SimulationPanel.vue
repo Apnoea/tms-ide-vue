@@ -9,16 +9,15 @@
  * состояние выбирается из списка символа, булев — тумблером, аналоговый — числом.
  */
 import { computed, ref } from 'vue'
+import Button from 'primevue/button'
 import InputNumber from 'primevue/inputnumber'
-import InputText from 'primevue/inputtext'
-import IconField from 'primevue/iconfield'
-import InputIcon from 'primevue/inputicon'
 import Select from 'primevue/select'
 import ToggleSwitch from 'primevue/toggleswitch'
 import { rangeRowColor } from '../constants/animation'
 import { rangeBound, rangeRowFor, zoneValueFor } from '../utils/simValues'
 import { rowMax } from '../utils/rangeRows'
 import InspectorHeading from './InspectorHeading.vue'
+import SearchField from './SearchField.vue'
 
 const props = defineProps({
   /** `[{ tag, kind: 'state'|'bool'|'value', states?, rangeSource?, type }]`. */
@@ -54,8 +53,8 @@ const visibleTags = computed(() => {
 const emptyText = computed(() => {
   const q = query.value.trim()
   if (q) return `Ничего не нашлось по «${q}»`
-  if (props.selected.size) return 'У выделенного нет привязанных тегов.'
-  return 'В этой форме нет привязанных тегов.'
+  if (props.selected.size) return 'У выделенного нет привязанных тегов'
+  return 'В этой форме нет привязанных тегов'
 })
 
 const valueOf = (tag) => props.values.get(tag) ?? null
@@ -142,54 +141,45 @@ const zoneTip = (zone) =>
       />
     </div>
 
-    <!-- Описание и поиск закреплены: список тегов формы уезжает под скролл. -->
-    <div class="px-4 pt-4 space-y-2">
-      <!-- Высота строки — под кнопку сброса (`min-h-5`): кнопка есть только при заданных
-           значениях, и без резерва всё ниже прыгало на первом заданном и на сбросе. -->
-      <div class="flex min-h-5 items-center gap-2">
-        <p class="flex-1 text-[11px] text-surface-500">Пустое поле - тег меняется случайно.</p>
-        <!-- Сброс ВСЕХ заданных значений: круговая стрелка отличает его от крестика,
-             который снимает значение одной строки. -->
-        <button
+    <!-- Поиск закреплён: список тегов формы уезжает под скролл. Пояснений над ним нет —
+         незаданное значение подписано «случайно» в самой строке, а сужение до
+         выделенного видно по заголовку «Симуляция › …». -->
+    <div v-if="tags.length" class="px-4 pt-4 flex items-center gap-1">
+      <SearchField
+        v-model="query"
+        class="min-w-0 flex-1"
+        placeholder="Поиск по имени тега…"
+        @keyup.esc="query = ''"
+      />
+      <!-- Сброс ВСЕХ заданных значений: круговая стрелка отличает его от крестика,
+           который снимает значение одной строки. Место держим всегда — иначе поле поиска
+           меняло бы ширину на первом заданном значении и на сбросе. -->
+      <span class="w-8 shrink-0">
+        <Button
           v-if="values.size"
           v-tooltip.left="'Вернуть случайные значения всем тегам'"
-          type="button"
-          class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-surface-400 hover:text-surface-800"
-          @click="emit('reset')"
-        >
-          <i class="pi pi-refresh text-[10px]!" />
-        </button>
-      </div>
-
-      <p v-if="selected.size" class="text-[11px] text-surface-500">
-        Показаны теги выделенного на холсте.
-      </p>
-
-      <IconField v-if="tags.length" class="w-full">
-        <InputText
-          v-model="query"
+          icon="pi pi-refresh"
+          severity="secondary"
+          text
           size="small"
-          class="w-full h-8!"
-          placeholder="Поиск по имени тега..."
-          @keyup.esc="query = ''"
+          class="tms-icon-btn"
+          @click="emit('reset')"
         />
-        <InputIcon
-          v-if="query"
-          class="pi pi-times cursor-pointer hover:text-surface-700"
-          @click="query = ''"
-        />
-      </IconField>
+      </span>
     </div>
 
     <div class="flex-1 min-h-0 p-4 overflow-y-auto text-sm space-y-3">
-      <div v-if="!visibleTags.length" class="text-xs text-surface-500">{{ emptyText }}</div>
+      <div v-if="!visibleTags.length" class="tms-empty">
+        <i class="pi text-3xl mb-3 opacity-60" :class="query.trim() ? 'pi-search' : 'pi-tags'" />
+        <div class="tms-empty-title">{{ emptyText }}</div>
+      </div>
 
       <!-- Строка тега: слева тип и имя, справа значение; у тега с диапазонами под ней
            кнопки зон. -->
       <div v-for="t in visibleTags" :key="t.tag">
         <div class="flex items-center gap-2">
           <div class="min-w-0 flex-1">
-            <div class="text-[11px] text-surface-400">{{ t.type || kindLabel(t) }}</div>
+            <div class="tms-hint">{{ t.type || kindLabel(t) }}</div>
             <div v-tooltip.top="t.tag" class="truncate font-mono text-[11px] text-surface-800">
               {{ t.tag }}
             </div>
@@ -197,7 +187,8 @@ const zoneTip = (zone) =>
 
           <span class="flex shrink-0 items-center gap-1">
             <template v-if="t.kind === 'bool'">
-              <span v-if="!values.has(t.tag)" class="text-[11px] text-surface-400">случайно</span>
+              <!-- Тот же вид, что у плейсхолдера «случайно» в числовых полях и списках. -->
+              <span v-if="!values.has(t.tag)" class="text-xs text-surface-500">случайно</span>
               <span
                 v-tooltip.left="boolHint(t.tag)"
                 class="inline-flex"
@@ -231,16 +222,17 @@ const zoneTip = (zone) =>
             />
             <!-- Место под кнопку держим всегда: иначе первое заданное значение сдвигало
                  бы контрол влево. -->
-            <span class="w-5 shrink-0">
-              <button
+            <span class="w-6 shrink-0">
+              <Button
                 v-if="values.has(t.tag)"
                 v-tooltip.left="'Вернуть случайное значение'"
-                type="button"
-                class="flex h-5 w-5 items-center justify-center rounded text-surface-400 hover:text-surface-800"
+                icon="pi pi-times"
+                severity="secondary"
+                text
+                size="small"
+                class="tms-row-btn"
                 @click="emit('set-tag', t.tag, null)"
-              >
-                <i class="pi pi-times text-[10px]!" />
-              </button>
+              />
             </span>
           </span>
         </div>

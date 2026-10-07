@@ -9,7 +9,7 @@ import { useWorkspaceStore } from '../stores/useWorkspaceStore'
  *
  * Ввод идёт в ЧЕРНОВИК `navInput`, в граф коммитим по blur/Enter/выбору: мутация на
  * каждый keystroke пересчитывала бы `details`, навязывала `:model-value` обратно и
- * сбрасывала ввод.
+ * сбрасывала ввод. Включателя нет: пустое поле = перехода нет, `clearNav` снимает цель.
  *
  * @param {object} deps
  * @param {import('vue').ComputedRef} deps.details — текущий выделенный элемент
@@ -18,8 +18,6 @@ import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 export function useNavigationField({ details, mutateSelectedTms }) {
   const workspace = useWorkspaceStore()
 
-  // Свич управляет видимостью инпута; пустое значение не пишется, при OFF — чистим.
-  const navigationEnabled = ref(false)
   const navInput = ref('')
   // id ячейки, к которой относится черновик navInput. Нужен гард в commitNav: клик по
   // другой ячейке меняет selection синхронно (pointerdown) ДО blur поля, поэтому без
@@ -32,14 +30,13 @@ export function useNavigationField({ details, mutateSelectedTms }) {
   // Источник watch'а — МАССИВ ГЕТТЕРОВ [id, navigation], а не один getter,
   // возвращающий [id, navigation]: одиночный getter отдаёт новый массив каждый
   // раз → Object.is всегда false → callback стрелял бы на каждый bumpVersion
-  // (тумблер сбрасывался бы при любом движении ячейки). Массив геттеров даёт
+  // (черновик сбрасывался бы при любом движении ячейки). Массив геттеров даёт
   // поэлементный diff: ресинк только когда реально сменился id (другая ячейка)
   // или navigation (undo/redo на той же ячейке). navInput НЕ трогается на вводе
   // (navigation в графе меняется только по commit), поэтому ввод не перетирается.
   watch(
     [() => details.value?.id, () => details.value?.navigation],
     () => {
-      navigationEnabled.value = !!details.value?.navigation
       navInput.value = details.value?.navigation || ''
       navCellId.value = details.value?.id ?? null
     },
@@ -58,12 +55,10 @@ export function useNavigationField({ details, mutateSelectedTms }) {
     })
   }
 
-  function toggleNavigationEnabled(value) {
-    navigationEnabled.value = value
-    if (!value) {
-      navInput.value = ''
-      patchNavigation('')
-    }
+  /** × у поля: снять цель сразу, без blur. */
+  function clearNav() {
+    navInput.value = ''
+    patchNavigation('')
   }
 
   // Формы-цели: все формы проекта кроме текущей (переход на себя бессмыслен).
@@ -100,14 +95,13 @@ export function useNavigationField({ details, mutateSelectedTms }) {
   })
 
   return {
-    navigationEnabled,
     navInput,
     navSuggestions,
     otherFormIds,
     navBroken,
     navTargetTitle,
-    toggleNavigationEnabled,
     onNavComplete,
     commitNav,
+    clearNav,
   }
 }

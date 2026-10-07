@@ -197,6 +197,21 @@ describe('CanvasInspector', () => {
     expect(b.get('tms').navigation).toBeUndefined()
     expect(a.get('tms').navigation).toBeUndefined()
   })
+
+  it('навигация без тумблера: × у поля снимает цель', async () => {
+    const cell = makeCell()
+    cell.set('tms', { ...cell.get('tms'), navigation: 'view_b' })
+    graph.addCell(cell)
+    canvas.selectOnly('cell', cell.id)
+    setup()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.navInput).toBe('view_b')
+    await wrapper.find('button[data-pd-tooltip] .pi-times').element.closest('button').click()
+    expect(cell.get('tms').navigation).toBeUndefined()
+    expect(wrapper.vm.navInput).toBe('')
+  })
+
   it('подписи-параметры: ввод пишется в tms.params, пустое возвращает текст символа', async () => {
     const cell = makeCell({ stencilId: 'cell_value' })
     graph.addCell(cell)

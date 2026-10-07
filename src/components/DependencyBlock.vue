@@ -37,40 +37,17 @@ defineEmits([
 </script>
 
 <template>
-  <AnimationCard icon="pi pi-sitemap text-purple-500" title="Зависимость" hint="от тегов">
-    <template #actions>
-      <Button
-        v-if="pasteable"
-        v-tooltip.bottom="'Вставить зависимости'"
-        icon="pi pi-clipboard"
-        severity="secondary"
-        text
-        size="small"
-        class="tms-row-btn"
-        @click="$emit('paste')"
-      />
-      <Button
-        v-if="copyable"
-        v-tooltip.bottom="'Копировать зависимости'"
-        icon="pi pi-copy"
-        severity="secondary"
-        text
-        size="small"
-        class="tms-row-btn"
-        @click="$emit('copy')"
-      />
-      <Button
-        v-if="removable"
-        v-tooltip.bottom="'Удалить все зависимости'"
-        icon="pi pi-times"
-        severity="secondary"
-        text
-        size="small"
-        class="tms-row-btn"
-        @click="$emit('remove')"
-      />
-    </template>
-
+  <AnimationCard
+    icon="pi pi-sitemap text-purple-500"
+    title="Зависимость"
+    hint="от тегов"
+    :paste-tip="pasteable && 'Вставить зависимости'"
+    :copy-tip="copyable && 'Копировать зависимости'"
+    :clear-tip="removable && 'Удалить все зависимости'"
+    @paste="$emit('paste')"
+    @copy="$emit('copy')"
+    @clear="$emit('remove')"
+  >
     <!-- Правило показываем, только когда группы есть: пустому блоку хватает кнопки, а
          абзац делал бы самым заметным то, что нужно реже всего. -->
     <p v-if="groups.length" class="tms-hint mb-2">
@@ -78,18 +55,18 @@ defineEmits([
     </p>
 
     <template v-for="(group, gi) in groups" :key="gi">
-      <div v-if="gi > 0" class="text-[10px] text-surface-400 text-center my-1">ИЛИ</div>
+      <div v-if="gi > 0" class="tms-hint text-center my-1">ИЛИ</div>
       <div class="rounded border border-surface-200 bg-surface-50 p-2">
         <div class="flex items-center gap-1.5 mb-1.5">
           <span class="text-[11px] font-medium text-surface-600">Группа {{ gi + 1 }}</span>
-          <span class="text-surface-400 text-[10px]">(все теги — И)</span>
+          <span class="tms-hint">(все теги — И)</span>
           <Button
             v-tooltip.bottom="'Удалить группу'"
             icon="pi pi-times"
             severity="secondary"
             text
             size="small"
-            class="p-1! w-5! h-5! ml-auto"
+            class="tms-row-btn ml-auto"
             @click="$emit('remove-group', gi)"
           />
         </div>
@@ -108,10 +85,10 @@ defineEmits([
           />
           <button
             type="button"
-            class="flex w-full items-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700"
-            :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
-            v-tooltip.bottom="tagsLoaded ? 'Добавить тег (И)' : 'Загрузи tag-list'"
-            @click="tagsLoaded && $emit('add-tag', gi)"
+            class="tms-add-row w-full"
+            :disabled="!tagsLoaded"
+            v-tooltip.bottom="'Добавить тег (И)'"
+            @click="$emit('add-tag', gi)"
           >
             <i class="pi pi-plus text-[10px]!" />
             тег (И)
@@ -120,21 +97,20 @@ defineEmits([
       </div>
     </template>
 
-    <div v-if="groups.length" class="text-[10px] text-surface-400 text-center my-1">ИЛИ</div>
-    <!-- «+ группа» открывает picker — группа рождается с первым тегом (пустых нет). -->
+    <div v-if="groups.length" class="tms-hint text-center my-1">ИЛИ</div>
+    <!-- «+ группа» открывает picker — группа рождается с первым тегом (пустых нет).
+         Пунктирные «добавить» — общий `tms-add-row`, как у диапазонов и состояний; без
+         tag-list неактивны (`disabled`): о причине говорит предупреждение над
+         «Анимациями». -->
     <button
       type="button"
-      class="flex w-full items-center justify-center gap-1.5 px-2 py-1 rounded border border-dashed border-surface-300 text-xs text-surface-500 transition-colors hover:border-primary-400 hover:text-surface-700"
-      :class="tagsLoaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'"
-      v-tooltip.bottom="tagsLoaded ? 'Новая группа условий (ИЛИ)' : 'Загрузи tag-list'"
-      @click="tagsLoaded && $emit('add-group')"
+      class="tms-add-row w-full"
+      :disabled="!tagsLoaded"
+      v-tooltip.bottom="'Новая группа условий (ИЛИ)'"
+      @click="$emit('add-group')"
     >
       <i class="pi pi-plus text-[10px]!" />
       группа (ИЛИ)
     </button>
-
-    <p v-if="!tagsLoaded" class="tms-hint mt-1 text-surface-400">
-      Загрузи tag-list, чтобы выбрать тег.
-    </p>
   </AnimationCard>
 </template>

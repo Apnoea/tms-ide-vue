@@ -180,7 +180,7 @@ function clearStateColor(key, which) {
 
             <div class="space-y-1.5 mb-2">
               <div
-                class="grid items-center gap-1.5 text-[11px] text-surface-500"
+                class="tms-hint grid items-center gap-1.5"
                 :style="{ gridTemplateColumns: stateGridCols }"
               >
                 <span aria-hidden="true"></span>
@@ -223,7 +223,7 @@ function clearStateColor(key, which) {
                     :model-value="st.label"
                     disabled
                     size="small"
-                    class="min-w-0 text-xs!"
+                    class="min-w-0"
                   />
                   <Select
                     v-else
@@ -241,7 +241,7 @@ function clearStateColor(key, which) {
                     :disabled="st.fixed"
                     :placeholder="st.fixed ? undefined : 'код'"
                     size="small"
-                    class="min-w-0 font-mono text-xs!"
+                    class="min-w-0 font-mono"
                     @update:model-value="updateState(st.key, { code: $event })"
                     @change="commit"
                   />

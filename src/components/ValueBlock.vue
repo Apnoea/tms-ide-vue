@@ -4,7 +4,6 @@
  * `Text`), точность и правимые подписи символа (`tms.params`). На схеме они стоят
  * рядом со значением, поэтому и правятся одним блоком.
  */
-import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import TagField from './TagField.vue'
@@ -42,42 +41,20 @@ const PARAM_HEADINGS = ['Подпись', 'Ед. изм.']
 </script>
 
 <template>
-  <AnimationCard icon="pi pi-hashtag text-cyan-600" title="Значение" hint="тега">
-    <template #actions>
-      <!-- Копируется карточка ЦЕЛИКОМ (тег, точность, подписи): ряд однотипных
-           показаний настраивают один раз. × снимает только привязку тега — точность и
-           подписи это вид символа, а не анимация. -->
-      <Button
-        v-if="pasteable"
-        v-tooltip.bottom="'Вставить карточку значения'"
-        icon="pi pi-clipboard"
-        severity="secondary"
-        text
-        size="small"
-        class="tms-row-btn"
-        @click="emit('paste')"
-      />
-      <Button
-        v-if="copyable"
-        v-tooltip.bottom="'Копировать карточку значения'"
-        icon="pi pi-copy"
-        severity="secondary"
-        text
-        size="small"
-        class="tms-row-btn"
-        @click="emit('copy')"
-      />
-      <Button
-        v-if="slotInfo.value"
-        v-tooltip.bottom="'Очистить тег'"
-        icon="pi pi-times"
-        severity="secondary"
-        text
-        size="small"
-        class="tms-row-btn"
-        @click="emit('clear')"
-      />
-    </template>
+  <AnimationCard
+    icon="pi pi-hashtag text-cyan-600"
+    title="Значение"
+    hint="тега"
+    :paste-tip="pasteable && 'Вставить карточку значения'"
+    :copy-tip="copyable && 'Копировать карточку значения'"
+    :clear-tip="!!slotInfo.value && 'Очистить тег'"
+    @paste="emit('paste')"
+    @copy="emit('copy')"
+    @clear="emit('clear')"
+  >
+    <!-- Копируется карточка ЦЕЛИКОМ (тег, точность, подписи): ряд однотипных показаний
+         настраивают один раз. × снимает только привязку тега — точность и подписи это
+         вид символа, а не анимация. -->
     <TagField
       :value="slotInfo.value"
       :can-pick="tagsLoaded"
@@ -88,7 +65,7 @@ const PARAM_HEADINGS = ['Подпись', 'Ед. изм.']
     <!-- Точность — свойство ЗНАЧЕНИЯ: без привязанного тега печатать нечего, и поле
          спрашивало бы о формате несуществующих данных. -->
     <div v-if="slotInfo.value" class="mt-2 flex items-center gap-3">
-      <span class="text-[11px] text-surface-500 shrink-0">Знаков после запятой</span>
+      <span class="tms-hint shrink-0">Знаков после запятой</span>
       <!-- Точность показываем ЧИСЛОМ, а не подсказкой в пустом поле: в `tms` дефолт не
            пишется, но в рантайме подпись всё равно печатается с ним, и пустое поле
            читалось бы как «точность не задана». -->
@@ -108,7 +85,7 @@ const PARAM_HEADINGS = ['Подпись', 'Ед. изм.']
          короче — колонка уже. Пустое поле = текст из символа. -->
     <div v-if="params.length" class="mt-2 grid grid-cols-[2fr_1fr] gap-2">
       <div v-for="(param, i) in params" :key="param.key">
-        <div class="text-[11px] text-surface-500 mb-1 truncate min-h-4">
+        <div class="tms-hint mb-1 truncate min-h-4">
           {{ PARAM_HEADINGS[i] ?? param.label }}
         </div>
         <InputText

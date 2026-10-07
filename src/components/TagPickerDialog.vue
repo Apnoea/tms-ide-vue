@@ -3,12 +3,10 @@ import { ref, watch, computed } from 'vue'
 import Dialog from 'primevue/dialog'
 import Listbox from 'primevue/listbox'
 import Button from 'primevue/button'
-import InputText from 'primevue/inputtext'
-import IconField from 'primevue/iconfield'
-import InputIcon from 'primevue/inputicon'
 import { useTagList } from '../composables/useTagList'
 import { useProjectStore } from '../stores/useProjectStore'
 import { nplural } from '../utils/plural'
+import SearchField from './SearchField.vue'
 
 /**
  * Picker тега: поиск по name + Listbox с группировкой по prefix'у (до первой
@@ -46,7 +44,7 @@ const tagListLoaded = computed(() => project.tags.length > 0)
 // тег предвыбран, но список открывается сверху — прокручиваем к нему, иначе выбор не
 // виден, а в длинном tag-list его и не найти.
 function onShow() {
-  searchRef.value?.$el?.focus()
+  searchRef.value?.focus()
   listboxRef.value?.$el
     ?.querySelector('.p-listbox-option-selected')
     ?.scrollIntoView({ block: 'center' })
@@ -147,18 +145,15 @@ watch(
         <strong>{{ nplural(tags.length, 'тег', 'тега', 'тегов') }}</strong>
       </p>
 
-      <IconField v-if="tags.length">
-        <InputIcon class="pi pi-search" />
-        <InputText
-          ref="searchRef"
-          v-model="search"
-          autofocus
-          size="small"
-          class="w-full"
-          placeholder="Поиск по имени, описанию, объекту..."
-          @keydown.enter.prevent="confirmActive"
-        />
-      </IconField>
+      <SearchField
+        v-if="tags.length"
+        ref="searchRef"
+        v-model="search"
+        autofocus
+        class="w-full"
+        placeholder="Поиск по имени, описанию, объекту…"
+        @keydown.enter.prevent="confirmActive"
+      />
 
       <Listbox
         v-if="hasResults"
@@ -180,7 +175,7 @@ watch(
             class="flex items-center justify-between w-full font-mono"
           >
             <span class="text-sm text-surface-900">{{ option.name }}</span>
-            <span class="text-[10px] text-surface-400 ml-2">
+            <span class="tms-hint ml-2">
               {{ option.type }}
             </span>
           </span>
@@ -190,7 +185,7 @@ watch(
              запасную подпись Listbox. -->
         <template #optiongroup="{ option }">
           <span v-if="option.solo" class="tms-group-solo" />
-          <span v-else class="text-[10px] uppercase tracking-wider text-surface-500 font-mono">
+          <span v-else class="tms-group-label font-mono">
             {{ option.name }}
           </span>
         </template>
@@ -198,20 +193,38 @@ watch(
 
       <!-- Без файла тегов привязывать нечего — даём загрузку здесь же, диалог
            остаётся открытым и наполняется. -->
-      <div v-else-if="!tags.length && !tagListLoaded" class="py-4 text-center space-y-3">
-        <p class="text-sm text-surface-400">Tag-list не загружен</p>
-        <Button label="Загрузить tag-list" icon="pi pi-tags" size="small" @click="pickTagList()" />
+      <div v-else-if="!tags.length && !tagListLoaded" class="tms-empty">
+        <i class="pi pi-tags text-3xl mb-3 opacity-60" />
+        <div class="tms-empty-title">Tag-list не загружен</div>
+        <Button
+          label="Загрузить tag-list"
+          icon="pi pi-tags"
+          size="small"
+          class="mt-3"
+          @click="pickTagList()"
+        />
       </div>
 
-      <div v-else-if="!tags.length" class="py-4 text-center text-sm text-surface-400">
-        В tag-list нет тегов подходящего типа
+      <div v-else-if="!tags.length" class="tms-empty">
+        <i class="pi pi-filter-slash text-3xl mb-3 opacity-60" />
+        <div class="tms-empty-title">В tag-list нет тегов подходящего типа</div>
       </div>
 
-      <div v-else class="text-sm text-surface-400 py-4 text-center">Нет тегов по запросу</div>
+      <!-- Тот же текст, что у пустого поиска в палитре и симуляции. -->
+      <div v-else class="tms-empty">
+        <i class="pi pi-search text-3xl mb-3 opacity-60" />
+        <div class="tms-empty-title">Ничего не нашлось по «{{ search.trim() }}»</div>
+      </div>
     </div>
 
     <template #footer>
-      <Button label="Отмена" severity="secondary" text @click="emit('update:visible', false)" />
+      <Button
+        label="Отмена"
+        severity="secondary"
+        text
+        size="small"
+        @click="emit('update:visible', false)"
+      />
     </template>
   </Dialog>
 </template>

@@ -2,7 +2,6 @@
 import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import AutoComplete from 'primevue/autocomplete'
-import ToggleSwitch from 'primevue/toggleswitch'
 import { useNotify } from '../composables/useNotify'
 import { useCanvas } from '../composables/useCanvas'
 import { useAnimationClipboard } from '../composables/useAnimationClipboard'
@@ -33,6 +32,7 @@ import TagPickerDialog from './TagPickerDialog.vue'
 import RangeBlock from './RangeBlock.vue'
 import StateBlock from './StateBlock.vue'
 import DependencyBlock from './DependencyBlock.vue'
+import TagListNotice from './TagListNotice.vue'
 import WireStyleFields from './WireStyleFields.vue'
 import ShapeBlock from './ShapeBlock.vue'
 import ValueBlock from './ValueBlock.vue'
@@ -853,15 +853,14 @@ function copyDeps() {
 // ─── Hyperlink-навигация: клик в рантайме открывает другую view ───
 // Секция целиком в useNavigationField (черновик + коммит по blur/Enter/выбору).
 const {
-  navigationEnabled,
   navInput,
   navSuggestions,
   otherFormIds,
   navBroken,
   navTargetTitle,
-  toggleNavigationEnabled,
   onNavComplete,
   commitNav,
+  clearNav,
 } = useNavigationField({ details, mutateSelectedTms })
 </script>
 
@@ -929,6 +928,7 @@ const {
                Диапазонов тут нет: зоны живут в определении символа, тег — у экземпляра. -->
           <div class="space-y-2">
             <div class="tms-field-label">Анимации</div>
+            <TagListNotice />
             <DependencyBlock
               :groups="[]"
               :removable="false"
@@ -1034,29 +1034,28 @@ const {
             <!-- Навигация (hyperlink на другую форму при клике в рантайме). Цель —
                  id формы проекта (= view-id рантайма): можно выбрать из списка форм ИЛИ
                  ввести view-id вручную (editable) — напр. для view, которой ещё нет в
-                 проекте. Свич справа от заголовка показывает/скрывает поле; выключение
-                 очищает значение. -->
+                 проекте. Одно поле без тумблера: пустое = перехода нет, × очищает.
+                 Значение — id, поэтому моноширинным, как id в дереве форм; плейсхолдер —
+                 текст, обычным шрифтом. -->
             <div class="space-y-2">
-              <div class="flex items-center justify-between gap-2">
-                <div>
-                  <div class="tms-field-label">Навигация</div>
-                  <div class="text-[11px] text-surface-500">переход при клике</div>
-                </div>
-                <ToggleSwitch
-                  :model-value="navigationEnabled"
-                  @update:model-value="toggleNavigationEnabled"
-                />
+              <div class="flex items-baseline gap-1.5">
+                <span class="tms-field-label">Навигация</span>
+                <span class="tms-hint">переход при клике</span>
               </div>
-              <template v-if="navigationEnabled">
+              <div class="flex items-center gap-2">
                 <AutoComplete
                   :model-value="navInput"
                   :suggestions="navSuggestions"
                   dropdown
                   complete-on-focus
                   size="small"
-                  placeholder="Форма или view-id"
-                  class="w-full"
-                  input-class="w-full text-xs!"
+                  :placeholder="
+                    otherFormIds.length
+                      ? 'Нет — выбери форму или впиши view-id'
+                      : 'Нет — впиши view-id'
+                  "
+                  class="min-w-0 flex-1"
+                  input-class="w-full font-mono placeholder:font-sans"
                   @update:model-value="(v) => (navInput = v)"
                   @complete="onNavComplete"
                   @item-select="commitNav"
@@ -1071,16 +1070,23 @@ const {
                     </span>
                   </template>
                 </AutoComplete>
-                <div v-if="navTargetTitle" class="truncate text-[11px] text-surface-500">
-                  {{ navTargetTitle }}
-                </div>
-                <div v-if="navBroken" class="text-[11px] text-surface-500">
-                  Внешняя view (не среди загруженных форм) — сработает, если она есть в рантайме
-                </div>
-                <div v-else-if="!otherFormIds.length" class="text-[11px] text-surface-500">
-                  Других форм в проекте нет — введи view-id вручную
-                </div>
-              </template>
+                <Button
+                  v-if="details.navigation"
+                  v-tooltip.bottom="'Убрать переход'"
+                  icon="pi pi-times"
+                  severity="secondary"
+                  text
+                  size="small"
+                  class="tms-row-btn shrink-0"
+                  @click="clearNav"
+                />
+              </div>
+              <div v-if="navTargetTitle" class="tms-hint truncate">
+                {{ navTargetTitle }}
+              </div>
+              <div v-if="navBroken" class="tms-hint">
+                Внешняя view (не среди загруженных форм) — сработает, если она есть в рантайме
+              </div>
             </div>
           </template>
 
@@ -1099,6 +1105,7 @@ const {
                нет вовсе — exporter не эмитит для неё карточек, привязка вела бы в никуда). -->
           <div v-if="!details.isShape" class="space-y-2">
             <div class="tms-field-label">Анимации</div>
+            <TagListNotice />
 
             <!-- Состояние символа: тег слота-драйвера. Заголовок и справка следуют типу
                  слота (подпись «по булеву тегу» либо «по коду значения») — режим задан в

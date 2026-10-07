@@ -158,7 +158,7 @@ export function useForms(ctx) {
     flagIfNotSaved(ok)
     loadActiveIntoCanvas(graph, paper, json)
     canvas.markDirty() // новая форма → проект разошёлся с .zip
-    notify.success('Форма скопирована', `Открыта «${copyId}»`)
+    // Без тоста: копия открыта и выделена в дереве.
   }
 
   /**
@@ -226,7 +226,7 @@ export function useForms(ctx) {
     flagIfNotSaved(await persistForm(entry.id, entry.graphJson))
     flagIfNotSaved(await persistMeta())
     canvas.markDirty()
-    notify.success('Форма возвращена', `«${entry.id}» на месте`)
+    // Без тоста: форма видна в дереве на прежнем месте.
     return true
   }
 

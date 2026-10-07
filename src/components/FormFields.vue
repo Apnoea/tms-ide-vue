@@ -71,7 +71,7 @@ const descriptionDraft = description.draft
         :placeholder="workspace.activeFormId || ''"
         :maxlength="FORM_TITLE_MAX"
         size="small"
-        class="w-full text-xs!"
+        class="w-full"
         @update:model-value="title.input"
         @blur="title.blur"
         @keyup.enter="$event.target.blur()"
@@ -86,7 +86,7 @@ const descriptionDraft = description.draft
         rows="2"
         auto-resize
         size="small"
-        class="w-full text-xs!"
+        class="w-full"
         @update:model-value="description.input"
         @blur="description.blur"
       />

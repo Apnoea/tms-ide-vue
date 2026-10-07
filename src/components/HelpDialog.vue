@@ -393,11 +393,7 @@ const sections = [
                 <span v-if="ci > 0" class="text-surface-400 text-xs">/</span>
                 <template v-for="(k, idx) in chord" :key="idx">
                   <span v-if="idx > 0" class="text-surface-400 text-xs">+</span>
-                  <kbd
-                    class="whitespace-nowrap px-1.5 py-0.5 bg-surface-100 border border-surface-200 rounded text-[11px] font-mono text-surface-700"
-                  >
-                    {{ k }}
-                  </kbd>
+                  <kbd class="tms-kbd">{{ k }}</kbd>
                 </template>
               </template>
             </span>
@@ -407,7 +403,7 @@ const sections = [
     </div>
     <!-- Вне скролла — версия нужна при разборе проблемы на чужой машине, и
          искать её прокруткой в конец списка клавиш никто не станет. -->
-    <div class="mt-4 pt-3 border-t border-surface-200 text-[11px] text-surface-500">
+    <div class="tms-hint mt-4 pt-3 border-t border-surface-200">
       TMS IDE {{ appVersion }} · сборка {{ buildDate }}
     </div>
   </Dialog>

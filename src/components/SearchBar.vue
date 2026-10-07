@@ -1,9 +1,9 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import Button from 'primevue/button'
-import InputText from 'primevue/inputtext'
 import { useUiStore } from '../stores/useUiStore'
 import { useCanvas } from '../composables/useCanvas'
+import SearchField from './SearchField.vue'
 
 /**
  * Плавающий поиск по схеме (Ctrl+F). Открывается из CanvasPane через
@@ -29,8 +29,8 @@ const current = computed(() => (total.value === 0 ? 0 : canvas.searchCurrentIdx.
 
 onMounted(async () => {
   await nextTick()
-  inputRef.value?.$el?.focus?.()
-  inputRef.value?.$el?.select?.()
+  inputRef.value?.focus()
+  inputRef.value?.select()
 })
 
 function close() {
@@ -71,12 +71,11 @@ function onKeyDown(event) {
     @mousedown.stop
     @click.stop
   >
-    <InputText
+    <SearchField
       ref="inputRef"
       v-model="query"
-      size="small"
+      class="w-56"
       placeholder="Найти на схеме: тег / текст"
-      class="text-xs! w-56! py-1!"
       @keydown="onKeyDown"
     />
     <span
