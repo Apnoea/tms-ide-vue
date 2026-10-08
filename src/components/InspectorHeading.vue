@@ -36,7 +36,7 @@ defineEmits(['back'])
       <span class="truncate">{{ leaf }}</span>
       <span
         v-if="note"
-        :title="note"
+        v-tooltip.bottom="note"
         class="shrink-[10] truncate text-xs font-normal normal-case tracking-normal text-surface-500"
       >
         {{ note }}

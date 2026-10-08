@@ -167,7 +167,7 @@ export function useContextMenu({
           label: 'Вписать в экран',
           icon: 'pi pi-expand',
           shortcut: 'Ctrl+0',
-          command: () => canvas.fitToContent(),
+          command: () => canvas.fitToContent({ animate: true }),
         }
       )
     }

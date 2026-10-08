@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { shapeBounds } from '../utils/shapeSvg'
+import { isAdditive } from '../utils/viewKeys'
 
 /**
  * Лассо фигур в редакторе символов: жесты как на холсте (useLasso), но модель своя —
@@ -26,7 +27,7 @@ export function useEditorLasso({ shapes, unitsFromEvent, onSelect, onClear }) {
 
   function startLasso(e) {
     active = true
-    additive = e.ctrlKey || e.metaKey
+    additive = isAdditive(e)
     startUnits = unitsFromEvent(e)
     startClient = { x: e.clientX, y: e.clientY }
     lassoRect.value = null

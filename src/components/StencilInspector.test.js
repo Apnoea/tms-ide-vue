@@ -86,11 +86,16 @@ it('StencilInspector: привязка к состоянию отмечает в
   editor.setAnimationMode('boolean')
   editor.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
   const wrapper = mountWithApp(StencilInspector)
-  const rows = () => wrapper.findAll('[data-test="state-binding"] button')
-  expect(rows().map((r) => r.find('span').text())).toEqual(['Всегда', 'Вкл', 'Выкл'])
+  const rows = () => wrapper.findAll('[data-test="state-binding"] [role="option"]')
+  expect(rows().map((r) => r.attributes('aria-label'))).toEqual(['Всегда', 'Вкл', 'Выкл'])
   await rows()[1].trigger('click')
   expect(editor.shapes.value[0].state).toBe('true')
-  expect(rows()[1].classes()).toContain('bg-primary-50')
+  expect(rows()[1].attributes('aria-selected')).toBe('true')
+  // Повторный клик: Listbox снимает выбор (null), а привязка и отметка остаются.
+  await rows()[1].trigger('click')
+  await nextTick()
+  expect(editor.shapes.value[0].state).toBe('true')
+  expect(rows()[1].attributes('aria-selected')).toBe('true')
 })
 
 // «По значению» фигура может быть общей для нескольких состояний; булев — одно.
@@ -103,7 +108,7 @@ it('StencilInspector: «по значению» состояния привяз�
   const [a, b] = editor.meta.states.map((s) => s.key)
   editor.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10 })
   const wrapper = mountWithApp(StencilInspector)
-  const rows = () => wrapper.findAll('[data-test="state-binding"] button')
+  const rows = () => wrapper.findAll('[data-test="state-binding"] [role="option"]')
   await rows()[1].trigger('click')
   await rows()[2].trigger('click')
   expect(editor.shapes.value[0].state).toBe(`${a}+${b}`)
@@ -111,6 +116,17 @@ it('StencilInspector: «по значению» состояния привяз�
   expect(editor.shapes.value[0].state).toBe(b)
   await rows()[0].trigger('click')
   expect(editor.shapes.value[0].state).toBe('always')
+  // Отметка состояния при «Всегда» снимает «Всегда».
+  await rows()[2].trigger('click')
+  expect(editor.shapes.value[0].state).toBe(b)
+  expect(rows()[0].attributes('aria-selected')).toBe('false')
+  // Ctrl+A списка — не «отметить всё»: это хоткей стола «выделить все фигуры».
+  await wrapper
+    .find('[data-test="state-binding"] [role="listbox"]')
+    .trigger('keydown', { code: 'KeyA', ctrlKey: true })
+  await nextTick()
+  expect(editor.shapes.value[0].state).toBe(b)
+  expect(rows().map((r) => r.attributes('aria-selected'))).toEqual(['false', 'false', 'true'])
 })
 
 // Кнопки «Сохранить/Закрыть» телепортирует StencilEditor — цель в шапке инспектора.

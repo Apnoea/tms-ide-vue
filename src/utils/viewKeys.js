@@ -38,6 +38,15 @@ export const ARROW_DIRS = {
   ArrowDown: { x: 0, y: 1 },
 }
 
+/**
+ * Клик или рамка «добавить к выделению»: Ctrl/Cmd или Shift — привычка и Visio/Office
+ * (Ctrl), и Figma с графическими редакторами (Shift). Одно правило на холст и стол
+ * редактора символов.
+ */
+export function isAdditive(event) {
+  return !!(event?.ctrlKey || event?.metaKey || event?.shiftKey)
+}
+
 /** Клавиша наша: действие браузера и всплытие гасим, команду выполняем. */
 export function runKey(event, action) {
   event.preventDefault()

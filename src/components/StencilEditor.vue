@@ -25,6 +25,7 @@ import {
 } from '../utils/shapeSvg'
 import { shapeStateKeys } from '../utils/stencilSvg'
 import { overlayButtonPositions } from '../utils/paperGeom'
+import { isAdditive } from '../utils/viewKeys'
 import { GRID_PERIOD, gridPatternLines, tickInset, rulerTicks } from '../utils/editorRulers'
 import { normalizeStateColor } from '../constants/animation'
 import { DRAW_TOOLS, ROTATE_ICON, STEPPER_PROPS } from '../constants/icons'
@@ -354,11 +355,11 @@ const {
   cancelDraw,
 } = useEditorDraw({ ed, scale, unitsFromEvent, snappedShape })
 
-// Клик по фигуре: Ctrl/Cmd — добавить или убрать из выделения, иначе выделить одну.
+// Клик по фигуре: Ctrl/Cmd/Shift — добавить или убрать из выделения, иначе выделить одну.
 // Перемещение пачки стартует в useEditorInteract.
 function onShapeSelect(id, e) {
   if (tool.value !== 'select') return
-  if (e?.ctrlKey || e?.metaKey) toggleSelect(id)
+  if (isAdditive(e)) toggleSelect(id)
   else if (!selectedSet.value.has(id)) select(id)
 }
 
@@ -459,7 +460,7 @@ const handles = computed(() => {
 useEditorInteract({ ed, unitsFromEvent, locked: shapesLocked })
 
 /**
- * Клик по порту ВЫДЕЛЯЕТ его (Ctrl/Cmd — добавляет к выделению), удаляет `Del`, как у
+ * Клик по порту ВЫДЕЛЯЕТ его (Ctrl/Cmd/Shift — добавляет к выделению), удаляет `Del`, как у
  * фигур. Всплытие НЕ гасим: useEditorInteract слушает pointerdown на документе, и с
  * `stopPropagation` перетаскивание порта не стартует. Чужие обработчики порт
  * пропускают сами — по `[data-se-move="port"]` и `[data-se-move]`.
@@ -467,7 +468,7 @@ useEditorInteract({ ed, unitsFromEvent, locked: shapesLocked })
 function onPortDown(e, id) {
   // Порты символа из набора не двигаются и не удаляются — выделять их незачем.
   if (shapesLocked) return
-  const additive = e.ctrlKey || e.metaKey
+  const additive = isAdditive(e)
   // Клик по порту ИЗ выделения набор не трогает (как у фигур): схлопнув группу здесь,
   // до старта переноса, групповой drag тащил бы один порт.
   if (!additive && selectedPortSet.value.has(id)) return

@@ -4,6 +4,23 @@
 @import 'tailwindcss';
 @import 'tailwindcss-primeui';
 
+/* Длительности движения интерфейса — три, а не по числу на каждое место (было
+   80/120/140/150/160/180/200 мс и три разные кривые):
+   fast — ховер, нажатие, проявление; move — перемещение (строки, списки, полоса
+   диапазона); slow — сворачивание панелей и секций, сдвиг камеры холста. В JS те же
+   значения — `MOTION_MS` в constants/motion.js, менять парой. Tailwind-утилиты
+   `transition-*` берут fast по умолчанию через свои токены. */
+:root {
+  --tms-dur-fast: 120ms;
+  --tms-dur-move: 160ms;
+  --tms-dur-slow: 200ms;
+  --tms-ease: ease-out;
+}
+@theme {
+  --default-transition-duration: 120ms;
+  --default-transition-timing-function: ease-out;
+}
+
 html,
 body,
 #app {
@@ -64,7 +81,7 @@ body,
 .joint-element,
 .joint-link {
   filter: drop-shadow(0 0 0 transparent);
-  transition: filter 0.15s ease-out;
+  transition: filter var(--tms-dur-fast) var(--tms-ease);
   cursor: pointer;
 }
 /* Hover affordance — нейтральный drop-shadow, чтобы было заметно
@@ -109,7 +126,7 @@ body,
    ручка накрывала бы порт в углу и перехватывала и ховер, и протяжку. */
 .joint-element .joint-port {
   opacity: 0;
-  transition: opacity 0.08s linear;
+  transition: opacity var(--tms-dur-fast) var(--tms-ease);
 }
 .joint-element:hover .joint-port {
   opacity: 1;
@@ -286,8 +303,8 @@ body,
     white-space: nowrap;
     text-overflow: ellipsis;
     transition:
-      background 0.15s,
-      color 0.15s;
+      background var(--tms-dur-fast) var(--tms-ease),
+      color var(--tms-dur-fast) var(--tms-ease);
   }
   .tms-preset-badge:hover {
     background: var(--p-surface-300);
@@ -332,6 +349,28 @@ body,
   padding: 0.25rem;
 }
 
+/* Кнопки по ховеру строки палитры и дерева форм: строка под ними уже подсвечена
+   (surface-100, активная форма — surface-200/70), а ховер текстовой кнопки Aura —
+   surface-50, светлее строки, и отклик пропадал. Ховер — ПОЛУПРОЗРАЧНОЕ затемнение:
+   сплошной тон совпадал бы с одной из заливок строки, а затемнение видно поверх любой.
+   Токены на контейнере — PrimeVue читает их через `var()`, класс не нужен каждой
+   кнопке. Удаление краснеет по ховеру (`tms-row-del`), как и было у нативных кнопок. */
+.tms-row-actions {
+  --p-button-text-secondary-hover-background: color-mix(
+    in srgb,
+    var(--p-surface-900) 10%,
+    transparent
+  );
+  --p-button-text-secondary-active-background: color-mix(
+    in srgb,
+    var(--p-surface-900) 16%,
+    transparent
+  );
+}
+.tms-row-actions .p-button.tms-row-del:not(:disabled):hover {
+  color: var(--p-red-600);
+}
+
 /* Иконка крестика сброса: `.pi` задаёт размер вне слоёв, правило из слоя ему проиграло бы. */
 .tms-reset-badge .pi {
   font-size: 7px;
@@ -351,9 +390,9 @@ body,
   background: transparent;
   color: var(--p-surface-500);
   transition:
-    background 0.15s,
-    border-color 0.15s,
-    color 0.15s;
+    background var(--tms-dur-fast) var(--tms-ease),
+    border-color var(--tms-dur-fast) var(--tms-ease),
+    color var(--tms-dur-fast) var(--tms-ease);
 }
 .p-chip.tms-domain-chip:hover {
   color: var(--p-surface-800);
@@ -420,8 +459,8 @@ body,
   color: var(--p-surface-500);
   cursor: pointer;
   transition:
-    color 0.15s,
-    border-color 0.15s;
+    color var(--tms-dur-fast) var(--tms-ease),
+    border-color var(--tms-dur-fast) var(--tms-ease);
 }
 .tms-add-row:not(:disabled):hover {
   border-color: var(--p-primary-400);
@@ -460,6 +499,13 @@ body,
 .tms-pane-col .p-textarea,
 .tms-pane-col .p-select-label {
   font-size: 0.75rem !important;
+}
+
+/* Моноширинное поле (id формы и символа, адрес перехода): тема PrimeVue ставит полю
+   `font-family: inherit` вне слоёв, и утилита `font-mono` из слоя ей проигрывала — id
+   в поле правки был набран не тем шрифтом, что в строке. */
+.p-inputtext.font-mono {
+  font-family: var(--font-mono);
 }
 
 /* Палитра PrimeVue в СВЕТЛОЙ теме Aura тёмная (panel.background = surface.800) и со
@@ -541,8 +587,8 @@ body,
 .tms-row-leave-active {
   overflow: hidden;
   transition:
-    opacity 120ms ease,
-    max-height 160ms ease;
+    opacity var(--tms-dur-fast) var(--tms-ease),
+    max-height var(--tms-dur-move) var(--tms-ease);
 }
 .tms-row-enter-from,
 .tms-row-leave-to {
@@ -555,21 +601,24 @@ body,
 }
 /* Оставшиеся строки доезжают на место после схлопнутой. */
 .tms-row-move {
-  transition: transform 160ms ease;
+  transition: transform var(--tms-dur-move) var(--tms-ease);
 }
 
 /* Нажатие кнопки чуть «продавливается» — отклик на клик, которого у плоских
    icon-кнопок иначе нет вовсе. Только компактные: `.p-button` (тулбары, строки,
-   overlay) и наши нативные иконки строк (`tms-icon-action`). Кнопки во всю ширину
+   overlay) и нативный шеврон дерева форм (`tms-icon-action`). Кнопки во всю ширину
    (заголовок аккордеона, строка формы, «добавить строку») не масштабируем — у них
    продавливание читалось бы как скачок раскладки. */
 .p-button:not(:disabled):active,
 .tms-icon-action:not(:disabled):active {
   transform: scale(0.94);
 }
-.p-button,
+/* Переход масштаба — только у наших кнопок: у `.p-button` свойство `transition` задаёт
+   тема PrimeVue (стили вставляются после этого файла и перебивают его), так что у неё
+   продавливание мгновенное — длительность её прочих переходов — `transitionDuration`
+   пресета в main.js. */
 .tms-icon-action {
-  transition: transform 80ms ease;
+  transition: transform var(--tms-dur-fast) var(--tms-ease);
 }
 
 /* Инспектор при смене ТИПА выделения (ничего → символ → провод → разметка → мульти):
@@ -582,7 +631,7 @@ body,
   }
 }
 .tms-panel-in {
-  animation: tms-panel-in 120ms ease-out;
+  animation: tms-panel-in var(--tms-dur-fast) var(--tms-ease);
 }
 
 /* Список палитры при фильтрации: отсеянные строки растворяются, оставшиеся доезжают
@@ -590,7 +639,7 @@ body,
    мгновенно и `-move` анимировать нечего; ширину при этом держим сами. */
 .tms-list-enter-active,
 .tms-list-leave-active {
-  transition: opacity 120ms ease;
+  transition: opacity var(--tms-dur-fast) var(--tms-ease);
 }
 .tms-list-enter-from,
 .tms-list-leave-to {
@@ -601,7 +650,7 @@ body,
   width: 100%;
 }
 .tms-list-move {
-  transition: transform 160ms ease;
+  transition: transform var(--tms-dur-move) var(--tms-ease);
 }
 
 /* Смена формы: новая схема проявляется, иначе у похожих форм подмена не читается как
@@ -612,13 +661,13 @@ body,
   }
 }
 .joint-paper.tms-form-in {
-  animation: tms-form-in 140ms ease-out;
+  animation: tms-form-in var(--tms-dur-fast) var(--tms-ease);
 }
 
 /* Оверлей редактора символов: проявляется поверх холста, чтобы было видно, что холст
    на месте, а редактор лёг сверху. Только enter — закрытие мгновенное (см. App.vue). */
 .tms-editor-enter-active {
-  transition: opacity 150ms ease;
+  transition: opacity var(--tms-dur-fast) var(--tms-ease);
 }
 .tms-editor-enter-from {
   opacity: 0;
@@ -629,9 +678,9 @@ body,
    смена пресета в пикере иначе моргает. */
 .tms-range-seg {
   transition:
-    left 120ms ease,
-    width 120ms ease,
-    background-color 120ms ease;
+    left var(--tms-dur-move) var(--tms-ease),
+    width var(--tms-dur-move) var(--tms-ease),
+    background-color var(--tms-dur-move) var(--tms-ease);
 }
 
 /* Сворачивание боковых колонок: анимируем ШИРИНУ «шторки», содержимое внутри держит
@@ -642,8 +691,8 @@ body,
 .tms-pane-enter-active,
 .tms-pane-leave-active {
   transition:
-    width 180ms ease,
-    opacity 140ms ease;
+    width var(--tms-dur-slow) var(--tms-ease),
+    opacity var(--tms-dur-slow) var(--tms-ease);
 }
 .tms-pane-enter-from,
 .tms-pane-leave-to {
@@ -651,30 +700,26 @@ body,
   opacity: 0;
 }
 
-/* Сюда добавляется КАЖДОЕ новое движение: система просит без анимаций — показываем
-   результат сразу, без промежуточных кадров. */
+/* Система просит без анимаций (Windows: «Показывать анимацию» выключено) — результат
+   сразу, без промежуточных кадров. Одно правило на ВСЁ, а не перечень классов: перечень
+   отставал от новых движений (сворачивания секций, подсветка на холсте, превью drag'а не
+   попали в него), а так покрыты и Tailwind-утилиты, и анимации PrimeVue (диалоги, тосты,
+   списки). Длительность почти нулевая, а не `none`: `transitionend`/`animationend`
+   приходят как обычно — на них держатся `<Transition>` Vue и `replayClass`. Камера
+   холста — JS, её гасит `prefersReducedMotion` (constants/motion). */
 @media (prefers-reduced-motion: reduce) {
-  .tms-pane-enter-active,
-  .tms-pane-leave-active,
-  .tms-row-enter-active,
-  .tms-row-leave-active,
-  .tms-row-move,
-  .tms-range-seg,
-  .tms-editor-enter-active,
-  .tms-list-enter-active,
-  .tms-list-leave-active,
-  .tms-list-move,
-  .p-button,
-  .tms-icon-action {
-    transition: none;
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
   }
+  /* Нажатие — не переход, а сдвиг масштаба: без анимации он стал бы рывком. */
   .p-button:not(:disabled):active,
   .tms-icon-action:not(:disabled):active {
     transform: none;
-  }
-  /* Проявления — `animation`, а не `transition`: `transition: none` их не гасит. */
-  .tms-panel-in,
-  .joint-paper.tms-form-in {
-    animation: none;
   }
 }

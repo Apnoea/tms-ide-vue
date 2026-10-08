@@ -3,13 +3,13 @@ import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import ToastService from 'primevue/toastservice'
 import ConfirmationService from 'primevue/confirmationservice'
-import Tooltip from 'primevue/tooltip'
 import Aura from '@primeuix/themes/aura'
 import { definePreset } from '@primeuix/themes'
 import 'primeicons/primeicons.css'
 
 import './style.css'
 import App from './App.vue'
+import { DelayedTooltip } from './utils/tooltip'
 
 // Сдвигаем primary с дефолтного Aura-emerald на cyan — зелёный занят семантикой
 // напряжения (первый пресет диапазонов #10b981). Cyan визуально отделяет UI-акценты от
@@ -17,6 +17,9 @@ import App from './App.vue'
 // `*-primary-*` утилиты автоматически подхватывают через CSS-токены `{cyan.*}`.
 const TmsTheme = definePreset(Aura, {
   semantic: {
+    // Переходы компонентов PrimeVue (кнопки, поля, списки) — токен fast из style.css
+    // (`--tms-dur-fast`, `MOTION_MS.fast`), а не 0.2s Aura: движение интерфейса одно.
+    transitionDuration: '0.12s',
     primary: {
       50: '{cyan.50}',
       100: '{cyan.100}',
@@ -50,6 +53,6 @@ app.use(PrimeVue, {
 })
 app.use(ToastService)
 app.use(ConfirmationService)
-app.directive('tooltip', Tooltip)
+app.directive('tooltip', DelayedTooltip)
 
 app.mount('#app')

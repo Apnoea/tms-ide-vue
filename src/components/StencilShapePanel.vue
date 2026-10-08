@@ -11,6 +11,7 @@ import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
 import SelectButton from 'primevue/selectbutton'
+import Listbox from 'primevue/listbox'
 import Message from 'primevue/message'
 import ColorField from './ColorField.vue'
 import AnimationCard from './AnimationCard.vue'
@@ -232,26 +233,53 @@ const hasShapeState = computed(() => meta.stateful && selectedFor().length > 0)
 const shapeState = computed(() => commonValue((s) => s.state || 'always') ?? null)
 const boundKeys = computed(() => new Set(shapeStateKeys(shapeState.value)))
 
-function isBound(value) {
-  return value === 'always' ? shapeState.value === 'always' : boundKeys.value.has(value)
+// Модель Listbox: в булевом режиме одно значение, «по значению» — набор ключей;
+// «Всегда» в нём — отдельная строка, взаимоисключающая с состояниями.
+const bindingModel = computed(() => {
+  if (!multiState.value) return shapeState.value
+  return shapeState.value === 'always' ? ['always'] : [...boundKeys.value]
+})
+
+function bindingIcon(value, selected) {
+  if (multiState.value && value !== 'always') return selected ? 'pi-check-square' : 'pi-stop'
+  return selected ? 'pi-check-circle' : 'pi-circle'
 }
 
-// Привязка — на всё выделение; дискретная операция → снимок истории сразу. «По
-// значению» состояние переключается в наборе (снял последнее — фигура снова «всегда»),
-// в булевом режиме и у «Всегда» выбор единственный.
-function bindToState(value) {
-  let state = value
-  if (value !== 'always' && multiState.value) {
-    const keys = new Set(boundKeys.value)
-    if (keys.has(value)) keys.delete(value)
-    else keys.add(value)
-    state = joinStateKeys(
-      [...keys],
-      declaredStates.value.map((s) => s.key)
-    )
-  }
+// Listbox держит выбор у себя и после отклонённого изменения сам к модели не вернётся:
+// она не менялась, и пропс не обновится. Такой список перемонтируем — строк единицы.
+const bindingKey = ref(0)
+function keepBinding() {
+  bindingKey.value++
+}
+
+// Привязка — на всё выделение; дискретная операция → снимок истории сразу.
+function setShapeState(state) {
+  if (state === shapeState.value) return keepBinding()
   applyToSelected({ state })
   commit()
+}
+
+// Listbox тоглит выбор: повторный клик по отмеченной строке в булевом режиме приходит
+// null — это не сброс привязки. «По значению» снятое последнее состояние возвращает
+// фигуру во «всегда», а отмеченное «Всегда» снимает остальные. Ctrl+A списка («все
+// строки») пропускаем: это хоткей стола «выделить все фигуры», он сработает следом.
+function onBindingChange({ originalEvent: e, value }) {
+  if (!multiState.value) {
+    if (value == null) keepBinding()
+    else setShapeState(value)
+    return
+  }
+  if (e?.type === 'keydown' && e.code === 'KeyA') return keepBinding()
+  const pickedAlways = value.includes('always') && shapeState.value !== 'always'
+  const keys = value.filter((k) => k !== 'always')
+  setShapeState(
+    pickedAlways
+      ? 'always'
+      : joinStateKeys(
+          keys,
+          declaredStates.value.map((s) => s.key)
+        )
+  )
 }
 </script>
 
@@ -452,37 +480,27 @@ function bindToState(value) {
               : 'Где видна фигура: всегда или только в одном состоянии.'
           }}
         </p>
-        <div class="space-y-1">
-          <button
-            v-for="opt in stateBindings"
-            :key="opt.value"
-            type="button"
-            class="flex w-full cursor-pointer items-center gap-2 rounded border px-2 py-1.5 text-left text-xs transition-colors"
-            :class="
-              isBound(opt.value)
-                ? 'border-primary-300 bg-primary-50 text-primary-700'
-                : 'border-surface-200 text-surface-700 hover:bg-surface-50'
-            "
-            @click="bindToState(opt.value)"
-          >
-            <i
-              class="pi text-[11px]!"
-              :class="
-                multiState && opt.value !== 'always'
-                  ? isBound(opt.value)
-                    ? 'pi-check-square'
-                    : 'pi-stop'
-                  : isBound(opt.value)
-                    ? 'pi-check-circle'
-                    : 'pi-circle'
-              "
-            />
-            <span class="min-w-0 flex-1 truncate">{{ opt.label }}</span>
-            <code v-if="opt.code" class="font-mono text-[11px] text-surface-400">
-              {{ opt.code }}
+        <!-- Значок строки — радио у единственного выбора и галка у набора: какой
+             режим, видно до клика. -->
+        <Listbox
+          :key="bindingKey"
+          :model-value="bindingModel"
+          :options="stateBindings"
+          option-label="label"
+          option-value="value"
+          :multiple="multiState"
+          class="w-full text-xs"
+          :pt="{ option: { class: 'gap-2 px-2! py-1.5!' } }"
+          @change="onBindingChange"
+        >
+          <template #option="{ option, selected }">
+            <i class="pi text-[11px]!" :class="bindingIcon(option.value, selected)" />
+            <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+            <code v-if="option.code" class="font-mono text-[11px] text-surface-400">
+              {{ option.code }}
             </code>
-          </button>
-        </div>
+          </template>
+        </Listbox>
       </AnimationCard>
     </div>
     <!-- Геометрия и текст правятся по одной фигуре: у пачки нет общего

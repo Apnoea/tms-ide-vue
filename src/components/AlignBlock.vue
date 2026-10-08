@@ -1,8 +1,11 @@
 <script setup>
+import Button from 'primevue/button'
+
 /**
  * Выравнивание и распределение выделенных ячеек: три подписанные категории (по
- * горизонтали, по вертикали, распределение) кнопками 18×18 с рисованной миниатюрой
- * раскладки — глифа для «выровнять по левому краю» в наборе иконок нет.
+ * горизонтали, по вертикали, распределение) кнопками PrimeVue (outlined, 32px — как
+ * тулбарные) с рисованной миниатюрой раскладки в слоте иконки — глифа для «выровнять по
+ * левому краю» в наборе иконок нет.
  *
  * Геометрию считает `useAlign` у вызывающего; сюда приходит только раскладка кнопок.
  */
@@ -23,28 +26,32 @@ const emit = defineEmits(['align', 'distribute'])
         {{ row.label }}
       </span>
       <div class="ml-auto flex items-center gap-1">
-        <button
+        <Button
           v-for="btn in row.buttons"
           :key="btn.op"
-          type="button"
           v-tooltip.bottom="btn.tip"
+          severity="secondary"
+          outlined
+          size="small"
+          class="tms-icon-btn"
           :disabled="row.kind === 'distribute' && !canDistribute"
-          class="flex h-8 w-8 items-center justify-center rounded border border-surface-300 text-surface-700 transition-colors hover:border-primary-400 hover:bg-surface-50 hover:text-surface-900 disabled:cursor-not-allowed disabled:opacity-40"
           @click="emit(row.kind === 'distribute' ? 'distribute' : 'align', btn.op)"
         >
-          <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-            <rect
-              v-for="(r, i) in btn.rects"
-              :key="i"
-              :x="r.x"
-              :y="r.y"
-              :width="r.w"
-              :height="r.h"
-              :rx="r.rx"
-              :opacity="r.o"
-            />
-          </svg>
-        </button>
+          <template #icon>
+            <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+              <rect
+                v-for="(r, i) in btn.rects"
+                :key="i"
+                :x="r.x"
+                :y="r.y"
+                :width="r.w"
+                :height="r.h"
+                :rx="r.rx"
+                :opacity="r.o"
+              />
+            </svg>
+          </template>
+        </Button>
       </div>
     </div>
   </div>

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // Колесо мыши: прокрутка (Shift — горизонтальная), зум только с Ctrl/Cmd — модель Figma
 // и схемных редакторов. Зум по «голому» колесу ломал бы трекпад: двухпальцевый жест
 // приходит тем же `wheel`.
@@ -82,5 +83,63 @@ describe('useCanvasZoom — колесо', () => {
   it('Cmd — тот же зум (macOS)', () => {
     onWheel(wheel({ deltaY: 100, metaKey: true, clientX: 0, clientY: 0 }))
     expect(paper.state.s).toBeCloseTo(0.9)
+  })
+})
+
+// Плавная камера: «Вписать» по команде и доводка совпадения поиска едут к цели за
+// MOTION_MS.slow; жест пользователя посреди перехода его останавливает.
+describe('useCanvasZoom — плавная камера', () => {
+  let paper
+  let zoom
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] })
+    setActivePinia(createPinia())
+    paper = makePaper()
+    mockCanvas.paperRef.value = paper
+    // Ячейка 20×20 в (1000, 1000) — далеко за краем вьюпорта 800×600.
+    mockCanvas.graphRef.value = {
+      getCell: () => ({ getBBox: () => ({ x: 1000, y: 1000, width: 20, height: 20 }) }),
+    }
+    zoom = useCanvasZoom(ref({ clientWidth: 800, clientHeight: 600 }))
+    return () => vi.useRealTimers()
+  })
+
+  it('доводка ячейки идёт кадрами и приходит в центр вьюпорта', () => {
+    zoom.centerOnCell('c1')
+    expect(paper.state).toMatchObject({ tx: 0, ty: 0 }) // кадров ещё не было
+    vi.advanceTimersByTime(50)
+    expect(paper.state.tx).toBeLessThan(0)
+    expect(paper.state.tx).toBeGreaterThan(400 - 1010)
+    vi.advanceTimersByTime(300)
+    expect(paper.state).toMatchObject({ tx: 400 - 1010, ty: 300 - 1010, s: 1 })
+  })
+
+  it('колесо посреди перехода останавливает его — вид остаётся за жестом', () => {
+    zoom.centerOnCell('c1')
+    vi.advanceTimersByTime(50)
+    zoom.onWheel(wheel({ deltaY: 100 }))
+    const after = { ...paper.state }
+    vi.advanceTimersByTime(300)
+    expect(paper.state).toEqual(after)
+  })
+
+  it('шаг зума кнопкой едет плавно, центр вьюпорта остаётся на месте', () => {
+    zoom.zoomByStep(2)
+    expect(paper.state.s).toBe(1) // кадров ещё не было
+    vi.advanceTimersByTime(50)
+    expect(paper.state.s).toBeGreaterThan(1)
+    expect(paper.state.s).toBeLessThan(2)
+    vi.advanceTimersByTime(300)
+    // Точка (400, 300) под центром 800×600 осталась под ним при масштабе 2.
+    expect(paper.state).toMatchObject({ s: 2, tx: -400, ty: -300 })
+  })
+
+  it('серия нажатий считается от цели перехода — шаги не теряются', () => {
+    zoom.zoomByStep(1.2)
+    vi.advanceTimersByTime(50) // первый шаг ещё идёт
+    zoom.zoomByStep(1.2)
+    vi.advanceTimersByTime(400)
+    expect(paper.state.s).toBeCloseTo(1.44)
   })
 })

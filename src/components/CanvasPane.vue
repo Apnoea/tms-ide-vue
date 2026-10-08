@@ -47,6 +47,7 @@ import { useContextMenu } from '../composables/useContextMenu'
 import { usePaletteDrag } from '../composables/usePaletteDrag'
 import { withRestoreGuard } from '../utils/graphBatch'
 import { computeBridgeLinks } from '../utils/bridgeLinks'
+import { isAdditive } from '../utils/viewKeys'
 import { cssColor } from '../constants/animation'
 import {
   DRAW_TOOLS,
@@ -138,6 +139,7 @@ let isPointerDownOnCell = false
 // Пока true, overlay-кнопки скрыты: bumpVersion подавлен.
 const cellDragging = ref(false)
 function releasePointerDrag() {
+  clearAttachPreview()
   if (!isPointerDownOnCell) return
   isPointerDownOnCell = false
   cellDragging.value = false
@@ -161,7 +163,15 @@ const { copySelection, pasteClipboard, duplicateSelection, hasClipboard } = useC
 // Символ на шине: ложится центром и едет за ней (useBusSnap). Нужен и палитре (drop),
 // и здесь — жестам с уже стоящими ячейками.
 const busSnap = useBusSnap()
-const { syncBusAttachment, detachFromBus, followBus, releaseBus } = busSnap
+const {
+  syncBusAttachment,
+  detachFromBus,
+  followBus,
+  releaseBus,
+  updateAttachPreview,
+  clearAttachPreview,
+  attachPreviewStyle,
+} = busSnap
 // Drag символа из палитры (превью, создание ячейки, врезка в провод, посадка на шину)
 // целиком в usePaletteDrag: wireSplice и busSnap нужны только ему, свои
 // document-листенеры он цепляет сам.
@@ -209,7 +219,7 @@ useHotkeys({
   onExport: projectApi.exportProjectToArchive,
   zoomIn: () => zoomByStep(ZOOM_STEP),
   zoomOut: () => zoomByStep(1 / ZOOM_STEP),
-  fitView: () => fitToContent(),
+  fitView: () => fitToContent({ animate: true }),
   // Вся область холста, а не только paper: поверх него лежат поиск, кнопки выделения и
   // плашки — курсор на них всё равно «над схемой».
   pointerOverCanvas: () => !!canvasArea.value?.matches(':hover'),
@@ -341,14 +351,14 @@ onMounted(async () => {
   })
 
   // ─── Selection ───
-  // Ctrl/Cmd+клик — тогл, обычный клик — замена выделения; провода между выделенными
-  // ячейками добавляются автоматически.
+  // Ctrl/Cmd/Shift+клик — тогл (isAdditive), обычный клик — замена выделения; провода
+  // между выделенными ячейками добавляются автоматически.
   paper.on('element:pointerdown', (elementView, evt) => {
     const cellId = elementView.model.id
     // Клик по члену группы выделяет группу целиком (expandGroups).
     const groupItems = canvas.expandGroups([{ kind: 'cell', id: cellId }])
     const groupIds = groupItems.map((i) => i.id)
-    if (evt.ctrlKey || evt.metaKey) {
+    if (isAdditive(evt)) {
       // Тогл группы (или одиночки) с пересчётом «мостов»; ранее выделенные провода
       // сохраняются через keepLinks.
       const currentCells = canvas.selection.value.filter((i) => i.kind === 'cell')
@@ -375,11 +385,11 @@ onMounted(async () => {
         canvas.selectOnly('cell', cellId)
       }
     }
-    // Ячейка уже в выделении и нет Ctrl — оставляем как есть (multi-drag).
+    // Ячейка уже в выделении и клик без модификатора — оставляем как есть (multi-drag).
     prepareMultiDrag(cellId)
   })
   paper.on('link:pointerdown', (linkView, evt) => {
-    if (evt.ctrlKey || evt.metaKey) {
+    if (isAdditive(evt)) {
       canvas.toggleInSelection('link', linkView.model.id)
     } else if (!canvas.isSelected(linkView.model.id)) {
       canvas.selectOnly('link', linkView.model.id)
@@ -415,6 +425,8 @@ onMounted(async () => {
   })
 
   // Отпустили символ: лёг на шину — закрепляем, увели с неё — закрепление снимаем.
+  // Пока тащат — рамка там, куда он ляжет (снимается в releasePointerDrag).
+  paper.on('element:pointermove', (view) => updateAttachPreview(view.model))
   paper.on('element:pointerup', (view) => syncBusAttachment(view.model))
 
   // Ховер: символ под курсором поднимается над соседями, иначе они закрывают его порты
@@ -870,7 +882,7 @@ function onCanvasMouseLeave() {
             text
             size="small"
             class="font-mono! min-w-[3.25rem]! justify-center!"
-            @click="fitToContent"
+            @click="fitToContent({ animate: true })"
           />
           <Button
             v-tooltip.bottom="'Увеличить · Ctrl+='"
@@ -945,6 +957,14 @@ function onCanvasMouseLeave() {
           v-html="draggingStencilSvg"
         />
       </div>
+
+      <!-- Куда ляжет перетаскиваемый по схеме символ, если отпустить его над шиной: та
+           же рамка, что у drag'а из палитры, без миниатюры (сам символ уже под курсором). -->
+      <div
+        v-if="attachPreviewStyle"
+        class="absolute pointer-events-none border-2 border-dashed border-primary-500 bg-primary-500/10 rounded"
+        :style="attachPreviewStyle"
+      />
 
       <!-- Inline-overlay одиночной выделенной ячейки: поворот ↺/↻ и отражение H/V
            (гейты `canRotate`/`canFlipH`/`canFlipV`: noRotate, замок, а у фигур — меняет ли

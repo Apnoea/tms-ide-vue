@@ -1,6 +1,7 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { getStencilById } from '../stencils/registry'
 import { busAttachPlacement, busLineY, BUS_SNAP_RANGE } from '../utils/busSnap'
+import { projectToScreen } from '../utils/paperGeom'
 import { useCanvas } from './useCanvas'
 
 /**
@@ -88,6 +89,20 @@ export function useBusSnap() {
   }
 
   /**
+   * Куда ляжет уже стоящий символ, если отпустить его сейчас: шина под его центром и
+   * точка посадки. null — символ не садится (сама шина, фигура-разметка, заблокирован)
+   * или шины рядом нет. Одно правило на превью при drag'е и на саму посадку.
+   */
+  function attachTargetOf(cell) {
+    const tms = cell?.get('tms') || {}
+    if (!tms.stencilId || tms.stencilId === 'cell_bus' || tms.locked) return null
+    const pos = cell.get('position')
+    const size = cell.get('size')
+    const center = { x: pos.x + size.width / 2, y: pos.y + size.height / 2 }
+    return { bus: findBusAtPoint(center), center }
+  }
+
+  /**
    * Сверяет закрепление с фактическим положением символа (после его drag'а): центр в
    * зоне шины → лёг на неё или переехал на другую, увели в сторону → закрепление
    * снимаем. Сама шина, фигуры-разметка и заблокированные не в счёт.
@@ -95,15 +110,54 @@ export function useBusSnap() {
    * @returns {boolean} менялось ли закрепление
    */
   function syncBusAttachment(cell) {
-    const tms = cell?.get('tms') || {}
-    if (!tms.stencilId || tms.stencilId === 'cell_bus' || tms.locked) return false
-    const pos = cell.get('position')
-    const size = cell.get('size')
-    const center = { x: pos.x + size.width / 2, y: pos.y + size.height / 2 }
-    const bus = findBusAtPoint(center)
-    if (bus) return attachToBus(bus, cell, center)
+    const target = attachTargetOf(cell)
+    if (!target) return false
+    if (target.bus) return attachToBus(target.bus, cell, target.center)
     return detachFromBus(cell)
   }
+
+  // Превью при drag'е УЖЕ СТОЯЩЕГО символа над шиной: рамка там, куда он ляжет при
+  // отпускании (у drag'а из палитры такое превью было, у перетаскивания по схеме — нет,
+  // и символ прыгал на ось шины без предупреждения). Paper-координаты центра + угол.
+  const attachPreview = ref(null)
+
+  function updateAttachPreview(cell) {
+    const target = attachTargetOf(cell)
+    const size = cell?.get('size')
+    const placement =
+      target?.bus && placementFor(target.bus, cell.get('tms').stencilId, size, target.center)
+    attachPreview.value = placement
+      ? {
+          angle: placement.angle,
+          cx: placement.position.x + size.width / 2,
+          cy: placement.position.y + size.height / 2,
+          width: size.width,
+          height: size.height,
+        }
+      : null
+  }
+
+  function clearAttachPreview() {
+    attachPreview.value = null
+  }
+
+  /** Стиль рамки превью в container-px (как у превью drag'а из палитры). */
+  const attachPreviewStyle = computed(() => {
+    const ap = attachPreview.value
+    const paper = canvas.paperRef.value
+    if (!ap || !paper) return null
+    const scale = paper.scale().sx
+    const w = ap.width * scale
+    const h = ap.height * scale
+    const c = projectToScreen(paper, ap.cx, ap.cy)
+    return {
+      left: '0',
+      top: '0',
+      width: `${w}px`,
+      height: `${h}px`,
+      transform: `translate3d(${c.x - w / 2}px, ${c.y - h / 2}px, 0) rotate(${ap.angle}deg)`,
+    }
+  })
 
   /**
    * Снимает символ с шины. Позицию не трогаем: снятие не должно перекладывать схему,
@@ -177,6 +231,9 @@ export function useBusSnap() {
     findBusAtPoint,
     attachToBus,
     syncBusAttachment,
+    updateAttachPreview,
+    clearAttachPreview,
+    attachPreviewStyle,
     detachFromBus,
     followBus,
     releaseBus,

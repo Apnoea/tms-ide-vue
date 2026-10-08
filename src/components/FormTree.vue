@@ -296,7 +296,7 @@ onBeforeUnmount(() => {
     <!-- Анимация сворачивания: grid-rows 1fr↔0fr плавно тянет реальную высоту тела;
          внутренний overflow-hidden клипует содержимое во время коллапса. -->
     <div
-      class="grid transition-[grid-template-rows] duration-200 ease-out"
+      class="grid transition-[grid-template-rows] duration-(--tms-dur-slow)"
       :class="panelCollapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'"
     >
       <div class="overflow-hidden">
@@ -318,7 +318,7 @@ onBeforeUnmount(() => {
             <!-- Строка формы -->
             <div
               v-else
-              class="group relative flex items-center gap-1 rounded transition-colors"
+              class="group relative flex h-[28px] items-center gap-1 rounded transition-colors"
               :class="[
                 row.id === workspace.activeFormId ? 'bg-surface-200/70' : 'hover:bg-surface-100',
                 dropInside(row) && 'bg-primary-50 ring-1 ring-inset ring-primary-400',
@@ -352,14 +352,14 @@ onBeforeUnmount(() => {
               </button>
               <span v-else class="w-5 shrink-0" aria-hidden="true"></span>
 
-              <!-- Высота поля = высоте строки (25px): иначе на время правки строка
-                   менялась, и дерево с палитрой под ним прыгали. -->
+              <!-- Высота поля = высоте строки (28px): поле выше строки распирало бы её на
+                   время правки, и дерево с палитрой под ним прыгали. -->
               <InputText
                 v-if="editingId === row.id"
                 :ref="setRenameInput"
                 v-model="editValue"
                 size="small"
-                class="relative z-10 h-[25px]! w-full py-0! font-mono"
+                class="relative z-10 h-[28px]! w-full py-0! font-mono"
                 @keyup.enter="commitRename"
                 @keyup.esc="cancelRename"
                 @blur="commitRename"
@@ -367,7 +367,7 @@ onBeforeUnmount(() => {
               <template v-else>
                 <button
                   type="button"
-                  class="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1 pr-1 text-left text-xs truncate"
+                  class="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 self-stretch pr-1 text-left text-xs truncate"
                   :class="[
                     row.broken
                       ? 'text-surface-400 line-through cursor-default'
@@ -375,7 +375,7 @@ onBeforeUnmount(() => {
                         ? 'text-surface-900 font-medium'
                         : 'text-surface-600',
                   ]"
-                  :title="rowTip(row)"
+                  v-tooltip.right="rowTip(row)"
                   @click="onNameClick(row)"
                 >
                   <i
@@ -402,35 +402,38 @@ onBeforeUnmount(() => {
                     row.id === workspace.activeFormId ? 'from-surface-200/70' : 'from-surface-100'
                   "
                 >
-                  <div class="pointer-events-auto flex items-center">
-                    <button
-                      type="button"
-                      data-nodrag
+                  <div class="tms-row-actions pointer-events-auto flex items-center">
+                    <Button
                       v-tooltip.bottom="'Изменить id'"
-                      class="tms-icon-action flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
+                      icon="pi pi-pencil text-xs!"
+                      severity="secondary"
+                      text
+                      size="small"
+                      class="tms-row-btn"
+                      data-nodrag
                       @click.stop="startRename(row.id)"
-                    >
-                      <i class="pi pi-pencil text-xs!" />
-                    </button>
-                    <button
-                      type="button"
-                      data-nodrag
+                    />
+                    <Button
                       v-tooltip.bottom="'Дублировать форму'"
-                      class="tms-icon-action flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
-                      @click.stop="canvas.duplicateForm(row.id)"
-                    >
-                      <i class="pi pi-clone text-xs!" />
-                    </button>
-                    <button
-                      v-if="workspace.formIds.length > 1"
-                      type="button"
+                      icon="pi pi-clone text-xs!"
+                      severity="secondary"
+                      text
+                      size="small"
+                      class="tms-row-btn"
                       data-nodrag
+                      @click.stop="canvas.duplicateForm(row.id)"
+                    />
+                    <Button
+                      v-if="workspace.formIds.length > 1"
                       v-tooltip.bottom="'Удалить форму'"
-                      class="tms-icon-action flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-red-600"
+                      icon="pi pi-trash text-xs!"
+                      severity="secondary"
+                      text
+                      size="small"
+                      class="tms-row-btn tms-row-del"
+                      data-nodrag
                       @click="confirmDelete($event, row.id)"
-                    >
-                      <i class="pi pi-trash text-xs!" />
-                    </button>
+                    />
                   </div>
                 </div>
               </template>

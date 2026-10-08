@@ -1,4 +1,6 @@
+import { getCurrentScope, onScopeDispose } from 'vue'
 import { useCanvas } from './useCanvas'
+import { MOTION_MS, prefersReducedMotion } from '../constants/motion'
 
 const MIN_ZOOM = 0.2
 const MAX_ZOOM = 4
@@ -16,6 +18,66 @@ export const ZOOM_STEP = 1.2
 export function useCanvasZoom(paperContainer) {
   const canvas = useCanvas()
 
+  // ─── Плавная камера ───
+  // Для переходов по команде: «Вписать в экран», доводка совпадения поиска и шаг зума
+  // кнопками ± / Ctrl+= / Ctrl+−. Мгновенный скачок там терял ориентацию — непонятно,
+  // куда сдвинулась схема. Колесо остаётся мгновенным: им ведут непрерывно, и задержка
+  // мешала бы.
+  let viewAnim = null // { raf, target } текущего перехода
+  if (getCurrentScope()) onScopeDispose(() => stopViewAnimation())
+
+  function stopViewAnimation() {
+    if (viewAnim) cancelAnimationFrame(viewAnim.raf)
+    viewAnim = null
+  }
+
+  function applyView(paper, s, tx, ty) {
+    paper.scale(s, s)
+    paper.translate(tx, ty)
+    canvas.zoomPercent.value = Math.round(s * 100)
+    canvas.bumpPaperView()
+  }
+
+  /**
+   * Переводит вид к `target` ({ s, tx, ty }) за `MOTION_MS.slow` с замедлением в конце.
+   * Если холст сдвинули другим жестом (pan, колесо) — переход уступает ему и
+   * останавливается, а не тянет вид обратно.
+   */
+  function animateView(target) {
+    const paper = canvas.paperRef.value
+    if (!paper) return
+    stopViewAnimation()
+    const from = { s: paper.scale().sx, ...paper.translate() }
+    if (prefersReducedMotion()) {
+      applyView(paper, target.s, target.tx, target.ty)
+      return
+    }
+    const start = performance.now()
+    let last = from
+    const step = (now) => {
+      const cur = paper.translate()
+      const moved =
+        Math.abs(cur.tx - last.tx) > 0.5 ||
+        Math.abs(cur.ty - last.ty) > 0.5 ||
+        Math.abs(paper.scale().sx - last.s) > 1e-6
+      if (moved) {
+        viewAnim = null
+        return
+      }
+      const t = Math.min(1, (now - start) / MOTION_MS.slow)
+      const k = 1 - (1 - t) ** 3
+      last = {
+        s: from.s + (target.s - from.s) * k,
+        tx: from.tx + (target.tx - from.tx) * k,
+        ty: from.ty + (target.ty - from.ty) * k,
+      }
+      applyView(paper, last.s, last.tx, last.ty)
+      if (t < 1) viewAnim.raf = requestAnimationFrame(step)
+      else viewAnim = null
+    }
+    viewAnim = { raf: requestAnimationFrame(step), target }
+  }
+
   /**
    * Масштабирует, сохраняя точку (clientX, clientY) под тем же местом экрана:
    * локальная точка под якорем до зума → смена масштаба → сдвиг paper'а так, чтобы
@@ -24,6 +86,7 @@ export function useCanvasZoom(paperContainer) {
   function zoomAt(clientX, clientY, factor) {
     const paper = canvas.paperRef.value
     if (!paper) return
+    stopViewAnimation()
     const scale = paper.scale().sx
     const newScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale * factor))
     if (newScale === scale) return
@@ -45,6 +108,7 @@ export function useCanvasZoom(paperContainer) {
   function panBy(dx, dy) {
     const paper = canvas.paperRef.value
     if (!paper || (!dx && !dy)) return
+    stopViewAnimation()
     const { tx, ty } = paper.translate()
     paper.translate(tx - dx, ty - dy)
     canvas.bumpPaperView()
@@ -86,45 +150,70 @@ export function useCanvasZoom(paperContainer) {
     else panBy(dx, dy)
   }
 
-  /** Зум кнопками +/− из тулбара: якорь — геометрический центр контейнера. */
+  /**
+   * Зум кнопками ± и Ctrl+= / Ctrl+− — плавно, якорь — центр контейнера. Шаг считается
+   * от ЦЕЛИ идущего перехода, а не от промежуточного кадра: иначе серия быстрых нажатий
+   * теряла бы шаги и масштаб вставал бы на дробные значения.
+   */
   function zoomByStep(factor) {
-    const el = paperContainer.value
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor)
-  }
-
-  function fitToContent() {
     const paper = canvas.paperRef.value
-    const graph = canvas.graphRef.value
-    if (!paper || !graph) return
-
-    // Пустой холст — просто сброс
-    if (graph.getCells().length === 0) {
-      paper.scale(1, 1)
-      paper.translate(0, 0)
-      canvas.zoomPercent.value = 100
-      canvas.bumpPaperView()
-      return
-    }
-
-    // maxScale: 1 — не приближаем больше 100%: маленький контент просто центрируется.
-    paper.transformToFitContent({
-      padding: 40,
-      minScale: MIN_ZOOM,
-      maxScale: 1,
-      horizontalAlign: 'middle',
-      verticalAlign: 'middle',
-      useModelGeometry: false,
-    })
-
-    canvas.zoomPercent.value = Math.round(paper.scale().sx * 100)
-    canvas.bumpPaperView()
+    const el = paperContainer.value
+    if (!paper || !el) return
+    const base = viewAnim?.target ?? { s: paper.scale().sx, ...paper.translate() }
+    const s = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, base.s * factor))
+    if (s === base.s) return
+    // Точка схемы под центром остаётся под центром.
+    const cx = el.clientWidth / 2
+    const cy = el.clientHeight / 2
+    const lx = (cx - base.tx) / base.s
+    const ly = (cy - base.ty) / base.s
+    animateView({ s, tx: cx - lx * s, ty: cy - ly * s })
   }
 
   /**
-   * Доводит ячейку в центр вьюпорта (translate без смены зума). Если видна целиком
-   * — не двигаем: иначе Enter-листание близких match'ей дёргало бы холст.
+   * Вписать схему в экран (не крупнее 100%). `{ animate: true }` — плавно: так зовут
+   * команды пользователя (кнопка масштаба, Ctrl+0, пункт меню). Без него — сразу: при
+   * открытии формы и проекта вид должен встать на место до первого кадра. Аргумент
+   * читается только по полю `animate`: из `@click` сюда приходит событие.
+   */
+  function fitToContent(opts) {
+    const paper = canvas.paperRef.value
+    const graph = canvas.graphRef.value
+    if (!paper || !graph) return
+    stopViewAnimation()
+    const before = { s: paper.scale().sx, ...paper.translate() }
+
+    if (graph.getCells().length === 0) {
+      // Пустой холст — просто сброс.
+      paper.scale(1, 1)
+      paper.translate(0, 0)
+    } else {
+      // maxScale: 1 — не приближаем больше 100%: маленький контент просто центрируется.
+      paper.transformToFitContent({
+        padding: 40,
+        minScale: MIN_ZOOM,
+        maxScale: 1,
+        horizontalAlign: 'middle',
+        verticalAlign: 'middle',
+        useModelGeometry: false,
+      })
+    }
+
+    const target = { s: paper.scale().sx, ...paper.translate() }
+    if (opts?.animate === true) {
+      // Целевой вид посчитал JointJS; возвращаем прежний (в тот же кадр — без мигания)
+      // и едем к целевому.
+      paper.scale(before.s, before.s)
+      paper.translate(before.tx, before.ty)
+      animateView(target)
+      return
+    }
+    applyView(paper, target.s, target.tx, target.ty)
+  }
+
+  /**
+   * Доводит ячейку в центр вьюпорта (translate без смены зума), плавно. Если видна
+   * целиком — не двигаем: иначе Enter-листание близких match'ей дёргало бы холст.
    */
   function centerOnCell(cellId) {
     const paper = canvas.paperRef.value
@@ -152,8 +241,7 @@ export function useCanvasZoom(paperContainer) {
     if (inView) return
     const cx = bbox.x + bbox.width / 2
     const cy = bbox.y + bbox.height / 2
-    paper.translate(paperW / 2 - cx * s, paperH / 2 - cy * s)
-    canvas.bumpPaperView()
+    animateView({ s, tx: paperW / 2 - cx * s, ty: paperH / 2 - cy * s })
   }
 
   return { onWheel, zoomByStep, fitToContent, centerOnCell }

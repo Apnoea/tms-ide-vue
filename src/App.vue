@@ -89,7 +89,7 @@ useEventListener(window, 'keydown', (event) => {
            `width`: `min-width` анимируется (в отличие от перехода к `auto`), и шапка
            едет синхронно с панелью. `max-w` держит прежнюю обрезку длинного имени. -->
       <div
-        class="shrink-0 flex items-center gap-2 px-2 transition-[min-width] duration-200"
+        class="shrink-0 flex items-center gap-2 px-2 transition-[min-width] duration-(--tms-dur-slow)"
         :style="headerLeftStyle"
       >
         <Button
@@ -111,7 +111,7 @@ useEventListener(window, 'keydown', (event) => {
         <span class="text-surface-300 shrink-0" aria-hidden="true">·</span>
         <span
           class="min-w-0 truncate text-sm text-surface-500"
-          :title="workspace.projectName || 'Проект ещё не сохранён в файл'"
+          v-tooltip.bottom="workspace.projectName || 'Проект ещё не сохранён в файл'"
         >
           {{ workspace.projectName || 'Без названия' }}
         </span>
@@ -132,7 +132,7 @@ useEventListener(window, 'keydown', (event) => {
         <TagListControl />
       </div>
       <div
-        class="shrink-0 flex items-center gap-2 px-2 transition-[min-width] duration-200"
+        class="shrink-0 flex items-center gap-2 px-2 transition-[min-width] duration-(--tms-dur-slow)"
         :style="headerRightStyle"
       >
         <StatusBar />

@@ -193,4 +193,27 @@ describe('useBusSnap', () => {
     snap.updateBusSnapPreview('cell_qr', { x: 143, y: 500 })
     expect(snap.busSnapPreview.value).toBeNull()
   })
+  // Превью при drag'е уже стоящего символа: рамка ровно там, где он окажется после
+  // отпускания (тот же расчёт, что у syncBusAttachment); вне шины рамки нет.
+  it('превью посадки стоящего символа совпадает с итоговой позицией', () => {
+    useCanvas().setCanvasRefs(graph, {
+      scale: () => ({ sx: 1, sy: 1 }),
+      translate: () => ({ tx: 0, ty: 0 }),
+      options: { gridSize: 10 },
+    })
+    makeBus(graph)
+    const cell = makeSymbol(graph, 'cell_qr', { x: 130, y: 195 })
+    snap.updateAttachPreview(cell)
+    const style = snap.attachPreviewStyle.value
+    expect(style).not.toBeNull()
+
+    snap.syncBusAttachment(cell)
+    const pos = cell.get('position')
+    expect(style.transform).toBe(`translate3d(${pos.x}px, ${pos.y}px, 0) rotate(0deg)`)
+
+    cell.position(130, 500) // увели от шины
+    snap.updateAttachPreview(cell)
+    expect(snap.attachPreviewStyle.value).toBeNull()
+    snap.clearAttachPreview()
+  })
 })

@@ -5,6 +5,7 @@ import {
   isFocusInInput,
   isInListWidget,
   hasTextSelectionOutside,
+  isAdditive,
 } from './viewKeys'
 
 describe('zoomKeyOf', () => {
@@ -73,4 +74,18 @@ it('hasTextSelectionOutside: выделение вне области, внут�
   select('', () => null)
   expect(hasTextSelectionOutside('[data-se-stage]')).toBe(false)
   vi.unstubAllGlobals()
+})
+
+// Добавление к выделению — Ctrl/Cmd (Visio, Office) и Shift (Figma): обе привычки.
+describe('isAdditive', () => {
+  it.each([
+    [{ ctrlKey: true }, true],
+    [{ metaKey: true }, true],
+    [{ shiftKey: true }, true],
+    [{ altKey: true }, false],
+    [{}, false],
+    [null, false],
+  ])('%o → %s', (event, expected) => {
+    expect(isAdditive(event)).toBe(expected)
+  })
 })

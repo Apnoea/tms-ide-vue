@@ -2,12 +2,13 @@ import { ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { useCanvas } from './useCanvas'
 import { lassoCatchesCell } from '../stencils/shapeElement'
+import { isAdditive } from '../utils/viewKeys'
 
 /**
  * Lasso-выделение: ЛКМ-drag по пустому месту. startLasso зовётся из
  * blank:pointerdown в CanvasPane, move/up слушаются на document (drag уходит за
- * пределы холста), `lassoRect` рисует overlay-рамку. Ctrl/Cmd на старте — добавление
- * к выделению.
+ * пределы холста), `lassoRect` рисует overlay-рамку. Ctrl/Cmd/Shift на старте —
+ * добавление к выделению (isAdditive).
  *
  * Клик по пустому без drag'а (рамка <3px) снимает выделение: pan живёт на средней
  * кнопке и Space, поэтому ЛКМ по пустому — всегда лассо.
@@ -30,7 +31,7 @@ export function useLasso(paperContainer, { selectCellsWithBridges }) {
     const paper = canvas.paperRef.value
     if (!paper) return
     lassoActive = true
-    lassoAdditive = evt.ctrlKey || evt.metaKey
+    lassoAdditive = isAdditive(evt)
     lassoStartLocal = paper.clientToLocalPoint(evt.clientX, evt.clientY)
     lassoStartClient = { x: evt.clientX, y: evt.clientY }
     lassoRect.value = { x: 0, y: 0, w: 0, h: 0 }

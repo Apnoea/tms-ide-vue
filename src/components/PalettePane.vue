@@ -288,7 +288,7 @@ async function removeStencil(id) {
            openSearch работает); border-b — только раскрытым (в 0-высоте линия
            клипуется, но условие убирает мигание в конце анимации). -->
       <div
-        class="grid transition-[grid-template-rows] duration-200 ease-out"
+        class="grid transition-[grid-template-rows] duration-(--tms-dur-slow)"
         :class="searchOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'"
       >
         <div class="overflow-hidden">
@@ -430,49 +430,52 @@ async function removeStencil(id) {
                 <div
                   class="pointer-events-none absolute inset-y-0 right-1 flex items-center pl-8 opacity-0 transition-opacity group-hover:opacity-100 bg-gradient-to-l from-surface-100 from-60% to-transparent"
                 >
-                  <div class="pointer-events-auto flex shrink-0 items-center">
+                  <div class="tms-row-actions pointer-events-auto flex shrink-0 items-center">
                     <!-- Правка — у всех, кроме залоченных (`locked`: программные — их SVG в
                        наш формат не разбирается). Режим задаёт сам символ: шина — «только
                        диапазоны», символ набора — «только анимации», остальные целиком. -->
-                    <button
+                    <Button
                       v-if="stencilEditLabel(stencil)"
-                      type="button"
                       v-tooltip.bottom="stencilEditLabel(stencil)"
-                      class="tms-icon-action flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
+                      icon="pi pi-pencil text-xs!"
+                      severity="secondary"
+                      text
+                      size="small"
+                      class="tms-row-btn"
                       @pointerdown.stop
                       @click="ui.openStencilEditor(stencil.id)"
-                    >
-                      <i class="pi pi-pencil text-xs!" />
-                    </button>
+                    />
                     <!-- Дублирование — у тех же, кого редактор воспроизводит целиком
                        (незалоченные): копия открывается как НОВЫЙ символ со своим id и
                        названием, менять их можно до сохранения. -->
-                    <button
+                    <Button
                       v-if="!stencil.locked"
-                      type="button"
                       v-tooltip.bottom="'Дублировать символ'"
-                      class="tms-icon-action flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-surface-700"
+                      icon="pi pi-clone text-xs!"
+                      severity="secondary"
+                      text
+                      size="small"
+                      class="tms-row-btn"
                       @pointerdown.stop
                       @click="ui.openStencilEditor(stencil.id, { duplicate: true })"
-                    >
-                      <i class="pi pi-clone text-xs!" />
-                    </button>
+                    />
                     <!-- Удаление — у всех, кроме залоченных (`locked`) и символов набора:
                        набор снимается целиком, поштучно его состав не меняется. Видно по ховеру
                        строки. @pointerdown.stop глушит старт drag'а (строка тащится по
                        pointerdown). Клик БЕЗ .stop: ConfirmPopup выравнивается по target
                        только в своём document-click листенере — с .stop клик не всплыл бы
                        и попап упал бы в (0,0). Drag уже погашен на pointerdown, click безопасен. -->
-                    <button
+                    <Button
                       v-if="!stencil.locked && !isPresetStencil(stencil)"
-                      type="button"
                       v-tooltip.bottom="'Удалить символ'"
-                      class="tms-icon-action flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded text-surface-400 hover:bg-surface-200 hover:text-red-600"
+                      icon="pi pi-trash text-xs!"
+                      severity="secondary"
+                      text
+                      size="small"
+                      class="tms-row-btn tms-row-del"
                       @pointerdown.stop
                       @click="confirmDeleteStencil($event, stencil)"
-                    >
-                      <i class="pi pi-trash text-xs!" />
-                    </button>
+                    />
                   </div>
                 </div>
               </div>

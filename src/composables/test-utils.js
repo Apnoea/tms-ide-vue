@@ -4,7 +4,7 @@ import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import ToastService from 'primevue/toastservice'
 import ConfirmationService from 'primevue/confirmationservice'
-import Tooltip from 'primevue/tooltip'
+import { DelayedTooltip } from '../utils/tooltip'
 
 /**
  * Запускает composable в изолированном effectScope (вне Vue-компонента).
@@ -58,7 +58,7 @@ export function mountWithApp(Component, options = {}) {
     global: {
       ...g,
       plugins: [createPinia(), PrimeVue, ToastService, ConfirmationService, ...(g.plugins || [])],
-      directives: { tooltip: Tooltip, ...(g.directives || {}) },
+      directives: { tooltip: DelayedTooltip, ...(g.directives || {}) },
       stubs: { teleport: true, ...(g.stubs || {}) },
     },
   })

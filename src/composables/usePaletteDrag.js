@@ -125,11 +125,20 @@ export function usePaletteDrag(paperContainer, wireSplice, busSnap) {
   }
 
   /**
-   * Размещает символ в точке. Символ с ≥2 портами, брошенный на провод, врезается
-   * в него (split); иначе просто создаётся. Тег никто по пути не спрашивает —
-   * привязка живёт в инспекторе, одинаково для всех символов.
+   * Размещает символ в точке и выделяет его: следующий шаг — привязка тега в
+   * инспекторе, и без выделения до неё был лишний клик. Тег никто по пути не
+   * спрашивает — привязка живёт в инспекторе, одинаково для всех символов.
    */
   function placeStencil(stencilId, point) {
+    const cell = putStencil(stencilId, point)
+    if (cell) canvas.setSelection([{ kind: 'cell', id: cell.id }])
+  }
+
+  /**
+   * Создаёт символ в точке: на шине — садится на неё, символ с ≥2 портами на проводе —
+   * врезается в него (split), иначе просто встаёт. Возвращает ячейку.
+   */
+  function putStencil(stencilId, point) {
     const stencil = getStencilById(stencilId)
     // Шина проверяется первой, и спора с врезкой тут нет: шина — элемент, а
     // findLinkAtPoint над элементами молчит. Порты не нужны — символ на шине не
@@ -139,7 +148,7 @@ export function usePaletteDrag(paperContainer, wireSplice, busSnap) {
       const cell = createStencilAt(stencilId, point.x, point.y)
       if (cell) {
         attachToBus(bus, cell, point)
-        return
+        return cell
       }
     }
     if ((stencil?.ports?.length || 0) >= 2) {
@@ -148,11 +157,11 @@ export function usePaletteDrag(paperContainer, wireSplice, busSnap) {
         const cell = createStencilAt(stencilId, point.x, point.y)
         if (cell) {
           spliceCellIntoLink(link, cell, point)
-          return
+          return cell
         }
       }
     }
-    createStencilAt(stencilId, point.x, point.y)
+    return createStencilAt(stencilId, point.x, point.y)
   }
 
   function onDragPointerMove(event) {
