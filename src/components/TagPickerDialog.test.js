@@ -11,6 +11,7 @@ vi.mock('../composables/useTagList', () => ({
 
 import TagPickerDialog from './TagPickerDialog.vue'
 import { useProjectStore } from '../stores/useProjectStore'
+import { useUiStore, TAG_PICKER_WIDTH_DEFAULT } from '../stores/useUiStore'
 
 const TAGS = [
   { name: 'BR1.ONOFF', type: 'Boolean' },
@@ -28,6 +29,7 @@ function mountPicker(props = {}) {
 describe('TagPickerDialog', () => {
   beforeEach(() => {
     pickTagList.mockClear()
+    localStorage.clear()
   })
 
   it('одинарный клик по тегу подтверждает выбор и закрывает диалог', async () => {
@@ -94,6 +96,37 @@ describe('TagPickerDialog', () => {
     expect(wrapper.findAll('button').some((b) => b.text().includes('Загрузить tag-list'))).toBe(
       false
     )
+    wrapper.unmount()
+  })
+
+  // Окно по центру растёт в обе стороны — ширина меняется на двойной сдвиг курсора,
+  // чтобы правый край шёл за мышью.
+  it('ширину тянут за правый край, двойной клик возвращает исходную', async () => {
+    const wrapper = mountPicker()
+    await wrapper.vm.$nextTick()
+    const ui = useUiStore()
+    // Элементы ищем заново после каждой перерисовки: с заглушкой teleport из test-utils
+    // окно пересоздаётся при смене стиля (в браузере — нет, проверено вживую).
+    const handle = () => wrapper.find('[data-tag-picker-resize]').element
+    const width = () => handle().closest('.p-dialog').style.width
+    expect(width()).toBe(`${TAG_PICKER_WIDTH_DEFAULT}px`)
+
+    handle().dispatchEvent(
+      new MouseEvent('pointerdown', { button: 0, clientX: 500, bubbles: true })
+    )
+    document.dispatchEvent(new MouseEvent('pointermove', { clientX: 550 }))
+    document.dispatchEvent(new MouseEvent('pointerup'))
+    await wrapper.vm.$nextTick()
+    expect(ui.tagPickerWidth).toBe(TAG_PICKER_WIDTH_DEFAULT + 100)
+    expect(width()).toBe(`${TAG_PICKER_WIDTH_DEFAULT + 100}px`)
+
+    // После отпускания мышь ширину не двигает.
+    document.dispatchEvent(new MouseEvent('pointermove', { clientX: 700 }))
+    expect(ui.tagPickerWidth).toBe(TAG_PICKER_WIDTH_DEFAULT + 100)
+
+    handle().dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(width()).toBe(`${TAG_PICKER_WIDTH_DEFAULT}px`)
     wrapper.unmount()
   })
 })

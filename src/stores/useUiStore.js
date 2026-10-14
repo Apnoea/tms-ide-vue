@@ -10,6 +10,13 @@ export const PANE_WIDTH_MAX = 640
 const clampPaneWidth = (value) =>
   Math.round(Math.min(PANE_WIDTH_MAX, Math.max(PANE_WIDTH_MIN, Number(value) || 0)))
 
+/** Ширина окна выбора тега (px): по умолчанию — прежняя фиксированная, уже не бывает. */
+export const TAG_PICKER_WIDTH_DEFAULT = 420
+export const TAG_PICKER_WIDTH_MAX = 1200
+
+const clampTagPickerWidth = (value) =>
+  Math.round(Math.min(TAG_PICKER_WIDTH_MAX, Math.max(TAG_PICKER_WIDTH_DEFAULT, Number(value) || 0)))
+
 export const useUiStore = defineStore('ui', () => {
   const lastTagListPickerStartIn = ref(null)
 
@@ -42,6 +49,19 @@ export const useUiStore = defineStore('ui', () => {
   function resetPaneWidth(side) {
     if (side === 'left') leftPaneWidth.value = PANE_WIDTH_DEFAULT.left
     else rightPaneWidth.value = PANE_WIDTH_DEFAULT.right
+  }
+
+  // Ширина окна выбора тега — тоже рабочее место: длинные имена тегов не влезали в
+  // прежние 420px, а растянутое окно нужно и в следующий раз. Уже 420 не сжимается.
+  const tagPickerWidth = useLocalStorage('tms.tagPickerWidth', TAG_PICKER_WIDTH_DEFAULT)
+  tagPickerWidth.value = clampTagPickerWidth(tagPickerWidth.value)
+
+  function setTagPickerWidth(value) {
+    tagPickerWidth.value = clampTagPickerWidth(value)
+  }
+
+  function resetTagPickerWidth() {
+    tagPickerWidth.value = TAG_PICKER_WIDTH_DEFAULT
   }
 
   function toggleLeftPane() {
@@ -165,6 +185,9 @@ export const useUiStore = defineStore('ui', () => {
     setLeftPaneWidth,
     setRightPaneWidth,
     resetPaneWidth,
+    tagPickerWidth,
+    setTagPickerWidth,
+    resetTagPickerWidth,
     lastTagListPickerStartIn,
     dragging,
     helpOpen,

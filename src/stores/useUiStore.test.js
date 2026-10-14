@@ -5,7 +5,14 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { useUiStore, PANE_WIDTH_DEFAULT, PANE_WIDTH_MIN, PANE_WIDTH_MAX } from './useUiStore'
+import {
+  useUiStore,
+  PANE_WIDTH_DEFAULT,
+  PANE_WIDTH_MIN,
+  PANE_WIDTH_MAX,
+  TAG_PICKER_WIDTH_DEFAULT,
+  TAG_PICKER_WIDTH_MAX,
+} from './useUiStore'
 
 const KEY_RIGHT = 'tms.rightPaneOpen'
 
@@ -86,5 +93,35 @@ describe('useUiStore: боковые колонки', () => {
     localStorage.setItem('tms.leftPaneWidth', '1800')
     setActivePinia(createPinia())
     expect(useUiStore().leftPaneWidth).toBe(PANE_WIDTH_MAX)
+  })
+})
+
+// Окно выбора тега: длинные имена тегов не влезали в 420px — ширину тянут, она
+// запоминается, уже прежней не становится.
+describe('useUiStore: ширина окна выбора тега', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    setActivePinia(createPinia())
+  })
+
+  it('по умолчанию — прежние 420px, шире тянется, уже — нет', () => {
+    const ui = useUiStore()
+    expect(ui.tagPickerWidth).toBe(TAG_PICKER_WIDTH_DEFAULT)
+    ui.setTagPickerWidth(640.6)
+    expect(ui.tagPickerWidth).toBe(641)
+    ui.setTagPickerWidth(200)
+    expect(ui.tagPickerWidth).toBe(TAG_PICKER_WIDTH_DEFAULT)
+    ui.setTagPickerWidth(5000)
+    expect(ui.tagPickerWidth).toBe(TAG_PICKER_WIDTH_MAX)
+  })
+
+  it('запоминается между запусками, сброс возвращает дефолт', async () => {
+    useUiStore().setTagPickerWidth(700)
+    await nextTick()
+    setActivePinia(createPinia())
+    const ui = useUiStore()
+    expect(ui.tagPickerWidth).toBe(700)
+    ui.resetTagPickerWidth()
+    expect(ui.tagPickerWidth).toBe(TAG_PICKER_WIDTH_DEFAULT)
   })
 })

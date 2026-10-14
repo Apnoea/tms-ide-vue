@@ -1,10 +1,12 @@
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onBeforeUnmount } from 'vue'
+import { useEventListener } from '@vueuse/core'
 import Dialog from 'primevue/dialog'
 import Listbox from 'primevue/listbox'
 import Button from 'primevue/button'
 import { useTagList } from '../composables/useTagList'
 import { useProjectStore } from '../stores/useProjectStore'
+import { useUiStore } from '../stores/useUiStore'
 import { nplural } from '../utils/plural'
 import SearchField from './SearchField.vue'
 
@@ -55,6 +57,43 @@ function confirmTag(name) {
   emit('select', name)
   emit('update:visible', false)
 }
+
+// Ширина окна — длинные имена тегов не влезали в 420px. Окно стоит по центру и растёт в
+// обе стороны, поэтому ширина меняется на ДВОЙНОЙ сдвиг курсора: так край идёт ровно за
+// мышью. Шире 90% экрана не тянем — там окно упирается в край (`maxWidth`), и мышь
+// двигалась бы впустую. Слушатели на document, выделение текста гасим — как в PaneResizer.
+const ui = useUiStore()
+const resizing = ref(false)
+let resizeStartX = 0
+let resizeStartWidth = 0
+
+function onResizeStart(event) {
+  if (event.button !== 0) return
+  event.preventDefault()
+  resizing.value = true
+  resizeStartX = event.clientX
+  resizeStartWidth = ui.tagPickerWidth
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'ew-resize'
+}
+
+useEventListener(document, 'pointermove', (event) => {
+  if (!resizing.value) return
+  const width = resizeStartWidth + 2 * (event.clientX - resizeStartX)
+  ui.setTagPickerWidth(Math.min(width, window.innerWidth * 0.9))
+})
+
+function stopResize() {
+  if (!resizing.value) return
+  resizing.value = false
+  document.body.style.userSelect = ''
+  document.body.style.cursor = ''
+}
+
+useEventListener(document, 'pointerup', stopResize)
+// Alt+Tab посреди жеста pointerup не даёт — без этого курсор-ресайз залип бы на body.
+useEventListener(window, 'blur', stopResize)
+onBeforeUnmount(stopResize)
 
 // Enter из поля поиска подтверждает «активный» тег: текущий picked, если он ещё
 // в результатах, иначе — первый из отфильтрованных (кейс «набрал → Enter»).
@@ -132,13 +171,30 @@ watch(
     :visible="visible"
     modal
     :header="header"
-    :style="{ width: '420px' }"
+    :style="{ width: `${ui.tagPickerWidth}px`, maxWidth: '90vw' }"
     :close-on-escape="true"
     :dismissable-mask="true"
     :draggable="false"
     @show="onShow"
     @update:visible="emit('update:visible', $event)"
   >
+    <!-- Ширина тянется за правый край, как колонки (PaneResizer), двойной клик — исходная.
+         Корень диалога PrimeVue держит transform, поэтому абсолютная ручка встаёт по
+         рамке окна, а не по прокручиваемому содержимому. -->
+    <div
+      class="group absolute inset-y-0 -right-1 z-10 w-2 cursor-ew-resize"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Ширина окна"
+      data-tag-picker-resize
+      @pointerdown="onResizeStart"
+      @dblclick="ui.resetTagPickerWidth()"
+    >
+      <span
+        class="pointer-events-none absolute inset-y-3 left-1/2 w-0.5 -translate-x-1/2 rounded-full transition-colors"
+        :class="resizing ? 'bg-primary-400' : 'bg-transparent group-hover:bg-surface-300'"
+      />
+    </div>
     <div class="space-y-3">
       <p class="text-sm text-surface-500">
         Доступно:
