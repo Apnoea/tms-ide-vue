@@ -1282,3 +1282,72 @@ describe('диапазоны из зон символа', () => {
     })
   })
 })
+
+describe('цвет состояния (stateColors)', () => {
+  // Как у стандартных выключателей: слот зон ПЕРВЫМ, драйвер состояния — вторым.
+  function withStateColorStencil(fn) {
+    registerStencil(
+      {
+        id: 'cell_sc',
+        label: 'State color',
+        category: 'Тест',
+        width: 20,
+        height: 20,
+        slots: [
+          { key: 'range', type: 'Value' },
+          { key: 'onoff', type: 'Boolean' },
+        ],
+        stateColors: { true: { fill: '#0073ff' }, false: { fill: '#f200ff' } },
+      },
+      '<g><rect width="20" height="20"/></g>'
+    )
+    try {
+      return fn()
+    } finally {
+      unregisterStencil('cell_sc')
+    }
+  }
+
+  const SLOTS = { range: 'PT1.VALUE', onoff: 'BR1.ONOFF' }
+
+  it('биндинг — по тегу слота-драйвера, а не первого слота', () => {
+    withStateColorStencil(() => {
+      const graph = mockGraph([mockCell({ id: 'c1', stencilId: 'cell_sc', slots: SLOTS })])
+      const outer = exportProject(graph).animations.animations['animation-cell_sc-c1']
+      const binding = outer.bindings.find((b) => b.when?.type === 'map')
+      expect(binding.tag).toBe('BR1.ONOFF')
+      expect(binding.when.cases).toEqual({
+        true: { apply: { addClass: 'animation-color-cell_sc-true' } },
+        false: { apply: { addClass: 'animation-color-cell_sc-false' } },
+      })
+    })
+  })
+
+  it('multi-цель (≥2 групп boolSource) несёт цвет multi-слоями', () => {
+    withStateColorStencil(() => {
+      const graph = mockGraph([
+        mockCell({
+          id: 'c1',
+          stencilId: 'cell_sc',
+          slots: SLOTS,
+          boolSource: { groups: [['A.ONOFF'], ['B.ONOFF']] },
+        }),
+      ])
+      const card = exportProject(graph).animations.animations['animation-cell_sc-c1']
+      expect(card.animation).toBe('multi')
+      // Рантайм-обработчик multi читает только multiCondition — shape-биндинг он пропустит.
+      expect(card.bindings.every((b) => b.multiCondition)).toBe(true)
+      const layer = card.bindings.find(
+        (b) => b.multiCondition.apply.addClass === 'animation-color-cell_sc-false'
+      )
+      expect(layer.multiCondition.conditions).toEqual([
+        {
+          id: 'c',
+          tag: 'BR1.ONOFF',
+          source: 'value',
+          when: { type: 'map', cases: { false: true } },
+        },
+      ])
+    })
+  })
+})

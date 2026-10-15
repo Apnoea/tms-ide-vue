@@ -2,7 +2,7 @@
 // (в exporter'е оркестрация, здесь рантайм-протокол). Формат карточек — «Раннтайм-
 // протокол» в CLAUDE.md.
 
-import { getStencilById } from '../stencils/registry'
+import { getStencilById, stateSlotOf } from '../stencils/registry'
 import { CLASS_OFF, rangeColorClass, rangeRowColor, stateColorClass } from '../constants/animation'
 import { innerPrefix } from '../constants/ids'
 import { normalizeBoolSource, boolSourceTags } from '../utils/boolSource'
@@ -111,6 +111,15 @@ export function buildMultiCard(c) {
     }
   }
 
+  // Цвет состояния — тоже слой на код: shape-биндинг multi-обработчик рантайма пропускает.
+  const sc = stateColorBinding(c)
+  if (sc) {
+    for (const [code, { apply }] of Object.entries(sc.when.cases)) {
+      const when = { type: 'map', cases: { [code]: true } }
+      bindings.push(singleMultiBinding(sc.tag, 'value', when, apply.addClass))
+    }
+  }
+
   // boolSource — группы условий: активен, если ЛЮБАЯ группа выполнена целиком
   // (все теги замкнуты). Гасим (animation-off), когда НИ одна не выполнена =
   // в КАЖДОЙ группе хотя бы один тег открыт. Без отрицания (рантайм-expression его
@@ -137,9 +146,8 @@ export function buildMultiCard(c) {
   }
 
   if (stencil?.quality) {
-    const qTags = [
-      ...new Set([vs?.tag, c.slots?.onoff, ...boolSourceTags(c.boolSource)].filter(Boolean)),
-    ]
+    const stateTag = c.slots?.[stateSlotOf(stencil.slots)?.key]
+    const qTags = [...new Set([vs?.tag, stateTag, ...boolSourceTags(c.boolSource)].filter(Boolean))]
     for (const tag of qTags) {
       bindings.push(
         singleMultiBinding(
@@ -157,18 +165,18 @@ export function buildMultiCard(c) {
 
 /**
  * Биндинг перекраса всего символа по состоянию (stateColors в stencil.json):
- * значение тега-слота состояния → класс `animation-color-<stencilId>-<ключ>` на outer, цвет
- * каскадит на потомков через CSS (см. inlineStyles). Кладётся слоем на outer
- * (assignOrMergeAnimation — уживается с диапазонами/булевым/quality). Коды: режим значения —
- * из states, булев — сами ключи 'true'/'false'. null, если красить нечего или
- * тег слота не привязан. Обесточивание (animation-off) бьёт цвет в CSS.
+ * значение тега слота-драйвера → класс `animation-color-<stencilId>-<ключ>` на outer, цвет
+ * каскадит на потомков через CSS (см. inlineStyles). Слот — `stateSlotOf`, как в
+ * симуляции: первым в символе часто стоит слот зон (`range`) или подписи (`Text`), и с
+ * ним рантайм сравнивал бы число с 'true'/'false'. Коды: режим значения — из states,
+ * булев — сами ключи 'true'/'false'. null, если красить нечего или тег слота не
+ * привязан. Обесточивание (animation-off) бьёт цвет в CSS.
  */
-export function buildStateColorCard(c) {
+function stateColorBinding(c) {
   const stencil = getStencilById(c.stencilId)
   const colors = stencil?.stateColors
   if (!colors || !Object.keys(colors).length) return null
-  const slotKey = stencil.slots?.[0]?.key
-  const tag = slotKey ? c.slots?.[slotKey] : null
+  const tag = c.slots?.[stateSlotOf(stencil.slots)?.key]
   if (!tag) return null
   const cases = {}
   if (Array.isArray(stencil.states) && stencil.states.length) {
@@ -184,7 +192,17 @@ export function buildStateColorCard(c) {
     }
   }
   if (!Object.keys(cases).length) return null
-  return { animation: 'shape', bindings: [{ tag, when: { source: 'value', type: 'map', cases } }] }
+  return { tag, when: { source: 'value', type: 'map', cases } }
+}
+
+/**
+ * Shape-карточка перекраса по состоянию (см. stateColorBinding) — слоем на outer
+ * (assignOrMergeAnimation — уживается с диапазонами/булевым/quality). multi-цели несут
+ * цвет своими слоями (buildMultiCard), им эта карточка не нужна.
+ */
+export function buildStateColorCard(c) {
+  const binding = stateColorBinding(c)
+  return binding ? { animation: 'shape', bindings: [binding] } : null
 }
 
 /**

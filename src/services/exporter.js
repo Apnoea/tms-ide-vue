@@ -453,8 +453,9 @@ function buildCards(ctx, cellExports, linkExports) {
 
   // State-color: перекрас всего символа по состоянию (stateColors символа). Слой на
   // outer (уживается с диапазонами, булевым и quality), на потомков цвет каскадит
-  // через CSS. Для needsMulti-целей мержится в их multi.
+  // через CSS. У needsMulti-целей он уже слоем в их multi (buildMultiCard).
   for (const c of cellExports) {
+    if (needsMulti(c)) continue
     const card = buildStateColorCard(c)
     if (card) assignOrMergeAnimation(animations, outerKey(c.stencilId, c.animId), card)
   }
