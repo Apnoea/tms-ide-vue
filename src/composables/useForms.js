@@ -180,7 +180,7 @@ export function useForms(ctx) {
     const trashed = await pushTrash({
       id,
       graphJson: toPlain(workspace.getFormGraph(id) || { cells: [] }),
-      bg: workspace.formBg[id] ?? null,
+      bg: workspace.formBgOf(id),
       title: workspace.formTitleOf(id) || null,
       description: workspace.formDescriptionOf(id) || null,
       anchor: workspace.nodeAnchor(id),

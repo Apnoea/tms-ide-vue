@@ -170,9 +170,9 @@ export function buildProjectZipBlob({
   if (tagsText != null) {
     files[`${root}${isXmlTagList(tagsText) ? 'taglist.xml' : 'taglist.csv'}`] = strToU8(tagsText)
   }
-  // project.json — редакторная мета проекта (фон холста по формам). Отдельным файлом,
-  // а не полем nav.json: тот читает сервер, и лишние поля ему не нужны. Пустая мета
-  // не пишется.
+  // project.json — редакторная мета проекта (названия и описания по формам). Отдельным
+  // файлом, а не полем nav.json: тот читает сервер, и лишние поля ему не нужны. Пустая
+  // мета не пишется.
   if (project && Object.keys(project).length) files[`${root}project.json`] = jsonFile(project)
   return new Blob([zipSync(files, { level: 6 })], { type: 'application/zip' })
 }
@@ -285,8 +285,8 @@ export async function readProjectZipFile(file) {
     }
   }
 
-  // project.json — редакторная мета (фон холста по формам). Битую/отсутствующую
-  // молча игнорируем: проект от неё не зависит, схемы откроются с дефолтным фоном.
+  // project.json — редакторная мета (названия и описания форм). Битую или отсутствующую
+  // молча игнорируем: проект от неё не зависит.
   let project = null
   const projectText = text('project.json')
   if (projectText) {

@@ -68,6 +68,8 @@ const WIRE_PREFIX = 'animation-wire-'
 
 export const ATTR_META = 'data-tms-meta'
 export const ATTR_STENCIL = 'data-tms-stencil'
+/** Фон формы на корне view.svg: рантайм красит им область схемы, импорт читает обратно. */
+export const ATTR_BACKGROUND = 'data-tms-background'
 export const ATTR_SUFFIX = 'data-anim-suffix'
 /** Метка подписи-параметра в shape.svg: значение подставляет экземпляр (tms.params). */
 export const ATTR_PARAM = 'data-tms-param'

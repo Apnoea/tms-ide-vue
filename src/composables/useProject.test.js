@@ -84,6 +84,7 @@ import { getAllStencils, getStencilById, registerStencil } from '../stencils/reg
 import { loadStencilOverrides, replaceStencilOverrides } from '../services/stencilOverrides'
 import { buildProjectZipBlob, pickProjectArchive, readProjectZipFile } from '../services/projectZip'
 import { persistStencilsToDisk } from '../services/stencilLibrary'
+import { exportProject } from '../services/exporter'
 
 // Свежие моки инжектируемых зависимостей на каждый тест.
 function makeDeps(overrides = {}) {
@@ -262,7 +263,7 @@ describe('useProject', () => {
         null,
         null,
         'project', // имя проекта = имя архива без .zip
-        undefined // редакторная мета (project.json) — в этом архиве её нет
+        { formBg: {} } // project.json в архиве нет, фона в view.svg — тоже
       )
       expect(mockNotify.success).toHaveBeenCalled()
     })
@@ -277,16 +278,14 @@ describe('useProject', () => {
           { id: 'Схема 1', svgText: 'b' },
           { id: 'main', svgText: 'c' },
         ],
-        {
-          hierarchy: [{ id: 'main', children: [{ id: '..', children: [] }] }],
-          project: { formBg: { 'Схема 1': '#101010' } },
-        }
+        { hierarchy: [{ id: 'main', children: [{ id: '..', children: [] }] }] }
       )
       parseSvgProject.mockImplementation((svg) => ({
         ok: true,
         // На форме `main` кнопка ведёт на форму «..» — ссылка обязана переехать.
         cells: svg === 'c' ? [{ id: 'c1', tms: { navigation: '..' } }] : [],
         stencilIds: [],
+        background: svg === 'b' ? '#101010' : null, // фон у «Схема 1»
       }))
       const deps = makeDeps()
       const { importProjectFromArchive } = useProject(deps)
@@ -310,6 +309,28 @@ describe('useProject', () => {
         'Формы переименованы',
         expect.stringContaining('→')
       )
+    })
+
+    // Фон — свойство схемы: экспорт кладёт его на корень view.svg, импорт берёт оттуда же.
+    it('фон формы — только из view.svg, formBg из project.json не читается', async () => {
+      bundle(
+        [
+          { id: 'main', svgText: 'a' },
+          { id: 'sub', svgText: 'b' },
+        ],
+        { project: { formBg: { main: '#111111', sub: '#222222' }, formTitle: { main: 'Т' } } }
+      )
+      parseSvgProject.mockImplementation((svg) => ({
+        ok: true,
+        cells: [],
+        stencilIds: [],
+        background: svg === 'a' ? '#333333' : null,
+      }))
+      const deps = makeDeps()
+      await useProject(deps).importProjectFromArchive()
+
+      const projectArg = deps.autosave.replaceProject.mock.calls[0][4]
+      expect(projectArg).toEqual({ formBg: { main: '#333333' }, formTitle: { main: 'Т' } })
     })
 
     it('битый SVG пропускается, валидные формы импортируются', async () => {
@@ -569,7 +590,7 @@ describe('useProject', () => {
   describe('exportProjectToArchive', () => {
     // id проекта = имя папки в `projects/` сервера и ключ в его списках; своего имени
     // у проекта нет, поэтому берётся первая форма дерева.
-    it('id проекта — первая форма дерева; пустая мета в архив не идёт', async () => {
+    it('id проекта — первая форма дерева; фон и пустая мета в project.json не идут', async () => {
       seedForms(
         [
           { id: 'main', graphJson: { cells: [] } },
@@ -577,12 +598,14 @@ describe('useProject', () => {
         ],
         'sub' // активна вторая — на id проекта это не влияет
       )
+      // Фон уходит в view.svg, а не в project.json.
+      useWorkspaceStore().setFormBg('sub', '#101010')
       const { exportProjectToArchive } = useProject(makeDeps())
       await exportProjectToArchive()
 
       const bundleArg = buildProjectZipBlob.mock.calls[0][0]
       expect(bundleArg.projectId).toBe('main')
-      // Фона ни у одной формы нет — project.json не создаётся.
+      // Названий и описаний нет — project.json не создаётся.
       expect(bundleArg.project).toBe(null)
     })
 
@@ -603,12 +626,18 @@ describe('useProject', () => {
         ],
         'a'
       )
+      useWorkspaceStore().setFormBg('b', '#101010')
       const deps = makeDeps()
       const { exportProjectToArchive } = useProject(deps)
       await exportProjectToArchive()
 
       const bundleArg = buildProjectZipBlob.mock.calls[0][0]
       expect(bundleArg.forms.map((f) => f.id)).toEqual(['a', 'b'])
+      // Фон — свой у каждой формы (у `a` дефолт), его пишет exporter на корень view.svg.
+      expect(exportProject.mock.calls.map((c) => c[2])).toEqual([
+        { background: null },
+        { background: '#101010' },
+      ])
       // Активная форма восстановлена, undo НЕ сброшен (граф идентичен дозкспортному).
       expect(useWorkspaceStore().activeFormId).toBe('a')
       expect(deps.undo.initHistory).not.toHaveBeenCalled()

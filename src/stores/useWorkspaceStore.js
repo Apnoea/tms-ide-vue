@@ -185,9 +185,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const formDescription = description.map
   const formTitleOf = title.of
 
-  const activeFormBg = computed(() =>
-    Object.hasOwn(formBg.value, activeFormId.value ?? '') ? formBg.value[activeFormId.value] : null
-  )
+  /** Фон формы или null (дефолт) — только своих ключей, как у текстов формы. */
+  const formBgOf = (id) => (id != null && Object.hasOwn(formBg.value, id) ? formBg.value[id] : null)
+
+  const activeFormBg = computed(() => formBgOf(activeFormId.value))
   const activeFormTitle = computed(() => title.of(activeFormId.value))
   const activeFormDescription = computed(() => description.of(activeFormId.value))
 
@@ -379,6 +380,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     formTree,
     projectName,
     formBg,
+    formBgOf,
     activeFormBg,
     setFormBg,
     loadFormBg,

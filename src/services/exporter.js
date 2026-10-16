@@ -16,6 +16,7 @@ import { jointGraphAccess, resolveRangeSource } from '../utils/rangeSource'
 import {
   CLASS_OFF,
   CLASS_HIDDEN,
+  cssColor,
   rangeRowColor,
   resolveValueDecimals,
   buildRangeCssRules,
@@ -25,6 +26,7 @@ import {
   outerKey,
   innerPrefix,
   wireKey,
+  ATTR_BACKGROUND,
   ATTR_META,
   ATTR_STENCIL,
   CELL_META_FIELDS,
@@ -135,15 +137,18 @@ function getEndpointPos(end, graph, warnings) {
  * @param {dia.Graph} graph
  * @param {dia.Paper} [paper] — с ним линии экспортируются реальными ортогональными
  *   путями, как на холсте; без него — прямыми (fallback).
+ * @param {{ background?: string|null }} [form] — свойства формы вне графа: `background` —
+ *   её фон (`workspace.formBg`), уходит атрибутом на корень SVG.
  * @returns {{
  *   svgText: string, animationsJson: string, animations: object,
  *   count: number, linkCount: number, warnings: string[]
  * }}
  */
-export function exportProject(graph, paper = null) {
+export function exportProject(graph, paper = null, { background = null } = {}) {
   const ctx = {
     graph,
     paper,
+    background,
     // Обход графа для наследования диапазонов (провод → шина или символ).
     access: jointGraphAccess(graph),
     animations: {},
@@ -590,8 +595,12 @@ function addQualityBindings(animations, c) {
  * игнорирует. Порядок в файле = порядок наложения: подложка (разметка ниже проводов, см.
  * utils/zOrder) идёт ПЕРЕД линиями, остальные ячейки — после. Иначе залитая плашка,
  * уведённая под провода в IDE, в view.svg снова оказалась бы поверх них.
+ *
+ * Фон формы — атрибутом корня, а не `<rect>` под схемой: рантайм красит им всю область
+ * просмотра (рамка viewBox ему не граница), а прямоугольник попал бы в рамку рисунка, по
+ * которой рантайм вписывает схему. Дефолтного фона в сторе нет — нет и атрибута.
  */
-function renderSvg({ bounds }, cellExports, linkExports) {
+function renderSvg({ bounds, background: formBg }, cellExports, linkExports) {
   const empty = cellExports.length === 0 && linkExports.length === 0
   const padding = 20
   const vb = empty
@@ -607,9 +616,11 @@ function renderSvg({ bounds }, cellExports, linkExports) {
   const background = cellsSvg(cellExports.filter((c) => isBackgroundZ(c.z)))
   const groups = cellsSvg(cellExports.filter((c) => !isBackgroundZ(c.z)))
   const lines = linkExports.map(renderLink).join('\n')
+  const bg = cssColor(formBg)
+  const bgAttr = bg ? ` ${ATTR_BACKGROUND}="${escapeAttr(bg)}"` : ''
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="${SVG_NS}" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}" width="${vb.w}" height="${vb.h}">
+<svg xmlns="${SVG_NS}" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}" width="${vb.w}" height="${vb.h}"${bgAttr}>
 ${inlineStyles(cellExports, linkExports)}
 ${background}
 ${lines}

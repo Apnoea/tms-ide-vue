@@ -2,8 +2,8 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 
-/** Ширина боковых колонок по умолчанию (px) — с ней IDE и жила до ресайза. */
-export const PANE_WIDTH_DEFAULT = { left: 380, right: 420 }
+/** Ширина боковых колонок по умолчанию (px). */
+export const PANE_WIDTH_DEFAULT = { left: 420, right: 420 }
 export const PANE_WIDTH_MIN = 260
 export const PANE_WIDTH_MAX = 640
 

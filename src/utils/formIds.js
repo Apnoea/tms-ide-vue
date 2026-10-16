@@ -142,10 +142,10 @@ export function withImportedFormText(project, nav, renamed) {
   }
 }
 
-/** Поля `project.json`, адресованные id формы. */
+/** Поля меты импорта, адресованные id формы (фон — с `view.svg`, тексты — `nav.json`/`project.json`). */
 const FORM_KEYED_META = ['formBg', 'formTitle', 'formDescription']
 
-/** Редакторная мета проекта (`project.json`): фон, название и описание привязаны к id формы. */
+/** Мета импортированного проекта: фон, название и описание привязаны к id формы. */
 export function remapProjectMeta(project, map) {
   if (!project || typeof project !== 'object' || !map?.size) return project
   const out = { ...project }

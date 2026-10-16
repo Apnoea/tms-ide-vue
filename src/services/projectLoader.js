@@ -12,7 +12,8 @@ import {
   linkStyleAttrs,
   normalizeLinkZ,
 } from '../stencils/linkDefaults'
-import { ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
+import { ATTR_BACKGROUND, ATTR_META, CELL_META_FIELDS, LINK_META_FIELDS } from '../constants/ids'
+import { cssColor } from '../constants/animation'
 import { sanitizeShape } from '../stencils/shapeElement'
 import { isBackgroundZ, BACKGROUND_Z_BOUNDS } from '../utils/zOrder'
 import { portPoints } from '../utils/portGeom'
@@ -86,13 +87,14 @@ function readMetaFields(meta, fields, into) {
  * Парсит SVG-текст и возвращает массив JointJS-cells (включая links),
  * готовый для graph.fromJSON.
  *
- * Возвращает { ok, cells, errors, stencilIds }.
+ * Возвращает { ok, cells, errors, stencilIds, background }.
  *  - ok: SVG распарсился. Пустая форма (0 ячеек) — ok=true (заготовка или цель
  *    навигации); ok=false только при сбое парсинга.
  *  - cells: массив JointJS-совместимых cell-JSON
  *  - errors: массив warning-строк (для toast'а пользователю)
  *  - stencilIds: все stencilId, встреченные в meta (включая выкинутые из-за
  *    незарегистрированного символа) — для подсчёта недостающих символов
+ *  - background: фон формы с корня SVG (`data-tms-background`) либо null
  *
  * Фазы: ячейки → провода (их концы чинятся по индексам портов собранных ячеек) →
  * проверка закреплений на шинах. Общее у фаз — `ctx`.
@@ -144,7 +146,13 @@ export function parseSvgProject(svgText) {
   dropMissingBusLinks(ctx)
 
   // ok = SVG распарсился (см. docstring). Пустой cells — валидная пустая форма.
-  return { ok: true, cells: ctx.cells, errors: ctx.errors, stencilIds: [...ctx.stencilIds] }
+  return {
+    ok: true,
+    cells: ctx.cells,
+    errors: ctx.errors,
+    stencilIds: [...ctx.stencilIds],
+    background: cssColor(doc.documentElement.getAttribute(ATTR_BACKGROUND)) || null,
+  }
 }
 
 /**

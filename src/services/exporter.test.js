@@ -55,6 +55,20 @@ describe('exportProject', () => {
     expect(result.animations.animations).toEqual({})
   })
 
+  // Фон красит рантайм по атрибуту корня; импорт читает его обратно.
+  it('фон формы — атрибутом корня SVG, round-trip через parseSvgProject', () => {
+    const { svgText } = exportProject(mockGraph(), null, { background: '#101828' })
+    expect(svgText).toMatch(/<svg[^>]+data-tms-background="#101828"/)
+    expect(parseSvgProject(svgText).background).toBe('#101828')
+
+    // Дефолт (нет фона) и не-цвет атрибута не дают.
+    for (const background of [null, 'red;}']) {
+      const out = exportProject(mockGraph(), null, { background }).svgText
+      expect(out).not.toContain('data-tms-background')
+      expect(parseSvgProject(out).background).toBe(null)
+    }
+  })
+
   it('cell_qw: пишет data-tms-meta и переключение позиции через .true', () => {
     const graph = mockGraph([
       mockCell({

@@ -180,6 +180,8 @@ export function useProjectArchive(ctx) {
     const renamedForms = renameFormIds(data.forms.map((f) => f.id))
 
     const forms = []
+    // Фон с корня view.svg — по имени формы из архива, как и тексты из nav.json.
+    const backgrounds = {}
     const usedStencilIds = new Set()
     let skipped = 0
     // Предупреждения парсера по элементам (выкинутый провод, ячейка без transform):
@@ -198,6 +200,7 @@ export function useProjectArchive(ctx) {
       // Ссылки навигации адресуют форму по id: после переименования правим и их.
       const cells = remapNavigation(parsed.cells, renamedForms.map)
       forms.push({ id: renamedForms.map.get(f.id) ?? f.id, graphJson: { cells } })
+      if (parsed.background) backgrounds[f.id] = parsed.background
     }
     if (!forms.length) {
       // Проект не заменился, а приём наборов выше уже вернул их символы к поставке —
@@ -216,11 +219,15 @@ export function useProjectArchive(ctx) {
       remapTree(data.hierarchy, renamedForms.map),
       projectName,
       remapProjectMeta(
-        withImportedFormText(
-          data.project,
-          { titles: data.navTitles, descriptions: data.navDescriptions },
-          renamedForms.renamed
-        ),
+        {
+          ...withImportedFormText(
+            data.project,
+            { titles: data.navTitles, descriptions: data.navDescriptions },
+            renamedForms.renamed
+          ),
+          // Фон — только с корня view.svg: в project.json его не пишем и не читаем.
+          formBg: backgrounds,
+        },
         renamedForms.map
       )
     )
@@ -401,10 +408,12 @@ export function useProjectArchive(ctx) {
     return report
   }
 
-  /** `project.json` архива: только непустые поля, без них — null (файл не пишется). */
+  /**
+   * `project.json` архива: только непустые поля, без них — null (файл не пишется). Фона
+   * здесь нет: он у каждой формы в её `view.svg`.
+   */
   function projectMetaForArchive() {
     const meta = {}
-    if (Object.keys(workspace.formBg).length) meta.formBg = workspace.formBg
     if (Object.keys(workspace.formTitle).length) meta.formTitle = workspace.formTitle
     if (Object.keys(workspace.formDescription).length) {
       meta.formDescription = workspace.formDescription
@@ -457,7 +466,7 @@ export function useProjectArchive(ctx) {
           exportWarnings.push(`${id}: отцеплено проводов (порт удалён): ${synced.detached.length}`)
         }
         await nextTick() // дать paper отрисовать линии (exporter читает их DOM-путь)
-        const result = exportProject(graph, paper)
+        const result = exportProject(graph, paper, { background: workspace.formBgOf(id) })
         formsOut.push({ id, viewSvg: result.svgText, animationsJson: result.animationsJson })
         for (const w of result.warnings || []) exportWarnings.push(`${id}: ${w}`)
       }
@@ -481,10 +490,9 @@ export function useProjectArchive(ctx) {
         // навигация рантайма.
         titles: workspace.formTitle,
         descriptions: workspace.formDescription,
-        // Редакторная мета: фон холста, названия и описания по формам. Фон в `view.svg`
-        // не уезжает (там фон даёт панель), но нужен, чтобы у коллеги проект открылся в
-        // тех же цветах; тексты дублируются сюда ради форм вне дерева — в `nav.json` их
-        // нет. Пустые поля не пишутся, и без них `project.json` не создаётся вовсе.
+        // Редакторная мета: названия и описания по формам — дублируют `nav.json` ради
+        // форм вне дерева, где их нет. Пустые поля не пишутся, и без них `project.json`
+        // не создаётся вовсе.
         project: projectMetaForArchive(),
         // Исходники наборов: в `library/` их символы уже с правками проекта, а коллеге
         // нужна поставка, на которую эти правки лягут (см. applyImportedBundle).
