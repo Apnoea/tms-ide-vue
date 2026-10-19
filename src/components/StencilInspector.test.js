@@ -62,6 +62,31 @@ describe('StencilInspector: подпись', () => {
   })
 })
 
+// У «разной» толщины «+» сдвигает каждую фигуру на шаг, а не ставит всем одно число.
+it('StencilInspector: «+» у разной толщины сдвигает каждую фигуру', async () => {
+  const editor = useStencilEditor()
+  editor.reset()
+  editor.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10, strokeWidth: 1 })
+  editor.addShape({ type: 'rect', x: 20, y: 0, w: 10, h: 10, strokeWidth: 2 })
+  editor.selectAll()
+  const wrapper = mountWithApp(StencilInspector)
+  await nextTick()
+  await wrapper.find('.p-inputnumber-increment-button').trigger('mousedown')
+  expect(editor.shapes.value.map((s) => s.strokeWidth)).toEqual([1.5, 2.5])
+})
+
+// Фигура рождается с `#000`, палитра пишет `#000000` — это один цвет, не «разные».
+it('StencilInspector: короткая и полная запись одного цвета — не «разные»', async () => {
+  const editor = useStencilEditor()
+  editor.reset()
+  editor.addShape({ type: 'rect', x: 0, y: 0, w: 10, h: 10, stroke: '#000' })
+  editor.addShape({ type: 'rect', x: 20, y: 0, w: 10, h: 10, stroke: '#000000' })
+  editor.selectAll()
+  const wrapper = mountWithApp(StencilInspector)
+  await nextTick()
+  expect(wrapper.text()).not.toContain('разные')
+})
+
 // Шапка остаётся при выделении: её цель телепорта не должна размонтироваться.
 it('StencilInspector: выделение переключает на свойства фигуры, шапка остаётся', async () => {
   const editor = useStencilEditor()

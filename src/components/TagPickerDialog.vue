@@ -58,14 +58,16 @@ function confirmTag(name) {
   emit('update:visible', false)
 }
 
-// Ширина окна — длинные имена тегов не влезали в 420px. Окно стоит по центру и растёт в
-// обе стороны, поэтому ширина меняется на ДВОЙНОЙ сдвиг курсора: так край идёт ровно за
-// мышью. Шире 90% экрана не тянем — там окно упирается в край (`maxWidth`), и мышь
+// Ширина окна — длинные имена тегов не влезали в 420px. Окно по центру растёт в обе
+// стороны, поэтому ширина меняется на ДВОЙНОЙ сдвиг курсора: так край идёт ровно за мышью.
+// Сдвинутое за шапку окно PrimeVue ставит по `left` — оно растёт только вправо, сдвиг
+// одинарный. Шире 90% экрана не тянем — там окно упирается в край (`maxWidth`), и мышь
 // двигалась бы впустую. Слушатели на document, выделение текста гасим — как в PaneResizer.
 const ui = useUiStore()
 const resizing = ref(false)
 let resizeStartX = 0
 let resizeStartWidth = 0
+let resizeFactor = 2
 
 function onResizeStart(event) {
   if (event.button !== 0) return
@@ -73,13 +75,14 @@ function onResizeStart(event) {
   resizing.value = true
   resizeStartX = event.clientX
   resizeStartWidth = ui.tagPickerWidth
+  resizeFactor = event.currentTarget.closest('.p-dialog')?.style.left ? 1 : 2
   document.body.style.userSelect = 'none'
   document.body.style.cursor = 'ew-resize'
 }
 
 useEventListener(document, 'pointermove', (event) => {
   if (!resizing.value) return
-  const width = resizeStartWidth + 2 * (event.clientX - resizeStartX)
+  const width = resizeStartWidth + resizeFactor * (event.clientX - resizeStartX)
   ui.setTagPickerWidth(Math.min(width, window.innerWidth * 0.9))
 })
 
@@ -174,7 +177,7 @@ watch(
     :style="{ width: `${ui.tagPickerWidth}px`, maxWidth: '90vw' }"
     :close-on-escape="true"
     :dismissable-mask="true"
-    :draggable="false"
+    :pt="{ header: { class: 'cursor-move' } }"
     @show="onShow"
     @update:visible="emit('update:visible', $event)"
   >

@@ -69,6 +69,8 @@ import StateBlock from './StateBlock.vue'
 import DependencyBlock from './DependencyBlock.vue'
 import ColorField from './ColorField.vue'
 import ValueBlock from './ValueBlock.vue'
+import ShapeBlock from './ShapeBlock.vue'
+import WireStyleFields from './WireStyleFields.vue'
 import { useCanvas } from '../composables/useCanvas'
 import { materializeShape } from '../stencils/shapeElement'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -358,6 +360,57 @@ describe('CanvasInspector: фигура-разметка', () => {
     expect(wrapper.text()).toContain('Шрифт')
     expect(wrapper.text()).not.toContain('Толщина')
   })
+
+  // Выделил схему рамкой — вид подписей и проводов правится разом, каждый блок только у
+  // своих элементов.
+  it('мультиселект: вид подписей правится только у подписей, провода — своим блоком', async () => {
+    const paper = canvas.paperRef.value
+    const t1 = materializeShape(graph, paper, { type: 'text', x: 0, y: 0, text: 'А', fontSize: 14 })
+    const t2 = materializeShape(graph, paper, {
+      type: 'text',
+      x: 0,
+      y: 40,
+      text: 'Б',
+      fontSize: 20,
+    })
+    const rect = materializeShape(graph, paper, { type: 'rect', x: 0, y: 80, w: 40, h: 20 })
+    const link = new shapes.standard.Link({ source: { x: 0, y: 0 }, target: { x: 40, y: 0 } })
+    graph.addCell(link)
+    canvas.setSelection([
+      ...[t1, t2, rect].map((c) => ({ kind: 'cell', id: c.id })),
+      { kind: 'link', id: link.id },
+    ])
+    wrapper = mountWithApp(CanvasInspector, { global: { stubs: { TagPickerDialog: true } } })
+    await wrapper.vm.$nextTick()
+
+    const block = wrapper.findComponent(ShapeBlock)
+    expect(block.props('multiple')).toBe(true)
+    expect(block.text()).toContain('разные') // размер у подписей разный
+    // У «разных» «+» сдвигает каждую подпись на шаг, а не ставит всем одно число.
+    await block.find('.p-inputnumber-increment-button').trigger('mousedown')
+    expect(t1.get('tms').shape.fontSize).toBe(15)
+    expect(t2.get('tms').shape.fontSize).toBe(21)
+    expect(block.find('textarea').exists()).toBe(false) // текст пачкой не правится
+    expect(wrapper.findComponent(WireStyleFields).exists()).toBe(true)
+
+    await block.findComponent(ColorField).vm.$emit('update:modelValue', '#ff0000')
+    expect(t1.get('tms').shape.stroke).toBe('#ff0000')
+    expect(t2.get('tms').shape.stroke).toBe('#ff0000')
+    expect(rect.get('tms').shape.stroke).not.toBe('#ff0000')
+  })
+
+  // Регрессия: подпись рождается с `#000`, палитра пишет `#000000` — это один цвет.
+  it('мультиселект: короткая и полная запись одного цвета — не «разные»', async () => {
+    const paper = canvas.paperRef.value
+    const base = { type: 'text', x: 0, text: 'А', fontSize: 14 }
+    const t1 = materializeShape(graph, paper, { ...base, y: 0, stroke: '#000' })
+    const t2 = materializeShape(graph, paper, { ...base, y: 40, stroke: '#000000' })
+    canvas.setSelection([t1, t2].map((c) => ({ kind: 'cell', id: c.id })))
+    wrapper = mountWithApp(CanvasInspector, { global: { stubs: { TagPickerDialog: true } } })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.findComponent(ShapeBlock).text()).not.toContain('разные')
+  })
 })
 
 // Стиль провода правится на ВСЁ выделение, а при пустом выделении — как настройки
@@ -421,6 +474,26 @@ describe('CanvasInspector: стиль провода', () => {
     mount()
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('разные')
+  })
+
+  it('у «разной» толщины «−» и ↓ сдвигают каждый провод на шаг', async () => {
+    const [a, b] = twoLinks()
+    a.set('tms', { strokeWidth: 2 })
+    b.set('tms', { strokeWidth: 3 })
+    canvas.setSelection([
+      { kind: 'link', id: a.id },
+      { kind: 'link', id: b.id },
+    ])
+    mount()
+    await wrapper.vm.$nextTick()
+    const fields = wrapper.findComponent(WireStyleFields)
+    // Толщина — как отрисована: дефолтные 2px в tms не пишутся.
+    const widths = () => [a, b].map((l) => l.attr('line/strokeWidth'))
+    await fields.find('.p-inputnumber-decrement-button').trigger('mousedown')
+    expect(widths()).toEqual([1.5, 2.5])
+    await fields.find('.p-inputnumber input').trigger('keydown', { key: 'ArrowDown' })
+    expect(widths()).toEqual([1, 2])
+    expect(b.get('tms').strokeWidth).toBeUndefined()
   })
 
   it('заблокированный провод не правим', async () => {

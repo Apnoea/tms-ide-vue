@@ -5,7 +5,9 @@
  * холсте — поэтому блок автономен и знает только про патч вида.
  *
  * Значения приходят готовыми (`values` — поля фигуры из `details`), наружу уходит
- * ПАТЧ (`@patch`): пересчёт габарита и шаг истории делает вызывающий.
+ * ПАТЧ (`@patch`): пересчёт габарита и шаг истории делает вызывающий. В мультиселекте
+ * (`multiple`) блок правит вид пачки подписей: `undefined` в поле = у них разные
+ * значения, поля текста нет — массовая замена снесла бы разные подписи.
  */
 import InputNumber from 'primevue/inputnumber'
 import Textarea from 'primevue/textarea'
@@ -13,8 +15,9 @@ import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
 import SelectButton from 'primevue/selectbutton'
 import ColorField from './ColorField.vue'
-import { FONT_FAMILIES } from '../constants/text'
+import { FONT_FAMILIES, TEXT_FONT_SIZE_MIN, TEXT_FONT_SIZE_MAX } from '../constants/text'
 import { STEPPER_PROPS } from '../constants/icons'
+import { takeStep } from '../utils/stepper'
 
 const props = defineProps({
   /** Поля выделенной фигуры: обводка, заливка, поля подписи. */
@@ -23,11 +26,20 @@ const props = defineProps({
   text: { type: String, default: '' },
   alignOptions: { type: Array, required: true },
   boldOptions: { type: Array, required: true },
+  /** Правка пачки подписей: без поля текста, расхождение значений — «разные». */
+  multiple: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['patch', 'text-input', 'text-commit'])
+const emit = defineEmits(['patch', 'step', 'text-input', 'text-commit'])
 
 const patch = (p) => emit('patch', p)
+const mixed = (key) => props.values[key] === undefined
+
+/** Шаг степпера у «разных» — наружу сдвиг каждой подписи (`@step(key, ±step)`). */
+function stepMixed(event, key, step) {
+  const delta = mixed(key) ? takeStep(event, step) : 0
+  if (delta) emit('step', key, delta)
+}
 
 /** Тумблер заливки: включаем последним цветом (или белым), выключаем в `none`. */
 function toggleFill(on) {
@@ -37,7 +49,7 @@ function toggleFill(on) {
 
 <template>
   <div class="space-y-2.5">
-    <div v-if="values.isShapeText">
+    <div v-if="values.isShapeText && !multiple">
       <div class="tms-field-label mb-1">Текст</div>
       <!-- Пустое поле = удалить подпись (по коммиту, не на каждый символ: иначе
            стирание текста «под новый» сносило бы фигуру). Textarea, а не InputText:
@@ -107,27 +119,52 @@ function toggleFill(on) {
       />
     </div>
 
+    <!-- Подпись: цвет первым, как у остальных фигур; порядок тот же, что в редакторе
+         символов. -->
     <template v-if="values.isShapeText">
       <div class="flex items-center gap-3">
         <span class="tms-field-label shrink-0">
-          Размер,
-          <span class="normal-case">pt</span>
+          Цвет
+          <span v-if="mixed('stroke')" class="text-surface-400">разные</span>
         </span>
-        <InputNumber
-          :model-value="values.fontSize"
-          :min="6"
-          :max="72"
-          :step="1"
-          v-bind="STEPPER_PROPS"
-          size="small"
-          input-class="w-12! text-center"
+        <ColorField
+          :model-value="values.stroke ?? '#000000'"
           class="ml-auto"
-          @update:model-value="(v) => v != null && patch({ fontSize: v })"
+          @update:model-value="patch({ stroke: $event })"
         />
       </div>
 
       <div class="flex items-center gap-3">
-        <span class="tms-field-label shrink-0">Шрифт</span>
+        <span class="tms-field-label shrink-0">
+          Размер,
+          <span class="normal-case">pt</span>
+          <span v-if="mixed('fontSize')" class="text-surface-400">разные</span>
+        </span>
+        <!-- У «разных» «+»/«−» и ↑/↓ сдвигают каждую подпись на шаг (`@step`), введённое
+             число ставится всем. -->
+        <span
+          class="ml-auto inline-flex"
+          @mousedown.capture="stepMixed($event, 'fontSize', 1)"
+          @keydown.capture="stepMixed($event, 'fontSize', 1)"
+        >
+          <InputNumber
+            :model-value="values.fontSize ?? null"
+            :min="TEXT_FONT_SIZE_MIN"
+            :max="TEXT_FONT_SIZE_MAX"
+            :step="1"
+            v-bind="STEPPER_PROPS"
+            size="small"
+            input-class="w-12! text-center"
+            @update:model-value="(v) => v != null && patch({ fontSize: v })"
+          />
+        </span>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <span class="tms-field-label shrink-0">
+          Шрифт
+          <span v-if="mixed('fontFamily')" class="text-surface-400">разные</span>
+        </span>
         <Select
           :model-value="values.fontFamily"
           :options="FONT_FAMILIES"
@@ -144,7 +181,10 @@ function toggleFill(on) {
       </div>
 
       <div class="flex items-center gap-3">
-        <span class="tms-field-label shrink-0">Жирность</span>
+        <span class="tms-field-label shrink-0">
+          Жирность
+          <span v-if="mixed('bold')" class="text-surface-400">разные</span>
+        </span>
         <SelectButton
           :model-value="values.bold ? 'bold' : null"
           :options="boldOptions"
@@ -160,19 +200,13 @@ function toggleFill(on) {
         </SelectButton>
       </div>
 
-      <div class="flex items-center gap-3">
-        <span class="tms-field-label shrink-0">Цвет</span>
-        <ColorField
-          :model-value="values.stroke"
-          class="ml-auto"
-          @update:model-value="patch({ stroke: $event })"
-        />
-      </div>
-
       <!-- Выравнивание = якорь роста: точка привязки стоит на месте, текст растёт от
            неё, а не перекладывается внутри рамки. -->
       <div class="flex items-center gap-3">
-        <span class="tms-field-label shrink-0">Выравнивание</span>
+        <span class="tms-field-label shrink-0">
+          Выравнивание
+          <span v-if="mixed('shapeAlign')" class="text-surface-400">разные</span>
+        </span>
         <SelectButton
           :model-value="values.shapeAlign"
           :options="alignOptions"

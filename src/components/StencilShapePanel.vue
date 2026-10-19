@@ -19,6 +19,8 @@ import { useStencilEditor } from '../composables/useStencilEditor'
 import { ALIGN_OPTIONS, FONT_FAMILIES, TEXT_SHAPE_SIZE, normalizeFont } from '../constants/text'
 import { joinStateKeys, shapeStateKeys } from '../utils/stencilSvg'
 import { STEPPER_PROPS } from '../constants/icons'
+import { toHex6 } from '../constants/animation'
+import { takeStep } from '../utils/stepper'
 
 const {
   meta,
@@ -149,39 +151,47 @@ function setTextFont(v) {
   commit()
 }
 
-// Свотч цвета требует 6-значный #rrggbb: разворачиваем #rgb, «none»/пусто →
+// Цвет сравнивается приведённым к #rrggbb: фигуры рождаются с `#000`, а палитра пишет
+// `#000000` — сырые строки дали бы «разные» на одном цвете. Свотчу «none»/пусто →
 // запасной цвет (сам факт заливки регулируется отдельной галкой).
-function normHex(c, fallback) {
-  if (!c || c === 'none') return fallback
-  if (/^#[0-9a-fA-F]{3}$/.test(c)) {
-    return '#' + [...c.slice(1)].map((ch) => ch + ch).join('')
-  }
-  return c
-}
+const hexOf = (c) => toHex6(c) || c
+const swatch = (c, fallback) => (c && c !== 'none' ? c : fallback)
 // «Разные» = значение у выделенных фигур расходится (commonValue → undefined).
 // У поля цвета пустого состояния нет, поэтому там показываем дефолт и подписываем
 // расхождение словом; у числа/селекта — пустое поле с «—».
 const mixed = (v, filter) => v === undefined && selectedFor(filter).length > 1
 
-const strokeCommon = computed(() => commonValue((s) => s.stroke))
-const strokeColor = computed(() => normHex(strokeCommon.value, '#000000'))
+const strokeCommon = computed(() => commonValue((s) => hexOf(s.stroke)))
+const strokeColor = computed(() => swatch(strokeCommon.value, '#000000'))
 const strokeMixed = computed(() => mixed(strokeCommon.value))
 
-const fillCommon = computed(() => commonValue((s) => s.fill, FILLABLE))
+const fillCommon = computed(() => commonValue((s) => hexOf(s.fill), FILLABLE))
 const fillState = computed(() => commonValue((s) => !!s.fill && s.fill !== 'none', FILLABLE))
 const fillEnabled = computed(() => fillState.value === true)
 const fillMixed = computed(() => mixed(fillState.value, FILLABLE))
-const fillColor = computed(() => normHex(fillCommon.value, '#ffffff'))
+const fillColor = computed(() => swatch(fillCommon.value, '#ffffff'))
 
 // Живое обновление на каждый сдвиг палитры (видно на холсте сразу), один снимок
 // истории на `change` (палитра закрыта, код применён) — как жесты рисования.
 function setStroke(color) {
   applyToSelected({ stroke: color })
 }
+const STROKE_WIDTH = { min: 0.5, max: 20, step: 0.5 }
 const strokeWidthCommon = computed(() => commonValue((s) => s.strokeWidth ?? 2, NOT_TEXT))
 const strokeWidth = computed(() => strokeWidthCommon.value ?? null)
 function setStrokeWidth(v) {
   if (v != null) applyToSelected({ strokeWidth: v }, NOT_TEXT)
+}
+/** «+»/«−» и ↑/↓ у «разной» толщины: каждая фигура сдвигается на шаг в пределах поля. */
+function stepStrokeWidth(event) {
+  const delta = strokeWidthCommon.value === undefined ? takeStep(event, STROKE_WIDTH.step) : 0
+  if (!delta) return
+  const { min, max } = STROKE_WIDTH
+  applyToSelected(
+    (s) => ({ strokeWidth: Math.min(max, Math.max(min, (s.strokeWidth ?? 2) + delta)) }),
+    NOT_TEXT
+  )
+  commit()
 }
 function setFill(color) {
   applyToSelected({ fill: color }, FILLABLE)
@@ -189,7 +199,7 @@ function setFill(color) {
 function toggleFill(on) {
   // При расхождении галка приходит в true — первый клик включает заливку всем
   // (цвет берём общий, а если и он разный — дефолтный белый).
-  applyToSelected({ fill: on ? normHex(fillCommon.value, '#ffffff') : 'none' }, FILLABLE)
+  applyToSelected({ fill: on ? swatch(fillCommon.value, '#ffffff') : 'none' }, FILLABLE)
   commit()
 }
 
@@ -288,8 +298,8 @@ function onBindingChange({ originalEvent: e, value }) {
     <p v-if="isPresetSymbol" class="tms-hint">
       Вид фигуры задаёт набор — здесь правится только её привязка к состоянию.
     </p>
-    <!-- Подпись: содержимое + размер + жирность. Обводки, заливки и скругления у неё
-         нет. -->
+    <!-- Подпись: содержимое; шрифт — ниже, после цвета. Обводки, заливки и скругления у
+         неё нет. -->
     <template v-if="isTextShape && !isPresetSymbol">
       <div>
         <div class="tms-field-label mb-1">Текст</div>
@@ -307,6 +317,17 @@ function onBindingChange({ originalEvent: e, value }) {
           @blur="commitText"
         />
       </div>
+    </template>
+    <!-- Цвет — первым у любой фигуры, у подписи сразу после текста: порядок полей тот же,
+         что в инспекторе холста. -->
+    <label v-if="!isPresetSymbol" class="flex items-center justify-between cursor-pointer">
+      <span class="tms-field-label">
+        {{ isTextShape ? 'Цвет' : 'Цвет линии' }}
+        <span v-if="strokeMixed" class="text-xs text-surface-400">разные</span>
+      </span>
+      <ColorField :model-value="strokeColor" @update:model-value="setStroke" @change="commit" />
+    </label>
+    <template v-if="isTextShape && !isPresetSymbol">
       <label class="flex items-center justify-between">
         <span class="tms-field-label">
           Размер,
@@ -323,24 +344,6 @@ function onBindingChange({ originalEvent: e, value }) {
           @update:model-value="setTextSize"
           @blur="commit"
         />
-      </label>
-      <!-- Выравнивание = якорь роста: точка привязки стоит на месте, текст
-           растёт от неё (те же варианты, что у подписи на холсте). -->
-      <label class="flex items-center justify-between">
-        <span class="tms-field-label">Выравнивание</span>
-        <SelectButton
-          :model-value="textAlign"
-          :options="ALIGN_OPTIONS"
-          option-value="value"
-          data-key="value"
-          :allow-empty="false"
-          size="small"
-          @update:model-value="setTextAlign"
-        >
-          <template #option="{ option }">
-            <i :class="option.icon" v-tooltip.top="option.tip" />
-          </template>
-        </SelectButton>
       </label>
       <label class="flex items-center justify-between">
         <span class="tms-field-label">Шрифт</span>
@@ -367,6 +370,24 @@ function onBindingChange({ originalEvent: e, value }) {
           @update:model-value="setTextBold"
         />
         <span class="text-surface-700">Жирный</span>
+      </label>
+      <!-- Выравнивание = якорь роста: точка привязки стоит на месте, текст
+           растёт от неё (те же варианты, что у подписи на холсте). -->
+      <label class="flex items-center justify-between">
+        <span class="tms-field-label">Выравнивание</span>
+        <SelectButton
+          :model-value="textAlign"
+          :options="ALIGN_OPTIONS"
+          option-value="value"
+          data-key="value"
+          :allow-empty="false"
+          size="small"
+          @update:model-value="setTextAlign"
+        >
+          <template #option="{ option }">
+            <i :class="option.icon" v-tooltip.top="option.tip" />
+          </template>
+        </SelectButton>
       </label>
       <!-- Текст из тега: содержимое подписи в рантайме заменяет значение
            сигнала. Сам текст в символе остаётся заглушкой (её видно в
@@ -397,26 +418,26 @@ function onBindingChange({ originalEvent: e, value }) {
         <span class="text-surface-700">Правится на холсте</span>
       </label>
     </template>
-    <!-- Вид фигуры (цвет, толщина, заливка, скругление) — у символа из набора его
+    <!-- Остальной вид фигуры (толщина, заливка, скругление) — у символа из набора его
          задаёт поставка, остаётся только привязка к состоянию ниже. -->
     <template v-if="!isPresetSymbol">
-      <label class="flex items-center justify-between cursor-pointer">
-        <span class="tms-field-label">
-          {{ isTextShape ? 'Цвет' : 'Цвет линии' }}
-          <span v-if="strokeMixed" class="text-xs text-surface-400">разные</span>
-        </span>
-        <ColorField :model-value="strokeColor" @update:model-value="setStroke" @change="commit" />
-      </label>
-      <label v-if="hasStrokeWidth" class="flex items-center justify-between">
+      <!-- У «разных» (поле «—») «+»/«−» и ↑/↓ сдвигают каждую фигуру на шаг, введённое
+           число ставится всем. -->
+      <label
+        v-if="hasStrokeWidth"
+        class="flex items-center justify-between"
+        @mousedown.capture="stepStrokeWidth"
+        @keydown.capture="stepStrokeWidth"
+      >
         <span class="tms-field-label">
           Толщина,
           <span class="normal-case">px</span>
         </span>
         <InputNumber
           :model-value="strokeWidth"
-          :min="0.5"
-          :max="20"
-          :step="0.5"
+          :min="STROKE_WIDTH.min"
+          :max="STROKE_WIDTH.max"
+          :step="STROKE_WIDTH.step"
           :max-fraction-digits="1"
           v-bind="STEPPER_PROPS"
           size="small"

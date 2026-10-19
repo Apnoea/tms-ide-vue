@@ -129,4 +129,20 @@ describe('TagPickerDialog', () => {
     expect(width()).toBe(`${TAG_PICKER_WIDTH_DEFAULT}px`)
     wrapper.unmount()
   })
+
+  // Сдвинутое за шапку окно стоит по `left` (так его ставит PrimeVue) и растёт только
+  // вправо — край идёт за мышью при одинарном сдвиге.
+  it('сдвинутое окно тянется на одинарный сдвиг курсора', async () => {
+    const wrapper = mountPicker()
+    await wrapper.vm.$nextTick()
+    const ui = useUiStore()
+    const handle = wrapper.find('[data-tag-picker-resize]').element
+    handle.closest('.p-dialog').style.left = '100px'
+
+    handle.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 500, bubbles: true }))
+    document.dispatchEvent(new MouseEvent('pointermove', { clientX: 550 }))
+    document.dispatchEvent(new MouseEvent('pointerup'))
+    expect(ui.tagPickerWidth).toBe(TAG_PICKER_WIDTH_DEFAULT + 50)
+    wrapper.unmount()
+  })
 })

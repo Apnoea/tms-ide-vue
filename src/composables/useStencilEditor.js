@@ -373,12 +373,13 @@ export function createStencilEditor() {
 
   /**
    * Применить патч ко всем применимым выделенным. Историю не коммитит: пипетка и
-   * спиннер шлют правку «живьём», снимок ставит вызывающий на @change/@blur.
+   * спиннер шлют правку «живьём», снимок ставит вызывающий на @change/@blur. Патч-функция
+   * даёт каждой фигуре своё значение (шаг «+»/«−» у «разных»).
    */
   function applyToSelected(patch, filter) {
     const ids = selectedFor(filter).map((s) => s.id)
     if (!ids.length) return
-    updateShapes(ids, () => patch)
+    updateShapes(ids, typeof patch === 'function' ? patch : () => patch)
   }
 
   /** Удалить выделенное — один снимок истории на всю пачку. */

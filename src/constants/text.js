@@ -6,6 +6,10 @@
 /** Кегль новой подписи на холсте. */
 export const TEXT_FONT_SIZE = 14
 
+/** Пределы кегля подписи на холсте: поле инспектора и шаг «+»/«−» пачки. */
+export const TEXT_FONT_SIZE_MIN = 6
+export const TEXT_FONT_SIZE_MAX = 72
+
 /** Кегль подписи в символе: у новой в редакторе и у разобранной без `font-size`. */
 export const TEXT_SHAPE_SIZE = 10
 

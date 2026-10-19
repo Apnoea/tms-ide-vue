@@ -394,7 +394,8 @@ export function applyShapePatch(graph, paper, cellIds, patch) {
     const cell = graph.getCell(id)
     if (!isShapeCell(cell)) continue
     const tms = cell.get('tms') || {}
-    const next = { ...tms.shape, ...patch }
+    // Патч-функция — своё значение каждой фигуре (шаг «+»/«−» у «разных» в инспекторе).
+    const next = { ...tms.shape, ...(typeof patch === 'function' ? patch(tms.shape) : patch) }
     const placed = placeShape(next)
     if (!placed) continue
     // Геометрия в tms локальная, поэтому `placed.position` — СДВИГ bbox внутри ячейки

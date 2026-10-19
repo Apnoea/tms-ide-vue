@@ -82,6 +82,21 @@ const CSS_COLOR_RE = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+)$/
 export const cssColor = (v) => (CSS_COLOR_RE.test(v) ? v : '')
 
 /**
+ * Hex-цвет в виде `#rrggbb` (короткая запись разворачивается, регистр нижний) либо null.
+ * Палитра отдаёт только такую запись, а новые фигуры рисуются с `#000`: сравнивать цвета
+ * («разные» в мультиселекте) можно только после приведения.
+ */
+export function toHex6(value) {
+  const v = String(value || '').trim()
+  const hash = v.startsWith('#') ? v : `#${v}`
+  if (/^#[0-9a-fA-F]{6}$/.test(hash)) return hash.toLowerCase()
+  if (/^#[0-9a-fA-F]{3}$/.test(hash)) {
+    return ('#' + [...hash.slice(1)].map((c) => c + c).join('')).toLowerCase()
+  }
+  return null
+}
+
+/**
  * Сброс обводки у подписей внутри перекрашенного элемента. Цвет глифов текста — это
  * `fill`, обводки у него нет, а `stroke` НАСЛЕДУЕТСЯ от группы: без сброса подпись
  * обводится контуром состояния (`*:not(text)` от наследования не спасает — оно

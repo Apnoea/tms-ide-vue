@@ -15,6 +15,7 @@ import InputText from 'primevue/inputtext'
 import ColorPicker from 'primevue/colorpicker'
 import Popover from 'primevue/popover'
 import { useRecentColors, RECENT_MAX } from '../composables/useRecentColors'
+import { toHex6 } from '../constants/animation'
 
 const props = defineProps({
   /**
@@ -40,17 +41,7 @@ const recentSlots = computed(() =>
   Array.from({ length: RECENT_MAX }, (_, i) => recentColors.value[i] ?? null)
 )
 
-/** Палитра и свотч работают с 6-значным `#rrggbb`: короткую запись разворачиваем. */
-function toHex6(value) {
-  const v = String(value || '').trim()
-  const hash = v.startsWith('#') ? v : `#${v}`
-  if (/^#[0-9a-fA-F]{6}$/.test(hash)) return hash.toLowerCase()
-  if (/^#[0-9a-fA-F]{3}$/.test(hash)) {
-    return ('#' + [...hash.slice(1)].map((c) => c + c).join('')).toLowerCase()
-  }
-  return null
-}
-
+// Палитра и свотч работают с 6-значным `#rrggbb`: короткую запись разворачиваем.
 const color = computed(() => toHex6(props.modelValue) || '#000000')
 
 // Черновик кода: пока его набирают, показываем набранное, иначе — значение цвета.

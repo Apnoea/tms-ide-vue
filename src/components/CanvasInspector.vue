@@ -7,7 +7,16 @@ import { useCanvas } from '../composables/useCanvas'
 import { useAnimationClipboard } from '../composables/useAnimationClipboard'
 import { useAlign } from '../composables/useAlign'
 import { useBoolGroups } from '../composables/useBoolGroups'
-import { ALIGN_OPTIONS, BOLD_OPTIONS, TEXT_FONT_SIZE, normalizeFont } from '../constants/text'
+import {
+  ALIGN_OPTIONS,
+  BOLD_OPTIONS,
+  TEXT_FONT_SIZE,
+  TEXT_FONT_SIZE_MAX,
+  TEXT_FONT_SIZE_MIN,
+  normalizeFont,
+} from '../constants/text'
+import { toHex6 } from '../constants/animation'
+import { WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire'
 import { useNavigationField } from '../composables/useNavigationField'
 import { useSelectionHeading } from '../composables/useSelectionHeading'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -178,17 +187,7 @@ const details = computed(() => {
       shapeType: shape.type,
       shapeLabel: shapeTypeLabel(shape),
       locked: !!cell.get('tms')?.locked,
-      stroke: shape.stroke || '#000000',
-      strokeWidth: shape.strokeWidth ?? 2,
-      // У линии и подписи заливки нет (у подписи цвет живёт в stroke).
-      isShapeFillable: shape.type !== 'line' && shape.type !== 'text',
-      fill: shape.fill && shape.fill !== 'none' ? shape.fill : '',
-      isShapeText: shape.type === 'text',
-      text: shape.text ?? '',
-      fontSize: shape.fontSize ?? TEXT_FONT_SIZE,
-      bold: !!shape.bold,
-      fontFamily: normalizeFont(shape.fontFamily),
-      shapeAlign: shape.align || 'center',
+      ...shapeView(shape),
     }
   }
 
@@ -271,6 +270,25 @@ const details = computed(() => {
 
   return null
 })
+
+/** Поля вида фигуры-разметки — общие у одиночной фигуры и пачки подписей. */
+function shapeView(shape) {
+  return {
+    // Приведённый: подпись рождается с `#000`, палитра пишет `#000000` — без приведения
+    // мультиблок счёл бы их «разными».
+    stroke: toHex6(shape.stroke) || shape.stroke || '#000000',
+    strokeWidth: shape.strokeWidth ?? 2,
+    // У линии и подписи заливки нет (у подписи цвет живёт в stroke).
+    isShapeFillable: shape.type !== 'line' && shape.type !== 'text',
+    fill: shape.fill && shape.fill !== 'none' ? shape.fill : '',
+    isShapeText: shape.type === 'text',
+    text: shape.text ?? '',
+    fontSize: shape.fontSize ?? TEXT_FONT_SIZE,
+    bold: !!shape.bold,
+    fontFamily: normalizeFont(shape.fontFamily),
+    shapeAlign: shape.align || 'center',
+  }
+}
 
 /** Унаследованный источник диапазонов провода — тем же обходом, что экспорт. */
 function inheritedRangeOf(cell) {
@@ -440,18 +458,46 @@ function patchSlotTag(key, tag) {
 
 // ─── Фигура-разметка: вид и содержимое подписи ───
 // Патч уходит в `tms.shape` через applyShapePatch, он же пересчитывает габарит ячейки
-// (у подписи он зависит от текста и шрифта). Правка идёт на ВСЁ выделение фигур.
-function patchShape(patch) {
+// (у подписи он зависит от текста и шрифта). По умолчанию правка идёт на ВСЁ выделение
+// фигур; мультиблок подписей передаёт только их — цвет текста не должен лечь на рамку.
+function patchShape(patch, cells = canvas.writableItems(canvas.selection.value)) {
   const graph = canvas.graphRef.value
   const paper = canvas.paperRef.value
   if (!graph) return
-  const ids = canvas
-    .writableItems(canvas.selection.value.filter((s) => s.kind === 'cell'))
-    .map((s) => s.id)
+  const ids = cells.map((c) => c.id)
   if (!applyShapePatch(graph, paper, ids, patch)) return
   canvas.bumpVersion()
   canvas.requestSnapshot()
   canvas.markDirty()
+}
+
+/** Подписи-разметка в выделении (заблокированные не правим — замок read-only). */
+const textTargets = computed(() => {
+  canvas.graphVersion.value
+  return canvas
+    .writableItems(canvas.selection.value)
+    .filter((c) => isShapeCell(c) && c.get('tms')?.shape?.type === 'text')
+})
+
+/** Вид пачки подписей: общее значение поля либо `undefined` при расхождении («разные»). */
+const textStyle = computed(() => {
+  const views = textTargets.value.map((c) => shapeView(c.get('tms').shape))
+  const out = { isShapeText: true }
+  if (!views.length) return out
+  for (const key of ['stroke', 'fontSize', 'fontFamily', 'bold', 'shapeAlign']) {
+    out[key] = views.every((v) => v[key] === views[0][key]) ? views[0][key] : undefined
+  }
+  return out
+})
+
+/** «+»/«−» у «разного» размера: каждая подпись сдвигается на шаг в пределах поля. */
+function stepTexts(key, delta) {
+  if (key !== 'fontSize') return
+  const sizeOf = (s) => (s.fontSize ?? TEXT_FONT_SIZE) + delta
+  patchShape(
+    (s) => ({ fontSize: Math.min(TEXT_FONT_SIZE_MAX, Math.max(TEXT_FONT_SIZE_MIN, sizeOf(s))) }),
+    textTargets.value
+  )
 }
 
 /** Толщина тела шины — высота ячейки (порты едут следом, busCell). */
@@ -555,12 +601,6 @@ const linkTargets = computed(() => {
     .filter(Boolean)
 })
 
-/** Блок стиля показываем, когда в выделении нет символов: иначе непонятно, к чему он. */
-const linkStyleVisible = computed(() => {
-  const sel = canvas.selection.value
-  return sel.length > 0 && sel.every((s) => s.kind === 'link')
-})
-
 /** Значения для полей: общее у всех целей либо `undefined` при расхождении («разные»). */
 const linkStyle = computed(() => {
   const out = {}
@@ -581,25 +621,42 @@ function applyLinkStyle(key, value) {
   // толщины и цвета пустой ввод игнорируется (InputNumber отдаёт null при очистке поля).
   const nullable = key === 'arrowStart' || key === 'arrowEnd' || key === 'route'
   if (value == null && !nullable) return
-  const isDefault = isDefaultWireValue(key, value)
-  workspace.setWireStyle({ [key]: isDefault ? null : value })
+  workspace.setWireStyle({ [key]: isDefaultWireValue(key, value) ? null : value })
+  const targets = linkTargets.value
+  if (!targets.length) return
+  for (const link of targets) writeLinkStyle(link, key, value)
+  canvas.bumpVersion()
+  canvas.requestSnapshot()
+}
+
+/**
+ * «+»/«−» у «разной» толщины: каждый провод сдвигается на шаг в пределах поля. «Липким»
+ * сдвиг не становится — общего значения у него нет.
+ */
+function stepLinkStyle(key, delta) {
   const targets = linkTargets.value
   if (!targets.length) return
   for (const link of targets) {
-    const attrPath = LINK_STYLE_ATTR[key]
-    if (attrPath) link.attr(attrPath, value)
-    const next = { ...(link.get('tms') || {}) }
-    if (isDefault) delete next[key]
-    else next[key] = value
-    link.set('tms', next)
-    // Маршрут рисуют роутер и коннектор (поля модели, а не tms).
-    if (key === 'route') link.set(linkRouting(next.route))
-    // Наконечник зависит от толщины и цвета линии, а точка — от привязки конца:
-    // маркеры пересобираются тем же билдером, что и при загрузке формы.
-    syncLinkEndMarkers(link, canvas.paperRef.value)
+    const cur = link.get('tms')?.[key] ?? WIRE_STYLE_DEFAULTS[key]
+    writeLinkStyle(link, key, Math.min(WIRE_STROKE_MAX, Math.max(WIRE_STROKE_MIN, cur + delta)))
   }
   canvas.bumpVersion()
   canvas.requestSnapshot()
+}
+
+/** Стиль одного провода: attrs для отрисовки, tms для экспорта (дефолт не пишется). */
+function writeLinkStyle(link, key, value) {
+  const attrPath = LINK_STYLE_ATTR[key]
+  if (attrPath) link.attr(attrPath, value)
+  const next = { ...(link.get('tms') || {}) }
+  if (isDefaultWireValue(key, value)) delete next[key]
+  else next[key] = value
+  link.set('tms', next)
+  // Маршрут рисуют роутер и коннектор (поля модели, а не tms).
+  if (key === 'route') link.set(linkRouting(next.route))
+  // Наконечник зависит от толщины и цвета линии, а точка — от привязки конца:
+  // маркеры пересобираются тем же билдером, что и при загрузке формы.
+  syncLinkEndMarkers(link, canvas.paperRef.value)
 }
 
 // Состав выделения: символы и провода считаются РАЗДЕЛЬНО — в выделение авто-попадают
@@ -880,16 +937,37 @@ const {
       <!-- Multi-select: состав выделения — в заголовке, здесь правка на всё выделение -->
       <template v-if="canvas.selection.value.length > 1">
         <div class="[&>*+*]:border-t [&>*+*]:border-surface-200 [&>*+*]:pt-4 [&>*+*]:mt-4">
-          <!-- Вид проводов правится на ВСЁ выделение (как анимации ниже): выделил
-               серию линий — задал цвет и толщину один раз. Показываем, только когда
-               в выделении нет символов, иначе непонятно, к чему относятся поля. -->
-          <WireStyleFields
-            v-if="linkStyleVisible"
-            :values="linkStyle"
-            :arrow-options="ARROW_OPTIONS"
-            :arrow-ends="ARROW_ENDS"
-            @apply="applyLinkStyle"
-          />
+          <!-- Вид (не анимации) правится на всё выделение — каждый блок только у своих
+               элементов: выделил схему рамкой — задал цвет подписей и толщину проводов
+               разом. Заголовок с числом говорит, к чему относятся поля. -->
+          <div v-if="textTargets.length" class="space-y-2.5">
+            <div class="flex items-baseline gap-1.5">
+              <span class="tms-field-label">Подписи</span>
+              <span class="tms-hint">{{ textTargets.length }}</span>
+            </div>
+            <ShapeBlock
+              :values="textStyle"
+              :align-options="ALIGN_OPTIONS"
+              :bold-options="BOLD_OPTIONS"
+              multiple
+              @patch="(p) => patchShape(p, textTargets)"
+              @step="stepTexts"
+            />
+          </div>
+
+          <div v-if="linkTargets.length" class="space-y-2.5">
+            <div class="flex items-baseline gap-1.5">
+              <span class="tms-field-label">Провода</span>
+              <span class="tms-hint">{{ linkTargets.length }}</span>
+            </div>
+            <WireStyleFields
+              :values="linkStyle"
+              :arrow-options="ARROW_OPTIONS"
+              :arrow-ends="ARROW_ENDS"
+              @apply="applyLinkStyle"
+              @step="stepLinkStyle"
+            />
+          </div>
 
           <!-- Группировка: объединить выделенное в группу (клик по члену выделяет
                всю группу) либо разгруппировать. -->

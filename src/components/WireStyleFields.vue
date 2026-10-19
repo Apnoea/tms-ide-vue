@@ -14,6 +14,7 @@ import GlyphIcon from './GlyphIcon.vue'
 import { isDefaultWireValue, WIRE_STYLE_DEFAULTS } from '../stencils/linkDefaults'
 import { WIRE_ROUTE_STRAIGHT, WIRE_STROKE_MAX, WIRE_STROKE_MIN } from '../constants/wire'
 import { STEPPER_PROPS } from '../constants/icons'
+import { takeStep } from '../utils/stepper'
 
 const props = defineProps({
   /**
@@ -27,9 +28,15 @@ const props = defineProps({
   arrowEnds: { type: Array, required: true },
 })
 
-const emit = defineEmits(['apply'])
+const emit = defineEmits(['apply', 'step'])
 
 const mixed = (key) => props.values[key] === undefined
+
+/** Шаг степпера у «разных» — наружу сдвиг каждого провода (`@step(key, ±step)`). */
+function stepMixed(event, key, step) {
+  const delta = mixed(key) ? takeStep(event, step) : 0
+  if (delta) emit('step', key, delta)
+}
 /** Значение своё, а не дефолтное — только тогда показываем сброс. */
 const isCustom = (key) =>
   props.values[key] !== undefined && !isDefaultWireValue(key, props.values[key])
@@ -70,14 +77,20 @@ const ROUTE_OPTIONS = [
       </ColorField>
     </div>
 
-    <!-- Толщина линии — InputNumber со степперами, как в редакторе символов. -->
+    <!-- Толщина линии — InputNumber со степперами, как в редакторе символов. У «разных»
+         «+»/«−» и ↑/↓ сдвигают каждый провод на шаг (`@step`), введённое число ставится
+         всем. -->
     <div class="flex items-center gap-3">
       <span class="tms-field-label shrink-0">
         Толщина,
         <span class="normal-case">px</span>
         <span v-if="mixed('strokeWidth')" class="text-surface-400">разные</span>
       </span>
-      <span class="relative ml-auto inline-flex">
+      <span
+        class="relative ml-auto inline-flex"
+        @mousedown.capture="stepMixed($event, 'strokeWidth', 0.5)"
+        @keydown.capture="stepMixed($event, 'strokeWidth', 0.5)"
+      >
         <InputNumber
           :model-value="values.strokeWidth ?? null"
           :min="WIRE_STROKE_MIN"
