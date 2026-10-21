@@ -46,6 +46,7 @@ const PROJECT_ACTIONS = [
   'fitToContent',
   'createForm',
   'duplicateForm',
+  'generateTagCheckForm',
   'deleteForm',
   'restoreForm',
   'renameForm',

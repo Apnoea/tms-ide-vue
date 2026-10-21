@@ -243,7 +243,8 @@ export function injectStencilSvg(cellView, stencil) {
 
 /**
  * Ячейка-символ в графе: порты с учётом flip, модель, инъекция SVG — единая точка для
- * drop'а из палитры и для paste. Позицию, размер, tms и angle готовит вызывающий.
+ * drop'а из палитры, paste и формы проверки тегов. Позицию, размер, tms и angle готовит
+ * вызывающий. Без paper (теневой граф) ячейка собирается без отрисовки.
  */
 export function materializeStencil(graph, paper, stencil, { position, size, tms, angle = 0 }) {
   const flip = { flipH: !!tms.flipH, flipV: !!tms.flipV }
@@ -255,7 +256,7 @@ export function materializeStencil(graph, paper, stencil, { position, size, tms,
     ports: { items: buildPortItems(stencil, size.width, size.height, flip) },
   })
   graph.addCell(cell)
-  const view = paper.findViewByModel(cell)
+  const view = paper?.findViewByModel(cell)
   if (view) injectStencilSvg(view, stencil)
   return cell
 }

@@ -9,12 +9,35 @@ import Button from 'primevue/button'
 import Badge from 'primevue/badge'
 import { storeToRefs } from 'pinia'
 import { useProjectStore } from '../stores/useProjectStore'
+import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useTagList } from '../composables/useTagList'
+import { useCanvas } from '../composables/useCanvas'
+import { useConfirmDanger } from '../composables/useConfirmDanger'
 import { idbGet } from '../services/idb'
+import { TAG_CHECK_FORM_ID, TAG_CHECK_TITLE } from '../services/tagCheckForm'
 
 const project = useProjectStore()
+const workspace = useWorkspaceStore()
+const canvas = useCanvas()
+const confirmDanger = useConfirmDanger()
 const { tags } = storeToRefs(project)
 const { pickTagList, tryRestoreTagListHandle } = useTagList()
+
+/**
+ * Форма проверки тегов: символ на каждый тег. Форма генерируется, а не правится руками,
+ * поэтому повторный запуск строит её заново — но если она уже есть, сначала спрашиваем:
+ * в ней могли что-то подвинуть.
+ */
+function onTagCheck(event) {
+  const run = () => canvas.generateTagCheckForm(tags.value)
+  if (!workspace.hasForm(TAG_CHECK_FORM_ID)) return run()
+  confirmDanger({
+    target: event.currentTarget,
+    message: `Форма «${TAG_CHECK_TITLE}» будет построена заново — правки в ней пропадут`,
+    acceptLabel: 'Перестроить',
+    accept: run,
+  })
+}
 
 // Есть ли сохранённый tag-list. Реактивный `tags` на маунте пуст (restore
 // асинхронный), и кнопка мигала бы filled(primary)→text — стартуем с «есть»
@@ -44,6 +67,15 @@ onMounted(async () => {
       :value="tags.length"
       size="small"
       class="bg-surface-200! text-surface-600!"
+    />
+    <Button
+      v-if="tags.length"
+      v-tooltip.bottom="'Форма проверки тегов: символ с привязкой на каждый тег'"
+      icon="pi pi-list-check"
+      severity="secondary"
+      text
+      size="small"
+      @click="onTagCheck"
     />
   </div>
 </template>

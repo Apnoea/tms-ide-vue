@@ -1,0 +1,52 @@
+{
+  "id": "cell_tag",
+  "label": "Проверка тега",
+  "category": "Служебные",
+  "shapeFile": "shape.svg",
+  "width": 240,
+  "height": 20,
+  "noFlip": true,
+  "params": [
+    {
+      "key": "p1",
+      "default": "Тег"
+    }
+  ],
+  "slots": [
+    {
+      "key": "onoff",
+      "type": "Boolean"
+    },
+    {
+      "key": "value_text",
+      "type": "Text"
+    }
+  ],
+  "stateColors": {
+    "true": {
+      "fill": "#22c55e"
+    },
+    "false": {
+      "fill": "#a1a1aa"
+    }
+  },
+  "animationTemplate": [
+    {
+      "idSuffix": ".value",
+      "type": "text",
+      "bindings": [
+        {
+          "tag": "{slot.value_text}",
+          "output": {
+            "text": {}
+          }
+        }
+      ],
+      "detailTags": [
+        {
+          "tag": "{slot.value_text}"
+        }
+      ]
+    }
+  ]
+}

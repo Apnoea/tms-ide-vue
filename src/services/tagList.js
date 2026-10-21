@@ -13,6 +13,34 @@ const NON_NUMERIC_TYPE_RE =
 export const isNumericType = (type) => !NON_NUMERIC_TYPE_RE.test((type || '').trim())
 
 /**
+ * Группа тега: путь объектов из XML-дерева (`S17 / N70160`), иначе prefix имени — всё до
+ * первой точки (`PS031VK001.ONOFF` → `PS031VK001`).
+ */
+const tagGroupOf = (t) => (t.path?.length ? t.path.join(' / ') : t.name.split('.')[0])
+
+/**
+ * Теги по группам: группы по алфавиту, внутри — порядок tag-list. Одна раскладка на окно
+ * выбора тега и форму проверки тегов.
+ *
+ * `solo` — единственный тег группы-префикса: её заголовок повторял бы имя тега строкой
+ * ниже, поэтому его не показывают. Группа по пути объектов (XML) заголовок сохраняет — в
+ * коротком имени тега пути нет.
+ *
+ * @returns {{ name: string, items: object[], solo: boolean }[]}
+ */
+export function groupTags(tags) {
+  const map = new Map()
+  for (const t of tags) {
+    const g = tagGroupOf(t)
+    if (!map.has(g)) map.set(g, [])
+    map.get(g).push(t)
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, items]) => ({ name, items, solo: items.length === 1 && !items[0].path?.length }))
+}
+
+/**
  * Tag-list в формате XML-дерева — узнаём по первому непробельному символу: строчный
  * список с `<` не начинается. Формат нужен и упаковщику архива (имя файла внутри),
  * поэтому признак один на весь проект.

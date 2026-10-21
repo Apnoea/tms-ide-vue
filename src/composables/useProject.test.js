@@ -26,6 +26,14 @@ vi.mock('../services/exporter', () => ({
   exportProject: vi.fn(() => ({ svgText: '<svg/>', animationsJson: '{}' })),
 }))
 vi.mock('../services/projectLoader', () => ({ parseSvgProject: vi.fn() }))
+// Раскладка и сборка формы проверки тегов — в своём тесте; здесь только оркестрация.
+vi.mock('../services/tagCheckForm', () => ({
+  TAG_CHECK_STENCIL_ID: 'cell_tag',
+  TAG_CHECK_FORM_ID: 'tag_check',
+  TAG_CHECK_TITLE: 'Проверка тегов',
+  buildTagCheckGraph: vi.fn((tags) => ({ cells: tags.map((t) => ({ id: t.name })) })),
+  tagCheckDescription: (count) => `Тегов: ${count}`,
+}))
 vi.mock('../services/projectZip', () => ({
   buildProjectZipBlob: vi.fn(() => 'BLOB'),
   downloadBlob: vi.fn(),
@@ -584,6 +592,40 @@ describe('useProject', () => {
       expect(registerStencil).not.toHaveBeenCalled()
       const savedOverrides = replaceStencilOverrides.mock.calls.at(-1)[0]
       expect(savedOverrides).toEqual([]) // нечего оверрайдить
+    })
+  })
+
+  // Форма проверки тегов генерируется, а не правится руками: повторный запуск строит её
+  // заново поверх прежней, а не плодит копии.
+  describe('generateTagCheckForm', () => {
+    const TAGS = [{ name: 'A.ON', type: 'Boolean' }]
+
+    it('создаёт форму с названием, открывает её; повторный запуск перестраивает', async () => {
+      seedForms([{ id: 'main', graphJson: { cells: [] } }], 'main')
+      getStencilById.mockReturnValue({ id: 'cell_tag' })
+      const deps = makeDeps()
+      const { generateTagCheckForm } = useProject(deps)
+      await generateTagCheckForm(TAGS)
+
+      const ws = useWorkspaceStore()
+      expect(ws.activeFormId).toBe('tag_check')
+      expect(ws.formTitleOf('tag_check')).toBe('Проверка тегов')
+      expect(ws.formDescriptionOf('tag_check')).toBe('Тегов: 1')
+      expect(ws.getFormGraph('tag_check').cells.map((c) => c.id)).toEqual(['A.ON'])
+      expect(deps.autosave.persistForm).toHaveBeenCalledWith('tag_check', expect.anything())
+
+      await generateTagCheckForm([...TAGS, { name: 'A.U', type: 'Float' }])
+      expect(ws.formIds).toEqual(['main', 'tag_check'])
+      expect(ws.getFormGraph('tag_check').cells.map((c) => c.id)).toEqual(['A.ON', 'A.U'])
+      expect(ws.formDescriptionOf('tag_check')).toBe('Тегов: 2') // описание тоже свежее
+    })
+
+    it('без символа «Проверка тега» форму не создаёт', async () => {
+      seedForms([{ id: 'main', graphJson: { cells: [] } }], 'main')
+      const { generateTagCheckForm } = useProject(makeDeps())
+      await generateTagCheckForm(TAGS)
+      expect(useWorkspaceStore().hasForm('tag_check')).toBe(false)
+      expect(mockNotify.error).toHaveBeenCalled()
     })
   })
 

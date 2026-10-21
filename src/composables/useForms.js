@@ -5,6 +5,14 @@ import { FORM_ID_RE } from '../constants/ids'
 import { nplural } from '../utils/plural'
 import { toPlain } from '../utils/plain'
 import { replayClass } from '../utils/replayClass'
+import { getStencilById } from '../stencils/registry'
+import {
+  TAG_CHECK_FORM_ID,
+  TAG_CHECK_STENCIL_ID,
+  TAG_CHECK_TITLE,
+  buildTagCheckGraph,
+  tagCheckDescription,
+} from '../services/tagCheckForm'
 
 /**
  * Формы проекта: переключение, создание, дублирование, удаление с корзиной,
@@ -162,6 +170,39 @@ export function useForms(ctx) {
   }
 
   /**
+   * Форма проверки тегов: символ «Проверка тега» на каждый тег tag-list (см.
+   * services/tagCheckForm). Форма одна (`tag_check`): повторный запуск — например, после
+   * обновления tag-list — строит её заново; подтверждение перезаписи спрашивает кнопка.
+   *
+   * @param {object[]} tags — tag-list проекта
+   */
+  async function generateTagCheckForm(tags) {
+    const graph = canvas.graphRef.value
+    const paper = canvas.paperRef.value
+    if (!graph || !paper || !tags?.length) return
+    const stencil = getStencilById(TAG_CHECK_STENCIL_ID)
+    if (!stencil) {
+      notify.error('Нет символа «Проверка тега»', 'Форма строится из него — верни его в палитру')
+      return
+    }
+    const json = buildTagCheckGraph(tags, stencil)
+    cancelPendingSnapshot()
+    await saveActiveForm() // правки открытой формы не теряем
+    const id = TAG_CHECK_FORM_ID
+    if (workspace.hasForm(id)) workspace.setFormGraph(id, json)
+    else workspace.addForm(id, json)
+    workspace.setFormTitle(id, TAG_CHECK_TITLE)
+    workspace.setFormDescription(id, tagCheckDescription(tags.length))
+    let ok = await persistForm(id, json)
+    workspace.setActiveFormId(id)
+    ok = (await persistMeta()) && ok
+    flagIfNotSaved(ok)
+    loadActiveIntoCanvas(graph, paper, json)
+    canvas.markDirty() // новая форма → проект разошёлся с .zip
+    notify.success(TAG_CHECK_TITLE, nplural(tags.length, 'тег', 'тега', 'тегов'))
+  }
+
+  /**
    * Удалить форму. Нельзя удалить последнюю (в проекте всегда ≥1 форма). Если
    * удаляем активную — холст переключается на оставшуюся; иначе активную не трогаем.
    */
@@ -298,6 +339,7 @@ export function useForms(ctx) {
     selectForm,
     createForm,
     duplicateForm,
+    generateTagCheckForm,
     deleteForm,
     restoreForm,
     renameForm,

@@ -5,6 +5,7 @@ import Dialog from 'primevue/dialog'
 import Listbox from 'primevue/listbox'
 import Button from 'primevue/button'
 import { useTagList } from '../composables/useTagList'
+import { groupTags } from '../services/tagList'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useUiStore } from '../stores/useUiStore'
 import { nplural } from '../utils/plural'
@@ -128,31 +129,9 @@ const filtered = computed(() => {
   return props.tags.filter((t) => matchesQuery(t, q))
 })
 
-/**
- * Заголовок группы: путь объектов из XML-дерева (`S17 / N70160`), иначе prefix имени —
- * всё до первой точки (`PS031VK001.ONOFF` → `PS031VK001`).
- */
-const groupOf = (t) => (t.path?.length ? t.path.join(' / ') : t.name.split('.')[0])
-
-// PrimeVue Listbox требует структуру { name, items: [...] } для group-mode.
-const grouped = computed(() => {
-  const map = new Map()
-  for (const t of filtered.value) {
-    const g = groupOf(t)
-    if (!map.has(g)) map.set(g, [])
-    map.get(g).push(t)
-  }
-  return Array.from(map.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, items]) => ({
-      name,
-      items,
-      // Единственный тег объекта, а группа — префикс его имени: заголовок повторял бы
-      // имя строкой ниже. Группа по пути объектов (XML) заголовок сохраняет — в коротком
-      // имени тега пути нет.
-      solo: items.length === 1 && !items[0].path?.length,
-    }))
-})
+// PrimeVue Listbox требует структуру { name, items: [...] } для group-mode — её и отдаёт
+// `groupTags` (группировка общая с формой проверки тегов).
+const grouped = computed(() => groupTags(filtered.value))
 
 const hasResults = computed(() => grouped.value.length > 0)
 
