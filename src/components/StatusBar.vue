@@ -45,7 +45,7 @@ const canvas = useCanvas()
       class="flex items-center gap-1 text-surface-400 transition-colors hover:text-surface-700"
       @click="ui.openHelp"
     >
-      <i class="pi pi-question-circle text-sm" />
+      <i class="pi pi-question-circle text-sm!" />
       <kbd class="tms-kbd">F1</kbd>
     </button>
   </div>

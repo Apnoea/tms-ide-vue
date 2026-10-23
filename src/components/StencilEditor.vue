@@ -740,7 +740,7 @@ onMounted(updateRuler)
             class="flex items-center gap-1 font-medium"
             :style="{ color: OVERFLOW_STROKE }"
           >
-            <i class="pi pi-exclamation-triangle text-xs" />
+            <i class="pi pi-exclamation-triangle text-xs!" />
             {{ savedBox.w }}×{{ savedBox.h }}
           </span>
         </div>

@@ -232,7 +232,7 @@ watch(
       <!-- Без файла тегов привязывать нечего — даём загрузку здесь же, диалог
            остаётся открытым и наполняется. -->
       <div v-else-if="!tags.length && !tagListLoaded" class="tms-empty">
-        <i class="pi pi-tags text-3xl mb-3 opacity-60" />
+        <i class="pi pi-tags text-3xl! mb-3 opacity-60" />
         <div class="tms-empty-title">Tag-list не загружен</div>
         <Button
           label="Загрузить tag-list"
@@ -244,13 +244,13 @@ watch(
       </div>
 
       <div v-else-if="!tags.length" class="tms-empty">
-        <i class="pi pi-filter-slash text-3xl mb-3 opacity-60" />
+        <i class="pi pi-filter-slash text-3xl! mb-3 opacity-60" />
         <div class="tms-empty-title">В tag-list нет тегов подходящего типа</div>
       </div>
 
       <!-- Тот же текст, что у пустого поиска в палитре и симуляции. -->
       <div v-else class="tms-empty">
-        <i class="pi pi-search text-3xl mb-3 opacity-60" />
+        <i class="pi pi-search text-3xl! mb-3 opacity-60" />
         <div class="tms-empty-title">Ничего не нашлось по «{{ search.trim() }}»</div>
       </div>
     </div>

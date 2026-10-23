@@ -48,7 +48,7 @@ const issueLabel = computed(() => tagIssueLabel(issue.value))
     <i
       v-if="issue"
       v-tooltip.bottom="issueLabel"
-      class="pi pi-exclamation-triangle text-amber-500 text-xs shrink-0"
+      class="pi pi-exclamation-triangle text-amber-500 text-xs! shrink-0"
       :aria-label="issueLabel"
     />
     <Button

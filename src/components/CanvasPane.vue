@@ -1123,7 +1123,7 @@ function onCanvasMouseLeave() {
         class="absolute inset-0 flex items-center justify-center pointer-events-none"
       >
         <div class="text-center text-surface-400 px-4">
-          <i class="pi pi-sitemap block text-4xl text-surface-300 mb-3" />
+          <i class="pi pi-sitemap block text-4xl! text-surface-300 mb-3" />
           <div class="text-sm font-medium text-surface-600 mb-3">Пустой холст</div>
           <ul class="inline-block text-left text-xs space-y-1.5">
             <li class="flex items-center gap-2">

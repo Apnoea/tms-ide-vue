@@ -339,7 +339,7 @@ async function removeStencil(id) {
     <div class="flex-1 p-2 overflow-auto">
       <template v-if="!allCategories.length">
         <div class="tms-empty">
-          <i class="pi pi-inbox text-3xl mb-3 opacity-60" />
+          <i class="pi pi-inbox text-3xl! mb-3 opacity-60" />
           <div class="tms-empty-title">Реестр символов пуст</div>
           <p class="tms-hint max-w-[180px]">Добавь папку в src/library/</p>
         </div>
@@ -347,7 +347,7 @@ async function removeStencil(id) {
 
       <template v-else-if="noResults">
         <div class="tms-empty">
-          <i class="pi pi-search text-3xl mb-3 opacity-60" />
+          <i class="pi pi-search text-3xl! mb-3 opacity-60" />
           <div class="tms-empty-title">{{ noResultsText }}</div>
           <!-- Только когда пусто из-за фильтров: при поиске они не действуют (см.
                domainFilterActive), и сброс ничего бы не показал. -->

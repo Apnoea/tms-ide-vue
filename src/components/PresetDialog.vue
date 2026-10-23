@@ -96,7 +96,7 @@ function confirmRemove(event, preset) {
       </Message>
 
       <div v-if="!presets.length" class="tms-empty">
-        <i class="pi pi-box text-3xl mb-3 opacity-60" />
+        <i class="pi pi-box text-3xl! mb-3 opacity-60" />
         <div class="tms-empty-title">Наборы не установлены</div>
         <p class="tms-hint max-w-[220px]">Палитра собрана из встроенных и своих символов</p>
       </div>
