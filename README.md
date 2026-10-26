@@ -38,7 +38,7 @@ npm run desktop:preview # собрать статику и открыть окн
 npm run desktop:smoke  # проверка: окно поднялось, IndexedDB работает (для CI)
 npm run desktop:build  # portable .exe → ../release-tms/
 npm run desktop:build:linux  # AppImage (нужен Linux-раннер)
-npm run icon:build     # public/favicon.svg → build/icon.png (при смене логотипа)
+npm run icon:build     # src/favicon.svg → build/icon.png (при смене логотипа)
 ```
 
 CI (GitHub Pages, `.github/workflows/deploy.yml`) на каждый push в `main` гоняет
@@ -64,6 +64,7 @@ scripts/             # запуск Electron и генерация иконки
 build/               # icon.png для упаковщика
 src/
 ├── main.js / App.vue / style.css
+├── favicon.svg                # иконка вкладки и исходник иконки приложения (icon:build)
 ├── components/
 │   ├── StatusBar.vue          # аварийный статус «не сохранено» + справка F1 (верх справа)
 │   ├── FormTree.vue           # дерево форм: создать / дублировать / сменить id / удалить + DnD
@@ -1237,8 +1238,9 @@ Windows отдаёт EPERM при распаковке (файлы держит 
   а не рядом с файлом. Перенос на другую машину — выгрузить `.zip` и открыть его
   на новом месте.
 
-Иконка берётся из `public/favicon.svg`: `npm run icon:build` рендерит её в
-`build/icon.png` 512×512, из которого упаковщик делает `.ico`.
+Иконка берётся из `src/favicon.svg` (её же страница берёт фавиконкой — Vite кладёт её в
+`assets/` с хэшем в имени): `npm run icon:build` рендерит её в `build/icon.png` 512×512, из
+которого упаковщик делает `.ico`.
 
 ## Проект (формы + библиотека)
 

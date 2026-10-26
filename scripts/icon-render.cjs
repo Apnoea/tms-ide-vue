@@ -1,4 +1,4 @@
-// Иконка приложения из public/favicon.svg. Запускается вручную при смене
+// Иконка приложения из src/favicon.svg. Запускается вручную при смене
 // логотипа: `npm run icon:build`. Рендерим самим Electron (он уже в devDeps) —
 // иначе ради разовой операции пришлось бы тащить sharp/imagemagick.
 //
@@ -13,7 +13,7 @@ const fs = require('node:fs')
 
 const SIZE = 512
 const root = path.join(__dirname, '..')
-const src = path.join(root, 'public', 'favicon.svg')
+const src = path.join(root, 'src', 'favicon.svg')
 const outDir = path.join(root, 'build')
 const out = path.join(outDir, 'icon.png')
 
