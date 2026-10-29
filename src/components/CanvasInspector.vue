@@ -1072,19 +1072,12 @@ const {
                    animations.json / экспортном SVG (тот же, что эмитит exporter; точная
                    подстановка short-id см. constants/ids). Что есть что — в тултипах. -->
               <div class="flex min-w-0 items-baseline gap-1 text-[11px] font-mono">
-                <span
-                  v-tooltip.bottom="
-                    'id символа в палитре: по нему элемент берёт рисунок и анимации'
-                  "
-                  class="shrink-0 text-surface-500"
-                >
+                <span v-tooltip.bottom="'id символа'" class="shrink-0 text-surface-500">
                   {{ details.stencilId }}
                 </span>
                 <span class="shrink-0 text-surface-300" aria-hidden="true">·</span>
                 <span
-                  v-tooltip.bottom="
-                    `${details.exportId} — id элемента на схеме: под ним он уходит в view.svg и animations.json, по нему рантайм находит анимацию`
-                  "
+                  v-tooltip.bottom="'id элемента на схеме'"
                   class="min-w-0 truncate text-surface-400"
                 >
                   {{ details.exportId }}

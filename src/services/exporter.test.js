@@ -69,6 +69,20 @@ describe('exportProject', () => {
     }
   })
 
+  // Наименование для заголовка окна свойств в рантайме: название символа на внешней
+  // обёртке (часть символа рантайм находит по ближайшему предку), у провода — «Провод».
+  it('data-name: название символа на обёртке, «Провод» у провода, не в мету', () => {
+    const cellA = mockCell({ id: 'a', stencilId: 'cell_qw', x: 0, y: 0 })
+    const cellB = mockCell({ id: 'b', stencilId: 'cell_qw', x: 100, y: 0 })
+    const link = mockLink({ id: 'l1', source: { id: 'a' }, target: { id: 'b' } })
+    const { svgText } = exportProject(mockGraph([cellA, cellB], [link]))
+
+    expect(svgText).toMatch(/<g id="animation-cell_qw-a"[^>]+data-name="Выключатель"/)
+    expect(svgText).toMatch(/id="animation-wire-l1" data-name="Провод"/)
+    const parsed = parseSvgProject(svgText).cells.find((c) => c.id === 'a')
+    expect(parsed.tms.name).toBeUndefined()
+  })
+
   it('cell_qw: пишет data-tms-meta и переключение позиции через .true', () => {
     const graph = mockGraph([
       mockCell({
@@ -187,7 +201,7 @@ describe('exportProject', () => {
       ]
     )
     const svg = exportProject(graph).svgText
-    expect(svg).toMatch(/<g id="animation-wire-l1">/)
+    expect(svg).toMatch(/<g id="animation-wire-l1"[^>]*>/)
     // Размер от толщины: сторона треугольника = 2×3 = 6, раствор 90° (len === half); основание в
     // конце пути, остриё на 6 впереди.
     expect(svg).toContain('d="M -6 0 L 0 6 L 0 -6 Z"')
@@ -212,7 +226,7 @@ describe('exportProject', () => {
       [mockLink({ id: 'l1', source: { id: 'c1' }, target: { x: 100, y: 60 }, tms: {} })]
     )
     const svg = exportProject(graph).svgText
-    expect(svg).toMatch(/<g id="animation-wire-l1">/)
+    expect(svg).toMatch(/<g id="animation-wire-l1"[^>]*>/)
     // Радиус от толщины: 1.5×2 / 2 = 1.5. Привязанный конец точки не получает.
     expect(svg).toContain('<circle class="tms-range-fill"')
     expect(svg).toContain('r="1.5"')
@@ -245,7 +259,7 @@ describe('exportProject', () => {
     )
     const svg = exportProject(graph).svgText
     expect(svg).toContain('<path id="animation-wire-l1"')
-    expect(svg).not.toMatch(/<g id="animation-wire-l1">/)
+    expect(svg).not.toMatch(/<g id="animation-wire-l1"[^>]*>/)
   })
 
   it('cell_bus: цвет тела переживает round-trip, дефолт в meta не пишется', () => {

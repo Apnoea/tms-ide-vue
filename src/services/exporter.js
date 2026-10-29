@@ -28,6 +28,7 @@ import {
   wireKey,
   ATTR_BACKGROUND,
   ATTR_META,
+  ATTR_NAME,
   ATTR_STENCIL,
   CELL_META_FIELDS,
   LINK_META_FIELDS,
@@ -164,7 +165,7 @@ export function exportProject(graph, paper = null, { background = null } = {}) {
   const animationsObject = { animations: ctx.animations }
   return {
     svgText,
-    animationsJson: JSON.stringify(animationsObject, null, 2),
+    animationsJson: JSON.stringify(animationsObject),
     animations: animationsObject,
     count: cellExports.length,
     linkCount: linkExports.length,
@@ -270,6 +271,8 @@ function stencilCellExport(ctx, cell, tms, stencil) {
     width: size.width,
     height: size.height,
     stencilId: tms.stencilId,
+    // Наименование для рантайма (`data-name`): название символа, а не своё у экземпляра.
+    name: stencil.label,
     // База масштаба контента: размер определения у обычных символов, фактический —
     // у программных (их билдеры уже нарисовали по нему).
     baseWidth: contentScales(stencil) ? stencil.width : size.width,
@@ -650,10 +653,15 @@ function renderLink(l) {
     endMarkSvg(l.arrowEnd, l.ends?.end, l.target, width, color),
   ].filter(Boolean)
   // Без наконечников — один <path> с id. С наконечниками id на группе: рантайм вешает
-  // класс на неё, и правила анимации каскадом достают и линию, и наконечники.
-  if (!arrows.length) return `  <path id="${escapeAttr(l.id)}" ${lineAttrs}/>`
-  return `  <g id="${escapeAttr(l.id)}"><path ${lineAttrs}/>${arrows.join('')}</g>`
+  // класс на неё, и правила анимации каскадом достают и линию, и наконечники. Наименование
+  // — рядом с id: по нему рантайм находит элемент.
+  const own = `id="${escapeAttr(l.id)}" ${ATTR_NAME}="${WIRE_NAME}"`
+  if (!arrows.length) return `  <path ${own} ${lineAttrs}/>`
+  return `  <g ${own}><path ${lineAttrs}/>${arrows.join('')}</g>`
 }
+
+/** Наименование провода для рантайма (`data-name`): символа у него нет. */
+const WIRE_NAME = 'Провод'
 
 function renderCell(c, serializer) {
   // translate(x,y) ставит ячейку на холст; rotate (если есть) вращает вокруг центра
@@ -703,8 +711,10 @@ function renderCell(c, serializer) {
   if (c.z != null) meta.z = c.z
   const metaAttr = escapeAttr(JSON.stringify(meta))
   // stencilId по инварианту реестра уже в маске [a-z0-9_], escapeAttr на нём — страховка
-  // от нового пути регистрации в обход registry.isValidStencilId.
-  return `  <g id="${escapeAttr(outerKey(c.stencilId, c.animId))}" transform="${transform}" ${ATTR_STENCIL}="${escapeAttr(c.stencilId)}" ${ATTR_META}="${metaAttr}">${inner}</g>`
+  // от нового пути регистрации в обход registry.isValidStencilId. Название символа — текст
+  // автора, его escapeAttr обязателен.
+  const nameAttr = c.name ? ` ${ATTR_NAME}="${escapeAttr(c.name)}"` : ''
+  return `  <g id="${escapeAttr(outerKey(c.stencilId, c.animId))}" transform="${transform}" ${ATTR_STENCIL}="${escapeAttr(c.stencilId)}"${nameAttr} ${ATTR_META}="${metaAttr}">${inner}</g>`
 }
 
 /**

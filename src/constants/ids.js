@@ -68,6 +68,12 @@ const WIRE_PREFIX = 'animation-wire-'
 
 export const ATTR_META = 'data-tms-meta'
 export const ATTR_STENCIL = 'data-tms-stencil'
+/**
+ * Наименование элемента для рантайма: название символа на внешней обёртке (у провода —
+ * «Провод»). Рантайм ставит его в заголовок окна свойств — и по клику на часть символа, ищя
+ * ближайшего предка с атрибутом. Импорт его не читает: название берётся из символа.
+ */
+export const ATTR_NAME = 'data-name'
 /** Фон формы на корне view.svg: рантайм красит им область схемы, импорт читает обратно. */
 export const ATTR_BACKGROUND = 'data-tms-background'
 export const ATTR_SUFFIX = 'data-anim-suffix'
