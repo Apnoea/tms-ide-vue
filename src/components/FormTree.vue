@@ -15,16 +15,42 @@ import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import { useCanvas } from '../composables/useCanvas'
 import { useWorkspaceStore } from '../stores/useWorkspaceStore'
+import { useProjectStore } from '../stores/useProjectStore'
 import { subtreeIds, computeDrop } from '../utils/formTreeDnd'
 import { useConfirmDanger } from '../composables/useConfirmDanger'
+import { TAG_CHECK_FORM_ID, TAG_CHECK_TITLE } from '../services/tagCheckForm'
 
 const canvas = useCanvas()
 const workspace = useWorkspaceStore()
+const project = useProjectStore()
 const confirmDanger = useConfirmDanger()
 
 // Свёрнута ли вся секция «Формы» (тогда место забирает палитра). Отдельно от
 // свёрнутых ветвей, персист в localStorage — как у аккордеона палитры.
 const panelCollapsed = useLocalStorage('tms-ide:forms-collapsed:v1', false)
+
+// Клик по шапке сворачивает секцию, по её кнопкам — нет. Кнопки без `.stop`: клик формы
+// проверки тегов должен дойти до document (ConfirmPopup, см. confirmDelete).
+function onHeaderClick(event) {
+  if (event.target.closest('button')) return
+  panelCollapsed.value = !panelCollapsed.value
+}
+
+/**
+ * Форма проверки тегов: символ на каждый тег tag-list. Она генерируется, поэтому
+ * повторный запуск строит её заново — но если она уже есть, сначала спрашиваем: в ней
+ * могли что-то подвинуть.
+ */
+function onTagCheck(event) {
+  const run = () => canvas.generateTagCheckForm(project.tags)
+  if (!workspace.hasForm(TAG_CHECK_FORM_ID)) return run()
+  confirmDanger({
+    target: event.currentTarget,
+    message: `Форма «${TAG_CHECK_TITLE}» будет построена заново — правки в ней пропадут`,
+    acceptLabel: 'Перестроить',
+    accept: run,
+  })
+}
 
 // id последней удалённой формы (корзина живёт в IDB, см. useForms.restoreForm).
 const lastTrashed = computed(() => canvas.formTrash.value[0]?.id || '')
@@ -254,11 +280,11 @@ onBeforeUnmount(() => {
     class="flex shrink-0 flex-col bg-surface-50"
     :class="{ 'border-b border-surface-200': !panelCollapsed }"
   >
-    <!-- Клик по всей шапке сворачивает/разворачивает секцию (тело дерева); клик
-         по кнопке «+» гасится @click.stop, чтобы не тоглить заодно. -->
+    <!-- Клик по всей шапке сворачивает/разворачивает секцию (тело дерева); клик по
+         кнопкам шапки — нет (`onHeaderClick`). -->
     <div
       class="min-h-14 px-4 border-b border-surface-200 bg-surface-0 flex cursor-pointer select-none items-center justify-between gap-2"
-      @click="panelCollapsed = !panelCollapsed"
+      @click="onHeaderClick"
     >
       <h2
         class="min-w-0 flex-1 truncate text-sm font-semibold uppercase tracking-wide text-surface-900"
@@ -277,6 +303,16 @@ onBeforeUnmount(() => {
         size="small"
         class="tms-icon-btn"
         @click.stop="canvas.restoreForm()"
+      />
+      <Button
+        v-if="!panelCollapsed && project.tags.length"
+        v-tooltip.bottom="'Форма проверки тегов: символ с привязкой на каждый тег'"
+        icon="pi pi-list-check"
+        severity="secondary"
+        text
+        size="small"
+        class="tms-icon-btn"
+        @click="onTagCheck"
       />
       <!-- Кнопка «создать форму» — тот же PrimeVue Button, что в тулбаре холста
            (secondary/text/small): единый размер, hover и поведение. В свёрнутом

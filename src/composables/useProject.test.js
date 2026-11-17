@@ -82,6 +82,8 @@ const mockCanvas = {
   fitToContent: vi.fn(),
   markDirty: vi.fn(),
   markExported: vi.fn(),
+  highlightedTag: ref(null),
+  toggleHighlightedTag: vi.fn((tag) => (mockCanvas.highlightedTag.value = tag)),
 }
 vi.mock('./useCanvas', () => ({ useCanvas: () => mockCanvas }))
 
@@ -121,6 +123,7 @@ describe('useProject', () => {
     setActivePinia(createPinia())
     mockCanvas.graphRef.value = new dia.Graph({}, { cellNamespace: tmsNamespace })
     mockCanvas.paperRef.value = { id: 'paper', freeze() {}, unfreeze() {} }
+    mockCanvas.highlightedTag.value = null
     vi.clearAllMocks()
     parseSvgProject.mockReset()
     getStencilById.mockReturnValue(null)
@@ -626,6 +629,54 @@ describe('useProject', () => {
       await generateTagCheckForm(TAGS)
       expect(useWorkspaceStore().hasForm('tag_check')).toBe(false)
       expect(mockNotify.error).toHaveBeenCalled()
+    })
+  })
+
+  describe('rebindTags', () => {
+    const cellOf = (id, tag) => ({
+      id,
+      type: 'tms.Stencil',
+      tms: { stencilId: 'cell_qw', slots: { onoff: tag } },
+    })
+
+    it('меняет теги во всех формах, пишет изменённые, перезагружает активную', async () => {
+      seedForms(
+        [
+          { id: 'a', graphJson: { cells: [cellOf('c1', 'OLD.X')] } },
+          { id: 'b', graphJson: { cells: [cellOf('c2', 'OLD.Y'), cellOf('c3', 'OLD.X')] } },
+          { id: 'c', graphJson: { cells: [cellOf('c4', 'KEEP.Z')] } },
+        ],
+        'a'
+      )
+      const deps = makeDeps()
+      const { rebindTags } = useProject(deps)
+      expect(await rebindTags('OLD.', 'NEW.')).toEqual({ bindings: 3, forms: 2 })
+
+      const ws = useWorkspaceStore()
+      expect(ws.getFormGraph('b').cells.map((c) => c.tms.slots.onoff)).toEqual(['NEW.Y', 'NEW.X'])
+      expect(ws.getFormGraph('c').cells[0].tms.slots.onoff).toBe('KEEP.Z')
+      expect(deps.autosave.persistForm.mock.calls.map(([id]) => id)).toEqual(['a', 'b'])
+      // Активная форма на холсте — уже с новыми именами, история начата заново.
+      expect(mockCanvas.graphRef.value.getCell('c1').get('tms').slots.onoff).toBe('NEW.X')
+      expect(deps.undo.initHistory).toHaveBeenCalled()
+      expect(mockCanvas.markDirty).toHaveBeenCalled()
+    })
+
+    it('подсветка переименованного тега идёт за ним', async () => {
+      seedForms([{ id: 'a', graphJson: { cells: [cellOf('c1', 'OLD.X')] } }], 'a')
+      mockCanvas.highlightedTag.value = 'OLD.X'
+      await useProject(makeDeps()).rebindTags('OLD.', 'NEW.')
+      expect(mockCanvas.highlightedTag.value).toBe('NEW.X')
+    })
+
+    it('совпадений нет — формы не пишет и проект не помечает', async () => {
+      seedForms([{ id: 'a', graphJson: { cells: [cellOf('c1', 'KEEP.Z')] } }], 'a')
+      const deps = makeDeps()
+      const { rebindTags } = useProject(deps)
+      expect(await rebindTags('OLD.', 'NEW.')).toEqual({ bindings: 0, forms: 0 })
+      expect(deps.autosave.persistForm).not.toHaveBeenCalled()
+      expect(mockCanvas.markDirty).not.toHaveBeenCalled()
+      expect(mockNotify.info).toHaveBeenCalled()
     })
   })
 

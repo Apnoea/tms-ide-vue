@@ -79,6 +79,7 @@ export function useProject({ restoringHistory, autosave, undo, simulation }) {
     createForm: withProjectBusy(forms.createForm),
     duplicateForm: withProjectBusy(forms.duplicateForm),
     generateTagCheckForm: withProjectBusy(forms.generateTagCheckForm),
+    rebindTags: withProjectBusy(forms.rebindTags),
     deleteForm: withProjectBusy(forms.deleteForm),
     restoreForm: withProjectBusy(forms.restoreForm),
     renameForm: withProjectBusy(forms.renameForm),

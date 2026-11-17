@@ -40,6 +40,7 @@ import { RANGE_SLOT, safeFormId } from '../constants/ids'
 import { nplural } from '../utils/plural'
 import { normalizePresetPatch, rebaseOnPreset } from '../utils/presetPatch'
 import { usePresets } from './usePresets'
+import { useTagRebind } from './useTagRebind'
 
 /**
  * Проект целиком: импорт и экспорт .zip, разовые миграции диапазонов после
@@ -54,6 +55,7 @@ export function useProjectArchive(ctx) {
   const { cancelPendingSnapshot, initHistory } = ctx.undo
   const { stopSimulation, simulating } = ctx.simulation
   const { adoptProjectPresets } = usePresets()
+  const { offerRebind } = useTagRebind()
 
   // Флаг «идёт экспорт»: на время прогона форм через живой paper показываем оверлей
   // (иначе формы мелькают на холсте).
@@ -318,6 +320,8 @@ export function useProjectArchive(ctx) {
     applyActiveForm()
     notify.success('Проект импортирован', okMsg)
     reportProjectPresets(presetReport, drawingReset)
+    // В архив могли подложить новый tag-list со сменённым префиксом или суффиксом.
+    offerRebind()
   }
 
   /**

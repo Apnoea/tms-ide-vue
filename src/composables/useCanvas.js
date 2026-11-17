@@ -47,6 +47,7 @@ const PROJECT_ACTIONS = [
   'createForm',
   'duplicateForm',
   'generateTagCheckForm',
+  'rebindTags',
   'deleteForm',
   'restoreForm',
   'renameForm',

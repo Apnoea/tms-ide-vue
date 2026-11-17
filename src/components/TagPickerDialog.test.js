@@ -80,7 +80,8 @@ describe('TagPickerDialog', () => {
     expect(load).toBeTruthy()
     await load.trigger('click')
 
-    expect(pickTagList).toHaveBeenCalled()
+    // Без подсказки замены: она перезагрузила бы форму под открытым пикером.
+    expect(pickTagList).toHaveBeenCalledWith({ suggestRebind: false })
     // Диалог остаётся открытым — теги подтянутся в тот же список.
     expect(wrapper.emitted('update:visible')).toBeUndefined()
     wrapper.unmount()

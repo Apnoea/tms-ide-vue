@@ -1,43 +1,23 @@
 <script setup>
 /**
  * Контрол tag-list'а (в шапке, рядом с действиями проекта): загрузка/замена
- * файла тегов + счётчик. Сама загрузка — в `useTagList` (её же зовёт пустой
- * tag-picker). Здесь только вид кнопки и восстановление на старте.
+ * файла тегов + счётчик и замена в привязках. Сама загрузка — в `useTagList` (её же
+ * зовёт пустой tag-picker). Здесь только вид кнопок и восстановление на старте.
  */
 import { computed, onMounted, ref } from 'vue'
 import Button from 'primevue/button'
 import Badge from 'primevue/badge'
 import { storeToRefs } from 'pinia'
+import TagRebindDialog from './TagRebindDialog.vue'
 import { useProjectStore } from '../stores/useProjectStore'
-import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 import { useTagList } from '../composables/useTagList'
-import { useCanvas } from '../composables/useCanvas'
-import { useConfirmDanger } from '../composables/useConfirmDanger'
+import { useTagRebind } from '../composables/useTagRebind'
 import { idbGet } from '../services/idb'
-import { TAG_CHECK_FORM_ID, TAG_CHECK_TITLE } from '../services/tagCheckForm'
 
 const project = useProjectStore()
-const workspace = useWorkspaceStore()
-const canvas = useCanvas()
-const confirmDanger = useConfirmDanger()
 const { tags } = storeToRefs(project)
 const { pickTagList, tryRestoreTagListHandle } = useTagList()
-
-/**
- * Форма проверки тегов: символ на каждый тег. Форма генерируется, а не правится руками,
- * поэтому повторный запуск строит её заново — но если она уже есть, сначала спрашиваем:
- * в ней могли что-то подвинуть.
- */
-function onTagCheck(event) {
-  const run = () => canvas.generateTagCheckForm(tags.value)
-  if (!workspace.hasForm(TAG_CHECK_FORM_ID)) return run()
-  confirmDanger({
-    target: event.currentTarget,
-    message: `Форма «${TAG_CHECK_TITLE}» будет построена заново — правки в ней пропадут`,
-    acceptLabel: 'Перестроить',
-    accept: run,
-  })
-}
+const { openRebind } = useTagRebind()
 
 // Есть ли сохранённый tag-list. Реактивный `tags` на маунте пуст (restore
 // асинхронный), и кнопка мигала бы filled(primary)→text — стартуем с «есть»
@@ -60,7 +40,7 @@ onMounted(async () => {
       :text="tagListPresent"
       label="Tag-list"
       size="small"
-      @click="pickTagList"
+      @click="pickTagList()"
     />
     <Badge
       v-if="tags.length"
@@ -70,12 +50,13 @@ onMounted(async () => {
     />
     <Button
       v-if="tags.length"
-      v-tooltip.bottom="'Форма проверки тегов: символ с привязкой на каждый тег'"
-      icon="pi pi-list-check"
+      v-tooltip.bottom="'Замена в привязках: префикс или суффикс имён тегов во всех формах'"
+      icon="pi pi-arrow-right-arrow-left"
       severity="secondary"
       text
       size="small"
-      @click="onTagCheck"
+      @click="openRebind"
     />
+    <TagRebindDialog />
   </div>
 </template>

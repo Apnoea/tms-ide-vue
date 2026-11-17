@@ -1,10 +1,10 @@
-import { boolSourceTags } from './boolSource'
+import { boolSourceTags, normalizeBoolSource } from './boolSource'
 
 /**
  * Все привязанные теги payload'а: слоты, rangeSource.tag, boolSource
  * (text/navigation/params — не теги). Принимает СЫРОЙ tms, поэтому работает и с
- * plain-объектами exporter'а. Новое tag-поле добавляется здесь — поиск и detailTags
- * читают отсюда.
+ * plain-объектами exporter'а. Новое tag-поле добавляется здесь и в `renameTmsTags` —
+ * поиск, detailTags и замена в привязках читают отсюда.
  *
  * @param {object} tms
  * @returns {string[]}
@@ -20,6 +20,38 @@ export function getCellTagsFromTms(tms) {
   if (tms.rangeSource?.tag) tags.push(tms.rangeSource.tag)
   for (const t of boolSourceTags(tms.boolSource)) if (t) tags.push(t)
   return tags
+}
+
+/**
+ * Переименовать теги в привязках payload'а — те же поля, что у `getCellTagsFromTms`.
+ * Возвращает новый tms и число изменённых привязок либо null, если менять нечего.
+ *
+ * @param {object} tms
+ * @param {(tag: string) => string} rename
+ * @returns {{ tms: object, changed: number } | null}
+ */
+export function renameTmsTags(tms, rename) {
+  if (!tms) return null
+  let changed = 0
+  const swap = (tag) => {
+    const next = rename(tag)
+    if (next !== tag) changed++
+    return next
+  }
+  const next = { ...tms }
+  if (tms.slots) {
+    next.slots = Object.fromEntries(
+      Object.entries(tms.slots).map(([key, tag]) => [key, tag ? swap(String(tag)) : tag])
+    )
+  }
+  if (tms.rangeSource?.tag)
+    next.rangeSource = { ...tms.rangeSource, tag: swap(tms.rangeSource.tag) }
+  if (tms.boolSource) {
+    const { groups } = normalizeBoolSource(tms.boolSource)
+    // Два старых тега могли стать одним — внутри группы тег уникален.
+    next.boolSource = { ...tms.boolSource, groups: groups.map((g) => [...new Set(g.map(swap))]) }
+  }
+  return changed ? { tms: next, changed } : null
 }
 
 /** То же для JointJS-ячейки. */

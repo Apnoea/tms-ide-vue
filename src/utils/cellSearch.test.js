@@ -5,6 +5,7 @@ import {
   getCellTagsFromTms,
   cellHasTag,
   cellMatchesQuery,
+  renameTmsTags,
 } from './cellSearch'
 
 // Минимальный fake-cell с методом get, имитирующий JointJS API.
@@ -150,5 +151,42 @@ describe('getCellTagsFromTms', () => {
   it('getCellTags — однострочная обёртка над getCellTagsFromTms', () => {
     const cell = makeCell({ slots: { onoff: 'A' } })
     expect(getCellTags(cell)).toEqual(getCellTagsFromTms(cell.get('tms')))
+  })
+})
+
+describe('renameTmsTags', () => {
+  const up = (t) => t.replace('old.', 'new.')
+
+  it('переименовывает те же поля, что читает getCellTagsFromTms', () => {
+    const tms = {
+      stencilId: 'cell_qw',
+      slots: { onoff: 'old.ONOFF', range: 'old.U', value_text: '' },
+      rangeSource: { tag: 'old.I', ranges: [{ min: 0, color: '#f00' }] },
+      boolSource: { groups: [['old.A', 'x.B'], ['old.C']] },
+      params: { p1: 'old.подпись' },
+      navigation: 'old.view',
+    }
+    const res = renameTmsTags(tms, up)
+    expect(res.changed).toBe(5)
+    expect(getCellTagsFromTms(res.tms)).toEqual(getCellTagsFromTms(tms).map(up))
+    // Подписи и навигация — не теги, остальные поля едут как есть.
+    expect(res.tms.params).toEqual({ p1: 'old.подпись' })
+    expect(res.tms.navigation).toBe('old.view')
+    expect(res.tms.rangeSource.ranges).toBe(tms.rangeSource.ranges)
+    expect(res.tms.slots.value_text).toBe('')
+    // Исходник не мутируется.
+    expect(tms.slots.onoff).toBe('old.ONOFF')
+  })
+
+  it('два тега группы, ставшие одним, не дублируются', () => {
+    const res = renameTmsTags({ boolSource: { groups: [['A.1', 'B.1']] } }, (t) =>
+      t.replace(/^[AB]\./, 'C.')
+    )
+    expect(res.tms.boolSource.groups).toEqual([['C.1']])
+  })
+
+  it('менять нечего / нет tms → null', () => {
+    expect(renameTmsTags({ slots: { onoff: 'x.ONOFF' } }, up)).toBeNull()
+    expect(renameTmsTags(null, up)).toBeNull()
   })
 })

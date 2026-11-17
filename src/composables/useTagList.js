@@ -2,6 +2,7 @@
 // «Загрузить tag-list» показывает ещё и пустой tag-picker.
 import { useNotify, TOAST_LIFE } from './useNotify'
 import { useCanvas } from './useCanvas'
+import { useTagRebind } from './useTagRebind'
 import { useUiStore } from '../stores/useUiStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import * as fs from '../services/fileSystem'
@@ -17,6 +18,7 @@ export function useTagList() {
   const project = useProjectStore()
   const canvas = useCanvas()
   const notify = useNotify()
+  const { offerRebind } = useTagRebind()
 
   async function readParsedTags(file) {
     const content = await file.text().catch(() => null)
@@ -38,8 +40,11 @@ export function useTagList() {
    * `handle` приходит только там, где есть File System Access API. Без него теги
    * работают так же, но освежать файл на старте нечем, поэтому прежний handle
    * снимается — иначе restore подтянул бы ДРУГОЙ файл.
+   *
+   * `suggestRebind: false` — из пикера тега: диалог замены поверх него перезагрузил бы
+   * форму, и выбранный тег ушёл бы в ячейку, которой на холсте уже нет.
    */
-  async function pickTagList() {
+  async function pickTagList({ suggestRebind = true } = {}) {
     try {
       const picked = await fs.pickFile({ startInHandle: ui.lastTagListPickerStartIn })
       if (!picked) return false
@@ -65,6 +70,8 @@ export function useTagList() {
           : `${nplural(loaded.parsed.length, 'тег', 'тега', 'тегов')} — не сохранено локально, после перезагрузки вернутся прежние`,
         TOAST_LIFE.NORMAL
       )
+      // Новый tag-list мог сменить префикс или суффикс — привязки сами не обновятся.
+      if (suggestRebind) offerRebind()
       return true
     } catch (e) {
       if (e.name === 'AbortError') return false

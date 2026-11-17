@@ -239,7 +239,7 @@ watch(
           icon="pi pi-tags"
           size="small"
           class="mt-3"
-          @click="pickTagList()"
+          @click="pickTagList({ suggestRebind: false })"
         />
       </div>
 

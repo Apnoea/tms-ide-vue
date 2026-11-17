@@ -24,6 +24,8 @@ import { useTagList } from './useTagList'
 import { pickFile } from '../services/fileSystem'
 import { idbSet, idbDel } from '../services/idb'
 import { useProjectStore } from '../stores/useProjectStore'
+import { useUiStore } from '../stores/useUiStore'
+import { useWorkspaceStore } from '../stores/useWorkspaceStore'
 
 const tagsFile = () => new File(['PS1.ONOFF=Bool\n'], 'tags.csv')
 
@@ -76,5 +78,41 @@ describe('useTagList — выбор файла без handle', () => {
     expect(await pickTagList()).toBe(false)
     expect(notify.warn).toHaveBeenCalled()
     expect(useProjectStore().tags).toEqual([])
+  })
+})
+
+describe('useTagList — подсказка замены в привязках', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    idbSet.mockResolvedValue(true)
+  })
+
+  const bound = (...tags) => ({
+    cells: tags.map((tag, i) => ({ id: `c${i}`, tms: { slots: { onoff: tag } } })),
+  })
+  const pick = (text) =>
+    pickFile.mockResolvedValue({ file: new File([text], 't.csv'), handle: null })
+
+  it('префикс в новом tag-list сменился — диалог открывается с подобранной заменой', async () => {
+    useWorkspaceStore().loadForms([{ id: 'a', graphJson: bound('OLD.X', 'OLD.Y') }], 'a')
+    pick('NEW.X=Bool\nNEW.Y=Bool\n')
+    await useTagList().pickTagList()
+    expect(useUiStore().tagRebind).toEqual({ find: 'OLD.', replace: 'NEW.', suggested: true })
+  })
+
+  it('привязки на месте — диалог не открывается', async () => {
+    useWorkspaceStore().loadForms([{ id: 'a', graphJson: bound('NEW.X', 'NEW.Y') }], 'a')
+    pick('NEW.X=Bool\nNEW.Y=Bool\n')
+    await useTagList().pickTagList()
+    expect(useUiStore().tagRebind).toBeNull()
+  })
+
+  it('загрузка из пикера тега подсказку не открывает', async () => {
+    // Замена перезагрузила бы форму под открытым пикером.
+    useWorkspaceStore().loadForms([{ id: 'a', graphJson: bound('OLD.X', 'OLD.Y') }], 'a')
+    pick('NEW.X=Bool\nNEW.Y=Bool\n')
+    expect(await useTagList().pickTagList({ suggestRebind: false })).toBe(true)
+    expect(useUiStore().tagRebind).toBeNull()
   })
 })

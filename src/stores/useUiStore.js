@@ -86,6 +86,18 @@ export const useUiStore = defineStore('ui', () => {
   // проекта, поэтому от projectBusy не зависят.
   const presetsOpen = ref(false)
 
+  // Диалог «Замена в привязках»: null — закрыт, иначе стартовые поля (`suggested` —
+  // их подставила подсказка после загрузки tag-list).
+  const tagRebind = ref(null)
+
+  function openTagRebind({ find = '', replace = '', suggested = false } = {}) {
+    tagRebind.value = { find, replace, suggested }
+  }
+
+  function closeTagRebind() {
+    tagRebind.value = null
+  }
+
   // Видимость SearchBar (Ctrl+F). Состояние поиска (query, matches) — в useCanvas.
   const searchOpen = ref(false)
 
@@ -192,6 +204,9 @@ export const useUiStore = defineStore('ui', () => {
     dragging,
     helpOpen,
     presetsOpen,
+    tagRebind,
+    openTagRebind,
+    closeTagRebind,
     searchOpen,
     stencilEditorOpen,
     stencilEditorTargetId,

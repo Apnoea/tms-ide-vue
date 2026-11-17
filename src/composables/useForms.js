@@ -13,6 +13,7 @@ import {
   buildTagCheckGraph,
   tagCheckDescription,
 } from '../services/tagCheckForm'
+import { renameFormTags, renameTagBy } from '../services/tagRebind'
 
 /**
  * Формы проекта: переключение, создание, дублирование, удаление с корзиной,
@@ -203,6 +204,52 @@ export function useForms(ctx) {
   }
 
   /**
+   * Замена в именах привязанных тегов во ВСЕХ формах (новый tag-list сменил префикс или
+   * суффикс). Проектная операция: Ctrl+Z её не откатит — история у активной формы
+   * сбрасывается, как при любой перезагрузке её графа.
+   *
+   * @returns {Promise<{ bindings: number, forms: number } | undefined>}
+   */
+  async function rebindTags(find, replace) {
+    const graph = canvas.graphRef.value
+    const paper = canvas.paperRef.value
+    if (!graph || !paper || !find || find === replace) return
+    const rename = renameTagBy(find, replace)
+    cancelPendingSnapshot()
+    await saveActiveForm() // правки открытой формы — в стор до прохода
+    let ok = true
+    let bindings = 0
+    let forms = 0
+    let activeChanged = false
+    for (const id of [...workspace.formIds]) {
+      const res = renameFormTags(workspace.getFormGraph(id), rename)
+      if (!res) continue
+      workspace.setFormGraph(id, res.json)
+      ok = (await persistForm(id, res.json)) && ok
+      bindings += res.changed
+      forms++
+      if (id === workspace.activeFormId) activeChanged = true
+    }
+    flagIfNotSaved(ok)
+    if (!forms) {
+      notify.info('Замена в привязках', `Нет привязок с «${find}»`)
+      return { bindings, forms }
+    }
+    if (activeChanged) {
+      loadActiveIntoCanvas(graph, paper, workspace.getFormGraph(workspace.activeFormId))
+    }
+    // Подсвеченный тег переименован — подсветка идёт за ним, а не гаснет.
+    const lit = canvas.highlightedTag.value
+    if (lit && rename(lit) !== lit) canvas.toggleHighlightedTag(rename(lit))
+    canvas.markDirty()
+    notify.success(
+      'Привязки обновлены',
+      `${nplural(bindings, 'привязка', 'привязки', 'привязок')} · форм: ${forms}`
+    )
+    return { bindings, forms }
+  }
+
+  /**
    * Удалить форму. Нельзя удалить последнюю (в проекте всегда ≥1 форма). Если
    * удаляем активную — холст переключается на оставшуюся; иначе активную не трогаем.
    */
@@ -340,6 +387,7 @@ export function useForms(ctx) {
     createForm,
     duplicateForm,
     generateTagCheckForm,
+    rebindTags,
     deleteForm,
     restoreForm,
     renameForm,
