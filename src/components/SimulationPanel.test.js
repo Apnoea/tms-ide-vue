@@ -43,6 +43,19 @@ it('SimulationPanel: сброс всех значений у поиска, бе�
   expect(w.emitted('reset')).toHaveLength(1)
 })
 
+// Строковый тег подписи вводится текстом; пустое поле — снова случайное значение.
+it('SimulationPanel: строковый тег — текстовое поле', async () => {
+  const w = mountPanel([{ tag: 'NAME', kind: 'value', type: 'String' }])
+  expect(w.find('.p-inputnumber').exists()).toBe(false)
+  const input = w.find('input[placeholder="случайно"]')
+  await input.setValue('Ремонт')
+  await input.setValue('')
+  expect(w.emitted('set-tag')).toEqual([
+    ['NAME', 'Ремонт'],
+    ['NAME', null],
+  ])
+})
+
 describe('SimulationPanel: зоны диапазонов', () => {
   it('подписи по порогам и значение из зоны по клику', async () => {
     const w = mountPanel([tag()])

@@ -9,6 +9,7 @@
 
 import { rangeRowColor } from '../constants/animation'
 import { RANGE_SLOT } from '../constants/ids'
+import { isStringType } from '../services/tagList'
 import { rowMax } from './rangeRows'
 import { shapeStateKeys } from './stencilSvg'
 
@@ -118,13 +119,15 @@ export function formatValueText(value, decimals) {
   return String(value)
 }
 
+const STRING_SAMPLES = ['Норма', 'Резерв', 'Ремонт']
+
 /**
  * Случайное значение тега — для тех, что не задали вручную: «просто посмотреть» должно
  * работать без заполнения всех полей.
  *
  * Оно подбирается ОСМЫСЛЕННО, иначе превью показывало бы недостижимые состояния:
  * у символа «по значению» берётся код одного из состояний, у диапазонов — точка внутри
- * случайной строки, у булевых — true/false.
+ * случайной строки, у булевых — true/false, у строковых — слово.
  *
  * @param {object} opts
  * @param {string} [opts.type] — тип из tag-list
@@ -149,5 +152,10 @@ export function randomValueForTag({ type, rangeSource, states, rnd = Math.random
     if (Number.isFinite(max)) return max - rnd() * 100
   }
   if (/^bool/i.test(type || '')) return rnd() < 0.5
+  if (isStringType(type)) {
+    return STRING_SAMPLES[
+      Math.min(STRING_SAMPLES.length - 1, Math.floor(rnd() * STRING_SAMPLES.length))
+    ]
+  }
   return rnd() * 100
 }

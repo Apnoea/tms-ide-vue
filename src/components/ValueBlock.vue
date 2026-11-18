@@ -18,6 +18,8 @@ defineProps({
   params: { type: Array, default: () => [] },
   /** Знаков после запятой (`tms.decimals`); `null` = поле не задано, показываем дефолт. */
   decimals: { type: Number, default: null },
+  /** Привязан строковый тег: он печатается как есть, точности у него нет. */
+  textValue: { type: Boolean, default: false },
   tagsLoaded: { type: Boolean, default: false },
   // copyable — в карточке есть что копировать (тег, точность или подпись); pasteable —
   // в буфере лежит карточка значения, «вставить» показываем на любом выделении.
@@ -62,9 +64,9 @@ const PARAM_HEADINGS = ['Подпись', 'Ед. изм.']
       @pick="emit('pick-tag')"
       @highlight="emit('highlight-tag', slotInfo.value)"
     />
-    <!-- Точность — свойство ЗНАЧЕНИЯ: без привязанного тега печатать нечего, и поле
-         спрашивало бы о формате несуществующих данных. -->
-    <div v-if="slotInfo.value" class="mt-2 flex items-center gap-3">
+    <!-- Точность — свойство ЧИСЛА: без привязанного тега печатать нечего, а строковый
+         тег печатается как есть — поле спрашивало бы о формате, которого нет. -->
+    <div v-if="slotInfo.value && !textValue" class="mt-2 flex items-center gap-3">
       <span class="tms-hint shrink-0">Знаков после запятой</span>
       <!-- Точность показываем ЧИСЛОМ, а не подсказкой в пустом поле: в `tms` дефолт не
            пишется, но в рантайме подпись всё равно печатается с ним, и пустое поле

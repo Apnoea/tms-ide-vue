@@ -6,14 +6,17 @@
  * подписи). Незаданный тег получает случайное значение на каждом тике.
  *
  * Контрол по РОЛИ тега (`kind` из `useSimulation.formTags`), а не по типу из tag-list:
- * состояние выбирается из списка символа, булев — тумблером, аналоговый — числом.
+ * состояние выбирается из списка символа, булев — тумблером, аналоговый — числом. Тип
+ * уточняет только значение: строковый тег вводится текстом.
  */
 import { computed, ref } from 'vue'
 import Button from 'primevue/button'
 import InputNumber from 'primevue/inputnumber'
+import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import ToggleSwitch from 'primevue/toggleswitch'
 import { rangeRowColor } from '../constants/animation'
+import { isStringType } from '../services/tagList'
 import { rangeBound, rangeRowFor, zoneValueFor } from '../utils/simValues'
 import { rowMax } from '../utils/rangeRows'
 import InspectorHeading from './InspectorHeading.vue'
@@ -210,6 +213,15 @@ const zoneTip = (zone) =>
               size="small"
               class="w-32"
               @update:model-value="(v) => emit('set-tag', t.tag, v)"
+            />
+            <!-- Пустое поле — снова случайно, как очищенное числовое. -->
+            <InputText
+              v-else-if="isStringType(t.type)"
+              :model-value="valueOf(t.tag) ?? ''"
+              placeholder="случайно"
+              size="small"
+              class="w-32"
+              @update:model-value="(v) => emit('set-tag', t.tag, v || null)"
             />
             <InputNumber
               v-else

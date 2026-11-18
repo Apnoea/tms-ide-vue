@@ -235,25 +235,44 @@ describe('CanvasInspector', () => {
     expect(cell.get('tms').params).toEqual({ p2: 'кВ' })
   })
 
-  it('tag-picker подписи со значением получает только числовые теги', async () => {
-    // Подпись печатает число с точностью (`decimals`), поэтому булев и текстовый тег
-    // ей нечего показать.
-    useProjectStore().setTags([
-      { name: 'BR1.ONOFF', type: 'Boolean' },
-      { name: 'PT1.VALUE', type: 'Float' },
-      { name: 'NAME', type: 'String' },
-    ])
+  it('tag-picker подписи со значением получает числовые и строковые теги', async () => {
+    // Число печатается с точностью, строка — как есть; булеву и бинарному тегу и дате
+    // подписи показать нечего.
     const cell = makeCell({ stencilId: 'cell_value' })
     graph.addCell(cell)
     canvas.selectOnly('cell', cell.id)
     setup()
+    useProjectStore().setTags([
+      { name: 'BR1.ONOFF', type: 'Boolean' },
+      { name: 'PT1.VALUE', type: 'Float' },
+      { name: 'NAME', type: 'String' },
+      { name: 'RAW', type: 'ByteArray' },
+      { name: 'TS', type: 'DateTime' },
+    ])
     await wrapper.vm.$nextTick()
 
     wrapper.findComponent(ValueBlock).vm.$emit('pick-tag')
     await wrapper.vm.$nextTick()
 
     const picker = wrapper.findComponent(TagPickerDialog)
-    expect(picker.props('tags').map((t) => t.name)).toEqual(['PT1.VALUE'])
+    expect(picker.props('tags').map((t) => t.name)).toEqual(['PT1.VALUE', 'NAME'])
+  })
+
+  it('у строкового тега в карточке значения нет поля точности', async () => {
+    const cell = makeCell({ stencilId: 'cell_value' })
+    cell.set('tms', { ...cell.get('tms'), slots: { value_text: 'PT1.VALUE' } })
+    graph.addCell(cell)
+    canvas.selectOnly('cell', cell.id)
+    setup()
+    useProjectStore().setTags([...TAGS, { name: 'NAME', type: 'String' }])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findComponent(ValueBlock).text()).toContain('Знаков после запятой')
+
+    cell.set('tms', { ...cell.get('tms'), slots: { value_text: 'NAME' } })
+    canvas.bumpVersion()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findComponent(ValueBlock).props('textValue')).toBe(true)
+    expect(wrapper.findComponent(ValueBlock).text()).not.toContain('Знаков после запятой')
   })
 })
 

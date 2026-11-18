@@ -12,6 +12,9 @@ const NON_NUMERIC_TYPE_RE =
 /** Тип годится для порогов диапазонов (сравнение с min/max). */
 export const isNumericType = (type) => !NON_NUMERIC_TYPE_RE.test((type || '').trim())
 
+/** Строковый тип: подпись со значением печатает его как есть, без точности. */
+export const isStringType = (type) => /^(str|text|char)/i.test((type || '').trim())
+
 /**
  * Группа тега: путь объектов из XML-дерева (`S17 / N70160`), иначе prefix имени — всё до
  * первой точки (`PS031VK001.ONOFF` → `PS031VK001`).

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
-import { parseTagList, isBooleanType, isNumericType } from './tagList'
+import { parseTagList, isBooleanType, isNumericType, isStringType } from './tagList'
 
 describe('parseTagList', () => {
   it('parses standard name=Type;... lines', () => {
@@ -116,5 +116,12 @@ describe('isBooleanType / isNumericType', () => {
     expect(isNumericType('Whatever')).toBe(true)
     expect(isNumericType('')).toBe(true)
     expect(isNumericType(undefined)).toBe(true)
+  })
+
+  it('строковые — String/Text/Char в любом регистре; прочие — нет', () => {
+    for (const t of ['String', 'string', 'STRING', 'Text', 'Char'])
+      expect(isStringType(t)).toBe(true)
+    for (const t of ['Float', 'Boolean', 'ByteArray', 'DateTime', '', undefined])
+      expect(isStringType(t)).toBe(false)
   })
 })

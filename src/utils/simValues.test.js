@@ -129,6 +129,12 @@ describe('randomValueForTag', () => {
     expect(randomValueForTag({ type: 'Boolean', rnd: () => 0.9 })).toBe(false)
     expect(typeof randomValueForTag({ type: 'Float', rnd: () => 0.5 })).toBe('number')
   })
+
+  it('строковому тегу — слово: подпись печатает его как есть', () => {
+    const v = randomValueForTag({ type: 'String', rnd: () => 0.99 })
+    expect(typeof v).toBe('string')
+    expect(formatValueText(v, 2)).toBe(v)
+  })
 })
 
 // Кнопки зон в панели симуляции: значение обязано покрасить элемент именно этой зоной,

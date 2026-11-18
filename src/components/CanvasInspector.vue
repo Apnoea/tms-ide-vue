@@ -345,13 +345,13 @@ function onPickerSelect(tag) {
 // ─── Редактирование слотов (привязка тегов) ───
 /**
  * Теги, подходящие слоту по типу: булев слот берёт bool-теги, подпись со значением
- * (`Text`) — числовые (она печатает число с точностью, булев и текстовый тег ей нечего
- * показать), состояния «по значению» — весь список: код состояния автор задаёт сам, и
- * у булевых символов это как раз `true`/`false`.
+ * (`Text`) — числовые и строковые (число печатается с точностью, строка как есть),
+ * состояния «по значению» — весь список: код состояния автор задаёт сам, и у булевых
+ * символов это как раз `true`/`false`.
  */
 function slotPickerTags(slot) {
   if (isBooleanType(slot?.type)) return project.booleanTags
-  if (slot?.type === 'Text') return project.numericTags
+  if (slot?.type === 'Text') return project.valueTags
   return project.tags
 }
 
@@ -1201,6 +1201,7 @@ const {
               :slot-info="valueTextSlot"
               :params="details.params"
               :decimals="details.decimals"
+              :text-value="project.stringTagNames.has(valueTextSlot.value)"
               :tags-loaded="!!project.tags.length"
               :copyable="valueCopyable"
               :pasteable="animClip.hasValue.value"
